@@ -1,6 +1,5 @@
 /** THE PAGE JOB: one DURABLE sentence saying what a page is for, why a missing one is missing, how the whole site gets reached
- *  over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one
- *  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
+ *  over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
 import { describe, it, expect, vi } from "vitest";
 const budget = vi.hoisted(() => ({ allowed: true }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ recordSpend: async () => {},
@@ -9,7 +8,6 @@ import { linkFit, loadPageJobs, pageJobFor, sectionFit, type OwnedPageJob } from
 import type { PageUnderstanding } from "@/domains/decision/producers/page-understanding";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
-
 const extract = (path: string, h1 = "Tabriz, Iran") => ({ url: `https://mysite.example${path}`, title: "Tabriz, Iran: what to know before you go", h1, headings: ["Tabriz population", "Tabriz climate", "Things to see in Tabriz"], wordCount: 737 });
 const READING = { job: "This page tells a traveller what the city of Tabriz is like before they visit.", pageType: "city" as const, audience: "travellers planning a trip to Iran", topics: ["Tabriz", "iran travel", "city guide"], commercial: false };
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
@@ -29,7 +27,6 @@ const SCIENCE = page("science", "guide", "Explains what Iranian scientists have 
 const POPULATION = page("population", "guide", "Reports how many people live in each city of Iran.", "researchers", ["iran population", "demographics", "city"]);
 const CORPUS: ReadonlyMap<string, OwnedPageJob> = new Map([PAINTERS, POETS, RUGS, SCIENCE, POPULATION,
   page("music", "guide", "Explains Persian music and the instruments Iranian players use.", "listeners", ["persian music", "instrument", "musician"])].map((j) => [canonicalUrlKey(j.url), j]));
-
 describe("what one page is for, held durably", () => {
   it("reads a page once, keeps the reading, and serves it free afterwards even when the cache is gone", async () => {
     budget.allowed = true; const s = seam(READING), db = store();
@@ -56,7 +53,6 @@ describe("what one page is for, held durably", () => {
     expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);
   });
 });
-
 describe("what a job changes, and what a missing one may never change", () => {
   it("keeps a section off a page that is not for it and off a rail an essay never goes on", () => {
     expect([sectionFit(POPULATION, ["population", "demographic"], CORPUS), sectionFit(job(), ["tabriz", "travel"])]).toEqual(["fits", "fits"]);

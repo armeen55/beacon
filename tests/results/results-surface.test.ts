@@ -4,11 +4,9 @@ import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
 import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
-
 /** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises:
  *  a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added
  *  up rather than the wins alone, the next step fits the work that was done, "similar" is only said where a receipt backs it. */
-
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");

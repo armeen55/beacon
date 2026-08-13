@@ -377,8 +377,7 @@ describe("no causal overclaim on any read", () => {
   });
 });
 /** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle
- *  producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling
- *  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
+ *  producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
 describe("metric selection and vocabulary", () => {
   it("answers for every canonical KIND and FAMILY spelling, and fails closed on one it does not hold", () => {
     const table: Array<[string, string]> = [["edit_title", "ctr"], ["title-family", "ctr"], ["description-family", "ctr"],
@@ -407,8 +406,7 @@ describe("metric selection and vocabulary", () => {
   });
 });
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against
- *  fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428
- *  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
+ *  fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
   const STAMP = "2026-04-01T00:00:00.000Z";
   const pinWin = (day: ProofWindowDay, lift: number): ProofWindowResult => ({
@@ -430,7 +428,6 @@ describe("a settled reading is held still", () => {
     operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
   const AFTER = new Date("2026-06-01T00:00:00Z"), FINAL = "2026-05-20";
-
   it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {
     const r = record();
     const read = readLedger([r], AFTER, FINAL)[0]!;
@@ -438,7 +435,6 @@ describe("a settled reading is held still", () => {
     expect(pin).not.toBeNull();
     expect([pin!.basisDay, pin!.lift, pin!.controlsUsed, pin!.verdict]).toEqual([28, 1040, 4, read.verdict]);
   });
-
   it("freezes nothing while the window is still open, so later checkpoints still land", () => {
     const r = record({ windows: [pinWin(7, 300)] });
     const read = readLedger([r], new Date("2026-04-12T00:00:00Z"), "2026-04-10")[0]!;
@@ -465,8 +461,7 @@ describe("a settled reading is held still", () => {
   });
 });
 /** PHASE 2: ONE COMPARISON POLICY. Exclusion is scoped to the window being read, so a page that was
- *  changed months ago is comparable again instead of being lost forever; the receipt lists only facts
- *  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen
+ *  changed months ago is comparable again instead of being lost forever; the receipt lists only facts  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen
  *  reading the operator was shown is the same one ranking learns from. */
 describe("one comparison policy, one durable result", () => {
   const NOW_C = new Date("2026-06-01T00:00:00Z");

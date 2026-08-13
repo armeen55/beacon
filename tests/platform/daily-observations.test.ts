@@ -41,7 +41,6 @@ import {
 import { applyTrackedSelection, readActiveTrackedPrompts, type TrackedPromptRow } from "@/domains/runtime/prompt-set";
 import { reportingDay } from "@/lib/reporting-day";
 import type { AnswerAnalysis } from "@/domains/decision/llm/schemas";
-
 const DAY = "2026-07-31", ENGINES: DueObservation["engine"][] = ["chatgpt", "claude", "gemini", "perplexity"];
 const T = "acct-a";
 /** Three approved questions, oldest first, all on series 1. */
@@ -56,7 +55,6 @@ const seen = (o: Partial<AiObservationView> & { promptId: string; engine: string
 const key = (d: { promptId: string; version: number; engine: string; slot: number }) => `${d.promptId}|${d.version}|${d.engine}|${d.slot}`;
 /** Every pair answered on `day`, so the canonical round is complete. */
 const fullDay = (day = DAY, slot = 0) => PROMPTS.flatMap((p) => ENGINES.map((e) => seen({ promptId: p.id, engine: e, slot, day })));
-
 describe("daily observation plan", () => {
   it("plans exactly one slot-0 reading per question and engine, oldest question first, and never re-asks a pair already answered today", () => {
     const all = planObservations(DAY, { prompts: PROMPTS, observed: [], maxBatch: 99 });
@@ -118,7 +116,6 @@ describe("daily observation plan", () => {
     expect(writes.find((w) => w.id === "k1")).toBeUndefined(); // an untouched keep is never rewritten, so its series never moves
   });
 });
-
 describe("extra readings", () => {
   const base = { prompts: PROMPTS, observed: [] as AiObservationView[] };
   it("refuses an extra reading before today's canonical round is done, grants one after it, and refuses at three", () => {
@@ -194,7 +191,6 @@ describe("extra readings", () => {
     expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readMarkers })).toHaveLength(12);
   });
 });
-
 describe("reading the approved questions", () => {
   beforeEach(() => { pg.queued = []; pg.queries = 0; pg.cols = []; });
   const missingColumn = { data: null, error: { code: "42703", message: 'column tracked_prompts.version does not exist' } };

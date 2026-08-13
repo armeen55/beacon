@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { requestSignupMagicLink } from "./actions";
 
+const SEND_FAILED = "Sign-in email could not be sent just now. Nothing is wrong with your account. Try again in a few minutes.";
+
 /** URL error codes are machine words; the customer reads one plain sentence. */
 function friendlySignupError(code: string | undefined): string | null {
   if (!code) return null;
@@ -27,17 +29,26 @@ export function SignupForm({
     e.preventDefault();
     setLocalError(null);
     startTransition(async () => {
-      const res = await requestSignupMagicLink(email);
-      if (res.error) setLocalError(res.error);
-      else setLocalSent(true);
+      // The invocation itself can reject; an uncaught rejection renders a raw exception on the form.
+      try {
+        const res = await requestSignupMagicLink(email);
+        if (res.error) setLocalError(res.error);
+        else setLocalSent(true);
+      } catch {
+        setLocalError(SEND_FAILED);
+      }
     });
   }
 
   function resend() {
     setLocalError(null);
     startTransition(async () => {
-      const res = await requestSignupMagicLink(email);
-      if (res.error) setLocalError(res.error);
+      try {
+        const res = await requestSignupMagicLink(email);
+        if (res.error) setLocalError(res.error);
+      } catch {
+        setLocalError(SEND_FAILED);
+      }
     });
   }
 

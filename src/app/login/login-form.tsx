@@ -56,9 +56,15 @@ export function LoginForm({
     e.preventDefault();
     setLocalError(null);
     startTransition(async () => {
-      const res = await requestMagicLink(email, next);
-      if (res.error) setLocalError(res.error);
-      else setLocalSent(true);
+      // The invocation ITSELF can reject (the server unreachable, the action throwing before it
+      // returns), and an uncaught rejection here rendered a raw parse exception on this form.
+      try {
+        const res = await requestMagicLink(email, next);
+        if (res.error) setLocalError(res.error);
+        else setLocalSent(true);
+      } catch {
+        setLocalError("Sign-in email could not be sent just now. Nothing is wrong with your account. Try again in a few minutes.");
+      }
     });
   }
 

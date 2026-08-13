@@ -61,8 +61,7 @@ function makeWorld() {
       return "replaced";
     },
     async updateTenantGoal(id, goal, _at, statuses) { const t = tenants.get(id); if (!t || !(statuses ?? ["pending_onboarding"]).includes(t.status)) return "not_pending"; t.growth_goal = goal; return "ok"; },
-    // Mirrors the one statement: it writes only where the terms are unstamped, so an account already running with its terms on file is untouched and one flipped active
-    // without them can still accept them.
+    // Mirrors the one statement: it writes only where the terms are unstamped, so an account already running with its terms on file is untouched and one flipped active without them can still accept them.
     async activateTenant(id, now) { const t = tenants.get(id); if (!t) return "blocked";
       if (t.tos) return t.status === "active" ? "already_active" : "blocked";
       if (t.status !== "pending_onboarding" && t.status !== "active") return "blocked";
@@ -326,8 +325,7 @@ describe("onboarding contract (Slice 5)", () => {
 });
 
 /** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred
- *  and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on
- *  its own account. */
+ *  and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on  its own account. */
 /** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as
  *  a group below. */
 const TOPICS = [
@@ -362,8 +360,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
   });
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read
-   *  that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five
-   *  second outage. */
+   *  that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
     const w = makeWorld();
     const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
@@ -375,14 +372,12 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
     // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product
     // works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the
-    // research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are
-    // the real floor.
+    // research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are the real floor.
     expect([await live({ growth_goal: null }), await live({ domain: "" }), await live({ tos_accepted_at: null })]).toEqual([null, { step: 1 }, { step: 7 }]);
     for (const r of w.prompts) if (r.is_active) r.tags = [...r.tags.filter((t) => !t.startsWith("basis_")), "basis_longgone"];
     // A basis nobody re-approved is still 35 questions I am really asking; a PENDING account still owes every activation input, goal included.
     expect([await live({ growth_goal: null }), await setupGap(A, acct({ status: "pending_onboarding", growth_goal: null }) as any, w.deps)]).toEqual([null, { step: 4 }]);
-    // ONE LADDER: what the gate calls finished, the wizard may never re-ask. THIS is where the two used to disagree, because the wizard
-    // counted only current-basis rows: no gap at all, and a setup screen sitting on step 5 with zero approved questions.
+    // ONE LADDER: what the gate calls finished, the wizard may never re-ask. THIS is where the two used to disagree, because the wizard counted only current-basis rows: no gap at all, and a setup screen sitting on step 5 with zero approved questions.
     expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(6);
     seedCore(w, A, 25); expect(await live()).toBeNull(); // 60 live questions: legal in Settings' 10..100 window, so never a lockout
     seedCore(w, A, 45); expect(await live()).toEqual({ step: 5 }); // 105 is past the cap the funnel enforces, and that IS operational

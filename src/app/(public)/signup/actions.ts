@@ -3,6 +3,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
+import { sendMagicLink } from "@/lib/auth/magic-link";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { provisionTenantForNewUser } from "@/domains/account";
 
@@ -19,24 +20,12 @@ export async function requestSignupMagicLink(
     return { error: "Enter a valid work email" };
   }
 
-  const supabase = await getSupabaseServerClient();
   const h = await headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "http";
   const origin = host ? `${proto}://${host}` : "http://localhost:3000";
 
-  const redirectTo = `${origin}/auth/callback`;
-
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: redirectTo,
-      shouldCreateUser: true,
-    },
-  });
-
-  if (error) return { error: error.message };
-  return { error: null };
+  return sendMagicLink(email, `${origin}/auth/callback`);
 }
 
 /**

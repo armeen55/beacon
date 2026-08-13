@@ -1,6 +1,5 @@
 /** V1 Truth Convergence Phase 8, TODAY AND CHANGES. Today is in exactly one of four primary states and never two at once; a screen with pages losing clicks can never
- *  read as all clear; the ranked queue explains its own order; and a change detail hands over the whole investigation, the pieces picker and the override. Every test
- *  name states the promise it pins. Fixtures only. */
+ *  read as all clear; the ranked queue explains its own order; and a change detail hands over the whole investigation, the pieces picker and the override. Every test  name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react"; import { readFileSync } from "node:fs";
 import { buildTodayCommand, commandAllowsCelebration, type TodayCommandInput, type TodayOpportunity } from "@/domains/measurement/today/today-command";
@@ -28,8 +27,7 @@ const LOSING = { page: "/famous-iranian-comedians", pageKey: "/famous-iranian-co
   windowLabel: "the previous 4 weeks (data through Jul 9)", sentence: "", href: "/changes", actionLabel: "Open Changes", hasReadyFix: false };
 const base: TodayCommandInput = { blockers: [], smokeAlarm: null, scoreboardDeltaPct: null, readyChanges: [], firstReadOn: null, measuringCount: 0 };
  describe("Today is in exactly one of four primary states", () => {
-  // ONE state per day, whatever the signals, and never a fifth. The states themselves are settled here; each test below only adds the SENTENCES and NUMBERS that state
-  // owes on top.
+  // ONE state per day, whatever the signals, and never a fifth. The states themselves are settled here; each test below only adds the SENTENCES and NUMBERS that state owes on top.
   it("every combination of signals lands on exactly one of the four, and never a fifth", () => { const cases: TodayCommandInput[] = [base, { ...base, readyChanges: [OPP] }, { ...base, investigating: 3 },
       { ...base, measuringCount: 5, research: { running: false } }, { ...base, blockers: ["Search Console stopped answering me."] }, { ...base, measuringCount: 5, research: { running: false }, smokeAlarm: LOSING },
       { ...base, waitingUntil: "2026-08-04T18:00:00.000Z" }, { ...base, measuringCount: 4, investigating: 2, research: { running: true, phaseLabel: "reading" } }]; expect(cases.map((c) => buildTodayCommand(c).state)).toEqual(["researching", "act_now", "researching", "monitoring",
@@ -91,8 +89,7 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
     // The drawer counts what it lists: 1 topic, and 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
     expect([n(/\(([\d,]+) topics?,/), n(/, ([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows('data-researching-card="true"'), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([1, 23, 7, 16, 1, 7, 3, false]); });
-  // THE MEASURING LANE IS A LIST, NOT AN ESSAY: one row printed the whole stored argument for the change, and "still
-  // measuring" never answered the only question the row is asked, which is when the operator hears back.
+  // THE MEASURING LANE IS A LIST, NOT AN ESSAY: one row printed the whole stored argument for the change, and "still measuring" never answered the only question the row is asked, which is when the operator hears back.
   it("a measuring row is a short label, a date and where the reading has got to, never the paragraph behind the change", async () => {
     const why = "The page answers the question in the fourth paragraph while every page beating it answers in the first, and the searches behind it are worth about 2,400 a month, so the answer moves to the top and the rest of the page stays exactly as it is.";
     const html = await renderFeed({ measuring: [
@@ -229,8 +226,7 @@ describe("a change detail hands over the whole investigation and the controls to
       "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());
-    // A factor that changed nothing says so; it never prints a bare zero.
-    // NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
+    // A factor that changed nothing says so; it never prints a bare zero. NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
     for (const s of ["Why this one ranks where it does", "this draft passed every safety check (a strong push)",
       "this page already has a change under measurement (held it back)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
