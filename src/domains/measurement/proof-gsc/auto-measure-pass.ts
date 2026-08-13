@@ -16,7 +16,7 @@ import "server-only";
 import { measureRecord, openChangePaths } from "./measure-pass";
 import { contaminatedPaths, contaminationFor } from "./contamination";
 import { readLastFinalizedDate } from "./gsc-window";
-import { loadShippedChanges, loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
+import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
 import { log } from "@/lib/logger";
 

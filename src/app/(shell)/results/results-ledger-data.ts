@@ -135,7 +135,7 @@ export async function rebuildResultsSurface(tenantId: string): Promise<void> {
 /** Write down every reading that is finished and not yet held still, and return how many were frozen. The
  *  records in hand are updated in place, so the presentation right behind this serves the frozen tuple on the
  *  very first pass. Fail-soft per row: a freeze that cannot be stored is retried on the next rebuild. */
-export async function pinFinishedReads(tenantId: string, records: ShippedChangeRecord[]): Promise<number> {
+async function pinFinishedReads(tenantId: string, records: ShippedChangeRecord[]): Promise<number> {
   const open = records.filter((r) => r.pinnedRead == null);
   const held = records.filter((r) => r.pinnedRead != null);
   const now = new Date();

@@ -41,7 +41,7 @@ const STATE_DATE = "1970-01-01";
 const PLATFORM = "openai";
 const LEDGER = "llm_budget_ledger";
 
-export type CreditBreakerState = { trippedAt: string | null; probeAt: string | null };
+type CreditBreakerState = { trippedAt: string | null; probeAt: string | null };
 
 type CreditBreakerDeps = {
   read: (tenantId: string) => Promise<CreditBreakerState | null>;

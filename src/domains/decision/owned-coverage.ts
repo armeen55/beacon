@@ -180,7 +180,7 @@ function finish(d: Draft, body: HeldBody | undefined, x: Extract | undefined): O
   const bodyHeld = !!body?.openingSample || !!x?.openingSample || (!!c && (c.wordCount > 0 || !!c.title));
   const signals = [...d.signals];
   if (!bodyHeld) signals.push({ kind: "body_not_held", strength: "unknown", basis: d.url,
-    detail: "I do not hold this page's words, so I cannot tell you whether it already covers this." });
+    detail: "This page's words are not on file, so whether it already covers this is unknown." });
   signals.sort((a, b) => STRENGTH_ORDER.indexOf(a.strength) - STRENGTH_ORDER.indexOf(b.strength)
     || a.kind.localeCompare(b.kind) || a.basis.localeCompare(b.basis));
   return {

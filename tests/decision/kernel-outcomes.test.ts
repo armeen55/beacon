@@ -467,7 +467,7 @@ describe("do I already have the right page for what I investigated", () => { it(
   it("never turns a rival's page into a page of mine", () => { expect(cands(SEEN()).map((c) => c.url)).toEqual([GAP_URL]); });
   it("reads a page whose words I do not hold as unknown coverage, never as no coverage", () => {
     const unread = "fixture-outdoors.example/nowruz-unread"; const page = cands(snap([GAP], looked([["nowruz traditions", unread]]))).find((c) => c.url === unread)!;
-    expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("I do not hold this page's words, so I cannot tell you whether it already covers this."); });
+    expect([page.bodyHeld, page.strongSignals]).toEqual([false, 1]); expect(page.signals.find((s) => s.strength === "unknown")!.detail).toBe("This page's words are not on file, so whether it already covers this is unknown."); });
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
 }); // ── WHY this page loses the click: one named cause, or none ─────────────────
 /** The reading the drafting pass hands the verdict: what the winners share, and what MY page does not do. */

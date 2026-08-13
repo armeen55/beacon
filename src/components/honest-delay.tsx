@@ -4,19 +4,19 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 const RETRY_DELAY_MS = 1_500;
-export const HONEST_DELAY_RETRY_COOLDOWN_MS = 30_000;
+const HONEST_DELAY_RETRY_COOLDOWN_MS = 30_000;
 
 /** After this many silent retries for one path in a session, stop implying the
  *  load is about to succeed. We keep retrying in the background, but the copy
  *  becomes honest about the failure being on our side. */
-export const HONEST_DELAY_MAX_VISIBLE_RETRIES = 4;
+const HONEST_DELAY_MAX_VISIBLE_RETRIES = 4;
 
 /** The escalated copy shown once a path has burned through the visible retry
  *  budget. Kept as a constant so the render and the test agree on it. */
-export const HONEST_DELAY_ESCALATED_MESSAGE =
+const HONEST_DELAY_ESCALATED_MESSAGE =
   "This section could not load. The problem is on Beacon's side, not yours. Retrying runs in the background, and your data is safe.";
 
-export function shouldScheduleHonestDelayRetry(args: {
+function shouldScheduleHonestDelayRetry(args: {
   lastRetryAtMs: number | null;
   nowMs: number;
   cooldownMs?: number;
@@ -26,7 +26,7 @@ export function shouldScheduleHonestDelayRetry(args: {
 }
 
 /** Pure: has this path exhausted its visible-retry budget? Testable without a DOM. */
-export function honestDelayHasEscalated(retryCount: number): boolean {
+function honestDelayHasEscalated(retryCount: number): boolean {
   return Number.isFinite(retryCount) && retryCount >= HONEST_DELAY_MAX_VISIBLE_RETRIES;
 }
 

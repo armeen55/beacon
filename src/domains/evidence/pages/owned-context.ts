@@ -186,8 +186,8 @@ function bodyOf(row: Row): OwnedPageBody {
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
     heldNote: ((sampled
-      ? `I am holding ${passages.length} stored passages and ${headings.length} headings for this page, about ${heldWords} words of the ${pageWords ?? "unknown number of"} words its last crawl counted. The crawl keeps a sample, so anything I cannot see here is unknown, not missing: re-crawl the page before calling anything absent.`
-      : truncated ? "" : `I am holding all ${heldWords} words this page's last crawl captured.`) + range).trim(),
+      ? `On file for this page: ${passages.length} stored passages and ${headings.length} headings, about ${heldWords} words of the ${pageWords ?? "unknown number of"} words its last crawl counted. The crawl keeps a sample, so anything not shown here is unknown, not missing: re-crawl the page before calling anything absent.`
+      : truncated ? "" : `On file for this page: all ${heldWords} words its last crawl captured.`) + range).trim(),
   };
 }
 

@@ -1,6 +1,6 @@
 /**
- * lifecycle-counts (2026-07-02, FP3 - "the app contradicts itself") - THE one place a lifecycle-stage count is computed. PURE, no I/O; the app-side loader
- * (src/app/(shell)/lifecycle-counts-data.ts) feeds it the canonical stores once per request and every surface reads the result.
+ * lifecycle-counts (2026-07-02, FP3 - "the app contradicts itself") - THE one place a lifecycle-stage count is computed. PURE, no I/O; a surface hands it
+ * the canonical ledger rows it already loaded and reads the result.
  *
  * THE ONE-COUNT RULE
  * ------------------
@@ -28,16 +28,6 @@
  * groupOf there settle a row on the same 28 or 56 day rule, including a shared-credit read, so "out of N finished" on Today is the count Results shows.
  */
 import { bandOf, readRecordsForLearning, type LedgerRecordLike } from "@/domains/measurement/proof-gsc/kernel";
-export type LifecycleCounts = {
-  /** Open ideas on the canonical Changes list (suggested + blocked, post-dedupe). */
-  toDo: number;
-  /** Shipped changes without a final read yet - Results' "In flight" set. */
-  measuring: number;
-  /** Shipped changes with a final read (mature won or lost). Includes `won`. */
-  decided: number;
-  /** Decided changes whose verdict is "won" - Results' "Wins" band. */
-  won: number;
-};
 
 /** The minimal shape of a shipped-change ledger row this module needs - structurally
  *  satisfied by ShippedChangeRecord (proof-gsc/shipped-change-store.ts). */
@@ -166,19 +156,6 @@ export function countLedgerLifecycle(
     measuring: split.measuring.length + split.promising.length,
     decided: split.won.length + split.learned.length,
     won: split.won.length,
-  };
-}
-
-/** Compose the full set from the canonical stores' already-loaded rows. PURE. */
-export function computeLifecycleCounts(input: {
-  ledger: ReadonlyArray<LedgerLifecycleRow>;
-  /** The canonical Changes list's own open count (changes-data.ts summary.todo). */
-  backlogToDo: number;
-  now?: Date;
-}): LifecycleCounts {
-  return {
-    toDo: input.backlogToDo,
-    ...countLedgerLifecycle(input.ledger, input.now ?? new Date()),
   };
 }
 

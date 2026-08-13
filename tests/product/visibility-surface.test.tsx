@@ -46,11 +46,9 @@ const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segmen
 const decay = (page: string, now: number, prior: number, over = {}) => ({ page, clicksNow: now, clicksPrior: prior, positionNow: 12.4, positionPrior: 6.1,
   impressionsNow: 900, impressionsPrior: 1200, windowNowEnd: "2026-08-01", ...over });
 const DAYS = Array.from({ length: 28 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, clicks: 10 + i, impressions: 400 + i * 10 }));
-const week = { weekStart: "2026-07-21", weekEnd: "2026-07-27", tenant_id: TENANT, property: "x", pulledAt: "", devices: [{ device: "MOBILE", clicks: 70, impressions: 900, position: 8.2 }],
-  countries: [{ code: "usa", clicks: 60, impressions: 800 }], appearance: [{ kind: "TPF_FAQ", clicks: 12, impressions: 300 }] };
 const google = (over: Partial<Parameters<typeof googleView>[0]> = {}) => googleView({ days: DAYS, rangeDays: 7, metric: "clicks",
   decay: [decay("/nowruz", 20, 60), decay("/haft-seen", 90, 40)], pages: new Map([["/nowruz", { page: "/nowruz", clicks90d: 80, impressions90d: 4000, ctr90d: 0.02, position90d: 9,
-    topQueries: [{ query: "nowruz table", clicks: 12, impressions: 900, ctr: 0.013, position: 8.2 }] }]]), weekly: { now: week, prior: null }, ...over });
+    topQueries: [{ query: "nowruz table", clicks: 12, impressions: 900, ctr: 0.013, position: 8.2 }] }]]), ...over });
 
 describe("Visibility is a workspace, and every number on it names what it was counted over", () => {
   beforeEach(() => {
@@ -86,12 +84,6 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.tiles[3]!.basis).toContain("weighted by appearances across 2 pages over the 28 days ending Aug 1");
     expect(v.chart!.prior).toHaveLength(7); // the stretch before, drawn behind the line rather than described
   });
-  it("puts plain words on how you show up and who is looking, and never a raw Google key or country code", () => {
-    const rows = google().dimensions.flatMap((d) => d.table.rows.flatMap((r) => r.cells.map((c) => c.text)));
-    for (const plain of ["Phones", "United States", "question and answer styling"]) expect(rows).toContain(plain);
-    for (const raw of ["TPF_FAQ", "usa", "MOBILE"]) expect(rows).not.toContain(raw);
-    expect(google({ weekly: null }).dimensions[0]!.table.empty).toContain("This is read once a week, and no week is stored for this account yet");
-  });
   // PIN: NOTHING CHECKED IS NOT ZERO MENTIONS. A live account had answers on file and none of them read, and the old surface
   // reported "0%" about every one of them: a customer-facing false negative built out of an empty denominator.
   it("refuses a rate over a denominator nobody has checked, and counts one citation vote per answer", () => {
@@ -107,7 +99,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site on Aug 2, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
     expect(v.tiles[4]!.basis).toContain("Every rate above divides by what was checked, never by what was collected");
     const busy = ai({ segments: SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, ownedRetrieved: 4, retrievedNotCited: 3 })) })) }); // READ AND PASSED OVER, over a denominator that is never every answer
-    expect([busy.retrieval!.value, busy.retrieval!.basis, ai().retrieval, v.byEngine!.rows[0]!.cells.map((c) => c.text)]).toEqual(["75%", "9 of the 12 answers that opened a page of yours over the last 3 days credited somebody else instead", null, ["ChatGPT", "30%", "6", "30"]]);
+    expect([busy.retrieval!.value, busy.retrieval!.basis, ai().retrieval, v.byEngine!.rows[0]!.cells.map((c) => c.text)]).toEqual(["75%", "9 of the 12 answers that opened a page of yours over the last 3 days credited somebody else instead, or nobody at all", null, ["ChatGPT", "30%", "6", "30"]]);
     expect(v.boundaries[0]).toContain("changed the version behind its answers on Jul 30");
     expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
     expect(v.coverage).toContain("Aug 1 came back with nothing, and a missed day is never filled in.");
@@ -176,8 +168,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const v = ai(), g = google();
     const said = [...v.tiles.flatMap((t) => [t.label, t.value, t.basis]), v.coverage, v.watermark, ...v.boundaries, g.watermark, g.coverage,
       ...Object.values(v.retrieval ?? {}), ...answerDetail(ROW), // PIN: a stored instant, a mode key, a cache key and a model id all reach a customer through these lines, and every one of them was leaking raw
-      ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))]),
-      ...g.dimensions.flatMap((d) => [d.title, d.table.empty, ...d.table.columns.map((c) => c.label)])];
+      ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
     for (const s of said) {
       expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/);
       expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);

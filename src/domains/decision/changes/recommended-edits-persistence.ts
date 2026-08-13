@@ -286,6 +286,6 @@ export async function markRecommendedEditsAsShipped(args: {
 const STORE = "recommended-edits";
 
 /** Read all current rows from `.data/recommended-edits.json`. */
-export async function readRecommendedEditsLocal(): Promise<RecommendedEditRow[]> {
+async function readRecommendedEditsLocal(): Promise<RecommendedEditRow[]> {
   return (await readDotDataJson<RecommendedEditRow[]>(STORE)) ?? [];
 }

@@ -15,12 +15,12 @@ import type { TodayComposite } from "./today-view-data";
  */
 
 const STORE = "customer-surface";
-export const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
+const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
 /** How many judged-but-declined pages one release carries a verdict for. */
 const DECLINE_NOTE_LIMIT = 20;
 
 /** One decaying page as the release carries it: the two 28-day windows, six numbers, nothing derived. */
-export type ReleaseDecayRow = {
+type ReleaseDecayRow = {
   page: string;
   clicksNow: number;
   clicksPrior: number;
@@ -61,13 +61,13 @@ export async function readCustomerSurface(tenantId: string): Promise<CustomerSur
   return row;
 }
 
-export async function writeCustomerSurface(surface: CustomerSurface): Promise<void> {
+async function writeCustomerSurface(surface: CustomerSurface): Promise<void> {
   await writeStore<CustomerSurface>(STORE, [surface], { tenantId: surface.tenantId });
 }
 
 /** Soft invalidation: keep the complete prior release visible while the next
  * request rebuilds a replacement. */
-export async function invalidateCustomerSurface(tenantId?: string): Promise<void> {
+async function invalidateCustomerSurface(tenantId?: string): Promise<void> {
   const id = tenantId ?? await currentTenantId().catch(() => "");
   if (!id) return;
   const existing = await readCustomerSurface(id).catch(() => null);

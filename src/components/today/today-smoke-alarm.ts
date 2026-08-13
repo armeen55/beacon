@@ -20,7 +20,7 @@
  * person ("I have a fix ready"), a concrete number, a next step; no lab jargon; no em/en dashes.
  */
 
-export type SmokeAlarmDecayRow = {
+type SmokeAlarmDecayRow = {
   page: string;
   /** Trailing 28-day clicks. */
   clicksNow: number;

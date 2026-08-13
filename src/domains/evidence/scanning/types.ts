@@ -36,7 +36,7 @@ export type FindingType =
    * finding that surfaces schema-parity opportunities. */
   | "schema_missing_for_page_type";
 
-export type FindingStatus =
+type FindingStatus =
   | "pending"
   | "accepted"
   | "rejected"
@@ -47,7 +47,7 @@ type FindingSeverity = "high" | "medium" | "low";
 
 type FindingPriority = "critical" | "important" | "minor" | "informational";
 
-export type PromotionStatus = "none" | "changelog" | "secondary_note" | "history_only";
+type PromotionStatus = "none" | "changelog" | "secondary_note" | "history_only";
 
 export type Finding = {
   id: string;

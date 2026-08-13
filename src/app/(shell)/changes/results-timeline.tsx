@@ -203,7 +203,7 @@ function readToChangeRowProof(read: KernelRead): ChangeRowProof {
  * names, stack fragments) to the operator - that goes to the server log at the
  * catch site. The operator sees calm, plain recovery copy only.
  */
-export function ResultsTimelineReadError() {
+function ResultsTimelineReadError() {
   return (
     <section
       className="rounded-lg border border-status-warning/40 bg-status-warning/5 px-5 py-5"

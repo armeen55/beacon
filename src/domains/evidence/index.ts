@@ -91,10 +91,8 @@ export { winningPagesUnit, type FunnelIntersectionAsk } from "./funnel/winning-p
 
 // --- App/component surface re-exports (curated) ---
 
-// GSC scoreboard + weekly + fresh-tail + ingestion-gap surfaces
+// GSC scoreboard + fresh-tail + ingestion-gap surfaces
 export { loadScoreboardBrandLens } from "./gsc/load-brand-split";
-export { loadGscWeeklyLens, loadGscWeeklyRows } from "./gsc/load-weekly-dimensions";
-export type { GscWeeklyDimensionsSnapshot } from "./gsc/weekly-dimensions";
 export { readGscFreshTailCached, refreshGscFreshTail } from "./gsc/load-fresh-tail";
 export { FRESH_TAIL_NOTE, type FreshTailPoint } from "./gsc/fresh-tail";
 export { loadGscIngestionGapReport } from "./gsc/load-ingestion-gaps";

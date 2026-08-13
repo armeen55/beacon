@@ -67,7 +67,7 @@ const isMissingObject = (code: string | null | undefined): boolean =>
 /** One page-signal read, and whether it is the WHOLE window. `incomplete` means an error cut the paging
  *  short after some rows landed: the signals are real but partial, and a surface that treats partial as
  *  complete judges every unread page clean. A read that got nothing at all throws instead. */
-export type GscPageSignalsRead = { signals: Map<string, GscPageSignal>; incomplete: boolean };
+type GscPageSignalsRead = { signals: Map<string, GscPageSignal>; incomplete: boolean };
 
 async function readGscPageSignalsForDayUncached(tenantId: string, day: string): Promise<GscPageSignalsRead> {
   const out = new Map<string, GscPageSignal>();

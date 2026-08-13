@@ -268,9 +268,7 @@ export function tenantizeRows<
 
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
-import type { Finding } from "@/domains/evidence/scanning/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 
 type AnyRow = Record<string, unknown>;
@@ -438,52 +436,6 @@ export async function syncPageSnapshots(
 
 // ── Scan findings sync (Phase 3) ──
 
-/** Map camelCase Finding to snake_case DB row. */
-function mapFindingToRow(f: Finding): AnyRow {
-  return {
-    id: f.id,
-    type: f.type,
-    url: f.url,
-    page_path: f.pagePath,
-    detected_at: f.detectedAt,
-    scan_run_id: f.scanRunId,
-    previous_state: f.previousState,
-    current_state: f.currentState,
-    severity: f.severity,
-    priority: f.priority,
-    priority_score: f.priorityScore,
-    summary: f.summary,
-    suggested_action: f.suggestedAction,
-    status: f.status,
-    resolved_at: f.resolvedAt,
-    linked_change_id: f.linkedChangeId,
-    promotion_status: f.promotionStatus,
-    resolution_note: f.resolutionNote,
-    suppress_until: f.suppressUntil,
-    citation_count: f.citationCount,
-    is_homepage: f.isHomepage,
-    contradicts_changelog: f.contradictsChangelog,
-    metric_movement_detected: f.metricMovementDetected ?? null,
-    signal_strength: f.signalStrength ?? null,
-    source_rec_id: f.source_rec_id ?? null,
-    source_pattern_id: f.source_pattern_id ?? null,
-    tenant_id: f.tenant_id ?? "",
-  };
-}
-
-export async function syncScanFindings(
-  findings: Finding[],
-  tenantId: string,
-): Promise<void> {
-  // Phase 7.7b Commit 3 (2026-04-25): validate cross-tenant mismatch and
-  // stamp tenant_id before mapping to DB rows. mapFindingToRow's
-  // `f.tenant_id ?? ""` fallback below now passes the resolved tenant
-  // through (no longer empty string for legacy callers).
-  const stamped = tenantizeRows(findings, tenantId, "scan_findings");
-  const rows = stamped.map(mapFindingToRow);
-  await dualWriteUpsert("scan_findings", rows, "id");
-}
-
 // ── Intelligence index sync (Phase 5) ──
 // syncCitationEvidenceIndex + syncAnswerIntelligenceIndex removed 2026-07-21
 // (CORE 100K Lane K): zero callers anywhere.
@@ -503,110 +455,6 @@ export async function syncScanFindings(
 // ── Learning stores sync (Phase 12) ──
 // syncChangePatterns removed 2026-07-21 (CORE 100K Lane F): its only caller was
 // the retired ChangeOutcome-fed materializeChangePatterns producer.
-
-// ── Operator loop (Phase 1a) ──
-
-/** Map camelCase RecommendationResponse to snake_case DB row. PK: rec_id.
- *  Phase 7.7b Commit 5 (2026-04-25): tenant_id is supplied by the helper's
- *  caller-provided tenantId, not by the input row. */
-function mapRecommendationResponseToRow(
-  r: RecommendationResponse,
-  tenantId: string,
-): AnyRow {
-  return {
-    rec_id: r.recId,
-    status: r.status,
-    responded_at: r.respondedAt,
-    defer_until: r.deferUntil,
-    target_page_url: r.targetPageUrl ?? null,
-    pattern_id: r.patternId ?? null,
-    dismiss_reason: r.dismissReason ?? null,
-    tenant_id: tenantId,
-    updated_at: new Date().toISOString(),
-  };
-}
-
-export async function syncRecommendationResponses(
-  rows: RecommendationResponse[],
-  tenantId: string,
-): Promise<void> {
-  // Phase 7.7b Commit 5 (2026-04-25): RecommendationResponse type doesn't
-  // carry tenant_id natively - the prior mapper used a defensive cast. We
-  // still validate any row that DOES carry a stray tenant_id field via
-  // tenantizeRows (catches a hypothetical cross-tenant leak), but the
-  // mapper now stamps tenantId directly.
-  tenantizeRows(
-    rows as unknown as Array<{ tenant_id?: string | null } & Record<string, unknown>>,
-    tenantId,
-    "recommendation_responses",
-  );
-  const mapped = rows.map((r) => mapRecommendationResponseToRow(r, tenantId));
-  // 2026-04-27 Accept-bug fix - analogous to Sprint 6A.2f's fix on
-  // syncRecommendedEdits. The Phase 7.2 multi-tenant migration swapped
-  // the recommendation_responses PRIMARY KEY from `(rec_id)` to
-  // `(tenant_id, rec_id)` to allow two tenants to hold independent
-  // responses for the same rec_id (e.g. two tenants both producing
-  // `create_cluster_page:geo:Los Altos`). The dual-write spec was not
-  // updated alongside, so every Accept against the live tenant threw
-  // `there is no unique or exclusion constraint matching the ON CONFLICT
-  // specification` from PostgREST. Verified the production index via
-  //   SELECT indexdef FROM pg_indexes WHERE tablename='recommendation_responses'
-  //   → `recommendation_responses_pkey ON ... USING btree (tenant_id, rec_id)`
-  // before changing this string. Architecture invariant in
-  // tests/architecture/dual-write-onconflict.test.ts pins this against
-  // future regression.
-  await dualWriteUpsert(
-    "recommendation_responses",
-    mapped,
-    "tenant_id,rec_id",
-  );
-}
-
-/**
- * Sprint 6A.1.16 (2026-04-25) - delete a recommendation_responses row by
- * rec_id. Required for the Undo path: the in-memory + on-disk arrays
- * splice the row out, but `syncRecommendationResponses` is upsert-only
- * - without an explicit delete, the row stays in Supabase and the
- * /recommendations page surfaces a stale "accepted" state on the next
- * cross-lambda render.
- *
- * Phase 7.7c (2026-04-25): tenant-scoped. The DELETE now carries
- * `.eq("tenant_id", tenantId)` so a cross-tenant `rec_id` collision
- * - e.g. two tenants both producing
- * `create_cluster_page:geo:Los Altos` - never lets one tenant's Undo
- * remove another tenant's response.
- *
- * The ONE best-effort call left in this module: errors are logged, never
- * thrown. The caller has already removed the row from in-memory state by the
- * time this fires, so a failed delete leaves a stale row, not a lost one.
- */
-export async function deleteRecommendationResponseByRecId(
-  recId: string,
-  tenantId: string,
-): Promise<void> {
-  if (!tenantId) {
-    throw new Error(
-      "[dual-write/recommendation_responses] deleteRecommendationResponseByRecId: tenantId must be a non-empty string",
-    );
-  }
-  try {
-    const sb = getSupabaseAdmin();
-    const { error } = await sb
-      .from("recommendation_responses")
-      .delete()
-      .eq("rec_id", recId)
-      .eq("tenant_id", tenantId);
-    if (error) {
-      console.error(
-        `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) failed - ${error.message}`,
-      );
-    }
-  } catch (e) {
-    console.error(
-      `[dual-write] recommendation_responses delete (rec_id=${recId}, tenant=${tenantId}) error - ${e instanceof Error ? e.message : e}`,
-    );
-  }
-}
 
 export async function syncUrlChangeOutcomes(
   rows: UrlChangeOutcome[],

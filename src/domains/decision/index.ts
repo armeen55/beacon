@@ -91,20 +91,14 @@ export {
 
 // Changes: lifecycle counts
 export {
-  computeLifecycleCounts,
   countLedgerLifecycle,
   ledgerProofLine,
   splitLedgerLifecycle,
-  type LifecycleCounts,
 } from "./changes/lifecycle-counts";
 
 // Changes: proof-timeline surfaces
 export { resolveProofPill, kernelProofSummary, type ProofPill } from "./changes/proof-timeline/result-pill";
-export {
-  computeProofCounters,
-  PROOF_COUNTER_LABEL,
-  type ProofCounters,
-} from "./changes/proof-timeline/counters";
+export { computeProofCounters, type ProofCounters } from "./changes/proof-timeline/counters";
 export { buildWaitingRail, type WaitingRailInput } from "./changes/proof-timeline/waiting-rail";
 export { projectChangeTitle, clampShortTitle } from "./changes/proof-timeline/title-projection";
 

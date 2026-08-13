@@ -73,10 +73,12 @@ describe("one change gets one line", () => {
     expect([row.liftLabel, row.impressionsLabel, row.readLabel, row.pipCaption, row.work]).toEqual(["+40 clicks ahead", "+120", "28 day read done", "Done May 29", "a new section"]);
     expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);
   });
-  it("calls a loss a loss and an early win a work in progress, and never grades them on different rules", () => {
+  it("calls a loss a loss, holds an early lean as still reading, and never grades them on different rules", () => {
     expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Went down", "-30 clicks behind", "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed."]);
+    // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading,
+    // which is what the header already claimed, and the running estimate stays on screen beside it.
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []);
-    expect([first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["Working so far", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);
+    expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);
   });
   it("claims no number on a read shared with a later change, and keeps the estimate visible as shared credit", () => {
     const row = buildResultsView([shipment({ read: sharedCredit })]).rows.flat[0]!;

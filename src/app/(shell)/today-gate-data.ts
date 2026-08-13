@@ -16,7 +16,7 @@ import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import { getRepository } from "@/lib/persistence/repositories";
 import { PROMPT_TAGS } from "@/domains/runtime";
 
-export type TodayV2GateData = {
+type TodayV2GateData = {
   isDemoMode: boolean;
   firstReading: import("@/domains/account/onboarding/first-reading-state").FirstReadingDetection;
   /** TRUE when the reads that decide the two answers above could not be taken. Not being able to look is not

@@ -15,7 +15,7 @@ import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/t
 
 /** The minimal Today read model the Today page renders: the header sentence plus the ranked next opportunities. Owned here now that the
  *  changes-domain today-view was retired. */
-export type TodayView = {
+type TodayView = {
   headerSentence: string;
   nextOpportunities: TodayOpportunity[];
   /** THE EXACT EDIT AT THE TOP OF THE QUEUE. Today used to lead with the paragraph arguing the change, so the

@@ -5,8 +5,7 @@
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { AiOutcomeReport } from "@/domains/measurement";
-import type { AnswerIntel, ClassifiedDomain, CompetitorKind, GscDecaySignal, GscPageSignal,
-  GscWeeklyDimensionsSnapshot } from "@/domains/evidence";
+import type { AnswerIntel, ClassifiedDomain, CompetitorKind, GscDecaySignal, GscPageSignal } from "@/domains/evidence";
 // ── shared shapes (structural: the table and chart components infer them, so nothing extra is public) ─
 
 /** ONE cell. `sort` is the number the column sorts on when the text is formatted, `tone` colours a change or marks a page of yours, `sub` is the second line that keeps a wide table from lying. */
@@ -45,35 +44,30 @@ const instant = (iso: string | null): string | null => {
   return Number.isFinite(t) ? `${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC` : null;
 };
 
+/** THE TAIL OF A STORED RECEIPT KEY, and never an empty string: a key that ends in its separator has no tail, so the whole key stands in rather than printing "Stored answer receipt ." at a customer. */
+const receiptTail = (key: string): string => {
+  const tail = key.split(":").pop() ?? "";
+  return (tail.trim() ? tail : key).slice(0, 8);
+};
+
 /** Plain English for the eight groups a recurring domain lands in. */
 const KIND_LABEL: Record<CompetitorKind, string> = { commercial_competitor: "A competitor", citation_authority: "A source",
   publisher: "A publisher", marketplace_directory: "A marketplace", social_community: "A social platform",
   government_educational: "A government or school site", owned: "Your own site", irrelevant_unknown: "Not settled yet" };
 
-/** Plain words for the appearance keys and country codes Google reports. An unnamed one is COLLAPSED or dropped rather than printed raw: nobody should ever meet TPF_FAQ or "irn" on this page. */
-const APPEARANCE: Record<string, string> = { TPF_FAQ: "question and answer styling", TPF_QA: "question and answer styling", TPF_HOWTO: "step by step styling",
-  REVIEW_SNIPPET: "review stars", PRODUCT_SNIPPETS: "product details", RECIPE_FEATURE: "recipe styling", RECIPE_RICH_SNIPPET: "recipe styling",
-  VIDEO: "video results", AMP_BLUE_LINK: "fast mobile pages", ORGANIC_SHOPPING: "shopping results", SPECIAL_ANNOUNCEMENT: "announcement styling",
-  EVENT_LISTING: "event listings", JOB_LISTING: "job listings", TRANSLATED_RESULT: "translated results" };
-const COUNTRY: Record<string, string> = { usa: "United States", can: "Canada", gbr: "United Kingdom", aus: "Australia", nzl: "New Zealand", deu: "Germany",
-  fra: "France", nld: "Netherlands", swe: "Sweden", esp: "Spain", ita: "Italy", irn: "Iran", tur: "Turkey", are: "United Arab Emirates", ind: "India",
-  pak: "Pakistan", mex: "Mexico", bra: "Brazil", jpn: "Japan", kor: "South Korea", chn: "China", rus: "Russia", isr: "Israel", irq: "Iraq",
-  afg: "Afghanistan", ukr: "Ukraine", che: "Switzerland", aut: "Austria", bel: "Belgium", dnk: "Denmark", nor: "Norway", fin: "Finland", pol: "Poland",
-  prt: "Portugal", grc: "Greece", zaf: "South Africa", sgp: "Singapore", mys: "Malaysia", idn: "Indonesia", phl: "Philippines" };
 // ── Google ───────────────────────────────────────────────────────────────────────────────────────
 
 type GoogleInput = {
   /** Reported days, oldest first, straight off Search Console's own totals. */
   days: Array<{ date: string; clicks: number; impressions: number }>;
-  rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal>;
-  weekly: { now: GscWeeklyDimensionsSnapshot; prior: GscWeeklyDimensionsSnapshot | null } | null };
+  rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal> };
 
 const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Appearances", ctr: "Click rate" };
 
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
-    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, dimensions: [] as Array<{ title: string; table: Table }>, watermark: "", coverage: "" };
+    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, watermark: "", coverage: "" };
   }
   const span = Math.min(input.rangeDays, input.days.length);
   const now = input.days.slice(-span), prior = input.days.slice(Math.max(0, input.days.length - span * 2), input.days.length - span);
@@ -141,26 +135,7 @@ export function googleView(input: GoogleInput) {
       ] })),
   });
 
-  const w = input.weekly;
-  const weekLabel = monthDayLabel(w?.now.weekEnd ?? null);
-  const share = (rows: Array<{ clicks: number; impressions: number }>, r: { clicks: number; impressions: number }): Cell => ({ sort: r.impressions, text: rows.reduce((a, x) => a + x.impressions, 0) > 0 ? pct(r.impressions / rows.reduce((a, x) => a + x.impressions, 0)) : "not yet" });
-  const dimension = (title: string, label: string, rows: Array<{ key: string; name: string; clicks: number; impressions: number; position?: number }>, empty: string) => ({ title, table: table({
-      columns: [{ key: "name", label, wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true },
-        { key: "share", label: "Share of appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true },
-        ...(rows.some((r) => r.position != null) ? [{ key: "position", label: "Position", numeric: true }] : [])],
-      empty, note: rows.length === 0 || !weekLabel ? null : `Checked once a week. This is the week ending ${weekLabel}.`,
-      rows: [...rows].sort((a, b) => b.impressions - a.impressions).map((r) => ({ id: r.key, cells: [
-        { text: r.name }, { text: num(r.clicks), sort: r.clicks }, { text: num(r.impressions), sort: r.impressions }, share(rows, r),
-        { text: r.impressions > 0 ? pct(r.clicks / r.impressions) : "not yet", sort: r.impressions > 0 ? r.clicks / r.impressions : -1 },
-        ...(rows.some((x) => x.position != null) ? [{ text: r.position != null && r.position > 0 ? r.position.toFixed(1) : "not ranked", sort: r.position ?? 999 }] : []),
-      ] })) }) });
-  const NO_WEEK = "This is read once a week, and no week is stored for this account yet. It fills in on the next weekly pass.";
-  const dimensions = [
-    dimension("Phones, computers and tablets", "Device", (w?.now.devices ?? []).map((d) => ({ key: d.device, name: ({ MOBILE: "Phones", DESKTOP: "Computers", TABLET: "Tablets" } as Record<string, string>)[d.device.toUpperCase()] ?? "Another device", clicks: d.clicks, impressions: d.impressions, position: d.position })), NO_WEEK),
-    dimension("Where your visitors are", "Country", (w?.now.countries ?? []).filter((r) => COUNTRY[r.code.toLowerCase()]).map((r) => ({ key: r.code, name: COUNTRY[r.code.toLowerCase()]!, clicks: r.clicks, impressions: r.impressions })), NO_WEEK),
-    dimension("How your results look on the page", "Result styling", (w?.now.appearance ?? []).map((r) => ({ key: r.kind, name: APPEARANCE[r.kind.toUpperCase()] ?? "special result styling", clicks: r.clicks, impressions: r.impressions })), NO_WEEK),
-  ];
-  return { limitation: null, tiles, chart, pages, queries, dimensions,
+  return { limitation: null, tiles, chart, pages, queries,
     coverage: `${num(input.days.length)} reported days on file, showing the last ${num(span)}.`,
     watermark: `Search Console, through ${through ?? "a day it has not named"}. Google reports a few days behind, so the newest days are still settling.` };
 }
@@ -248,7 +223,7 @@ export function aiView(input: AiInput) {
   // READ AND PASSED OVER: the assistant opened a page of yours and credited somebody else for the answer. The claim needs BOTH halves reported, so the denominator is the answers that opened your page, never every answer.
   const missRate = rate(passedOver, opened);
   const retrieval = opened === 0 || missRate == null ? null : { value: pct(missRate),
-    basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead`,
+    basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead, or nobody at all`,
     next: "Those pages were worth reading and not worth quoting. Rewrite one so an answer can lift a line straight out of it." };
 
   // THE TREND, per day, over the assistants asked for. A day nobody checked is a HOLE in the line, never a zero.
@@ -484,14 +459,14 @@ export function answerDetail(
     ...(r.retrievedNotCited == null ? [`${engine} does not report the pages it read but did not credit on this path.`]
       : r.retrievedNotCited.length === 0 ? ["Every page it read, it credited."]
         : [`It also read these and credited none of them: ${r.retrievedNotCited.join(", ")}.`]),
-    `${engine} answered with ${r.modelServed ? `its ${r.modelServed} model` : "a model it did not name"}${r.modelRequested ? (r.modelRequested === r.modelServed ? ", the one asked for" : `, though ${r.modelRequested} was asked for`) : ""}.${r.mode ? ` It was ${MODE_LABEL[r.mode] ?? "asked in a way it did not name"}.` : ""}`,
+    `${engine} answered with ${r.modelServed ? `its ${r.modelServed} model` : "a model it did not name"}${r.modelRequested ? (r.modelRequested === r.modelServed ? ", the one asked for" : `, though ${r.modelRequested} was asked for`) : ""}.${r.mode && MODE_LABEL[r.mode] ? ` It was ${MODE_LABEL[r.mode]}.` : ""}`,
     `This reading counts for ${monthDayLabel(r.day) ?? r.day}.` + (asked ? ` Asked ${asked}${answered ? `, answered ${answered}` : ", and it never came back"}.` : ""),
     r.reading === "read" ? "Every word of this answer has been read closely."
       : r.reading === "part" ? "Part of this answer has been read closely and the rest is still waiting its turn."
         : r.reading === "checked" ? "This answer was checked for your name and your website address, and nobody has read the rest of it closely."
           : "Nobody has read this answer closely yet, so no claim is made here about who it named.",
     // A ROW WHOSE RECEIPT WAS NEVER PRESERVED IS UNKNOWN, NEVER FREE, and a real charge smaller than a cent says its own size.
-    ...(r.receipt ? [`Stored answer receipt ${(r.receipt.split(":").pop() ?? r.receipt).slice(0, 8)}. ${costUsd != null && costUsd > 0
+    ...(r.receipt ? [`Stored answer receipt ${receiptTail(r.receipt)}. ${costUsd != null && costUsd > 0
       ? `It cost ${costUsd < 0.01 ? "under a cent" : `$${costUsd.toFixed(2)}`} to buy once.`
       : "What it cost was never preserved, so no number is put on it."}`]
       : ["No receipt was kept for the stored answer behind this one."]),

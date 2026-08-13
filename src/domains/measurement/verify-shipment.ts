@@ -101,12 +101,12 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
   // asks to be left out of search, the page exists). Every other kind needs the exact wording that was
   // applied, and when I do not hold it I say so rather than checking the page against a guess.
   if (!norm(proposed) && !COPY_FREE_KINDS.has(component.kind)) {
-    return judged("unverifiable", "I do not hold the exact wording that was applied here, so I am not calling this one either way.");
+    return judged("unverifiable", "The exact wording that was applied here is not on file, so this one is not called either way.");
   }
   const field = (value: string | null, what: string) =>
     !value?.trim() ? judged("not_verified", `Your page has no ${what} at all.`)
-      : norm(value) === norm(proposed) ? judged("verified", `Your ${what} reads exactly as I wrote it.`)
-        : judged("changed_differently", `Your ${what} is live but it is not the wording I gave you.`);
+      : norm(value) === norm(proposed) ? judged("verified", `Your ${what} matches the prepared wording exactly.`)
+        : judged("changed_differently", `Your ${what} is live, and it is not the prepared wording.`);
   const headings = [...(snap.h2_list ?? []), ...(snap.h3_list ?? [])].map(norm).filter(Boolean);
   const wanted = opener(firstLine(proposed), 8);
   const wantedWords = wanted.split(" ").filter(Boolean);
@@ -138,16 +138,16 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     case "opening_answer": {
       const sample = norm((snap.body_paragraph_sample ?? []).join(" "));
       const want = opener(proposed);
-      if (!sample) return judged("unverifiable", "I could not read the opening of your page, so I am not calling this one either way.");
-      return sample.includes(want) ? judged("verified", "Your page opens with the answer I wrote.")
-        : judged("changed_differently", "Your page opens with different words than the ones I gave you.");
+      if (!sample) return judged("unverifiable", "The opening of your page could not be read, so this one is not called either way.");
+      return sample.includes(want) ? judged("verified", "Your page opens with the prepared answer.")
+        : judged("changed_differently", "Your page opens with different words than the prepared ones.");
     }
     case "section": case "section_add": case "section_rewrite": case "restructure": case "table_or_list_add":
-      return headingHit ? judged("verified", "The section I asked for is on the page.")
-        : !wanted ? judged("unverifiable", "This change has no heading I can look for.")
-          : judged("not_verified", "I read every heading on your page and this section is not one of them.");
+      return headingHit ? judged("verified", "The section this change asked for is on the page.")
+        : !wanted ? judged("unverifiable", "This change names no heading to look for.")
+          : judged("not_verified", "Every heading on your page was read, and this section is not one of them.");
     case "section_remove":
-      return !wanted ? judged("unverifiable", "This change has no heading I can look for.")
+      return !wanted ? judged("unverifiable", "This change names no heading to look for.")
         : headingHit ? judged("not_verified", "That section is still on the page.") : judged("verified", "That section is gone.");
     // A RENAMED LINK IS CHECKED ON ITS WORDS, NEVER ON ITS ADDRESS. The swap renames a link that already
     // exists, so asking whether a link to that address is on the page answered yes the moment the change was
@@ -155,72 +155,72 @@ function classify(component: { kind: string; after: string; anchorAfter?: string
     // is what I read, off the live link itself, and if the exact new words did not travel I say so.
     case "anchor_text": {
       const want = norm(component.anchorAfter ?? "");
-      if (!want) return judged("unverifiable", "I do not hold the exact words that link was meant to read, so I am not calling this one either way.");
-      if (snap.internal_links == null) return judged("unverifiable", "I could not read the links on your page this time.");
+      if (!want) return judged("unverifiable", "The exact words that link was meant to read are not on file, so this one is not called either way.");
+      if (snap.internal_links == null) return judged("unverifiable", "The links on your page could not be read this time.");
       const onTarget = targetKey ? snap.internal_links.filter((l) => canonicalUrlKey(absolute(l.href)) === targetKey) : snap.internal_links;
       const links = onTarget.length > 0 ? onTarget : snap.internal_links;
       return links.some((l) => norm(l.anchor_text ?? "").includes(want))
-        ? judged("verified", "That link now reads the way I asked.")
-        : judged("not_verified", "That link is on your page, and it still does not read the way I asked.");
+        ? judged("verified", "That link now reads the way this change asked.")
+        : judged("not_verified", "That link is on your page, and it still does not read the way this change asked.");
     }
     case "internal_links": case "internal_link_add":
-      return !target ? judged("unverifiable", "This change names no address I can look for.")
-        : snap.internal_links == null ? judged("unverifiable", "I could not read the links on your page this time.")
-          : linkHit ? judged("verified", "The link I asked for is on the page.") : judged("not_verified", "That link is not on the page yet.");
+      return !target ? judged("unverifiable", "This change names no address to look for.")
+        : snap.internal_links == null ? judged("unverifiable", "The links on your page could not be read this time.")
+          : linkHit ? judged("verified", "The link this change asked for is on the page.") : judged("not_verified", "That link is not on the page yet.");
     // A SITEMAP EDIT IS READ IN THE SITEMAP. This looked for a link on the PAGE, which no edit to
     // sitemap.xml can ever put there, so every one of them read as work the operator had not done.
     case "navigation": {
-      if (live.sitemap == null) return judged("unverifiable", `I could not read a sitemap at ${SITEMAP_PATH} on your site, so I am not calling this one either way. Tell me where your sitemap lives and I will read it.`);
-      if (/<sitemapindex/i.test(live.sitemap)) return judged("unverifiable", `Your ${SITEMAP_PATH} lists other sitemap files rather than pages, so I cannot tell from it whether this page is on one.`);
+      if (live.sitemap == null) return judged("unverifiable", `No sitemap answered at ${SITEMAP_PATH} on your site, so this one is not called either way. Publish your sitemap at that address and the next check reads it.`);
+      if (/<sitemapindex/i.test(live.sitemap)) return judged("unverifiable", `Your ${SITEMAP_PATH} lists other sitemap files rather than pages, so it cannot say whether this page is on one.`);
       const listed = [...live.sitemap.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1]!);
-      if (listed.length === 0) return judged("unverifiable", `Your ${SITEMAP_PATH} answered but lists no addresses I can read, so I am not calling this one either way.`);
+      if (listed.length === 0) return judged("unverifiable", `Your ${SITEMAP_PATH} answered and lists no readable addresses, so this one is not called either way.`);
       const here = canonicalUrlKey(live.requestedUrl);
       return listed.some((u) => canonicalUrlKey(absolute(u)) === here)
         ? judged("verified", "Your sitemap now lists this page.")
-        : judged("not_verified", `I read the ${listed.length} ${listed.length === 1 ? "address" : "addresses"} in your sitemap and this page is not one of them.`);
+        : judged("not_verified", `Your sitemap lists ${listed.length} ${listed.length === 1 ? "address" : "addresses"}, and this page is not one of them.`);
     }
     case "internal_link_remove":
-      return !target || snap.internal_links == null ? judged("unverifiable", "I could not check that link on your page this time.")
+      return !target || snap.internal_links == null ? judged("unverifiable", "That link on your page could not be checked this time.")
         : linkHit ? judged("not_verified", "That link is still on the page.") : judged("verified", "That link is gone.");
     case "schema": {
       const types = snap.schema_types ?? [], named = (snap.schema_entity_names ?? []).length > 0;
       const askedFor = types.find((t) => norm(proposed).includes(norm(t)));
       if (askedFor) return judged("verified", `Your page carries ${askedFor} structured data.`);
-      if (types.length > 0 || named) return judged("unverifiable", "Your page carries structured data, but not in a form I can match to this change.");
+      if (types.length > 0 || named) return judged("unverifiable", "Your page carries structured data, and none of it matches this change.");
       return snap.extraction_certainty === "uncertain"
-        ? judged("unverifiable", "Your page builds its content in the browser, so I cannot read its structured data from the outside.")
-        : judged("not_verified", "I read no structured data on your page.");
+        ? judged("unverifiable", "Your page builds its content in the browser, so its structured data cannot be read from the outside.")
+        : judged("not_verified", "No structured data is on your page.");
     }
     case "canonical":
-      return !target ? judged("unverifiable", "This change names no address I can look for.")
+      return !target ? judged("unverifiable", "This change names no address to look for.")
         : !snap.canonical_url ? judged("not_verified", "Your page names no preferred address.")
-          : canonicalUrlKey(snap.canonical_url) === canonicalUrlKey(target) ? judged("verified", "Your page points at the address I asked for.")
-            : judged("changed_differently", "Your page points at a different address than the one I asked for.");
+          : canonicalUrlKey(snap.canonical_url) === canonicalUrlKey(target) ? judged("verified", "Your page points at the address this change asked for.")
+            : judged("changed_differently", "Your page points at a different address than the one this change asked for.");
     case "redirect": case "consolidation": {
-      if (!live.finalUrl) return judged("unverifiable", "I could not see where that address ended up.");
+      if (!live.finalUrl) return judged("unverifiable", "Where that address ended up could not be seen.");
       const moved = canonicalUrlKey(live.finalUrl) !== canonicalUrlKey(live.requestedUrl);
       if (!moved) return judged("not_verified", "That address still serves its own page, so nothing is forwarding yet.");
       // MOVED IS NOT ARRIVED. A forward with no destination named could be landing anywhere, a login wall
       // included, so it is honestly unknown rather than a pass I cannot stand behind.
       if (!targetKey) {
-        return judged("unverifiable", "It forwards somewhere, and the proposal named no destination, so I cannot confirm it forwards where you wanted.");
+        return judged("unverifiable", "It forwards somewhere, and the change named no destination, so there is nothing to confirm it against.");
       }
       return canonicalUrlKey(live.finalUrl) === targetKey
         ? judged("verified", "That address now forwards visitors on.")
-        : judged("changed_differently", "That address forwards somewhere other than where I asked.");
+        : judged("changed_differently", "That address forwards somewhere other than where this change asked.");
     }
     case "noindex":
-      return snap.robots_meta == null ? judged("unverifiable", "I cannot see this setting from outside your page.")
+      return snap.robots_meta == null ? judged("unverifiable", "This setting cannot be seen from outside your page.")
         : /noindex/i.test(snap.robots_meta) ? judged("verified", "Your page now asks search engines to leave it out.")
           : judged("changed_differently", "Your page still asks search engines to keep it.");
     case "new_page":
       return snap.word_count >= THIN_PAGE_WORDS ? judged("verified", "The new page is live and has real content on it.")
-        : judged("changed_differently", `The address answers, but I count only ${snap.word_count} words on it.`);
+        : judged("changed_differently", `The address answers, and only ${snap.word_count} words are on it.`);
     default: {
       const want = opener(proposed);
-      return !want ? judged("unverifiable", "This change has no wording I can look for.")
-        : live.text.includes(want) ? judged("verified", "I found this wording on your page.")
-          : judged("not_verified", "I read your whole page and this wording is not on it.");
+      return !want ? judged("unverifiable", "This change names no wording to look for.")
+        : live.text.includes(want) ? judged("verified", "This wording is on your page.")
+          : judged("not_verified", "Your whole page was read, and this wording is not on it.");
     }
   }
 }
@@ -248,14 +248,14 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
   try { res = await fetchPage(requested, new Map(), {}); }
-  catch { return transportBlocked("Your website did not answer me, so I could not check this change."); }
+  catch { return transportBlocked("Your website did not answer, so this change could not be checked."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
       return { status: "not_found", checkedAt, components: allUnknown(shipment, "There is no page at that address right now.") };
     }
     return res.reason === "robots_blocked"
-      ? { status: "blocked", checkedAt, components: allUnknown(shipment, "Your site's robots rules ask me not to read this page, so I did not.") }
-      : transportBlocked("Your website did not answer me, so I could not check this change.");
+      ? { status: "blocked", checkedAt, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
+      : transportBlocked("Your website did not answer, so this change could not be checked.");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
   const snap = extractPageSnapshot(res.html, requested, pageIdFor(shipment.url), tenantId, res.status, profile ?? undefined);

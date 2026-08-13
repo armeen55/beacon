@@ -70,9 +70,3 @@ export function computeProofCounters(
     needsAttention,
   };
 }
-
-export const PROOF_COUNTER_LABEL: Record<keyof ProofCounters, string> = {
-  recentChanges: "Recent changes",
-  watching: "Watching for signal",
-  needsAttention: "Needs attention",
-};

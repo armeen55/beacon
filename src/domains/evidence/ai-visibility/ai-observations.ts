@@ -238,7 +238,7 @@ const CANONICAL_PAGE = 1000, CANONICAL_MAX_PAGES = 8;
 
 /** A READ THAT DID NOT HAPPEN, said out loud. An empty list here would claim the account has no AI answers, and on a
  *  418 answer account a Supabase blip did exactly that. Every caller either handles this or lets it travel. */
-export class CanonicalReadFailure extends Error {}
+class CanonicalReadFailure extends Error {}
 
 /**
  * THE ACCOUNT'S AI EVIDENCE: the latest useful stored answer for every ACTIVE tracked question on every engine, read

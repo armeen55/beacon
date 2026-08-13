@@ -1074,14 +1074,3 @@ export async function deleteConnectorToken(
     );
   }
 }
-
-export function isTokenExpired(token: ConnectorToken): boolean {
-  if (
-    token.provider !== "google_gsc" &&
-    token.provider !== "google_gbp" &&
-    token.provider !== "google_ga4"
-  ) {
-    return false;
-  }
-  return Date.now() >= token.expires_at;
-}

@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { ViewToggle } from "@/components/viz/view-toggle";
 
-export type SimpleSeriesPoint = { date: string; value: number };
+type SimpleSeriesPoint = { date: string; value: number };
 
 const W = 720;
 const H = 170;

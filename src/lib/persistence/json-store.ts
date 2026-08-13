@@ -62,29 +62,19 @@ import { resolveDataPath } from "./resolve-data-path";
  * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
-  // 2026-07-22 (CORE 100K persistence collapse): pruned to the stores with a
-  // SURVIVING live reader/writer. The 28-domain strip deleted every producer/
-  // consumer of the other ~42 stores that used to live here (autopilot-state,
-  // demand-graph-snapshot, worklist-surface, the seasonality/forecast/team fleet,
-  // publish-outbox, claim-graph, etc.); their mirror registrations were pure dead
-  // weight — nothing calls readStore/writeStore with those names anymore. Each
-  // name below is grep-verified to have at least one live consumer file.
+  // Pruned to the stores with a SURVIVING live reader/writer: a mirror registration for a
+  // name nothing reads or writes is pure dead weight. Each name below is grep-verified to
+  // have at least one live consumer file.
 
-  // Public market-data caches — the cost-discipline guarantee (a re-run inside
-  // the TTL must not re-spend); read by the evidence readers.
-  // Deterministic competitor-page teardown; read by passage-answerability.ts.
-  "competitor-page-audit",
   // The two customer-visible SWR surface snapshots (the ONLY persisted Today+
   // Changes / re-measured proof-ledger releases). Without the mirror every
   // hosted lambda starts cold and pays the full rebuild/re-measure.
   "customer-surface",
   "results-surface",
-  // Ops ledgers written from cron lambdas (no disk), read by error-ledger.ts /
+  // Ops ledger written from cron lambdas (no disk), read by error-ledger.ts /
   // the Today Ops + deadman cards.
-  "pipeline-violations",
-  "site-uptime-probes",
   "app-errors",
-  // Resumable cold-start crawl cursor — every batch is its own lambda, so the
+  // Resumable cold-start crawl cursor - every batch is its own lambda, so the
   // mirror is what lets the crawl advance past batch one on hosted prod.
   "crawl-frontier",
   // Structured-drafter call cache (content hash -> validated output): the
@@ -94,8 +84,7 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "winner-memory",
   // Competitor overlap verdicts: the $0-repeat guarantee on Vercel, or every dispatch re-buys the same reading.
   "competitor-overlap",
-  // Weekly GSC dimension snapshots + the fresh-tail volatile presentation cache.
-  "gsc-weekly-dimensions",
+  // The fresh-tail volatile presentation cache.
   "gsc-fresh-tail",
   // The banked searches no page of an account is for; read by the coverage walk on every hosted pass.
   "coverage-needs",

@@ -34,7 +34,6 @@ export default defineConfig({
         ? {}
         : {
             DATA_SOURCE: "file",
-            DUAL_WRITE: "false",
             NEXT_PUBLIC_SUPABASE_URL: "",
             SUPABASE_SERVICE_ROLE_KEY: "",
           }),
@@ -51,8 +50,6 @@ export default defineConfig({
       // existing BEACON_TENANT_ID pattern. Reproduced + verified by
       // hiding .data/global/tenants.json + unsetting the env var.
       BEACON_TENANT_SLUG: "ritz-builders",
-      // Keep retired cross-account learning inert in every test process.
-      BEACON_CROSS_TENANT_BRAIN: "",
       // 2026-06-30 hermetic-test fix (Move 7). `npm run test` must give the
       // SAME result whether or not the operator sourced `.env.local` first.
       // vitest does NOT auto-load `.env.local`, but if a shell sourced it the
@@ -86,7 +83,6 @@ export default defineConfig({
       BEACON_AUTH_DISABLED: "",
       BEACON_OPERATOR_MODE: "",
       // Misc local-dev flags that must not leak into deterministic tests:
-      BEACON_LLM_WHY: "",
       NEXT_PUBLIC_APP_URL: "",
     },
   },

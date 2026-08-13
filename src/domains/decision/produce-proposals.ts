@@ -114,7 +114,7 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
 }
 
 /** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed. Fail-soft to nothing. */
-async function familyHistoryOf(tenantId: string, now: Date | undefined): Promise<Map<string, { readings: number; netLift: number }>> {
+async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
   const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
   if (!ledger) return out;
@@ -158,7 +158,7 @@ export async function produceProposalsForTenant(
   const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
   // THE TWO WINDOWS, AND WHAT THIS ACCOUNT'S OWN FINISHED READINGS SAY. Both $0, both fail soft, neither
   // creates work: one names a fall Google did not cause, the other ranks a losing kind of change below a winning one.
-  const [windows, familyHistory] = await Promise.all([twoWindows(tenantId, opts.now), familyHistoryOf(tenantId, opts.now)]);
+  const [windows, familyHistory] = await Promise.all([twoWindows(tenantId, opts.now), familyHistoryOf(tenantId)]);
 
   // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction.
   let investigations: TopicInvestigation[] = [];

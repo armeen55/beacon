@@ -7,9 +7,6 @@
  * for move-routing. No I/O, no LLM — deterministic from the ledger.
  */
 
-import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
-import { outcomeStateOf } from "@/domains/measurement/proof-gsc/measure-lifecycle";
-
 /** Action FAMILY — coarser than action_type. Same-family re-tests collide; title and meta
  *  are DISTINCT families so a meta-vs-title comparison is a legitimate cross-page design. */
 export type ExperimentFamily =
@@ -40,9 +37,5 @@ export function actionFamilyOf(actionType: string): ExperimentFamily {
   if (/create_page|new_page|create_tool|create_calculator|create_collection|build_/.test(a)) return "new_page";
   if (/edit_page|content|section|rewrite|expand|paragraph|body|add_image|image_alt/.test(a)) return "content";
   return "other";
-}
-
-function pathOf(urlOrPath: string): string {
-  return (urlOrPath.replace(/^https?:\/\/[^/]+/, "") || "/").replace(/[?#].*$/, "");
 }
 

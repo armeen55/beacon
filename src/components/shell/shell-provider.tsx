@@ -13,7 +13,7 @@ export type LatePaletteItem = {
   shortcut?: string;
 };
 
-export type ShellHydration = { latePaletteItems: LatePaletteItem[] };
+type ShellHydration = { latePaletteItems: LatePaletteItem[] };
 
 type ShellContextValue = {
   sidebarOpen: boolean;

@@ -48,9 +48,9 @@ export type TodayOpportunity = {
 };
 
 /** The four states Today may be in. There is no fifth, and no two at once. */
-export type TodayPrimaryState = "needs_attention" | "act_now" | "researching" | "monitoring";
+type TodayPrimaryState = "needs_attention" | "act_now" | "researching" | "monitoring";
 
-export type TodayCommand = {
+type TodayCommand = {
   state: TodayPrimaryState;
   /** One bold directive: the single best thing to do now. */
   headline: string;

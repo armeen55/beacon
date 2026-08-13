@@ -23,8 +23,6 @@ import {
   classifySourceAuthority,
   extractDomain,
   ungroundedSuperlatives,
-  isEntityRichTopic,
-  looksLikeListOrIndexUrl,
   type ClassifiableSource,
 } from "@/domains/decision/drafts/source-authority";
 import { safeFetchSourceText } from "@/lib/net/safe-source-fetch";
@@ -34,7 +32,6 @@ import {
   draftProseStringValues,
   evidenceIsGrounded,
   type StructuredDraftKind,
-  type AnswerBlockDraft,
   type AtomicEditDraft,
   type InternalLinkDraft,
   type SectionDraft,
@@ -589,7 +586,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   complete?: CompleteFn;
   /** BEACON_500 item 74: carried straight onto a "drafted" result's `fewShot` field
    *  when present. The engine does not compute this itself - it only threads through
-   *  whatever the concrete drafter (e.g. draftAnswerBlockStructured) already resolved
+   *  whatever the concrete drafter already resolved
    *  from winner-memory's pattern aggregate, so the prompt-building and the result
    *  metadata always agree on whether a confident cell was actually used. */
   fewShotProvenance?: FewShotProvenance;
@@ -899,188 +896,9 @@ function intentDirective(intent?: string): string {
   }
 }
 
-// ── concrete drafter: AnswerBlockDraft (the Sprint 2A debug/manual path) ──────
-
-export type AnswerBlockStructuredInput = {
-  query: string;
-  pageLabel: string;
-  brief: string | null;
-  outline: string[];
-  faqs: string[];
-  /** Plain-language evidence the team already established (for the LLM to cite). */
-  evidenceHints?: string[];
-  /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what), decides answer type. */
-  intent?: string;
-  /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache +
-   *  budget scoping). Also looks up this account's own measured winners for the
-   *  few-shot injection below. */
-  tenantId: string;
-  /** BEACON_500 item 74: the page's family (first path segment, e.g. "iran-animals"),
-   *  used ONLY to look up a CONFIDENT winning pattern for this family in winner-memory's
-   *  pattern aggregate. Optional - omitting it (or having no confident cell yet) leaves
-   *  the prompt byte-identical to the item-30 few-shot behavior, never an error. */
-  pageFamily?: string;
-  /** Pilot loop 4 (2026-07-10): known reference URLs for the entities this
-   *  topic names (e.g. the tenant's own AI-citation table for this cluster, or
-   *  the page's own outbound links), cheap to include - NO new fetch happens
-   *  here or at prompt time. Rendered as "sources you may cite" ONLY after a
-   *  bare list/index URL is filtered out (looksLikeListOrIndexUrl) and the
-   *  list is deduped + capped; empty/all-filtered input renders nothing, the
-   *  system-prompt guidance below still applies on its own. Never trusted as
-   *  verified - the existing generation-time source-verification step (W5
-   *  P0-1) still fetches + checks whatever the model actually cites. */
-  referenceCandidates?: string[];
-};
-
-const ANSWER_BLOCK_SYSTEM =
-  "You write structured AEO answer blocks for the page and business described in the grounding below. Return ONLY a JSON object with keys: " +
-  // W5 (2026-07-09, J-71): 80-150 words WITH sources - "40-60 is too thin" per the operator's own spec. Bumped from the old 40-60 word target (prompt-registry.ts
-  // version bumped alongside this so the content-hash call cache never serves a stale 40-60-word response for the new contract).
-  '"answer" (one direct factual answer of 80-150 words an AI assistant could quote verbatim), ' +
-  '"citationHook" (a short quotable phrase, or null), ' +
-  '"sources" (array of {"url","title","domain","retrievedAt","claim","authority"}: cite 1-2 AUTHORITATIVE sources for the answer\'s claims, each with a real URL, its domain, the date you are citing it, and the specific claim it backs; leave "authority" as "unverified", the caller decides it), ' +
-  '"evidenceRefs" (array of {"source","detail"}, at least one, citing ONLY the grounding provided; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
-  '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
-  '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Ground everything ONLY in the brief/outline/questions provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. Cite 1-2 authoritative sources for any factual claim (a date, a count, a named fact). Never state one with no source. " +
-  // G4 (2026-07-10): superlative-intent topics ("most famous X") must still be answerable WITHOUT an unprovable superlative. Instruct grounding-by-facts up
-  // front, so the drafter usually clears the verification-aware post-check on the first attempt (the rephrase retry is the safety net, not the norm).
-  "If the topic is inherently superlative (a \"most famous\" or \"best\" roundup), do NOT assert a superlative you cannot cite; instead ground it in the specific honors, dates, works, and roles in the evidence (for example \"holds the certification the page names, and has done the work since the date in the evidence\" rather than \"the most trusted provider\"). Only use a superlative if a cited source explicitly states that exact superlative. " +
-  // Pilot loop 4 (2026-07-10): the model was choosing correctly-authoritative domains but the WRONG PAGE on that domain (a shared list/index page) to back
-  // a specific person's fact. When the user message below includes a "Sources you may cite" list or this tenant's allowlisted domains, use them as a
-  // starting point ONLY when the exact page actually supports the claim - never cite a page just because it is on an allowlisted domain or was suggested.
-  "When the evidence below includes a \"Sources you may cite\" list or a tenant's allowlisted domains, prefer a citation from among them, but ONLY when that exact page genuinely supports the specific claim you are citing it for; never fabricate a URL and never cite a page that does not actually discuss the claim. " +
-  "The FIRST sentence must be specific to THIS exact page/topic — name the concrete subject, not a generic category. Do NOT open with a context-free dictionary definition (e.g. \"A gift is a voluntarily transferred item…\"); a reader must immediately know which specific topic this answers. Never defer or punt (\"varies\", \"check elsewhere\", \"consult other sources\") — answer directly. Do not claim something is \"official\" unless the grounding states it.";
-
-/**
- * Pilot loop 4 (2026-07-10): appended to ANSWER_BLOCK_SYSTEM ONLY for an entity-rich topic (isEntityRichTopic - a roundup naming 3+ distinct named
- * entities). Proven gap from the pilot re-run: the model correctly cited an authoritative, on-topic page, but that page was a bare INDEX - it names each
- * entity without discussing any of them, so it cannot entail a per-entity claim, while that SAME entity's own dedicated page covered 3 of 6 sentences
- * in a live replay. This instructs the model to reach for the entity's own page in the first place, so per-claim coverage (source- authority.ts's draftFactsCoveredBySources) has something that actually
- * entails the sentence instead of holding the whole roundup at needs_source_check for a structural, avoidable reason. */
-const ENTITY_REFERENCE_INSTRUCTION =
-  " This topic names several different people, places, or things (a roundup). For EACH named " +
-  "entity's own factual claim (an honor, a song, a role, a date, a work), cite that ENTITY'S OWN " +
-  "reference page (the page dedicated to that one entity, not a page about the whole set) - " +
-  'never a bare list or index page (for example a page titled or path-shaped like "List of ...") ' +
-  "for that claim. A list/index page can confirm an entity EXISTS or belongs to a group, but it " +
-  "cannot back a specific fact ABOUT that entity. One citation may cover more than one claim only " +
-  "when that exact page's own text genuinely discusses those claims, not merely lists the name.";
-
-/**
- * Pilot loop 5 (2026-07-11): appended alongside ENTITY_REFERENCE_INSTRUCTION for the same entity-rich roundup topics. Proven gap from loop 4's live re-run: the
- * model correctly cited each entity's own reference page, but still wrote COMPOUND sentences that bundle a coverable fact (an honor a fetched source
- * confirms) with an uncoverable one (a song title that source never mentions) - e.g. "Shajarian is known for the song 'Morgh-e Sahar' and a UNESCO Mozart
- * Medal." The per-sentence coverage gate (source-authority.ts's draftFactsCoveredBySources) correctly fails the WHOLE sentence when only HALF
- * of it is grounded, so a single stray fact drags down an otherwise-covered claim. This instructs the model to never bundle in the first place - one
- * fact per sentence, so every sentence stands or falls on its OWN citation rather than being held hostage by its neighbor's uncovered claim. */
-const ONE_FACT_PER_SENTENCE_INSTRUCTION =
-  " For this roundup, state each distinct factual claim about a named entity in its OWN short " +
-  "sentence - one honor, one work, one role, or one date per sentence - because each sentence must " +
-  "be verifiable against its cited source ON ITS OWN. Never bundle two different facts about the " +
-  'same entity into one clause or sentence (for example do NOT write "Shajarian is known for the ' +
-  'song \'Morgh-e Sahar\' and a UNESCO Mozart Medal" as one sentence - write two separate sentences, ' +
-  "one for the song, one for the medal). If a single sentence would need more than one source to " +
-  "prove it, split it into separate sentences instead. To reach the required 80-150 word length, " +
-  "add MORE single-fact sentences about the entities already named - never write longer compound " +
-  "sentences.";
-
-/** Pilot loop 4: how many "sources you may cite" candidates ever reach the
- *  prompt - a hint, not a citation list; more than a handful would just bury
- *  the model in URLs it still has to individually verify are relevant. */
-const MAX_REFERENCE_CANDIDATES = 5;
-
-/** Draft a schema-valid AnswerBlockDraft for one Move. Capped + budgeted. */
-export async function draftAnswerBlockStructured(
-  input: AnswerBlockStructuredInput,
-  opts: {
-    complete?: CompleteFn;
-    now?: Date;
-    bypassCache?: boolean;
-    authoritativeSourceDomains?: readonly string[];
-    sourceFetch?: SourceTextFetcher;
-  } = {},
-): Promise<StructuredDraftResult<AnswerBlockDraft>> {
-  // R16 injection firewall: crawled briefs/outlines, PAA questions, and evidence hints are untrusted text - strip instruction-shaped lines before they enter
-  // the prompt or the grounding ledger. Benign input passes through unchanged.
-  const brief = sanitizeNullableEvidence(input.brief);
-  const outline = sanitizeEvidenceTexts(input.outline);
-  const faqs = sanitizeEvidenceTexts(input.faqs);
-  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
-  const grounded = [
-    input.query,
-    brief ?? "",
-    outline.join(" "),
-    faqs.join(" "),
-    evidenceHints.join(" "),
-  ].join(" ");
-  const dir = intentDirective(input.intent);
-
-  // Pilot loop 4: known reference URLs for the entities this topic names - deterministic, no new fetch. A bare list/index URL (the exact proven gap:
-  // the model citing a whole-set list page for one entity's own facts) is filtered out here BEFORE it ever reaches the prompt, so the hint can only
-  // ever point at a page that could plausibly entail a per-entity claim. Deduped + capped; empty (or fully filtered) input renders no hint line at
-  // all - the ANSWER_BLOCK_SYSTEM guidance above still applies on its own.
-  const referenceCandidates = [
-    ...new Set(sanitizeEvidenceTexts(input.referenceCandidates ?? []).filter((u) => !looksLikeListOrIndexUrl(u))),
-  ].slice(0, MAX_REFERENCE_CANDIDATES);
-
-  const user = [
-    `Search/topic: "${input.query}"`,
-    dir ? `What the searcher wants: ${dir}` : "",
-    `Page: ${input.pageLabel}`,
-    brief ? `Brief: ${brief}` : "",
-    outline.length ? `Grounded sections: ${outline.join("; ")}` : "",
-    faqs.length ? `Related questions: ${faqs.slice(0, 6).join("; ")}` : "",
-    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
-    referenceCandidates.length
-      ? `Sources you may cite (each entity's own reference page - verify the exact page covers the specific claim before citing it): ${referenceCandidates.join("; ")}`
-      : "",
-    opts.authoritativeSourceDomains?.length
-      ? `This tenant's allowlisted authoritative domains (prefer a citation from one of these when a relevant page exists there, but only if it actually covers the claim): ${opts.authoritativeSourceDomains.join(", ")}`
-      : "",
-    "",
-    "Return the JSON now.",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  // BEACON_500 item 30/74: additive-only. When a pageFamily is known, use the pattern- aware builder (item 74) so a CONFIDENT winning structural pattern for this family
-  // gets named alongside the existing before/after examples; otherwise fall back to the item-30 builder unchanged. Both return '' (or the unchanged fragment) when the
-  // tenant has no measured "answer" winners yet - the system prompt stays byte-identical to today whenever there is nothing confident to say.
-  let fewShots = "";
-  let fewShotProvenance: FewShotProvenance | undefined;
-  if (input.tenantId && input.pageFamily) {
-    const res = await buildWinnerFewShotsWithPattern(input.tenantId, "answer", input.pageFamily).catch(() => ({ fragment: "", patternHint: null }));
-    fewShots = res.fragment;
-    fewShotProvenance = fewShotProvenanceFrom(res.patternHint, input.pageFamily);
-  } else if (input.tenantId) {
-    fewShots = await buildWinnerFewShots(input.tenantId, "answer").catch(() => "");
-  }
-
-  // Pilot loop 4: the per-entity citation guidance is scoped to a genuine roundup (isEntityRichTopic - 3+ distinct named entities across the query/
-  // brief/outline/faqs/evidence hints), so a single-fact topic's prompt stays byte-identical to before this change. Each field is passed SEPARATELY
-  // (never pre-joined into `grounded`) so one entity's name can never merge with the next into a single false span - see isEntityRichTopic.
-  const entityRich = isEntityRichTopic([input.query, brief ?? "", ...outline, ...faqs, ...evidenceHints]);
-
-  return callStructuredLLM({
-    kind: "answer_block",
-    tenantId: input.tenantId,
-    system: ANSWER_BLOCK_SYSTEM + (entityRich ? ENTITY_REFERENCE_INSTRUCTION + ONE_FACT_PER_SENTENCE_INSTRUCTION : "") + fewShots,
-    user,
-    grounded,
-    projectedCostUsd: 0.02,
-    complete: opts.complete,
-    now: opts.now,
-    bypassCache: opts.bypassCache,
-    fewShotProvenance,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains,
-    sourceFetch: opts.sourceFetch,
-  });
-}
-
 // ── concrete drafter: AtomicEditDraft (existing-page title/meta edit) ──────────
 
-export type AtomicEditStructuredInput = {
+type AtomicEditStructuredInput = {
   query: string;
   pageLabel: string;
   /** V1 Closure: `answer_block` joins the two field edits this drafter has always written. The cause ladder
@@ -1130,7 +948,7 @@ export async function draftAtomicEditStructured(
     sourceFetch?: SourceTextFetcher;
   } = {},
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
-  // R16 injection firewall (see draftAnswerBlockStructured).
+  // R16 injection firewall: untrusted crawled text is stripped of instruction-shaped lines before it enters the prompt.
   const currentValue = sanitizeNullableEvidence(input.currentValue);
   const outline = sanitizeEvidenceTexts(input.outline);
   const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
@@ -1155,7 +973,7 @@ export async function draftAtomicEditStructured(
     .filter(Boolean)
     .join("\n");
 
-  // BEACON_500 item 30/74: additive-only, same posture as draftAnswerBlockStructured above - the pattern-aware builder only fires when a pageFamily is known, and both
+  // BEACON_500 item 30/74: additive-only - the pattern-aware builder only fires when a pageFamily is known, and both
   // paths return '' (or the unchanged fragment) when the tenant has no measured winners yet for this exact field, leaving the prompt byte-identical to today.
   const lever = input.field === "title" ? "title" : input.field === "answer_block" ? "answer" : "meta";
   let fewShots = "";
@@ -1198,7 +1016,7 @@ export async function draftAtomicEditStructured(
 // only answer was a sentence saying so. GROUNDING IS THE WHOLE CONTRACT here: a section is long-form copy,
 // so the prompt forbids everything the evidence does not carry and the caller's own gates (draft-quality, factual entailment, the numeric firewall above) read it again before it can reach an operator.
 
-export type SectionStructuredInput = {
+type SectionStructuredInput = {
   query: string;
   pageLabel: string;
   /** The section to write, when the reading named one. Null = write the heading too. */
@@ -1254,7 +1072,7 @@ export async function draftSectionStructured(
 
 // ── concrete drafter: InternalLinkDraft (where one page should point a reader next) ──
 
-export type InternalLinkStructuredInput = {
+type InternalLinkStructuredInput = {
   query: string;
   sourcePage: string;
   targetPage: string;

@@ -21,14 +21,6 @@ export type EngineId = "chatgpt" | "perplexity" | "gemini" | "claude";
 
 export const ALL_ENGINES: readonly EngineId[] = ["chatgpt", "perplexity", "gemini", "claude"];
 
-/** Operator-facing engine names (plain business language). */
-const ENGINE_PLAIN_NAME: Record<EngineId, string> = {
-  chatgpt: "ChatGPT",
-  perplexity: "Perplexity",
-  gemini: "Gemini",
-  claude: "Claude",
-};
-
 // ---------------------------------------------------------------------------
 // COST DISCIPLINE CONSTANTS (nightly ceilings). The DataForSEO calls ALSO ride
 // the shared fail-closed monthly cap in dataforseo-serp.ts ($50/mo default),

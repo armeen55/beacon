@@ -141,7 +141,7 @@ describe("what Beacon can see on the live page, component by component", () => {
         : xml == null ? { ok: false, reason: "fetch_failed" } : { ok: true, html: xml, status: 200 })) as unknown as Fetcher)).components[0]!;
     expect((await graded(listing(URL_, "https://own.com/haft-seen"))).state).toBe("verified");
     const absent = await graded(listing("https://own.com/haft-seen"));
-    expect([absent.state, absent.note]).toEqual(["not_verified", "I read the 1 address in your sitemap and this page is not one of them."]);
+    expect([absent.state, absent.note]).toEqual(["not_verified", "Your sitemap lists 1 address, and this page is not one of them."]);
     expect((await graded(null)).state).toBe("unverifiable");
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing

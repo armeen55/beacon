@@ -24,5 +24,3 @@ export const SETTINGS_SECTIONS = [
     description: "Your business details and the questions tracked across AI assistants.",
   },
 ] as const;
-
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];

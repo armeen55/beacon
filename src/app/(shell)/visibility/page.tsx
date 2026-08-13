@@ -10,7 +10,7 @@ import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { visibilitySeries } from "@/domains/measurement";
 import { researchRunStatus } from "@/domains/runtime";
 import { answerIntelOf, canonicalPairOf, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
-  loadGscPageSignalsForTenant, loadGscWeeklyRows, observationReceiptCost, readAiObservations, type AiObservationRecord,
+  loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
 import { GoogleWorkspace } from "./google-view";
 import { AiWorkspace } from "./ai-view";
@@ -75,13 +75,12 @@ async function GoogleBody({ tenantId, params }: { tenantId: string; params: Para
   const metric = (["clicks", "impressions", "ctr"] as const).find((m) => m === one(params, "metric")) ?? "clicks";
   // Every read is bounded, deadline raced and fail-soft, so one slow store narrows one table instead of
   // stranding the page. None of them calls Google: these are rows my daily round already synced.
-  const [days, decay, weekly, pages] = await Promise.all([
+  const [days, decay, pages] = await Promise.all([
     valueWithDeadline(loadDailyTotalsForTenant(tenantId, 84).catch(() => []), []),
     valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map()),
-    valueWithDeadline(loadGscWeeklyRows(tenantId).catch(() => null), null),
     valueWithDeadline(loadGscPageSignalsForTenant(tenantId).catch(() => new Map()), new Map()),
   ]);
-  const view = googleView({ days, rangeDays: range, metric, weekly,
+  const view = googleView({ days, rangeDays: range, metric,
     decay: Array.from((decay as Map<string, GscDecaySignal>).values()), pages: pages as Map<string, GscPageSignal> });
   return <GoogleWorkspace view={view} range={range} metric={metric} />;
 }

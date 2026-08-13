@@ -152,12 +152,12 @@ const CLAMP = 0.25;
 
 const isMature = (d: number | null): boolean => d === 28 || d === 56;
 
-/** ONE MATURITY RULE, THE SAME ONE THE LEDGER BANDS USE (proof-gsc/kernel.ts bandOf): a shared-credit read whose window
- *  has not closed is still reading, and only a finished one is a settled answer. The two sides disagreed on exactly
- *  that row, so Today said "out of 12 finished" over a Results header saying 14. */
+/** ONE MATURITY RULE, THE SAME ONE THE LEDGER BANDS USE (proof-gsc/kernel.ts bandOf): a read whose window has not closed is still
+ *  reading, whichever way it leans, and only a finished one is a settled answer. An early lean filed under "Worked" or "Went down"
+ *  is what had Today saying "out of 12 finished" over a Results header saying 14, and it promised a verdict nothing had earned. */
 const groupOf = (r: KernelRead): ResultsGroup => {
-  if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return "worked";
-  if (r.verdict === "directional_decline") return "down";
+  if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return isMature(r.basisDay) ? "worked" : "reading";
+  if (r.verdict === "directional_decline") return isMature(r.basisDay) ? "down" : "reading";
   if (r.verdict === "no_clear_movement" || (r.verdict === "confounded" && isMature(r.basisDay))) return "flat";
   return "reading";
 };
@@ -403,7 +403,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     group,
     verdictWord: shared ? "Shared with a later change"
       : r.metric === "unclassified" ? "Not judged"
-        : group === "worked" ? (isMature(r.basisDay) ? "Worked" : "Working so far")
+        : group === "worked" ? "Worked"
         : group === "down" ? "Went down" : group === "flat" ? "No change" : "Reading",
     dot: group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
     bar,

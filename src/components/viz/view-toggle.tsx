@@ -2,8 +2,6 @@
 
 import { cn } from "@/lib/utils";
 
-export type ViewMode = string;
-
 export function ViewToggle<T extends string>({
   options,
   value,

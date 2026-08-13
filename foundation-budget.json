@@ -1,7 +1,7 @@
 {
   "_doc": "Bloat firewall. Ceilings are NON-INCREASING and sit at the exact verified counts of the Dream V1 landing (2026-08-03, operator-approved one-time test-pool correction, maxima 11600/85000): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
-    "max": 76000,
+    "max": 74400,
     "target": 55000
   },
   "tests": {
@@ -9,7 +9,7 @@
     "target": 4000
   },
   "combined": {
-    "hardCap": 88200,
+    "hardCap": 86600,
     "target": 60000
   },
   "domains": {
@@ -65,7 +65,6 @@
       "src/lib/net/safe-source-fetch.ts": 610,
       "src/lib/connectors/google-auth.ts": 590,
       "src/domains/evidence/product/url-citation-history.ts": 566,
-      "src/domains/evidence/pages/extractors/extractors.ts": 566,
       "src/domains/evidence/readers/gsc-page-signals.ts": 549
     }
   },
@@ -98,7 +97,7 @@
     ]
   },
   "exports": {
-    "max": 1380,
+    "max": 1320,
     "target": 1200,
     "_note": "Exported type/interface/class/enum/const/function symbols in src (non-test). Non-increasing; keep internal helpers/types internal. Ratchet DOWN."
   },
@@ -133,11 +132,9 @@
       "geist",
       "lucide-react",
       "next",
-      "puppeteer-core",
       "react",
       "react-dom",
       "server-only",
-      "shadcn",
       "tailwind-merge",
       "tw-animate-css",
       "zod"

@@ -4,9 +4,9 @@ import { DataTable } from "./table";
 import type { googleView } from "./visibility-view";
 
 /**
- * The Google workspace: what Search Console has actually reported, at four grains you can act on. Headline
+ * The Google workspace: what Search Console has actually reported, at three grains you can act on. Headline
  * numbers over a stretch you choose against the stretch before it, the line itself, then EVERY page and
- * EVERY search Google named, ranked and sortable, then how you show up and who is looking.
+ * EVERY search Google named, ranked and sortable.
  *
  * Nothing here is a forecast and nothing is a score. Every table sorts client side over numbers already
  * computed on the server, so no click on this screen asks Google for anything.
@@ -57,13 +57,6 @@ export function GoogleWorkspace({ view, range, metric }: {
       <Panel title="Every search Google named">
         {view.queries ? <DataTable columns={view.queries.columns} rows={view.queries.rows} empty={view.queries.empty} note={view.queries.note} tall /> : null}
       </Panel>
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        {view.dimensions.map((d) => (
-          <Panel key={d.title} title={d.title}>
-            <DataTable columns={d.table.columns} rows={d.table.rows} empty={d.table.empty} note={d.table.note} />
-          </Panel>
-        ))}
-      </div>
     </div>
   );
 }

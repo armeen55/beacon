@@ -143,42 +143,6 @@ export type PageSnapshot = {
   tenant_id: string;
 };
 
-// ── Citation rollup (per page × topic) ──────────────────────────────
-
-type PlatformCitationStats = {
-  citation_count: number;
-  distinct_answers: number;
-  avg_citation_order: number | null;
-};
-
-type CitationPageRollup = {
-  page_id: string;
-  page_url: string;
-  domain: string;
-  topic: string;
-  is_owned: boolean;
-  total_citations: number;
-  distinct_answers: number;
-  distinct_prompts: number;
-  by_platform: Record<string, PlatformCitationStats>;
-  first_observed_at: string;
-  last_observed_at: string;
-};
-
-// ── Citation evidence index ─────────────────────────────────────────
-
-type TopicCitationSummary = {
-  topic: string;
-  total_citations: number;
-  owned_citations: number;
-  competitor_citations: number;
-  directory_citations: number;
-  other_citations: number;
-  top_owned_pages: { url: string; count: number }[];
-  top_competitor_pages: { url: string; count: number }[];
-  top_directory_pages: { url: string; count: number }[];
-};
-
 // ── Prompt-to-page fit (future) ─────────────────────────────────────
 
 // ── Retired frontier/wave/outcome engine row shapes ─────────────────

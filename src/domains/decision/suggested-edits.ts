@@ -47,10 +47,6 @@ const TRANSLATION = /\bin (farsi|persian|english)\b/i;
 /** Function words a search in another language leans on. None of these is also an English word. */
 const FOREIGN = new Set(["och", "der", "die", "das", "und", "les", "des", "une", "del", "los", "las", "por",
   "para", "que", "van", "het", "een", "til", "bir", "aus", "mit", "auf", "yang", "ein", "eine", "dei", "hvad"]);
-/** English a searcher uses that a page may never print itself. */
-const ENGLISH = new Set(["best", "top", "cheap", "cost", "price", "near", "how", "what", "where", "when", "why",
-  "who", "which", "guide", "list", "map", "and", "the", "of", "in", "for", "to", "with", "a", "an", "is", "are",
-  "do", "does", "new", "old", "free", "full", "male", "female", "people", "famous", "facts", "meaning", "name"]);
 /** English words that end the way a Scandinavian or German adjective does, so the ending never accuses them. */
 const ENGLISH_SK = new Set(["kiosk", "asterisk", "obelisk", "basilisk", "damask", "whisk", "brisk"]);
 /** Words a title loses without losing its meaning, when the merge needs the room. */
