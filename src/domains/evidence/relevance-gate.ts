@@ -42,6 +42,14 @@ const GENERIC = new Set([
   "why", "when", "where", "who", "vs", "near", "me", "best", "top", "guide", "complete",
   "ultimate", "list", "page", "pages", "online", "free", "new", "all", "more", "about",
   "into", "out", "up", "do", "does", "can", "will", "vs.",
+  // SUPERLATIVES AND SIZE WORDS ARE NOT SUBJECTS. "most", "famous" and "popular" mean the same thing in every
+  // vertical and attach to anything, and counting them as a tie is how a question about the country's famous
+  // landmarks came to be answered on a page about rice and stew: three shared words, none of them a subject.
+  // A candidate must tie on content nouns or it ties on nothing.
+  // "main" is NOT here: "main dishes" is a real subject and this list may never eat one.
+  "most", "famous", "popular", "common", "great", "greatest", "biggest", "largest",
+  "major", "important", "different", "various", "type", "types", "kind", "kinds", "thing",
+  "things", "good", "better", "known", "must", "some", "many", "other", "another", "every",
 ]);
 
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /
@@ -69,6 +77,9 @@ export function topicTokens(text: string | null | undefined): string[] {
   const out: string[] = [];
   for (let t of raw) {
     if (t.length < 3) continue;
+    // ASKED BEFORE THE STEM AND AFTER IT. The stem runs first, so "famous" became "famou" and walked past a
+    // list that names it: a universal word survived as a subject because of how it is spelled.
+    if (GENERIC.has(t)) continue;
     // crude singularize: names→name, numbers→number, snacks→snack, cities→city
     if (t.endsWith("ies") && t.length > 4) t = t.slice(0, -3) + "y";
     else if (t.endsWith("ses") && t.length > 4) t = t.slice(0, -2);

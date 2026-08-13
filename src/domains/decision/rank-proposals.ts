@@ -22,10 +22,12 @@
  * `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order).
  */
 
-import type { BundleComponentKind, ChangeProposal, ProposalStatus } from "./contracts";
+import type { ChangeProposal, ProposalStatus } from "./contracts";
 import { dangerousComponents } from "./contracts";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import type { CauseFinding } from "./diagnosis";
+// THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
+import { CAUSE_LEVERS, withholdReason } from "./authorization";
 
 /** WHAT ONE KIND OF CHANGE HAS ACTUALLY DONE ON THIS SITE, off the finished readings in its own ledger.
  *  A family only votes once enough of its readings have finished; under that it is noise wearing a number. */
@@ -57,41 +59,6 @@ const MAX = { actionability: 500, visibility: 120, evidence: 15, causeFit: 25, s
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
 
-/**
- * WHICH LEVERS ADDRESS WHICH CAUSE. Keyed on the cause ladder's OWN union and deliberately TOTAL: adding a cause over there breaks the build here until somebody says what fixes it,
- * which is the only way this table can never quietly fall behind the diagnosis.
- *
- * An EMPTY set is a real answer, not an omission: nothing you can write on the page fixes a search fewer people run, or a change that is already being measured. A cause with no lever
- * matches nothing and discounts nothing, so those proposals rank on their other factors.
- *
- * THE OLDER SEVEN KINDS BELONG IN THESE SETS TOO. `section`, `internal_links` and `source_pack` are the undifferentiated components persisted rows still carry, and leaving them out of every set meant a stored
- * change was discounted the full 25 for the age of its vocabulary rather than for what it does.
- */
-const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
-  cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
-  ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
-  competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page", "section"]),
-  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section"]),
-  weak_opening: new Set(["opening_answer", "h1", "paragraph_correction", "restructure"]),
-  serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer", "section"]),
-  intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page", "section"]),
-  internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links"]),
-  ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack"]),
-  retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack"]),
-  technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
-  // FEWER PEOPLE RUNNING THE SEARCH IS NOT A PAGE DEFECT. Nothing you can write on the page brings the searches
-  // back, so this one stays deliberately empty: it matches nothing, discounts nothing, and those cards rank on
-  // their other factors. Filling it in to make decline cards score would be scoring them for a fix that is not one.
-  demand_decline: new Set([]),
-  // LOSING GROUND ON A SEARCH PEOPLE STILL RUN IS A CONTENT PROBLEM, and it was the last empty set that made a
-  // real decline card score zero for cause fit while a description errand scored its full 25. These are the
-  // levers that move a page back up a search it is still shown for.
-  // No title here on purpose: a sharper line does not win back a position something better took.
-  ranking_loss: new Set(["section_add", "full_rewrite", "opening_answer", "internal_links", "section", "restructure"]),
-  measuring_change: new Set([]),
-  no_problem: new Set([]),
-};
-
 /** Plain-English names for what each cause is about, for the sentence that explains the order. */
 const LEVER_WORD: Partial<Record<Cause, string>> = {
   ranking_loss: "the ground this page has lost on a search people still run",
@@ -115,16 +82,6 @@ const num = (n: number): string => Math.round(n).toLocaleString();
  *  drag a change down through the lifecycle tiers on nothing but a bad number. */
 const shownEvidence = (p: ChangeProposal): number =>
   Math.max(0, p.bundle?.receipt.items.length ?? p.evidence.evidenceRefCount);
-
-/** The component kinds this proposal actually touches. A bundled change says so
- *  directly; a pre-bundle row is read off its one exact edit. */
-function leversOf(p: ChangeProposal): BundleComponentKind[] {
-  const bundled = p.bundle?.components.map((c) => c.kind) ?? [];
-  if (bundled.length > 0) return bundled;
-  const c = p.recommendedChange;
-  if (c.kind === "new_page") return ["new_page"];
-  return [c.field === "answer_block" ? "opening_answer" : c.field];
-}
 
 /** Every factor for ONE proposal, in reading order. `peers` is how many OTHER proposals
  *  in the same batch land on the same page; `measuring` is true when that page already
@@ -162,7 +119,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const cause = p.diagnosisCause;
   // A cause I do not recognise (a hand-edited row, or one written under an older ladder) is treated exactly like no cause at all: it matches nothing and it punishes nothing.
   const levers = cause ? CAUSE_LEVERS[cause] : undefined;
-  const addressed = !levers || levers.size === 0 || leversOf(p).some((k) => levers.has(k));
+  const addressed = withholdReason(p, cause) == null;
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;

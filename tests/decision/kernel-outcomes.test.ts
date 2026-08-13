@@ -558,7 +558,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const world = { ...ACTORS_SEEN(), cannibalization: [{ query: "iranian actors", competingUrls: [ACTORS_URL, "iranopedia.example/actors"], note: "" }] };
     reset(world); let called = 0;
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
-    expect([res.outcome, res.actionable, res.proposals.every((p) => p.status === "needs_review"), called, res.proposals.filter((p) => p.id.endsWith("::missing_description")).length]).toEqual(["proposals_persisted", 1, true, 1, 1]); // named, counted, and the ONE paid call is the description that card owes, never a draft for the split
+    expect([res.outcome, res.actionable, res.proposals.filter((p) => p.id.endsWith("::missing_description")).length, res.proposals.filter((p) => p.id.endsWith("::ownership")).length, called, res.held.some((h) => h.reason.includes("two of your own pages competing for one search"))]).toEqual(["proposals_persisted", 1, 0, 1, 0, true]); // the description errand on a page splitting a search is WITHHELD with its reason on the receipt, never paid for and never offered, and ONE family card for the split takes its place
     expect(res.candidates.find((c) => c.action === "consolidate")!.cause.cause).toBe("cannibalization"); });
   it("ranks a 15-view description under a 10,000-view rebuild, and calls views an audience rather than a recovery", () => {
     const card = (id: string, minutes: number, views: number): ChangeProposal => baseProposal({ id, pagePath: `/${id}`, status: "needs_review",

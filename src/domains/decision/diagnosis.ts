@@ -182,7 +182,8 @@ const RULES: Rule[] = [
       const pages = group?.competingUrls.length ?? 2;
       return { fired: true, action: "consolidate", evidenceKeys: comparison.length > 0 ? [RECEIPT.gsc, RECEIPT.competing] : [RECEIPT.gsc],
         payload: { cause: "cannibalization", competingPaths: [...(group?.competingUrls ?? [])], comparison, survivor: provenSurvivor(comparison) },
-        explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is choosing between them every time somebody searches it. Settle which one owns that search before changing a word on either of them.` };
+        // "either of them" is a claim about there being TWO, and this rule fires on three and on four.
+        explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is choosing between them every time somebody searches it. Settle which one owns that search before changing a word on ${pages === 2 ? "either" : "any"} of them.` };
     },
     falsifier: (c) => `If the next look shows only one page of yours coming up for ${quote(c.query)}, this is not the explanation.`,
     rulesOut: { cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" },
