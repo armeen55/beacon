@@ -23,11 +23,15 @@ import type { GscWindowMetrics } from "./types";
 
 type Cumulative = { clicks: number; impressions: number; posWeighted: number };
 
-/** Cumulative page totals for all dates >= `since` (YYYY-MM-DD), keyed by canonical URL. */
-export async function readCumulativeSince(
+/** Cumulative page totals for all dates >= `since` (YYYY-MM-DD), keyed by canonical URL.
+ *  Request-memoized like readLastFinalizedDate below: one measured change reads two snapshots per
+ *  window across five windows, so a Results pass over 25 changes issued the same RPC 214 times in
+ *  one walk. cache() collapses repeated (tenant, since) pairs to one call within a request and is a
+ *  passthrough outside one. */
+export const readCumulativeSince = cache(async (
   tenantId: string,
   since: string,
-): Promise<Map<string, Cumulative>> {
+): Promise<Map<string, Cumulative>> => {
   const out = new Map<string, Cumulative>();
   try {
     const admin = getSupabaseAdmin();
@@ -76,7 +80,7 @@ export async function readCumulativeSince(
     });
   }
   return out;
-}
+});
 
 /**
  * The most recent date with FINALIZED GSC data for a tenant (YYYY-MM-DD), or
