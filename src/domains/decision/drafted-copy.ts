@@ -20,7 +20,7 @@ import "server-only";
  */
 
 import { log } from "@/lib/logger";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { draftAtomicEditStructured, type CompleteFn } from "./llm/structured-drafter";
 import type { AtomicEditDraft } from "./llm/schemas";
@@ -40,6 +40,10 @@ const FURNITURE = /^(home|menu|search|contact|about|share|follow|newsletter|comm
 const UNSAFE = /[–—]|\[|\]|\{|\}/;
 
 /** THE CARD SAYS SO ITSELF when the line did not land, rather than quietly reading as an instruction. */
+/** Connective and storefront words a description may use without the page having to spell them out. */
+const GENERIC_DRAFT_WORDS: ReadonlySet<string> = new Set(["overview", "browse", "explore", "find", "discover",
+  "learn", "guide", "read", "see", "meet", "click", "page", "pages", "site", "more", "related", "official",
+  "complete", "detailed", "including", "features", "covering", "reason"]);
 const OWED = "The exact line lands on the next pass; the description is still owed, and this card is what is owed.";
 
 const pathOf = (url: string): string => {
@@ -77,6 +81,18 @@ async function describe(card: ChangeProposal, page: OwnedPageEvidence, opts: Dra
   }
   const after = (drafted.value as AtomicEditDraft).after.replace(/\s+/g, " ").trim();
   if (after.length < META_MIN || after.length > META_MAX || UNSAFE.test(after)) return null;
+  // A DESCRIPTION DESCRIBES THE PAGE ON FILE, never an imagined better one. Every concrete word in the
+  // draft must be visible in the stored capture or the card's own evidence; past a small allowance, an
+  // unseen claim rejects the line, so "filter by material" can never ship for a page with no filters on
+  // record and "primary sources" cannot be promised by a page that never shows any.
+  const seen = new Set(topicTokens([content?.title, content?.h1, ...outline, card.pagePath?.replace(/[-/]/g, " "),
+    card.primaryQuery, card.whyItMatters, ...hints].filter(Boolean).join(" ")));
+  const invented = topicTokens(after).filter((w) => !seen.has(w) && !GENERIC_DRAFT_WORDS.has(w));
+  if (invented.length > 2) {
+    log.info("[drafted-copy] the description names things the stored page does not show", {
+      tenantId: opts.tenantId, path: card.pagePath, invented: invented.slice(0, 5) });
+    return null;
+  }
   // THE ONE VALIDATOR, over the same words the drafter was grounded on. A line it refuses never reaches a card.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: "meta",
     before: card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.before : null, after } },

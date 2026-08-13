@@ -311,11 +311,36 @@ function covers(job: OwnedPageJob, words: readonly string[], jobs: Jobs | null |
   return distinct.filter((w) => has.has(w)).length >= Math.min(MIN_JOB_MATCHES, distinct.length);
 }
 
+/** WHAT THE REQUEST ASKS SOMEONE TO ACCOMPLISH, read off its own words. Deterministic, no spend. A page
+ *  can cover the right subjects and still be the wrong KIND of page: a festival article covers culture and
+ *  traditions and is still not an answer to "reliable sources for learning about Iranian culture", because
+ *  that request wants a directory of sources, not one more source. */
+type RequestShape = "source_discovery" | "roster" | "shopping" | "topical";
+const SOURCE_DISCOVERY = /\b(sources?|resources?|references?|where (can|do|to) (i |you |one )?(learn|find|read|start)|learn(ing)? about)\b/i;
+const ROSTER = /\b(all|every|full list|list of|top \d+|best \d+)\b/i;
+const SHOPPING = /\b(buy|price|cost|shop|order|purchase)\b/i;
+const requestShape = (text: string): RequestShape =>
+  SOURCE_DISCOVERY.test(text) ? "source_discovery" : SHOPPING.test(text) ? "shopping" : ROSTER.test(text) ? "roster" : "topical";
+/** The page shapes that can satisfy each request shape. A hub or list is built to survey or send onward,
+ *  so it may answer a directory or an all-of-X question; a single guide, entity or city page may not,
+ *  however well its subjects match. Topical requests stay with coverage alone, so broad hubs and ordinary
+ *  questions both keep working exactly as before. */
+const SATISFIES: Record<RequestShape, ReadonlySet<OwnedPageJob["pageType"]> | null> = {
+  source_discovery: new Set(["hub", "list"]), roster: new Set(["hub", "list", "category"]),
+  shopping: new Set(["product", "category"]), topical: null,
+};
+
 /** Does a section answering these subject words belong on this page? "unknown" whenever the page has no job.
- *  `jobs` is every reading this pass holds, which is how a word this whole site carries stops counting as a tie. */
-export function sectionFit(job: OwnedPageJob | null | undefined, subjectWords: readonly string[], jobs?: Jobs): FitVerdict {
+ *  `jobs` is every reading this pass holds, which is how a word this whole site carries stops counting as a tie.
+ *  `request` is the asking text itself: subject coverage says the page knows the topic, the request shape says
+ *  this kind of page can actually satisfy what was asked, and admission needs both. */
+export function sectionFit(job: OwnedPageJob | null | undefined, subjectWords: readonly string[], jobs?: Jobs, request?: string): FitVerdict {
   if (!job) return "unknown";
   if (ESSAY_NEVER.has(job.pageType)) return "wrong_type";
+  if (request) {
+    const need = SATISFIES[requestShape(request)];
+    if (need && !need.has(job.pageType)) return "wrong_type";
+  }
   if (subjectWords.length === 0) return "unknown";
   return covers(job, subjectWords, jobs) ? "fits" : "off_topic";
 }

@@ -120,6 +120,14 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   add("actionability", p.status === "needs_review" ? "this draft is waiting on your review"
     : "this draft passed every safety check", tier, MAX.actionability);
 
+  // A CARD STILL OWED ITS EXACT COPY CANNOT LEAD. "Write a description" is an errand, not an edit: while
+  // the drafted line is owed (the marker drafted-copy leaves on the card), the card waits behind every
+  // card that carries finished work, however big its page is. The penalty outweighs the visibility
+  // ceiling on purpose. Matched on the marker's stable phrase because the export budget is spent.
+  if ((p.limitations ?? []).some((l) => l.includes("the description is still owed"))) {
+    add("readiness", "the exact line is still owed, so finished work goes first", -45, 45);
+  }
+
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;
   const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;

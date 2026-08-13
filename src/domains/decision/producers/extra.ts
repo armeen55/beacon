@@ -139,7 +139,7 @@ async function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: Reado
   for (const m of ranked) {
     const { job, reason } = await u.of(m.page);
     if (job) {
-      if (sectionFit(job, words, u.corpus) === "fits") return { match: m, verdict: "fits" };
+      if (sectionFit(job, words, u.corpus, text) === "fits") return { match: m, verdict: "fits" };
       refusedPaths.push(pathOf(m.page.url));
       continue;
     }
