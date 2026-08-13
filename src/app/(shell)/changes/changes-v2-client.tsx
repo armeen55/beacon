@@ -332,8 +332,8 @@ function ProofCounterStrip({ counters }: { counters: ProofCounters }) {
           <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {COUNTER_LABEL[key]}
           </p>
-          <p className="mt-1 text-[22px] font-semibold tabular-nums text-foreground">
-            {value}
+          <p className={value === 0 ? "mt-1 text-[15px] font-medium text-muted-foreground" : "mt-1 text-[22px] font-semibold tabular-nums text-foreground"}>
+            {value === 0 ? "None" : value}
           </p>
         </div>
       ))}

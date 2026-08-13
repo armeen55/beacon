@@ -331,7 +331,7 @@ function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, 
     stale: `My ${source.toUpperCase()} data is older than its window; still using it, flagged.`,
     empty: `I connected to ${source.toUpperCase()} but there is nothing recorded yet.`,
     failed: `I could not read ${source.toUpperCase()} this run.`,
-    dormant: `${source.toUpperCase()} is not connected, so I am running without it for now.`,
+    dormant: `${source.toUpperCase()} is not connected, so research runs without it for now.`,
   };
   return {
     source,
@@ -588,9 +588,9 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   const nativeAi: LoadedSource<null> = { payload: null,
     status: unread ? "failed" : observations.length === 0 ? "dormant" : credited ? "fresh" : "empty",
     lastSyncedAt: observations.map((o) => o.observedAt).filter((t): t is string => !!t).sort().at(-1) ?? null,
-    ...(unread ? { note: "I could not read your stored AI answers this run, so I am deciding without them." }
-      : observations.length === 0 ? { note: "I have not stored an AI answer for your questions yet, so I am working without that evidence for now." }
-      : credited ? {} : { note: `I have ${observations.length} stored AI answers and not one of them has named a page yet, so I have nothing to compare pages on.` }) };
+    ...(unread ? { note: "Your stored AI answers could not be read this run, so decisions are made without them." }
+      : observations.length === 0 ? { note: "No AI answer is stored for your questions yet, so that evidence is not in play for now." }
+      : credited ? {} : { note: `${observations.length} AI answers are stored and not one of them has named a page yet, so there is nothing to compare pages on.` }) };
 
   // ── freshness for all six sources ──
   const sources: SourceFreshness[] = [

@@ -205,7 +205,7 @@ export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
     const withBasis = group.filter((g) => g.basisDay != null);
     if (withBasis.length !== group.length) {
       return { path, changeIds, verdict: "insufficient_evidence" as KernelVerdict,
-        headline: `I made ${group.length} changes on this page in the same window. I am still gathering enough data to read them as a group.` };
+        headline: `This page took ${group.length} changes in the same window. Enough data to read them as a group is still coming in.` };
     }
     // One running total PER METRIC, in the order the metrics first appear, so nothing is added across units.
     const totals = new Map<KernelMetric, number>();
@@ -216,12 +216,12 @@ export function bundleReads(reads: ReadonlyArray<KernelRead>): BundleRead[] {
     const verdict: KernelVerdict = ups === totals.size ? "directional_improvement"
       : downs === totals.size ? "directional_decline" : "no_clear_movement";
     const together = moves.length === 1 ? moves[0]! : `${moves.slice(0, -1).join(", ")}, and ${moves[moves.length - 1]}`;
-    const closing = verdict === "directional_improvement" ? "I cannot split the credit between them, but the page as a whole is improving."
-      : verdict === "directional_decline" ? "I cannot split the credit between them. Worth a look at what changed together here."
-        : moves.length > 1 ? "I cannot split the credit between them, and those measure different things, so I will not turn them into one answer."
-          : "I cannot split the credit between them, and the page has not clearly moved.";
+    const closing = verdict === "directional_improvement" ? "The credit cannot be split between them, but the page as a whole is improving."
+      : verdict === "directional_decline" ? "The credit cannot be split between them. Worth a look at what changed together here."
+        : moves.length > 1 ? "The credit cannot be split between them, and those measure different things, so they do not add into one answer."
+          : "The credit cannot be split between them, and the page has not clearly moved.";
     return { path, changeIds, verdict,
-      headline: `I made ${group.length} changes on this page in the same window. Since then the page is ${together}. ${closing}` };
+      headline: `This page took ${group.length} changes in the same window. Since then the page is ${together}. ${closing}` };
   });
 }
 
@@ -336,15 +336,15 @@ export function buildHeadline(args: {
   switch (args.verdict) {
     case "confounded":
       return args.overlapClosedOn != null
-        ? `This page moved over the ${win} window, but I changed the same page again on ${monthDay(args.overlapClosedOn)}, so everything after that day belongs to both changes and I cannot pin it on this one.${ga4}`
-        : `This page moved over the ${win} window, but I made ${args.overlapCount} other change${args.overlapCount === 1 ? "" : "s"} on it at the same time, so I cannot say which one did it.${ga4}`;
+        ? `This page moved over the ${win} window, but the page changed again on ${monthDay(args.overlapClosedOn)}, so everything after that day belongs to both changes and this movement cannot be pinned on one.${ga4}`
+        : `This page moved over the ${win} window, but ${args.overlapCount} other change${args.overlapCount === 1 ? "" : "s"} landed on it at the same time, so this movement cannot be pinned on one.${ga4}`;
     // Observational, never causal: the page MOVED after the change. A pre-28-day read is still measuring, so it never closes with a verdict.
     case "stronger_improvement":
-      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of similar pages over the ${win} window.${mature ? " A clear, well supported move." : " I will call it when the 28-day window closes."}${ga4}`;
+      return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of similar pages over the ${win} window.${mature ? " A clear, well supported move." : " This firms up when the 28-day window closes."}${ga4}`;
     case "directional_improvement":
       return `This page moved up after the change: ${formatLift(args.metric, args.lift)} ahead of similar pages over the ${win} window. Still observational, not proof.${ga4}`;
     case "directional_decline":
-      return `This page moved down after the change: ${formatLift(args.metric, args.lift)} behind similar pages over the ${win} window.${mature ? " Worth trying a different angle on this page." : " Still measuring, so I will call it when the 28-day window closes."}${ga4}`;
+      return `This page moved down after the change: ${formatLift(args.metric, args.lift)} behind similar pages over the ${win} window.${mature ? " Worth trying a different angle on this page." : " Still measuring. This firms up when the 28-day window closes."}${ga4}`;
     case "no_clear_movement":
     default: {
       const vis = args.impressionsLift > 50 ? ` The page is showing for more searches though (+${Math.round(args.impressionsLift)} impressions vs similar pages).` : "";

@@ -1,17 +1,12 @@
 /**
  * Measurement kernel (CORE 100K replacement). PURE + one thin loader.
  *
- * This is the small, honest replacement for the sprawling proof-gsc engine. It does
- * exactly nine things and nothing more: (1) load a shipped change and its page identity;
- * (2) evaluate the checkpoints, counted from the stamp; (3) compare before vs after (GSC
- * clicks, CTR, position, impressions for visibility, GA4 where trustworthy); (4) account
- * for Google's reporting lag and missing data; (5) detect overlapping changes on one page;
- * (6) produce a directional read, a bundle read for overlaps, and an explicit confounded
- * or insufficient state when separation is impossible; (7) never claim clean causality;
- * (8) feed a small outcome signal back into ranking; (9) render what an operator needs.
+ * This is the small, honest replacement for the sprawling proof-gsc engine. It does exactly nine things and nothing more: (1) load a shipped change and its page identity;
+ * (2) evaluate the checkpoints, counted from the stamp; (3) compare before vs after (GSC clicks, CTR, position, impressions for visibility, GA4 where trustworthy); (4) account
+ * for Google's reporting lag and missing data; (5) detect overlapping changes on one page; (6) produce a directional read, a bundle read for overlaps, and an explicit confounded
+ * or insufficient state when separation is impossible; (7) never claim clean causality; (8) feed a small outcome signal back into ranking; (9) render what an operator needs.
  *
- * Confidence is derived from transparent conditions ONLY: window maturity, data
- * availability, sample size, baseline stability, overlap/confounding, and source
+ * Confidence is derived from transparent conditions ONLY: window maturity, data availability, sample size, baseline stability, overlap/confounding, and source
  * freshness. No permutation-null, FDR, calibration self-tests, or forecast machinery.
  *
  * Beacon voice on every operator-facing string: first person, concrete numbers,
@@ -391,7 +386,7 @@ export function evaluateChange(
   // caught up.
   const pendingData = marked.some((w) => w.state === "pending_data");
   if (pendingData && !basisWindow) {
-    caveats.push("A check window has closed on the calendar, but I am still waiting on Google to finalize those days. Google reports a few days behind.");
+    caveats.push("A check window has closed on the calendar, but Google has not finalized those days yet. Google reports a few days behind.");
   }
 
   // No closed window with data yet => still waiting. Never a dead-end read.
@@ -399,9 +394,10 @@ export function evaluateChange(
     return {
       id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
       windows: marked, basisDay: null, lift: 0, impressionsLift: 0, verdict: "waiting",
-      comparison: input.measurementState === "insufficient_comparison" ? "insufficient" : "fair",
+      comparison: input.measurementState === "insufficient_comparison" || input.measurementState === "measurement_unavailable" ? "insufficient" : "fair",
       unadjusted: null,
-      headline: "I am still measuring this. The first read lands once a check window closes and Google finalizes those days.",
+      headline: input.measurementState === "insufficient_comparison" || input.measurementState === "measurement_unavailable" ? NO_FAIR_COMPARISON
+        : "Still measuring. The first read lands once a check window closes and Google finalizes those days.",
       confidence: "low", confidenceReasons: ["No check window has closed with finalized data yet."],
       caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
     };
@@ -427,17 +423,17 @@ export function evaluateChange(
     (metric === "ctr" || metric === "position") && basisWindow.treatedPostImpressions === 0;
   // TOO FEW FAIR COMPARISONS IS ITS OWN STATE, not thin data: the work landed, and what it did cannot
   // be separated from the rest of the site. No direction is claimed and ranking learns nothing.
-  const unfairComparison = thinControls || input.measurementState === "insufficient_comparison";
+  const unfairComparison = thinControls || input.measurementState === "insufficient_comparison" || input.measurementState === "measurement_unavailable";
   if (thinBaseline || unfairComparison || noRateData) {
-    if (thinBaseline) confidenceReasons.push(`This page had ${Math.round(input.baselineImpressions)} impressions before the change, below the ${MIN_BASELINE_IMPRESSIONS} I want before I read a result.`);
-    if (thinControls) confidenceReasons.push(`I could compare against only ${controls} similar page${controls === 1 ? "" : "s"}, below the ${MIN_CONTROLS} I want.`);
+    if (thinBaseline) confidenceReasons.push(`This page had ${Math.round(input.baselineImpressions)} impressions before the change, below the ${MIN_BASELINE_IMPRESSIONS} a confident read needs.`);
+    if (thinControls) confidenceReasons.push(`Compared against only ${controls} similar page${controls === 1 ? "" : "s"}, below the ${MIN_CONTROLS} a confident read needs.`);
     if (noRateData) confidenceReasons.push("This page had no Search impressions in the window, so there is no click rate or rank to compare.");
     return {
       id: input.id, page: input.page, path: input.path, actionType: input.actionType, metric,
       windows: marked, basisDay, lift, impressionsLift, verdict: "insufficient_evidence",
       comparison: unfairComparison ? "insufficient" : "fair", unadjusted,
       headline: unfairComparison ? NO_FAIR_COMPARISON
-        : "I cannot read this one confidently yet. There is not enough Search data or enough similar pages to compare against.",
+        : "No confident read yet. There is not enough Search data or enough similar pages to compare against.",
       confidence: "low", confidenceReasons,
       caveats, overlappingIds, cleanUntil, learning: shape("unclear"), rankingSignal: 0,
     };
@@ -457,13 +453,13 @@ export function evaluateChange(
     verdict === "stronger_improvement" ||
     verdict === "directional_decline";
   if (isDirectional && basisConfounded) {
-    caveats.push(`I changed this page again on ${monthDay(cleanUntil!)}, so everything after that day belongs to both changes and I stopped reading this one there.`);
+    caveats.push(`This page changed again on ${monthDay(cleanUntil!)}, so everything after that day belongs to both changes and this reading stops there.`);
     verdict = "confounded";
   } else if (isDirectional && cleanUntil == null && overlappingIds.length > 0) {
-    caveats.push(`I made ${overlappingIds.length} other change${overlappingIds.length === 1 ? "" : "s"} on this page in the same window, so I cannot pin this movement on one change alone.`);
+    caveats.push(`This page took ${overlappingIds.length} other change${overlappingIds.length === 1 ? "" : "s"} in the same window, so this movement cannot be pinned on one change alone.`);
     verdict = "confounded";
   } else if (cleanUntil != null && marked.some((w) => w.confounded != null)) {
-    caveats.push(`This is the ${basisDay}-day read, which closed before I changed the page again on ${monthDay(cleanUntil)}. I am not counting the days after that against this change.`);
+    caveats.push(`This is the ${basisDay}-day read, which closed before the page changed again on ${monthDay(cleanUntil)}. The days after that do not count against this change.`);
   }
 
   // Point 7: never claim clean causality. Every directional headline says
@@ -591,6 +587,8 @@ export type LedgerRecordLike = {
   ga4Trustworthy?: boolean;
   /** THE STAMP, on every Shipment and on no record written before there was one. */
   implementedAt?: string | null;
+  /** The shipment envelope itself, when the record carries one. Read only for the fail-closed rule below. */
+  shipment?: unknown;
   /** What the operator says they applied. One record is ONE treatment however many
    *  components it carries, and page movement is never split between them. */
   componentsApplied?: ReadonlyArray<{ kind: string }> | null;
@@ -634,7 +632,9 @@ export function toKernelInput(r: LedgerRecordLike): KernelInput {
     componentKinds: (r.componentsApplied ?? []).map((c) => c.kind),
     diagnosisCause: r.diagnosisCause ?? null,
     evidenceItemCount: r.evidenceItemCount ?? null,
-    measurementState: r.measurementState ?? null,
+    // A shipment-born row with no stored state is a row whose column was dropped by a pre-migration
+    // deploy, and reading that gap as a FAIR comparison invents fairness: it fails closed instead.
+    measurementState: r.measurementState ?? (r.shipment != null ? "measurement_unavailable" : null),
   };
 }
 
@@ -669,7 +669,7 @@ type ResultBand = "won" | "promising" | "learned" | "measuring";
 
 /** A read is MATURE once its basis is the 28-day window, or the day-56 follow up that
  *  only an unsettled or dangerous change earns. Pure. */
-function isMature(basisDay: CheckpointDay | null): boolean {
+export function isMature(basisDay: CheckpointDay | null): boolean {
   return basisDay === 28 || basisDay === FOLLOW_UP_DAY;
 }
 

@@ -49,7 +49,7 @@ export type ResearchRunStatusView = {
   cases?: { active: number; parked: number };
   /** IS THE RESEARCH ALIVE, and what did the last of it actually produce. A surface reading counters alone
    *  cannot tell a quiet day from an account nothing has run for in a week: both render an empty string. */
-  liveness?: { state: "productive" | "quiet" | "silent"; line: string };
+  liveness?: { state: "productive" | "quiet" | "interrupted" | "silent"; line: string };
 };
 
 /** How long a `running` row may sit UNTOUCHED before I stop calling it work in progress. Every unit
@@ -111,7 +111,7 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   // view's own pauseReason on the one surface that renders only this line.
   return did != null ? { state: "productive", line: `${did} ${at}.` }
     : state === "completed" ? { state: "quiet", line: `Checked ${at}. Nothing new was owed.` }
-    : { state: "quiet", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
+    : { state: "interrupted", line: `Research stopped partway ${at}. ${RESTART_STEP}` };
 }
 
 /** Human step index for a phase; `done` maps to all 8 steps done. */

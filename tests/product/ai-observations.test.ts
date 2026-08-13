@@ -360,7 +360,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
     db.read = wholeDay(); db.written = []; const net = vi.fn(async () => { throw new Error("the snapshot must never reach a provider"); }); vi.stubGlobal("fetch", net);
     const snap = await snapshotOf(); vi.unstubAllGlobals();
     const ai = snap.sources.find((s) => s.source === "native_ai")!; // 140 stored answers that credited nobody: the count and the sentence must agree
-    expect([snap.research.aiObservations.length, ai.status, ai.rowsSeen, ai.note]).toEqual([140, "empty", 140, "I have 140 stored AI answers and not one of them has named a page yet, so I have nothing to compare pages on."]);
+    expect([snap.research.aiObservations.length, ai.status, ai.rowsSeen, ai.note]).toEqual([140, "empty", 140, "140 AI answers are stored and not one of them has named a page yet, so there is nothing to compare pages on."]);
     expect([new Set(snap.research.aiObservations.map((o) => o.engine)).size, snap.aiCitations.rowsScanned, net.mock.calls.length, db.written.length, db.updated]).toEqual([4, 140, 0, 0, null]); // and zero provider calls, zero writes
     const first = snap.research.aiObservations.find((o) => o.observationId === "obs_p0_chatgpt")!; // the FIRST window's answer, long overwritten in state
     expect([first.fanOutQueries, first.promptVersion, first.reportingDay, first.observationMode, first.cacheKey]).toEqual([["p0 fan"], 2, DAY, "consumer_search", "ck_p0_chatgpt"]); // the receipt the answer was read from travels with it, so a case receipt can prove the purchase
@@ -380,11 +380,11 @@ describe("the snapshot reads the canonical answer set, never the working window"
   });
   it("says a read that failed failed, and keeps that a different claim from an account with nothing stored", async () => {
     db.read = wholeDay(); db.error = { message: "connection lost" }; // 140 answers on file and Postgres unreachable
-    const unread = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!; expect([unread.status, unread.note]).toEqual(["failed", "I could not read your stored AI answers this run, so I am deciding without them."]);
+    const unread = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!; expect([unread.status, unread.note]).toEqual(["failed", "Your stored AI answers could not be read this run, so decisions are made without them."]);
     db.error = null; promptSet.active = null; // the QUESTION SET could not be read either: still a read I did not get, never an empty account
     expect((await snapshotOf()).sources.find((s) => s.source === "native_ai")!.status).toBe("failed"); promptSet.active = PROMPTS; db.read = [];
     const none = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!;
-    expect([none.status, none.note]).toEqual(["dormant", "I have not stored an AI answer for your questions yet, so I am working without that evidence for now."]);
+    expect([none.status, none.note]).toEqual(["dormant", "No AI answer is stored for your questions yet, so that evidence is not in play for now."]);
   });
   it("derives the pages AI keeps crediting and the questions it answered from those same answers", async () => {
     const MINE = `https://${SITE}/kite-guide`, RIVAL = "https://rival.example/kites", asked = { questionsAnswered: ["when do kite festivals start", "too short"] };

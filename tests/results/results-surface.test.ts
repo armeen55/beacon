@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { bandOf, evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
 import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
+import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
+import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
 
 /** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises:
  *  a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added
@@ -46,12 +48,10 @@ describe("the numbers at the top", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: sharedCredit })]);
     // BANKED FRAMING: the denominator is every finished read, and the ones that did not win are named as what they taught.
     expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 3 finished; the rest taught what does not move this site", isCount: true });
-    // NET, NEVER THE WINS ALONE. The gross from the wins drops to the smaller second line beside what the rest gave back.
-    expect(view.header.clicks).toEqual({ value: "+10", positive: true, note: "+40 from wins, -30 from the rest" });
+    expect(view.header.clicks).toEqual({ value: "+10", positive: true, note: "+40 from wins, -30 from the rest" });  // NET, NEVER THE WINS ALONE. The gross from the wins drops to the smaller second line beside what the rest gave back.
     expect(view.header.appearances).toEqual({ value: "+70", positive: true, note: "+120 from wins, -50 from the rest" });
     expect(view.header.window).toBe("Across the 3 changes that finished their 28 day read.");
-    // AND THEY RECONCILE: the totals are exactly the mature rows a customer can see, added up.
-    const mature = (["worked", "down", "flat"] as const).flatMap((g) => view.rows[g]);
+    const mature = (["worked", "down", "flat"] as const).flatMap((g) => view.rows[g]);  // AND THEY RECONCILE: the totals are exactly the mature rows a customer can see, added up.
     expect([mature.reduce((t, r) => t + shown(r.liftLabel), 0), mature.reduce((t, r) => t + shown(r.impressionsLabel), 0)]).toEqual([10, 70]);
     expect([view.header.reading.value, view.counts, view.defaultGroup]).toEqual(["1", { worked: 1, down: 1, flat: 1, reading: 1 }, "worked"]);
   });
@@ -75,8 +75,7 @@ describe("one change gets one line", () => {
   });
   it("calls a loss a loss, holds an early lean as still reading, and never grades them on different rules", () => {
     expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Went down", "-30 clicks behind", "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed."]);
-    // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading,
-    // which is what the header already claimed, and the running estimate stays on screen beside it.
+    // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading, which is what the header already claimed, and the running estimate stays on screen beside it.
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []);
     expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);
   });
@@ -87,8 +86,7 @@ describe("one change gets one line", () => {
     expect(row.happened).toBe("1 other change landed on this page at the same time, so the credit is shared. Estimated lift: 40 clicks ahead of pages that were not changed, held as shared credit rather than a win.");
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });
     expect(row.nextStep).toBe("Two changes share these days. Make the next change on this page on its own, then measure it.");
-    // AND A READ A LATER CHANGE CUT SHORT IS PAINTED AS SHARED FROM THE DAY IT WAS CUT, never as this change's own.
-    expect(first({ read: cutOff }).pips.map((p) => p.state)).toEqual(["read", "shared", "shared"]);
+    expect(first({ read: cutOff }).pips.map((p) => p.state)).toEqual(["read", "shared", "shared"]);  // AND A READ A LATER CHANGE CUT SHORT IS PAINTED AS SHARED FROM THE DAY IT WAS CUT, never as this change's own.
     expect(first({ read: cutOff }).caveats[0]).toBe("This page changed again on May 10. The days after that belong to both changes.");
   });
   it("says what has been read instead of a number while a change is still reading", () => {
@@ -112,8 +110,7 @@ describe("opening a change says what happened, against what, and what to do next
     expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of similar pages that were not changed.");
   });
   it("shows the site's own before and after, labeled unadjusted, where no fair comparison exists", () => {
-    // Too few pages to stand behind it is NOT too little data: the days ran, so the page's own move is shown.
-    const row = first({ read: evaluateChange(input({ windows: [win(28, { controlsUsed: 1, treatedDelta: 17 })] }), WINDOWS, []) });
+    const row = first({ read: evaluateChange(input({ windows: [win(28, { controlsUsed: 1, treatedDelta: 17 })] }), WINDOWS, []) });  // Too few pages to stand behind it is NOT too little data: the days ran, so the page's own move is shown.
     expect(row.happened).toBe("Ran 28 days. A fair comparison is not available: too few pages on this site can stand behind this one.");
     expect(row.unadjustedNote).toBe("Before 200 clicks / After 217 clicks, unadjusted: the site moved too.");
     expect([first().unadjustedNote, first({ read: measuring }).unadjustedNote]).toEqual([null, null]);
@@ -174,4 +171,15 @@ describe("what the screen calls the work, and what it will not promise", () => {
       ["lab word", /\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i]] as const)
       for (const s of strings) expect(s, `${why} in: ${s}`).not.toMatch(bad);
   });
+  it("every sentence the headline switch can print speaks subjectless: the whole branch space, not a sample", () => {
+    // Third time this class shipped: a branch got rewritten and its sibling did not, and a fixture pin sampled around it. So walk the space.
+    const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const;
+    const M = ["clicks", "ctr", "position", "unclassified"] as const;
+    for (const verdict of V) for (const basisDay of [7, 14, 28, 56] as const) for (const overlapCount of [0, 1, 2]) for (const overlapClosedOn of [null, "2026-05-05"]) for (const metric of M) {
+      const line = buildHeadline({ verdict, metric, lift: verdict === "directional_decline" ? -30 : 40, impressionsLift: 60, basisDay, overlapCount, overlapClosedOn, ga4ExtraSessions: 12, ga4Trustworthy: true });
+      expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);
+    }
+    expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);
+  });
+
 });

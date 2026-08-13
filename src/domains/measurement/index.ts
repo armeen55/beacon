@@ -10,6 +10,7 @@
 
 // Proof-gsc sub-kernel (re-exported through its own facade)
 export {
+  isMature,
   loadProofLedger,
   loadProofLedgerPersisted,
   loadProofLedgerCached,

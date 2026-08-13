@@ -114,7 +114,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const exact = (s.topQueries ?? []).find((q) => isPrimary(q.query));
   if (exact) add(RECEIPT.gsc, "gsc_demand", queryFact(exact), null); // the EXACT search the gap was measured on, never a neighbour
   queries.slice(0, 3).filter((q) => !isPrimary(q.query)).forEach((q, i) => add(`demand-q${i + 1}`, "gsc_demand", queryFact(q), null));
-  add(RECEIPT.copy, "page_extract", `${c.fetchedAt ? `Read on ${c.fetchedAt.slice(0, 10)}, this page` : "The page I hold"} ${c.title ? `was titled "${c.title}"` : "had no title set"} and ran ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
+  add(RECEIPT.copy, "page_extract", `${c.fetchedAt ? `Read on ${c.fetchedAt.slice(0, 10)}, this page` : "The stored copy of this page"} ${c.title ? `was titled "${c.title}"` : "had no title set"} and ran ${c.wordCount.toLocaleString()} words across ${c.outline.length} sections.`, c.fetchedAt);
   const split = splitComparison(snapshot, primary);
   const sectionsOf = (url: string): string[] => (bodies.get(canonicalUrlKey(url))?.headings
     ?? snapshot.ownedPages.find((p) => canonicalUrlKey(p.url) === canonicalUrlKey(url))?.content?.outline ?? []).slice(0, 6);
@@ -242,7 +242,7 @@ function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string
 
 /** WHAT EACH DOOR ACTUALLY MEASURED, in the operator's words, so the wording branch refuses in its own terms. */
 const DOOR_MEASURED: Record<DoorContext["door"], string> = { ctr_gap: "it is losing clicks against its own positions",
-  ai_absence: "an assistant answered the question around it", coverage_verdict: "my comparison of the pages winning that search names this page",
+  ai_absence: "an assistant answered the question around it", coverage_verdict: "the comparison of the pages winning that search names this page",
   cannibalization: "two of your own pages come up for that search", recent_decline: "this page's searches have fallen" };
 
 const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
@@ -304,8 +304,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // EVERY OTHER DOOR TAKES THE PAGE IT NAMED: an engine that answered around it, a comparison, a split. Each is proof in its own right and waits on no Google number.
   const pick = door ? graded[0] : scored[0];
   if (!pick) return { status: "none", reason: door
-    ? "I could not read the page I picked closely enough to write against it, so I am handing you nothing. Let me read that page again and I will come back with the change."
-    : "No page of yours is losing enough clicks against what its own positions should earn, so I have nothing honest to rewrite yet." };
+    ? "The picked page could not be read closely enough to write against, so nothing is handed over. The page is read again on the next pass, and the change follows."
+    : "No page of yours is losing enough clicks against what its own positions should earn, so there is nothing honest to rewrite yet." };
   // THE DOOR ANSWERS FOR ITS OWN EVIDENCE: a wrong reason beats no reason nowhere.
   const shortOf = door ? doorEvidenceMissing(door, snapshot) : null;
   if (shortOf) return { status: "none", reason: shortOf };
@@ -319,18 +319,18 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
       headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
-      completeness: b.completeness ?? "sample_only", heldNote: b.heldNote ?? "I hold a sample of this page, not the whole page." };
+      completeness: b.completeness ?? "sample_only", heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page." };
   const held = heldOf(page.url, content, body ?? undefined);
   const heldBodies = new Map(snapshot.ownedPages.flatMap((p) => {
     const one = heldOf(p.url, p.content, opts.bodyByUrl?.get(canonicalUrlKey(p.url)));
     return one ? [[canonicalUrlKey(p.url), one] as const] : []; }));
   const coverage = opts.coverage ?? null;
   const mine = coverage && coverage.decision.ownedUrls.some((u) => canonicalUrlKey(u) === canonicalUrlKey(page.url)) ? coverage : null;
-  if (door?.door === "coverage_verdict" && !mine) return { status: "none", reason: `I picked this page because my comparison of "${primary}" named it as the page of yours to improve, and I do not hold that comparison against this page any more, so I am not writing a change off it. Let me read the pages that win it side by side again and I will come back with the change.` };
+  if (door?.door === "coverage_verdict" && !mine) return { status: "none", reason: `This page was picked because the comparison of "${primary}" named it as the page of yours to improve, and that comparison is no longer on file for it, so no change is written off it. The winning pages are read side by side again on the next pass, and the change follows.` };
   const pattern: WinningPattern | null = mine?.decision.pattern ?? null;
   const technical = opts.technical?.filter((f) => canonicalUrlKey(f.url) === canonicalUrlKey(page.url));
   const receipt = buildReceipt(snapshot, page, queries, primary, weakAnchorsOf(snapshot), body, mine, technical ?? [], heldBodies);
-  if (receipt.items.length === 0) return { status: "none", reason: "I hold nothing I can show you about this page yet, so I will not tell you to change it." };
+  if (receipt.items.length === 0) return { status: "none", reason: "Nothing about this page is on file to show yet, so no change is asked of it." };
   // NO DRAFT SPEND BEFORE A NAMED CAUSE. ONE ladder, `diagnoseCauses`; nothing here re-derives a cause, so a page said to be losing on X is never handed a change made for Y.
   const diagnosis = receipt.diagnosis;
   const finding = diagnoseCauses({ snapshot, page, query: primary, serpRead: diagnosis, coverage: mine, body: held,
@@ -384,7 +384,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
 
   if (wording) {
     // A DOOR THAT NEVER MEASURED A CLICK MAY NOT CONCLUDE WORDING: re-running the results reading on a door's own label accuses a title on a page nobody proved is losing clicks.
-    if (door) return { status: "none", reason: `I picked this page because ${DOOR_MEASURED[door.door]}, and I never measured what its line in the results earns you, so what it earns from me here is coverage of what it is missing, not a new headline. Let me read it against the pages winning that search and I will come back with what to add.` };
+    if (door) return { status: "none", reason: `This page was picked because ${DOOR_MEASURED[door.door]}, and what its line in the results earns was never measured, so what it gets here is coverage of what it is missing, not a new headline. It is read against the pages winning that search on the next pass, and the addition follows.` };
     if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
     const before = content.title;
     const draft = await draftAtomicEditStructured(

@@ -8,6 +8,7 @@
  * a count nobody has read is said in words, never sold as a zero. */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
+import { isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
 
 /** What one measured change carries on the Results surface. */
@@ -83,7 +84,6 @@ export type ResultsView = {
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
-
 // -- the closed label maps (a slug never reaches the screen) -------------------
 
 /** What the change actually was, said the way an operator would say it. */
@@ -150,7 +150,7 @@ const FAMILY_LABEL: Record<string, string> = {
 /** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
 const CLAMP = 0.25;
 
-const isMature = (d: number | null): boolean => d === 28 || d === 56;
+const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 | 56 | null);
 
 /** ONE MATURITY RULE, THE SAME ONE THE LEDGER BANDS USE (proof-gsc/kernel.ts bandOf): a read whose window has not closed is still
  *  reading, whichever way it leans, and only a finished one is a settled answer. An early lean filed under "Worked" or "Went down"
@@ -158,7 +158,7 @@ const isMature = (d: number | null): boolean => d === 28 || d === 56;
 const groupOf = (r: KernelRead): ResultsGroup => {
   if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return isMature(r.basisDay) ? "worked" : "reading";
   if (r.verdict === "directional_decline") return isMature(r.basisDay) ? "down" : "reading";
-  if (r.verdict === "no_clear_movement" || (r.verdict === "confounded" && isMature(r.basisDay))) return "flat";
+  if (r.verdict === "no_clear_movement" || r.verdict === "confounded") return isMature(r.basisDay) ? "flat" : "reading";
   return "reading";
 };
 

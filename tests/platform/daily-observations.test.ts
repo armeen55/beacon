@@ -154,7 +154,7 @@ describe("extra readings", () => {
       readObservations: async () => { throw new Error("db down"); },
     });
     expect([out.granted, out.due]).toEqual([false, []]);
-    expect(out.reason).toContain("could not read");
+    expect(out.reason).toContain("could not be read");
   });
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
@@ -172,7 +172,7 @@ describe("extra readings", () => {
     // A grant I could not record is a refusal, never a promise.
     const lost = await requestExtraSample(T, DAY, { ...world, writeMarkers: async () => false });
     expect([lost.granted, lost.due]).toEqual([false, []]);
-    expect(lost.reason).toContain("could not save");
+    expect(lost.reason).toContain("could not be saved");
   });
   it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
     const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null };
@@ -615,7 +615,7 @@ describe("work that is genuinely finished", () => {
     expect(markers!.observationRetries)
       .toEqual({ day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } }); // not one retry spent
     expect(store[0]!.status).toBe("failed"); // nothing settled, so the row still says the true thing
-    expect(said.errors.some((m) => m.includes("could not close out a check"))).toBe(true);
+    expect(said.errors.some((m) => m.includes("could not be closed out"))).toBe(true);
     // Still owed, and the next pass closes it: the throw cost the pair nothing at all.
     await dueObservations(T, DAY, { ...world,
       settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {

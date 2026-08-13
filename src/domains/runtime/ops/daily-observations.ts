@@ -192,13 +192,13 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
 export function extraSampleVerdict(day: string, input: ObservationPlanInput): { granted: boolean; reason: string; due: DueObservation[] } {
   const canonical = planObservations(day, { ...input, extraSamples: 0, maxBatch: Number.MAX_SAFE_INTEGER });
   if (canonical.length > 0) {
-    return { granted: false, reason: `I still owe today's one reading on ${canonical.length} question and engine pairs, and an extra read before that is done would tilt today's average. I finish today's round first, then a second read is worth taking.`, due: [] };
+    return { granted: false, reason: `Today's one reading is still owed on ${canonical.length} question and engine pairs, and an extra read before that is done would tilt today's average. The round finishes first, then a second read is worth taking.`, due: [] };
   }
   const extra = planObservations(day, { ...input, extraSamples: (input.extraSamples ?? 0) + 1 });
   if (extra.length === 0) {
-    return { granted: false, reason: `I already have ${MAX_SAMPLES_PER_DAY} readings of every question on every engine today, which is as far as one day goes. Your next fresh round starts tomorrow.`, due: [] };
+    return { granted: false, reason: `Every question already has ${MAX_SAMPLES_PER_DAY} readings on every engine today, which is as far as one day goes. Your next fresh round starts tomorrow.`, due: [] };
   }
-  return { granted: true, reason: `I will take a second reading on ${extra.length} question and engine pairs on the next pass.`, due: extra };
+  return { granted: true, reason: `A second reading on ${extra.length} question and engine pairs runs on the next pass.`, due: extra };
 }
 
 /**
@@ -458,7 +458,7 @@ async function spendFailureBudget(tenantId: string, day: string, s: DayState, op
       // so the pair is still owed a real ask instead of being marked spent against a settle that never landed.
       if (held?.counts?.[k] != null) counts[k] = held.counts[k]!; else delete counts[k];
       if (held?.askedAt?.[k] != null) askedAt[k] = held.askedAt[k]!; else delete askedAt[k];
-      log.error("[daily-observations] I could not close out a check the provider refused, so it stays owed",
+      log.error("[daily-observations] a check the provider refused could not be closed out, so it stays owed",
         { tenantId, day, observationId: row.id, engine: row.engine, error: error instanceof Error ? error.message : String(error) });
     }
   }
@@ -474,7 +474,7 @@ async function spendFailureBudget(tenantId: string, day: string, s: DayState, op
 export async function requestExtraSample(tenantId: string, day: string, opts: PlannerDeps = {}): Promise<{ granted: boolean; reason: string; due: DueObservation[] }> {
   const state = await readDayState(tenantId, day, opts);
   if (state == null) {
-    return { granted: false, reason: "I could not read where today's checks stand, so I am not adding a second reading on a guess. I will try again on your next visit.", due: [] };
+    return { granted: false, reason: "Where today's checks stand could not be read, so no second reading is added on a guess. It is retried on your next visit.", due: [] };
   }
   const grant = state.markers?.extraSamples;
   const already = grant?.day === day ? grant.granted : 0;
@@ -482,6 +482,6 @@ export async function requestExtraSample(tenantId: string, day: string, opts: Pl
     unsupportedPairs: opts.unsupportedPairs, extraSamples: already, retries: reconcileRetries(day, state).counts });
   if (!verdict.granted) return verdict;
   const saved = await (opts.writeMarkers ?? writeDayMarkers)(tenantId, { extraSamples: { day, granted: already + 1 } }).catch(() => false);
-  if (!saved) return { granted: false, reason: "I could not save your request for a second reading, so I am not promising one. Press Update data again on your next visit.", due: [] };
+  if (!saved) return { granted: false, reason: "Your request for a second reading could not be saved, so none is promised. Press Update data again on your next visit.", due: [] };
   return verdict;
 }

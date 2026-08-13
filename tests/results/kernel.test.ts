@@ -79,7 +79,7 @@ describe("overlap and confounding honesty", () => {
   it("downgrades a directional read to confounded when changes overlap", () => {
     const read = evaluateChange(baseInput({ actionType: "content", windows: [win(28, { adjustedClicksLift: 40 })] }), CLOSED_WINDOWS, ["other-change"]);
     expect([read.verdict, read.rankingSignal]).toEqual(["confounded", 0]);
-    expect(read.headline).toContain("cannot say which one");
+    expect(read.headline).toContain("cannot be pinned on one");
   });
   it("produces a bundle group read for overlapping same-page changes", () => {
     const records: LedgerRecordLike[] = [
@@ -91,7 +91,7 @@ describe("overlap and confounding honesty", () => {
     const bundles = bundleReads(reads);
     expect(bundles).toHaveLength(1);
     expect([bundles[0].changeIds.sort(), bundles[0].verdict]).toEqual([["a", "b"], "directional_improvement"]);
-    expect(bundles[0].headline).toContain("cannot split the credit");
+    expect(bundles[0].headline).toContain("credit cannot be split");
   });
   it("never groups two separate stretches on one page, and never adds one metric onto another", () => {
     const rec = (id: string, at: string, actionType: string, over: Partial<NonNullable<LedgerRecordLike["windows"]>[number]> = {}): LedgerRecordLike =>
@@ -172,13 +172,13 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     expect(first.basisDay).toBe(7);
     expect(["directional_improvement", "stronger_improvement"]).toContain(first.verdict);
     // The operator reads a date, never a stamp.
-    expect(first.caveats.join(" ")).toContain("changed the page again on May 12");
+    expect(first.caveats.join(" ")).toContain("the page changed again on May 12");
     expect(first.caveats.join(" ")).not.toMatch(/[—–]/);
   });
   it("confounds the read outright when the second change landed before any window closed", () => {
     const [first] = twoChanges("2026-05-03T00:00:00.000Z");
     expect(first.verdict).toBe("confounded");
-    expect(first.headline).toContain("I changed the same page again on May 3");
+    expect(first.headline).toContain("the page changed again on May 3");
     expect(first.rankingSignal).toBe(0);
   });
   it("leaves the LATER change confounded, because the earlier one is still in flight under it", () => {
@@ -253,7 +253,7 @@ describe("the learning shape every read carries", () => {
     const waiting = readLedger([ledgerRow({ windows: [] })], LATE, "2026-07-01")[0];
     expect([down.learning.outcomeDirection, waiting.learning.outcomeDirection]).toEqual(["down", "unclear"]);
     expect(waiting.verdict).toBe("waiting");
-    expect(waiting.headline).toContain("still measuring");
+    expect(waiting.headline).toContain("Still measuring");
   });
 });
 /** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
@@ -328,7 +328,7 @@ describe("the conditional day-56 read", () => {
     expect(read.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]);
     expect(read.basisDay).toBe(56);
     expect(read.headline).toContain("56-day window");
-    expect(read.headline).not.toContain("I will call it when the 28-day window closes");
+    expect(read.headline).not.toContain("This firms up when the 28-day window closes");
   });
   it("names BOTH reads when the fourth checkpoint changes the answer", () => {
     const read = readLedger([ledgerRow({
@@ -363,7 +363,7 @@ describe("no causal overclaim on any read", () => {
     // A still-measuring change is held out of the won band and out of learning.
     const early = readFor([{ day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }]);
     expect([bandOf(early), learningVerdictOf(early)]).toEqual(["promising", "measuring"]);
-    expect(early.headline).toContain("I will call it when the 28-day window closes");
+    expect(early.headline).toContain("This firms up when the 28-day window closes");
   });
   it("says WHAT confounded a read, never just that it is confounded", () => {
     const [first] = readLedger([
@@ -371,7 +371,7 @@ describe("no causal overclaim on any read", () => {
       ledgerRow({ id: "second", shippedAt: "2026-05-03", implementedAt: "2026-05-03T00:00:00.000Z" }),
     ], LATE, "2026-07-01");
     expect(first.verdict).toBe("confounded");
-    expect(first.headline).toMatch(/changed the same page again on [A-Z][a-z]{2} \d{1,2}\b/);
+    expect(first.headline).toMatch(/page changed again on [A-Z][a-z]{2} \d{1,2}\b/);
     expect(first.headline).not.toMatch(/\d{4}-\d{2}-\d{2}/); // never a raw date stamp in operator copy
     expect(learningVerdictOf(first)).toBe("measuring");
   });

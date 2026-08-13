@@ -114,10 +114,13 @@ async function write(
       operatorNote: f.operatorNote?.trim() || null,
     },
   });
-  await upsertShippedChange(record, f.tenantId);
-  // A baseline nobody could capture is a baseline gap, said out loud rather than left as a zero.
+  // A baseline nobody could capture is a baseline gap, said out loud rather than left as a zero, and the
+  // STORED row carries the same state the operator is told: writing "measuring" while reporting
+  // "measurement_unavailable" left the ledger claiming a comparison it could never make.
   const measurement: MeasurementState = extra.measurement === "measuring" && record.shipmentBaseline == null
     ? "measurement_unavailable" : extra.measurement;
+  record.measurementState = measurement;
+  await upsertShippedChange(record, f.tenantId);
   if (measurement !== extra.measurement || measurement !== "measuring") {
     log.info("[shipment] recorded, and the comparison it can carry", {
       tenant: f.tenantId, id: record.id, measurement });

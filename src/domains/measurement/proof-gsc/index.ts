@@ -21,6 +21,7 @@ export {
   MIN_CONTROLS,
   GSC_LAG_DAYS,
   metricFor,
+  isMature,
   addDays,
   evaluateWindows,
   verdictPhrase,
