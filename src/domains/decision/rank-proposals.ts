@@ -124,8 +124,15 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // the drafted line is owed (the marker drafted-copy leaves on the card), the card waits behind every
   // card that carries finished work, however big its page is. The penalty outweighs the visibility
   // ceiling on purpose. Matched on the marker's stable phrase because the export budget is spent.
-  if ((p.limitations ?? []).some((l) => l.includes("the description is still owed"))) {
-    add("readiness", "the exact line is still owed, so finished work goes first", -45, 45);
+  // READY MEANS ZERO BLANKS AND ZERO OPERATOR RESEARCH. A card whose copy is still owed, or whose copy
+  // carries a fill-in placeholder (NAME, SOUND, NUMBER, YEAR), is asking the operator to finish the work:
+  // it stays visible but waits behind every card carrying finished work, named on its receipt.
+  const after = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after ?? "" : "";
+  const owed = (p.limitations ?? []).some((l) => l.includes("the description is still owed"));
+  const blanks = /\b(NAME|SOUND|NUMBER|YEAR)\b/.test(after);
+  if (owed || blanks) {
+    add("readiness", owed ? "the exact line is still owed, so finished work goes first"
+      : "the copy carries blanks nobody has filled, so finished work goes first", -45, 45);
   }
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
