@@ -108,7 +108,11 @@ export async function loadEvidenceSnapshot(
         .then((rows) => ({ rows, unread: false })).catch(() => ({ rows: [] as CanonicalPairObservation[], unread: true })),
       // Supabase is the one persistence path: the tenant repo's lean projection,
       // never the legacy .data file (empty on every hosted deploy).
-      getRepository().forTenant(tenantId).getPageSnapshots().catch(() => []),
+      // AND A PAGE READ THAT FAILED IS NOT AN ACCOUNT THAT OWNS NO PAGES. Swallowed to [], an outage here made
+      // every owned page vanish, which reads downstream as "you have no page for this subject" and is the exact
+      // condition that earns a brand new page. It travels as `unread` and is said out loud on the source slot.
+      getRepository().forTenant(tenantId).getPageSnapshots()
+        .then((rows) => ({ rows, unread: false })).catch(() => ({ rows: [] as Awaited<ReturnType<ReturnType<ReturnType<typeof getRepository>["forTenant"]>["getPageSnapshots"]>>, unread: true })),
     ]);
   // Freshness takes the newer of the two lanes, so a current answer is never dated by an older search look.
   const freshestAt = [loaded.evidence.receipt.freshestObservationAt, ...answers.rows.map((o) => o.observedAt)]
@@ -155,7 +159,7 @@ export async function loadEvidenceSnapshot(
   }));
 
   // ── Wix / crawl content (owned pages for this tenant) ──
-  const wixPayload = snapshots
+  const wixPayload = snapshots.rows
     .filter((s) => s.tenant_id === tenantId)
     .map((s): { url: string } & OwnedPageContent => ({
       url: s.url,
@@ -224,7 +228,7 @@ export async function loadEvidenceSnapshot(
     scope: { tenantId, site, builtAt: now.toISOString() },
     gsc: { status: gsc.failed ? "failed" : statusFor(gscPayload.length), lastSyncedAt: null, payload: gscPayload },
     ga4: { status: statusFor(ga4Payload.length), lastSyncedAt: null, payload: ga4Payload },
-    wix: { status: statusFor(wixByUrl.size), lastSyncedAt: null, payload: [...wixByUrl.values()] },
+    wix: { status: snapshots.unread ? "failed" : statusFor(wixByUrl.size), lastSyncedAt: null, payload: [...wixByUrl.values()] },
     clarity: { status: statusFor(clarityPayload.length), lastSyncedAt: null, payload: clarityPayload },
     dataforseo: { status: statusFor(dfsPayload.length), lastSyncedAt: null, payload: dfsPayload },
     research: researchSource,

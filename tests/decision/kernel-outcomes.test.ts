@@ -25,6 +25,7 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
+import { fitTenantCtrCurve, defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities"; import { suggestedEdits } from "@/domains/decision/suggested-edits";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import { chooseInvestigation, comparisonForFocus, focusReads } from "@/domains/runtime/ops/investigation-queries";
@@ -475,7 +476,9 @@ const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings
   questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
 /** The five causes nothing in this generation can test, which must therefore never be guessed at. */
-const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"]; // retrieved_not_cited went live when the projection began carrying the retrieval list
+/** Causes NOT CONSIDERED when this caller holds none of their evidence. demand_decline and ranking_loss are a RULE now (the two four week windows), so they are named
+ *  here for the same honest reason as the rest: nobody handed this pass the windows. retrieved_not_cited went live when the projection began carrying the retrieval list. */
+const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
 /** An engine answering this page's own search and naming everybody except this page. */
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
   observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
@@ -610,3 +613,36 @@ describe("why this page loses the click, one named cause at a time", () => { it(
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));
         expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
         expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });
+/** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an
+ *  industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
+describe("the click curve is fitted to the account it judges", () => {
+  const rows = (ctrByBand: Record<number, number>, per = 40) => Object.entries(ctrByBand).flatMap(([band, ctr]) =>
+    Array.from({ length: per }, (_, i) => ({ query: `q${band}x${i}`, position: Number(band), impressions: 500, clicks: Math.round(500 * ctr) })));
+  it("learns this account's own rate, holds the curve decreasing, and keeps the industry table for the bands it never saw", () => {
+    const curve = fitTenantCtrCurve(rows({ 1: 0.014, 2: 0.02, 3: 0.008 })); // band 2 out-earns band 1: real data, and never a curve that pays MORE for a worse position
+    expect(curve.source).toBe("tenant");
+    // POOLED, NOT CLAMPED. A running ceiling made the FIRST band the ceiling for every band under it, so a thin, noisy position 1 dragged positions 2 to 7 down to
+    // its own number (live: 0.898 percent imposed on bands measuring 2.34, 2.46 and 3.18) and every gap under them vanished. Bands that disagree pool to their
+    // weighted mean instead, so band 1 sits where its evidence and its neighbours' put it, ABOVE what it alone measured.
+    expect([curve.expectedCtrAt(1), curve.expectedCtrAt(2)]).toEqual([0.017, 0.017]);
+    expect(curve.expectedCtrAt(1)).toBeGreaterThan(0.014); // never dictated by band 1 alone, and the better position is never worth less
+    for (const p of [2, 3, 4, 5, 10, 15, 20, 30]) expect(curve.expectedCtrAt(p), `position ${p}`).toBeLessThanOrEqual(curve.expectedCtrAt(p - 1));
+    // A BAND WITH NO DATA TAKES THE DEFAULT TABLE'S SHAPE, scaled to how this account converts, never its raw number: 8 percent at position 4 beside 1.3 at position 1 is the fantasy this repairs.
+    expect(curve.expectedCtrAt(4)).toBeLessThan(defaultExpectedCtrAt(4)); expect(curve.expectedCtrAt(4)).toBeGreaterThan(0); });
+  it("refuses to call one busy search a curve, and never lets a brand search set the bar", () => {
+    const one = fitTenantCtrCurve([{ query: "big", position: 1, impressions: 90_000, clicks: 30_000 }]); // views enough, sample of one
+    expect([one.source, one.expectedCtrAt(1)]).toEqual(["default", defaultExpectedCtrAt(1)]);
+    const brandy = [...rows({ 1: 0.01 }), ...Array.from({ length: 40 }, (_, i) => ({ query: `iranopedia ${i}`, position: 1, impressions: 500, clicks: 450 }))];
+    expect(fitTenantCtrCurve(brandy, { brandTokens: ["iranopedia"] }).expectedCtrAt(1)).toBeCloseTo(0.01, 3); });
+  /** THE FITTED CURVE MUST NOT LOCK THE PASS SHUT. A flat 0.02 deficit floor is unclearable once the curve says the best position on this account pays 0.9 percent:
+   *  a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and the kernel calls a page that never earns a click healthy. */
+  it("a search earning nothing at all still earns work, and the refusal names the floor that actually bound it", () => {
+    const curve = fitTenantCtrCurve(Array.from({ length: 40 }, (_, i) => ({ query: `q${i}`, position: 1, impressions: 5_000, clicks: 45 })));
+    expect(curve.expectedCtrAt(1)).toBeCloseTo(0.009, 4); // the whole account tops out under 1 percent
+    const page = (clicks: number) => ownedPage("own.example/flag", "Iran flag", { impressions: 60_000, clicks }, [{ query: "iran flag", impressions: 60_000, clicks, position: 3 }]);
+    const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
+    expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 212]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
+    // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
+    const near = compileCandidates(snap([page(200)]), { curve })[0]!;
+    expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]);
+    expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });

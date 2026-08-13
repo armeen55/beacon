@@ -125,20 +125,22 @@ export function rankInvestigations(investigations: readonly TopicInvestigation[]
     || (b.demand.gscImpressions ?? 0) - (a.demand.gscImpressions ?? 0) || a.key.localeCompare(b.key));
 }
 
-/** What ONE exact query row of the account's own is losing against the click curve, in clicks. 0 = nothing. */
-function shortfall(q: { impressions: number; clicks: number; position: number | null }): number {
+/** What ONE exact query row of the account's own is losing against the click curve, in clicks. 0 = nothing.
+ *  `at` is THE SAME curve the diagnosis measured with; it defaults to the industry table only for a caller
+ *  running outside a pass, which holds no fitted curve to hand over. */
+function shortfall(q: { impressions: number; clicks: number; position: number | null }, at: (position: number) => number = defaultExpectedCtrAt): number {
   const pos = q.position;
   if (!(q.impressions > 0) || pos == null || !(pos > 0)) return 0;
-  return Math.max(0, (defaultExpectedCtrAt(pos) - Math.min(1, q.clicks / q.impressions)) * q.impressions);
+  return Math.max(0, (at(pos) - Math.min(1, q.clicks / q.impressions)) * q.impressions);
 }
 
 /** WHAT PAGES OF THIS ACCOUNT'S OWN STAND TO WIN BACK on one topic's searches, off the exact query rows
  *  already held. Nothing is bought and nothing is invented to compute it. */
-function ownedOpportunity(snapshot: EvidenceSnapshot, inv: TopicInvestigation): number {
+function ownedOpportunity(snapshot: EvidenceSnapshot, inv: TopicInvestigation, at?: (position: number) => number): number {
   const keys = new Set(inv.queries.map((q) => canonicalQueryKey(q)).filter(Boolean));
   let clicks = 0;
   for (const p of snapshot.ownedPages) for (const q of p.search?.topQueries ?? []) {
-    if (keys.has(canonicalQueryKey(q.query))) clicks += shortfall(q);
+    if (keys.has(canonicalQueryKey(q.query))) clicks += shortfall(q, at);
   }
   return Math.round(clicks);
 }
@@ -230,6 +232,8 @@ type ReadCoverageOptions = {
   /** A pattern already computed for ONE topic (the drafting pass supplies it; this pass never calls a
    *  model). Attached only when the topic matches, so no case can wear another case's pattern. */
   patternFor?: { topicKey: string; pattern: import("./winning-pattern").WinningPattern } | null;
+  /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table. */
+  curve?: { expectedCtrAt: (position: number) => number };
   /** What is wrong with how this account's pages are SERVED, already read off the inventory and the capture.
    *  A page nothing can reach is never named as the page to improve. */
   technical?: readonly import("./technical-findings").TechnicalFinding[];
@@ -280,7 +284,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
   // WHY A PAGE OF MINE IS UNREAD, off the research row Evidence persisted it to. Not a fetch, and not a guess.
   const ownedReads = new Map((snapshot.research.ownedReads ?? []).map((o) => [o.url, o]));
   const promoted = await promotedNeeds(tenantId, snapshot);
-  for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i))) {
+  for (const inv of rankInvestigations(topicsFor(snapshot, promoted), (i) => ownedOpportunity(snapshot, i, opts.curve?.expectedCtrAt))) {
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);

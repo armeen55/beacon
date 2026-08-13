@@ -9,11 +9,12 @@ import "server-only";
  * exactly nothing about which cards exist or which families were swept. Two halves, and they are deliberately
  * unlike each other:
  *
- *   1. A MISSING OR TEMPLATED DESCRIPTION gets a paste-ready line through the EXISTING structured drafter,
- *      grounded on that page's own stored extract, budgeted and cached by the one gateway, and read back by
- *      the ONE validator. At most MAX_DESCRIPTIONS a pass. A blocked, refused or rejected draft leaves the
- *      card exactly as the producer wrote it, carrying an honest note that the line lands next pass. A card
- *      is NEVER suppressed for want of copy: the defect is true either way.
+ *   1. A MISSING OR TEMPLATED DESCRIPTION gets a paste-ready line, and a page AI answers never credit gets a
+ *      paste-ready ANSWER OPENING, both through the EXISTING structured drafter, grounded on that page's own
+ *      stored extract and the card's own evidence, budgeted and cached by the one gateway, and read back by
+ *      the ONE validator. At most MAX_DRAFTS a pass, shared between them. A blocked, refused or rejected
+ *      draft leaves the card exactly as the producer wrote it, carrying an honest note that the words land
+ *      next pass. A card is NEVER suppressed for want of copy: the defect is true either way.
  *   2. A THIN PAGE gets an OUTLINE, deterministically, out of the headings the pages that win its own head
  *      search already carry. No model, no invention: only headings at least two read winners share, named as
  *      theirs. No winners on file leaves the card in the shape the producer wrote it.
@@ -27,10 +28,14 @@ import type { AtomicEditDraft } from "./llm/schemas";
 import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 
-/** How many descriptions one pass buys. Everything past this keeps its instruction and its honest note. */
-const MAX_DESCRIPTIONS = 5;
+/** How many drafted blocks one pass buys, descriptions and answer openings together. Everything past this
+ *  keeps its instruction and its honest note. */
+const MAX_DRAFTS = 5;
 /** What Google shows of a description before it cuts, and the floor under a line worth pasting. */
 const META_MIN = 110, META_MAX = 165;
+/** The opening answer, in words. The drafter is instructed to write 40 to 90, and a block outside its own
+ *  brief is a draft that ignored the brief, so it is refused rather than trimmed. */
+const ANSWER_MIN = 40, ANSWER_MAX = 90;
 /** Headings this many read winners share before they are worth naming, and how many are named. */
 const AGREEING_WINNERS = 2, MAX_HEADINGS = 5;
 /** A heading past this is a paragraph somebody wrapped in a heading tag, and site furniture is not a subject. */
@@ -39,12 +44,18 @@ const FURNITURE = /^(home|menu|search|contact|about|share|follow|newsletter|comm
 /** Nothing an operator can paste: a dash Beacon never writes, a bracket somebody forgot to fill in. */
 const UNSAFE = /[–—]|\[|\]|\{|\}/;
 
-/** THE CARD SAYS SO ITSELF when the line did not land, rather than quietly reading as an instruction. */
 /** Connective and storefront words a description may use without the page having to spell them out. */
 const GENERIC_DRAFT_WORDS: ReadonlySet<string> = new Set(["overview", "browse", "explore", "find", "discover",
   "learn", "guide", "read", "see", "meet", "click", "page", "pages", "site", "more", "related", "official",
   "complete", "detailed", "including", "features", "covering", "reason"]);
-const OWED = "The exact line lands on the next pass; the description is still owed, and this card is what is owed.";
+/** EVERY FIGURE IN A DRAFT, as its bare digits. The word gate below runs on topic tokens, which drop anything
+ *  under three characters, so "costs 45 dollars" read as ONE unseen word and shipped a price nobody has. A
+ *  number is the one thing a reader acts on and the one thing a model invents most cheaply, so digits are
+ *  checked on their own: every run of them in the draft must already appear in the words it was grounded on. */
+const digitsIn = (s: string): string[] => s.match(/\d+/g) ?? [];
+/** The marker the ranking reads to hold a card behind every card carrying finished work. The phrase
+ *  "is still owed, and this card is what is owed" is the stable part and may not change wording. */
+const owedNote = (what: string): string => `The exact ${what} lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does.`;
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
@@ -63,42 +74,53 @@ function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvi
   return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;
 }
 
-/** ONE paste-ready description for one page, or null. Grounded on that page's OWN stored words; budgeted and
+/** ONE paste-ready block for one page, or null: the description under its title, or the opening answer a
+ *  page owes the question AI keeps handing to somebody else. Grounded on that page's OWN stored words and
+ *  the card's own evidence, which for an answer card is the stored answers it already cites; budgeted and
  *  cached by the gateway; read back by the one validator before a single character reaches the operator. */
-async function describe(card: ChangeProposal, page: OwnedPageEvidence, opts: DraftedCopyOptions): Promise<string | null> {
+async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, opts: DraftedCopyOptions,
+  kind: "description" | "answer"): Promise<string | null> {
   const content = page.content;
   const outline = (content?.outline ?? []).slice(0, 8);
   const hints = [...card.evidence.hints, ...(content?.title ? [`The page's own title is "${content.title}"`] : []),
     ...(content?.h1 ? [`Its heading reads "${content.h1}"`] : [])];
+  const field = kind === "description" ? "meta" : "answer_block";
   const drafted = await draftAtomicEditStructured({
-    query: card.primaryQuery, pageLabel: card.pageLabel, field: "meta",
+    query: card.primaryQuery, pageLabel: card.pageLabel, field,
     currentValue: card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.before : null,
     outline, evidenceHints: hints, tenantId: opts.tenantId,
   }, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch(() => null);
   if (!drafted || drafted.status !== "drafted") {
-    log.info("[drafted-copy] no description this pass", { tenantId: opts.tenantId, path: card.pagePath, status: drafted?.status ?? "threw" });
+    log.info(`[drafted-copy] no ${kind} this pass`, { tenantId: opts.tenantId, path: card.pagePath, status: drafted?.status ?? "threw" });
     return null;
   }
   const after = (drafted.value as AtomicEditDraft).after.replace(/\s+/g, " ").trim();
-  if (after.length < META_MIN || after.length > META_MAX || UNSAFE.test(after)) return null;
-  // A DESCRIPTION DESCRIBES THE PAGE ON FILE, never an imagined better one. Every concrete word in the
-  // draft must be visible in the stored capture or the card's own evidence; past a small allowance, an
-  // unseen claim rejects the line, so "filter by material" can never ship for a page with no filters on
-  // record and "primary sources" cannot be promised by a page that never shows any.
-  const seen = new Set(topicTokens([content?.title, content?.h1, ...outline, card.pagePath?.replace(/[-/]/g, " "),
-    card.primaryQuery, card.whyItMatters, ...hints].filter(Boolean).join(" ")));
+  const fits = kind === "description" ? after.length >= META_MIN && after.length <= META_MAX
+    : words(after) >= ANSWER_MIN && words(after) <= ANSWER_MAX;
+  if (!fits || UNSAFE.test(after)) return null;
+  // COPY DESCRIBES THE PAGE ON FILE, never an imagined better one. Every concrete word in the draft must be
+  // visible in the stored capture or the card's own evidence; past a small allowance, an unseen claim
+  // rejects the block, so "filter by material" can never ship for a page with no filters on record and an
+  // answer opening can never state a fact the page and the stored answers behind the card never showed.
+  const grounding = [content?.title, content?.h1, ...outline, card.pagePath?.replace(/[-/]/g, " "),
+    card.primaryQuery, card.whyItMatters, ...hints].filter(Boolean).join(" ");
+  const seen = new Set(topicTokens(grounding));
   const invented = topicTokens(after).filter((w) => !seen.has(w) && !GENERIC_DRAFT_WORDS.has(w));
-  if (invented.length > 2) {
-    log.info("[drafted-copy] the description names things the stored page does not show", {
-      tenantId: opts.tenantId, path: card.pagePath, invented: invented.slice(0, 5) });
+  // A FIGURE GETS NO ALLOWANCE AT ALL. Words are forgiven twice over because a page's own subject can be said
+  // in more than one word; a price, a count or a year cannot. One unseen number rejects the block outright.
+  const figures = new Set(digitsIn(grounding));
+  const madeUp = digitsIn(after).filter((n) => !figures.has(n));
+  if (invented.length > 2 || madeUp.length > 0) {
+    log.info(`[drafted-copy] the ${kind} names things the stored page does not show`, {
+      tenantId: opts.tenantId, path: card.pagePath, invented: invented.slice(0, 5), figures: madeUp.slice(0, 5) });
     return null;
   }
-  // THE ONE VALIDATOR, over the same words the drafter was grounded on. A line it refuses never reaches a card.
-  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: "meta",
+  // THE ONE VALIDATOR, over the same words the drafter was grounded on. A block it refuses never reaches a card.
+  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : "section",
     before: card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.before : null, after } },
   { evidenceText: [...outline, ...hints, content?.title ?? ""].filter(Boolean).join(" "), now: opts.now });
   if (verdict.verdict === "rejected") {
-    log.info("[drafted-copy] the description did not pass its own checks", { tenantId: opts.tenantId, path: card.pagePath, reasons: verdict.reasons.slice(0, 2) });
+    log.info(`[drafted-copy] the ${kind} did not pass its own checks`, { tenantId: opts.tenantId, path: card.pagePath, reasons: verdict.reasons.slice(0, 2) });
     return null;
   }
   return after;
@@ -138,18 +160,25 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   let bought = 0;
   for (const card of cards) {
     const slug = slugOf(card);
-    const page = slug === "missing_description" || slug === "thin_page" ? pageFor(opts.snapshot, card) : null;
+    const wants = slug === "missing_description" ? "description" : slug === "ai_answer_gap" ? "answer" : null;
+    const page = wants || slug === "thin_page" ? pageFor(opts.snapshot, card) : null;
     if (!page) { out.push(card); continue; }
-    if (slug === "missing_description") {
-      const drafted = bought < MAX_DESCRIPTIONS ? await describe(card, page, opts) : null;
+    if (wants) {
+      const meta = wants === "description";
+      const drafted = bought < MAX_DRAFTS ? await draftBlock(card, page, opts, meta ? "description" : "answer") : null;
       if (drafted) bought += 1;
       out.push(drafted
-        ? { ...card, recommendedChange: { kind: "existing_edit", field: "meta",
+        ? { ...card, recommendedChange: { kind: "existing_edit", field: meta ? "meta" : "section",
             before: card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.before : null, after: drafted },
-          operatorSteps: [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
-            "Mark it done here and the click rate gets read again"],
-          limitations: [...card.limitations, "This line is written off the page's own title, heading and sections as last read, so check it still describes the page before you publish it."] }
-        : { ...card, limitations: [...card.limitations, OWED] });
+          operatorSteps: meta
+            ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
+              "Mark it done here and the click rate gets read again"]
+            : [`Open the site editor on ${card.pagePath}`, "Paste the answer above as the opening of a new section, before any background",
+              "Give that section a heading a reader would type into a search", "Mark it done here and the next answers get checked against it"],
+          limitations: [...card.limitations, meta
+            ? "This line is written off the page's own title, heading and sections as last read, so check it still describes the page before you publish it."
+            : "This answer is written off the page's own title, heading and sections as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it."] }
+        : { ...card, limitations: [...card.limitations, owedNote(wants)] });
       continue;
     }
     const covers = winnersCover(opts.snapshot, page);
@@ -161,6 +190,6 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
         ...(card.operatorSteps ?? []).slice(-1)],
       limitations: [...card.limitations, `Those subjects are the headings ${AGREEING_WINNERS} or more of the pages Google ranks for this search share, read off the copies on file, and they are what those pages cover rather than a plan written for this one.`] });
   }
-  if (bought > 0) log.info("[drafted-copy] descriptions written this pass", { tenantId: opts.tenantId, bought });
+  if (bought > 0) log.info("[drafted-copy] blocks written this pass", { tenantId: opts.tenantId, bought });
   return out;
 }

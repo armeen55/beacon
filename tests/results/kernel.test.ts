@@ -3,7 +3,7 @@ import {
   addDays, bandOf, evaluateChange, evaluateWindows, learningVerdictOf, metricFor, rankingPriors,
   readLedger, readRecordsForLearning, toKernelInput, verdictPhrase, type KernelInput, type LedgerRecordLike,
 } from "@/domains/measurement/proof-gsc/kernel";
-import { bundleReads, learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
+import { learningShape, overlapClosures } from "@/domains/measurement/proof-gsc/read-honesty";
 import { day56Followup, isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import { verdictSchedule, type VerdictScheduleRow } from "@/domains/measurement/proof-gsc/verdict-schedule";
 import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/proof-gsc/pinned-read";
@@ -81,33 +81,11 @@ describe("overlap and confounding honesty", () => {
     expect([read.verdict, read.rankingSignal]).toEqual(["confounded", 0]);
     expect(read.headline).toContain("cannot be pinned on one");
   });
-  it("produces a bundle group read for overlapping same-page changes", () => {
-    const records: LedgerRecordLike[] = [
-      { id: "a", page: "p", path: "/x", actionType: "content", shippedAt: "2026-05-01", baseline: { impressions: 5000, clicks: 400 }, windows: [{ day: 28, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000 }] },
-      { id: "b", page: "p", path: "/x", actionType: "content", shippedAt: "2026-05-05", baseline: { impressions: 5000, clicks: 400 }, windows: [{ day: 28, ran: true, adjustedLift: 70, controlsUsed: 3, treatedPostImpressions: 5000 }] },
-    ];
-    const reads = readLedger(records, new Date("2026-07-15T00:00:00Z"), "2026-07-01");
-    expect(reads.every((r) => r.verdict === "confounded")).toBe(true);
-    const bundles = bundleReads(reads);
-    expect(bundles).toHaveLength(1);
-    expect([bundles[0].changeIds.sort(), bundles[0].verdict]).toEqual([["a", "b"], "directional_improvement"]);
-    expect(bundles[0].headline).toContain("credit cannot be split");
-  });
-  it("never groups two separate stretches on one page, and never adds one metric onto another", () => {
-    const rec = (id: string, at: string, actionType: string, over: Partial<NonNullable<LedgerRecordLike["windows"]>[number]> = {}): LedgerRecordLike =>
-      ({ id, page: "p", path: "/x", actionType, shippedAt: at, baseline: { impressions: 5000, clicks: 400 },
-        windows: [{ day: 28, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000, ...over }] });
-    // Two changes in May, two in September. Same page, four months apart: one page is not one window.
-    const spread = bundleReads(readLedger([rec("a", "2026-05-01", "content"), rec("b", "2026-05-05", "content"),
-      rec("c", "2026-09-01", "content"), rec("d", "2026-09-05", "content")], new Date("2026-11-15T00:00:00Z"), "2026-11-01"));
-    expect(spread.map((g) => g.changeIds.sort())).toEqual([["a", "b"], ["c", "d"]]);
-    // Clicks and click rate are different units, so the group read says each one in its own words and adds nothing up.
-    const mixed = bundleReads(readLedger([rec("a", "2026-05-01", "content"), rec("b", "2026-05-05", "edit_title", { adjustedCtrLift: 0.02 })],
-      new Date("2026-07-15T00:00:00Z"), "2026-07-01"));
-    expect(mixed).toHaveLength(1);
-    expect(mixed[0].headline).toContain("90 clicks");
-    expect(mixed[0].headline).toContain("2 percentage points of click rate");
-    expect(mixed[0].headline).not.toMatch(/together they add up|combined lift|in total/i);
+  it("reads every change on one page as confounded, so no single one is credited", () => {
+    const rec = (id: string, at: string): LedgerRecordLike => ({ id, page: "p", path: "/x", actionType: "content", shippedAt: at,
+      baseline: { impressions: 5000, clicks: 400 }, windows: [{ day: 28, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000 }] });
+    const reads = readLedger([rec("a", "2026-05-01"), rec("b", "2026-05-05")], new Date("2026-07-15T00:00:00Z"), "2026-07-01");
+    expect([reads.every((r) => r.verdict === "confounded"), reads.every((r) => r.rankingSignal === 0)]).toEqual([true, true]);
   });
 });
 describe("historical records are preserved end to end", () => {

@@ -16,10 +16,10 @@
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import { MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
+import { CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
   type ActionDiagnosis, type DecisionCandidate, type EvidenceInput, type EvidenceReadiness } from "./contracts";
 import { diagnoseCandidate, type DisplayedResult } from "./diagnose";
-import { diagnoseCauses, noProblemFinding, type CauseFinding } from "./diagnosis";
+import { diagnoseCauses, noProblemFinding, DECLINE_FLOORS, type CauseFinding } from "./diagnosis";
 import type { DecidedTopic } from "./coverage-pass";
 
 /** How small a soft search must be, against the clicks the page already earns, to
@@ -37,7 +37,61 @@ type CompileOptions = {
   /** The pages already carrying a change under measurement. The ladder reads exactly this fact, so a page
    *  whose last edit is still being read is watched rather than handed a second change to stack on it. */
   measuringPagePaths?: readonly (string | null)[];
+  /** TWO CONSECUTIVE 28 DAY WINDOWS PER PAGE, keyed by page address and by bare path. A page that was
+   *  earning and stopped is the most valuable thing on this site, and until this was threaded the kernel
+   *  measured only the flat 90 day average, where 191 lost clicks are invisible. */
+  decline?: ReadonlyMap<string, PageDecline>;
 };
+
+/** What the two windows say about one page. */
+type PageDecline = { clicksNow: number; clicksPrior: number; positionNow: number; positionPrior: number;
+  impressionsNow: number; impressionsPrior: number;
+  /** The last finalized search day the recent window ends on, so the fall can NAME the span it was measured over. */
+  windowEnd?: string | null };
+
+/** Is this page genuinely falling, off its own two windows? THE SAME FLOORS THE LADDER USES, imported
+ *  rather than restated, so the cause and the number it is ranked on can never disagree. */
+function fallingOf(decline: PageDecline | undefined): number {
+  if (!decline || decline.clicksPrior < DECLINE_FLOORS.minPriorClicks) return 0;
+  const lost = Math.round(decline.clicksPrior - decline.clicksNow);
+  const far = decline.clicksNow <= DECLINE_FLOORS.share * decline.clicksPrior;
+  return far || lost >= DECLINE_FLOORS.minLostClicks ? Math.max(0, lost) : 0;
+}
+
+/** The two windows for one page, by address or by bare path. */
+function declineFor(opts: CompileOptions, pageUrl: string | null | undefined): PageDecline | undefined {
+  const url = (pageUrl ?? "").trim().toLowerCase();
+  if (!url || !opts.decline) return undefined;
+  let path = url;
+  try { path = new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"; } catch { path = url; }
+  return opts.decline.get(url) ?? opts.decline.get(path);
+}
+
+/**
+ * A PAGE THAT WAS EARNING AND STOPPED IS THE ONE THING THIS KERNEL MUST NEVER MISS. Stamp the fall onto
+ * whatever the click curve concluded: the gap becomes `recent_decline` (the door the deep read opens on),
+ * the lost clicks become what the page is worth, and the sentence says the two windows out loud. The lost
+ * figure never LOWERS a proven one, so a page that is both falling and short of its curve keeps the bigger
+ * number and the ranking stays honest.
+ */
+function withDecline(candidate: QualifiedCandidate, decline: PageDecline | undefined): QualifiedCandidate {
+  const lost = fallingOf(decline);
+  if (lost <= 0 || !decline) return candidate;
+  const held = decline.positionNow <= decline.positionPrior + 0.5;
+  const where = held
+    ? `and it holds the same position it held then (${decline.positionPrior.toFixed(1)} to ${decline.positionNow.toFixed(1)}), so the ranking is not what changed`
+    : `and it has slipped from position ${decline.positionPrior.toFixed(1)} to ${decline.positionNow.toFixed(1)}`;
+  // A FALL IS NEVER "LEAVE IT ALONE". The curve settles the WORDING and nothing else, so a page that beat its
+  // curve could come back do_nothing carrying that sentence with a 191 click fall stamped underneath it: one
+  // candidate telling the operator both that nothing is wrong and that the page is bleeding.
+  const reason = candidate.reason.replace(/\s*Leave it alone\.$/, "");
+  return { ...candidate, gap: "recent_decline",
+    action: candidate.action === "do_nothing" ? "watch" : candidate.action,
+    recoverableClicks: Math.max(candidate.recoverableClicks, lost),
+    // THE SPAN THE FALL WAS MEASURED OVER, carried so the deep producer can prove it rather than refuse the page.
+    declineWindow: `the four weeks${decline.windowEnd ? ` to ${decline.windowEnd}` : ""}, against the four weeks before`,
+    reason: `${reason} This page earned ${num(lost)} fewer ${lost === 1 ? "click" : "clicks"} in the last four weeks than in the four weeks before, ${where}.` };
+}
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const pct = (v: number): string => `${(v * 100).toFixed(1)} percent`;
@@ -76,6 +130,15 @@ function measureQuery(q: OwnedQuerySignal, expectedCtrAt: (position: number) => 
   return { query: q.query, impressions, clicks, position, expectedCtr, actualCtr, deficit, recoverableClicks: Math.round(deficit * impressions) };
 }
 
+/** WHICH FLOOR REFUSED THIS SEARCH, said in that floor's OWN unit. Checked in the same order the floors are
+ *  applied, so the sentence names the first bar it failed and never a number it comfortably cleared. */
+function bindingFloor(g: QueryGap): string {
+  const clicks = Math.max(0, g.recoverableClicks);
+  if (g.impressions < MIN_QUERY_IMPRESSIONS) return `only ${num(g.impressions)} people searched it in 90 days, under the ${num(MIN_QUERY_IMPRESSIONS)} searches that earn a change`;
+  if (g.deficit < CTR_DEFICIT_SHARE * g.expectedCtr) return `it earns ${pct(g.actualCtr)} against the ${pct(g.expectedCtr)} its position pays here, which is most of what that position gives, so its wording is not visibly costing you the click`;
+  return `that search is worth about ${num(clicks)} ${clicks === 1 ? "click" : "clicks"}, under the ${MIN_RECOVERABLE_CLICKS} clicks that earn a change`;
+}
+
 /** The query with the most recoverable clicks. Deterministic tiebreak. */
 function bestGap(gaps: QueryGap[]): QueryGap | null {
   return [...gaps].sort((a, b) => b.recoverableClicks - a.recoverableClicks || b.impressions - a.impressions || a.query.localeCompare(b.query))[0] ?? null;
@@ -88,6 +151,8 @@ function bestGap(gaps: QueryGap[]): QueryGap | null {
  *  fields are read only inside Decision, to gate drafting and to set confidence. */
 export type QualifiedCandidate = DecisionCandidate & {
   readiness?: EvidenceReadiness; diagnosis?: ActionDiagnosis;
+  /** The span a `recent_decline` gap was measured over, in the operator's words. Absent on every other gap. */
+  declineWindow?: string;
   /** THE named cause, what it beat, what would disprove it, and every cause whose evidence is not on
    *  file. Required: a page this pass judged always says WHY, even when the why is "nothing is wrong". */
   cause: CauseFinding;
@@ -170,9 +235,10 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
   // that follows to argue. Everything after this line stays prose, because everything after it makes a case.
   const scope = `"${best.query}": ${num(best.impressions)} views, ${num(best.clicks)} ${best.clicks === 1 ? "click" : "clicks"}, position ${best.position.toFixed(1)} (90 days)`;
   const rates = `Pages at that position usually earn ${pct(best.expectedCtr)} of the clicks; this page earns ${pct(best.actualCtr)}`;
+  // THE DEFICIT FLOOR IS A SHARE OF THIS ACCOUNT'S OWN CURVE, never a flat click rate: see CTR_DEFICIT_SHARE.
   const clears =
     best.impressions >= MIN_QUERY_IMPRESSIONS
-    && best.deficit >= MIN_CTR_DEFICIT
+    && best.deficit >= CTR_DEFICIT_SHARE * best.expectedCtr
     && best.recoverableClicks >= MIN_RECOVERABLE_CLICKS;
 
   if (clears && pageBeatsCurve) {
@@ -198,7 +264,7 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
       gscPosition: best.position,
     });
     const cause = diagnoseCauses({ snapshot, page, query: best.query, serpRead: diagnosis,
-      coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths });
+      coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths, decline: declineFor(opts, pageUrl) });
     const common = { pageUrl, query: best.query, readiness, diagnosis, cause,
       recoverableClicks: Math.max(0, best.recoverableClicks) };
     const opening = `${scope}. ${rates}. ${modeled}`;
@@ -217,7 +283,8 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
   // A GAP UNDER MY CLICK FLOORS IS NOT SILENCE ABOUT THE PAGE. Those floors size a REWRITE, and an engine that
   // answered around this page or two of my own pages splitting its search are not measured in clicks. The
   // ladder costs nothing, so it is asked here too: the page is WATCHED, and its named cause opens its own door.
-  const quiet = diagnoseCauses({ snapshot, page, query: best.query, coverage: opts.coverage ?? null, measuringPagePaths: opts.measuringPagePaths,
+  const quiet = diagnoseCauses({ snapshot, page, query: best.query, coverage: opts.coverage ?? null,
+    measuringPagePaths: opts.measuringPagePaths, decline: declineFor(opts, pageUrl),
     serpRead: diagnoseCandidate({ query: best.query, ownedUrl: pageUrl, body: false, gscPosition: best.position,
       organic: index.serpByQuery.get(canonicalQueryKey(best.query)) ?? null }) });
   const watched = (fallback: CauseFinding, reason: string): QualifiedCandidate => ({ action: "watch", pageUrl, query: best.query,
@@ -225,8 +292,9 @@ function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: num
     reason: quiet.cause === "no_problem" ? reason : `${reason} ${quiet.explanation}` });
 
   if (best.deficit > 0) {
-    // ONE SHAPE FOR EVERY BELOW-BAR SEARCH: the bar IS all three floors at once, so the sentence says what this search is worth in the one unit an operator plans in rather than in three.
-    const missed = `that search is worth about ${num(Math.max(0, best.recoverableClicks))} ${Math.max(0, best.recoverableClicks) === 1 ? "click" : "clicks"}, under the ${MIN_RECOVERABLE_CLICKS} clicks on ${num(MIN_QUERY_IMPRESSIONS)} searches that earn a change`;
+    // THE FLOOR THAT ACTUALLY REFUSED IT, IN ITS OWN UNIT. Every below-bar search used to be explained in clicks against both floors at once, so a search worth 539
+    // clicks read "worth about 539 clicks, under the 50 clicks on 500 searches that earn a change": a sentence naming two numbers it had cleared as the reason it lost.
+    const missed = bindingFloor(best);
     return watched(noProblemFinding("The gap on that search is real and smaller than the size worth a change, so no cause is named for it yet.",
       "the gap is under the size where changing this page's wording would be worth your morning"),
     `${scope}. ${rates}, and ${missed}. Watching it rather than asking for work.`);
@@ -250,7 +318,10 @@ export function compileCandidates(snapshot: EvidenceSnapshot, opts: CompileOptio
   // A row I hold NOTHING about is not a page I judged: a bare path fragment with no copy and no search data is a crawl artifact, and counting it as "do nothing" reports a judgment I never made.
   return snapshot.ownedPages
     .filter((p) => !!p.content || (p.search?.topQueries ?? []).length > 0 || (p.search?.impressions90d ?? 0) > 0)
-    .map((page) => candidateForPage(page, expectedCtrAt, index, snapshot, opts));
+    .map((page) => {
+      const candidate = candidateForPage(page, expectedCtrAt, index, snapshot, opts);
+      return withDecline(candidate, declineFor(opts, candidate.pageUrl));
+    });
 }
 
 // ── candidates → the kernel's ONE input shape ────────────────────────────────

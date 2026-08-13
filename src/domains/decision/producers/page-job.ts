@@ -317,7 +317,11 @@ function covers(job: OwnedPageJob, words: readonly string[], jobs: Jobs | null |
  *  that request wants a directory of sources, not one more source. */
 type RequestShape = "source_discovery" | "roster" | "shopping" | "topical";
 const SOURCE_DISCOVERY = /\b(sources?|resources?|references?|where (can|do|to) (i |you |one )?(learn|find|read|start)|learn(ing)? about)\b/i;
-const ROSTER = /\b(all|every|full list|list of|top \d+|best \d+)\b/i;
+/** A ROSTER ASK NAMES THE THING IT WANTS ALL OF. Bare "all" and "every" fired on "all I want to know" and
+ *  "how often should I water every day", which sent ordinary questions to the hub-and-list gate and refused
+ *  them everywhere else. The word now has to lead a noun phrase: something plural, or something counted off
+ *  inside a set ("every city in Iran"). The spelled-out list phrases still stand on their own. */
+const ROSTER = /\b(?:full list|list of|top \d+|best \d+)\b|\b(?:all|every)\s+(?:the\s+)?(?:[a-z]+\s+){0,2}[a-z]{3,}(?:s\b|\s+(?:in|of|for)\b)/i;
 const SHOPPING = /\b(buy|price|cost|shop|order|purchase)\b/i;
 const requestShape = (text: string): RequestShape =>
   SOURCE_DISCOVERY.test(text) ? "source_discovery" : SHOPPING.test(text) ? "shopping" : ROSTER.test(text) ? "roster" : "topical";
@@ -336,11 +340,12 @@ const SATISFIES: Record<RequestShape, ReadonlySet<OwnedPageJob["pageType"]> | nu
  *  this kind of page can actually satisfy what was asked, and admission needs both. */
 export function sectionFit(job: OwnedPageJob | null | undefined, subjectWords: readonly string[], jobs?: Jobs, request?: string): FitVerdict {
   if (!job) return "unknown";
-  if (ESSAY_NEVER.has(job.pageType)) return "wrong_type";
-  if (request) {
-    const need = SATISFIES[requestShape(request)];
-    if (need && !need.has(job.pageType)) return "wrong_type";
-  }
+  // WHAT WAS ASKED DECIDES BEFORE THE DEFAULT DOES. ESSAY_NEVER ran first and rejected every product and
+  // category page, which made the shopping row of the table below unreachable: a request to BUY something,
+  // landing on the page that sells it, was refused as a rail an essay never goes on. When the words name a
+  // shape, that shape's own row is the whole answer; ESSAY_NEVER is the rule for a request that names none.
+  const need = request ? SATISFIES[requestShape(request)] : null;
+  if (need ? !need.has(job.pageType) : ESSAY_NEVER.has(job.pageType)) return "wrong_type";
   if (subjectWords.length === 0) return "unknown";
   return covers(job, subjectWords, jobs) ? "fits" : "off_topic";
 }

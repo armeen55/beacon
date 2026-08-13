@@ -131,9 +131,13 @@ export function selectDeepCandidates(input: {
 
   // DOOR 5: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
   const falling = strongest(candidates.filter((c) => !!c.pageUrl && c.gap === "recent_decline"));
+  // THE SPAN THE FALL WAS MEASURED OVER TRAVELS WITH IT. Stamping a null window here made the producer refuse
+  // every page this door picked ("one 90 day total is on file with nothing earlier"), so door 5 burned a slot
+  // on every pass and produced nothing. The candidate carries the window now, because the windows were read.
   if (falling?.pageUrl) doors.push({ pageUrl: falling.pageUrl, door: "recent_decline", unit: "clicks", strength: clicksOf(falling), volume: 0,
-    evidence: { ...NO_IDENTITY, query: falling.query ?? null },
-    entry: `${LEAD} it has fallen the furthest of the pages on file, about ${num(clicksOf(falling))} clicks under what its positions usually earn.` });
+    evidence: { ...NO_IDENTITY, query: falling.query ?? null, window: falling.declineWindow ?? null },
+    // WHAT IT LOST, not what a curve says it should earn: this door is opened by a fall, so its sentence is the fall.
+    entry: `${LEAD} it has fallen the furthest of the pages on file, about ${num(clicksOf(falling))} fewer clicks than the four weeks before.` });
 
   // ONE PAGE, ONE SLOT, STRONGEST FIRST. A page that arrived through two doors keeps the stronger one's label, which is simply the first it reaches in this order.
   const picked: DeepCandidate[] = [];

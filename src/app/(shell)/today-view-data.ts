@@ -11,7 +11,20 @@ import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
 import type { ChangeProposal } from "@/domains/decision";
 import type { ProducerOutcome } from "@/domains/decision";
-import type { TodayOpportunity, EvidenceStrength } from "@/domains/measurement/today/today-command";
+
+/** How much comparison evidence stands behind a move. */
+type EvidenceStrength = "strong" | "directional" | "tracking";
+
+/** One ranked "do this next" change Today reads, derived from a ranked ChangeProposal. */
+type TodayOpportunity = {
+  changeId: string; pageLabel: string; recommendation: string; opportunityType: string;
+  estimatedEffortMinutes: number; upside: number | null; evidenceStrength: EvidenceStrength;
+  /** WHY THIS SITS WHERE IT SITS, stamped by the ONE ranker (rank-proposals) and rendered rather than
+   *  recomputed. Absent on the last ranked row, which has nothing below it. */
+  whyRankedAboveNext?: string;
+  /** THE PROBLEM THIS SOLVES, in the proposal's own sentence. */
+  problem?: string;
+};
 
 /** The minimal Today read model the Today page renders: the header sentence plus the ranked next opportunities. Owned here now that the
  *  changes-domain today-view was retired. */
@@ -206,7 +219,13 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
       : `You have ${ideaTotal} ${ideaTotal === 1 ? "idea" : "ideas"} to review. None is a proven edit yet; each names what it still needs.`
     : waiting
       ? `Some of your pages could not be read, so they get another try on ${retryDay(waiting)}. Nothing is waiting on you today.`
-      : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
+      // A BAR THAT COULD NOT BE READ IS NOT A QUEUE THAT IS EMPTY. With the basis unreadable, every stored idea
+      // is held back as unconfirmed rather than judged, so the queue reads zero for a reason that has nothing to
+      // do with the operator's work, and "no edits waiting" is the one sentence that must not be said over it.
+      // Changes already says exactly this on the same release; Today may not disagree with it.
+      : view.basisUnreadable
+        ? "Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically."
+        : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
   return { headerSentence, nextOpportunities: ready, readyFixes, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 

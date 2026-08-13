@@ -9,9 +9,10 @@
  *                  effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times.
  *   evidence       how much receipt there is to show.
  *   causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same
- *                  amount a match earns, so a wrong lever can never win on size alone.
+ *                  amount a match earns AND forfeits the proven recovery above, because that recovery
+ *                  belongs to the cause and not to the page, so a wrong lever can never win on size alone.
  *   strategic      how many of the questions customers actually ask are in scope.
- *   effort         a one minute paste beats an hour of writing, all else equal.
+ *   effort         a one minute paste beats an hour of writing when everything else is equal, and only then.
  *   risk           a change that moves or hides a page is discounted, never promoted.
  *   overlap        a page already carrying a change under measurement is discounted hard.
  *   confounding    several changes landing on the same page in one batch discount each other.
@@ -37,12 +38,21 @@ type Cause = CauseFinding["cause"];
 type Receipt = NonNullable<ChangeProposal["rankingReceipt"]>;
 type Factor = Receipt["factors"][number];
 
-/** The lifecycle band. Wider than the full swing of every other factor combined
- *  (max +112, min -95), so the tiers can never cross on content. */
+/** The lifecycle band, 250 wide. Content swings +186 at most and -140 at worst, a 326 spread, so the honest
+ *  guarantee is NOT that the tiers can never cross: it is that no single factor and no ordinary card can cross
+ *  them. Crossing takes a card at both extremes at once, a needs_review row scoring its full +186 against a
+ *  ready row taking every discount there is, and that pair is one this ranking is content to order on worth. */
 const TIER: Record<ProposalStatus, number> = { ready: 500, implemented_pending_verification: 500, needs_review: 250 };
 
-/** Bounded ceilings, one per factor. A factor may never contribute more than its max. */
-const MAX = { actionability: 500, visibility: 40, evidence: 15, causeFit: 25, strategic: 10, effort: 10, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+/**
+ * Bounded ceilings, one per factor. A factor may never contribute more than its max.
+ *
+ * WHAT IS RIDING ON THE CHANGE DECIDES THE ORDER. Visibility used to top out at 40 and effort at 10, which
+ * put the whole queue inside a 51 point band and let a one minute errand on a page shown twice cancel the
+ * audience of a page shown thirty thousand times. Visibility now reaches 120 and effort 4: how long the
+ * work takes is a tiebreak between two changes worth the same, never a reason to do the smaller one first.
+ */
+const MAX = { actionability: 500, visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
@@ -69,14 +79,22 @@ const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
   ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack"]),
   retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack"]),
   technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
+  // FEWER PEOPLE RUNNING THE SEARCH IS NOT A PAGE DEFECT. Nothing you can write on the page brings the searches
+  // back, so this one stays deliberately empty: it matches nothing, discounts nothing, and those cards rank on
+  // their other factors. Filling it in to make decline cards score would be scoring them for a fix that is not one.
   demand_decline: new Set([]),
-  ranking_loss: new Set([]),
+  // LOSING GROUND ON A SEARCH PEOPLE STILL RUN IS A CONTENT PROBLEM, and it was the last empty set that made a
+  // real decline card score zero for cause fit while a description errand scored its full 25. These are the
+  // levers that move a page back up a search it is still shown for.
+  // No title here on purpose: a sharper line does not win back a position something better took.
+  ranking_loss: new Set(["section_add", "full_rewrite", "opening_answer", "internal_links", "section", "restructure"]),
   measuring_change: new Set([]),
   no_problem: new Set([]),
 };
 
 /** Plain-English names for what each cause is about, for the sentence that explains the order. */
 const LEVER_WORD: Partial<Record<Cause, string>> = {
+  ranking_loss: "the ground this page has lost on a search people still run",
   cannibalization: "two of your own pages splitting one search",
   ctr_snippet: "the line a searcher reads",
   competitor_content_gap: "a subject the winning pages cover and this page does not",
@@ -121,54 +139,68 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
     : "this draft passed every safety check", tier, MAX.actionability);
 
   // A CARD STILL OWED ITS EXACT COPY CANNOT LEAD. "Write a description" is an errand, not an edit: while
-  // the drafted line is owed (the marker drafted-copy leaves on the card), the card waits behind every
-  // card that carries finished work, however big its page is. The penalty outweighs the visibility
-  // ceiling on purpose. Matched on the marker's stable phrase because the export budget is spent.
+  // the drafted words are owed (the marker drafted-copy leaves on the card), the card waits behind every
+  // card that carries finished work. The penalty is a flat 45 and the visibility below is capped at the
+  // audience band while it applies, so 45 always beats the most an owed card can earn and no amount of
+  // page size ever promotes work nobody has finished. Matched on the marker's stable phrase, export budget.
   // READY MEANS ZERO BLANKS AND ZERO OPERATOR RESEARCH. A card whose copy is still owed, or whose copy
   // carries a fill-in placeholder (NAME, SOUND, NUMBER, YEAR), is asking the operator to finish the work:
   // it stays visible but waits behind every card carrying finished work, named on its receipt.
   const after = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after ?? "" : "";
-  const owed = (p.limitations ?? []).some((l) => l.includes("the description is still owed"));
+  const owed = (p.limitations ?? []).some((l) => l.includes("is still owed, and this card is what is owed"));
   const blanks = /\b(NAME|SOUND|NUMBER|YEAR)\b/.test(after);
   if (owed || blanks) {
-    add("readiness", owed ? "the exact line is still owed, so finished work goes first"
+    add("readiness", owed ? "the exact copy is still owed, so finished work goes first"
       : "the copy carries blanks nobody has filled, so finished work goes first", -45, 45);
   }
+
+  // THE RECOVERY BELONGS TO THE CAUSE, NOT TO THE PAGE. Two changes on one page carry the same recoverable
+  // click figure, and only the one that works on the cause the evidence NAMED can actually collect it. A
+  // lever that touches something else may not ride that number at all: it keeps its audience, which is a
+  // size and not a claim. Without this a wrong lever wins the moment the page is big enough, which is the
+  // one thing this ranking exists to stop.
+  const cause = p.diagnosisCause;
+  // A cause I do not recognise (a hand-edited row, or one written under an older ladder) is treated exactly like no cause at all: it matches nothing and it punishes nothing.
+  const levers = cause ? CAUSE_LEVERS[cause] : undefined;
+  const addressed = !levers || levers.size === 0 || leversOf(p).some((k) => levers.has(k));
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;
   const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
-  const directional = !(clicks != null && clicks > 0);
-  const proven = clicks != null && clicks > 0
-    ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
-    : upside != null && upside > 0
-      ? { input: `about ${num(upside)} a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
-      : null;
+  const directional = !(addressed && clicks != null && clicks > 0);
+  const proven = !addressed ? null
+    : clicks != null && clicks > 0
+      ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
+      : upside != null && upside > 0
+        ? { input: `about ${num(upside)} clicks a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
+        : null;
   // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
   // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
   // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
-  // AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL: a proven figure of any size still reaches
-  // three times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both.
+  // AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL, while a proven recovery can reach three
+  // times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both.
   const audience = demand != null && demand > AUDIENCE_FLOOR
     ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
   const rode = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
-  add("visibility", rode?.input ?? "no proven figure for what this wins back", rode?.value ?? 0, MAX.visibility);
+  // AND A CARD NOBODY HAS FINISHED MAY NOT RIDE THE PROVEN BAND. The flat 45 above held homework behind
+  // finished work while visibility topped out at 40; at 120 a page big enough simply bought its way past a
+  // card that is actually written. Until the copy exists, what is riding on it counts only as far as an
+  // AUDIENCE does, so 45 always outweighs it and no page is ever big enough to promote unfinished work.
+  const owedCap = owed || blanks;
+  const shown = owedCap && rode && rode.value > MAX.visibility / 3
+    ? { input: `${rode.input}, counted only as far as an audience while the copy is owed`, value: MAX.visibility / 3 }
+    : rode;
+  add("visibility", shown?.input ?? "no proven figure for what this wins back", shown?.value ?? 0, MAX.visibility);
 
   const items = shownEvidence(p);
   add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence on the receipt`, Math.min(MAX.evidence, items * 1.5), MAX.evidence);
 
-  const cause = p.diagnosisCause;
-  // A cause I do not recognise (a hand-edited row, or one written under an older ladder) is treated exactly like no cause at all: it matches nothing and it punishes nothing.
-  const levers = cause ? CAUSE_LEVERS[cause] : undefined;
   if (!cause) add("causeFit", "no cause named for this change yet", 0, MAX.causeFit);
   else if (!levers || levers.size === 0) add("causeFit", "nothing you can write on the page fixes the cause named here", 0, MAX.causeFit);
-  else {
-    const hit = leversOf(p).some((k) => levers.has(k));
-    add("causeFit", hit ? `this change works on ${LEVER_WORD[cause] ?? "the cause named here"}`
-      : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`, hit ? MAX.causeFit : -MAX.causeFit, MAX.causeFit);
-  }
+  else add("causeFit", addressed ? `this change works on ${LEVER_WORD[cause] ?? "the cause named here"}`
+    : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`, addressed ? MAX.causeFit : -MAX.causeFit, MAX.causeFit);
 
   const prompts = p.bundle?.scope.prompts.length ?? 0;
   add("strategic", `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`, Math.min(MAX.strategic, prompts * 5), MAX.strategic);

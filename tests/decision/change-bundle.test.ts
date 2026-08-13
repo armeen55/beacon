@@ -73,7 +73,10 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     const was = out.proposal.bundle!.receipt, kept = (l: readonly string[]) => l.filter((m) => !m.startsWith("I withheld")); // a row exactly as it was FILED BEFORE any of this: no answer ids on its lines, no disclosure line under them
     const bare: ChangeProposal = { ...out.proposal, limitations: kept(out.proposal.limitations), bundle: { ...out.proposal.bundle!, receipt: { ...was, missing: kept(was.missing), items: items.map(({ observationId: _drop, observationIds: _also, ...rest }) => rest) } } };
     // THE STORED-ROW COMPATIBILITY CONTRACT, as a literal: a receipt item carrying NO answer id must hash to exactly what it hashed to before ids existed, or every proposal already on file is rewritten once to say the identical thing. Appending the id unconditionally (`?? null`) moves this string, which is the whole point of pinning it.
-    expect(proposalFingerprint(bare)).toBe("e716037d0ca99b96"); expect(new Set([out.proposal, swap(["obs_p1_chatgpt", "obs_somebody_else"]), bare].map(proposalFingerprint)).size).toBe(3); expect(proposalFingerprint(swap(["obs_p2_gemini", "obs_p1_chatgpt"]))).toBe(proposalFingerprint(out.proposal)); // the same support in another order is the same support
+    // MOVED ONCE, ON PURPOSE (the two-window repair): demand_decline and ranking_loss stopped being permanent silences and became a rule read off this page's own two
+    // four week windows, so every finding's `notConsidered` says something different and truer. Every stored row is rewritten once to say it. Still pinned as a literal:
+    // the contract is that nothing moves this string by accident, never that it can never move.
+    expect(proposalFingerprint(bare)).toBe("719353190984af90"); expect(new Set([out.proposal, swap(["obs_p1_chatgpt", "obs_somebody_else"]), bare].map(proposalFingerprint)).size).toBe(3); expect(proposalFingerprint(swap(["obs_p2_gemini", "obs_p1_chatgpt"]))).toBe(proposalFingerprint(out.proposal)); // the same support in another order is the same support
     expect(deserializeChangeProposal(serializeChangeProposal(out.proposal))!.bundle!.receipt.items.find((i) => i.key === "named1")!.observationIds).toEqual(["obs_p1_chatgpt", "obs_p2_gemini"]); }); // and the WHOLE set survives being stored and read back
   it("lets an omission the answers keep leaving ADD support to a piece that stands on its own, and never rescue one that stands on nothing", async () => {
     const both = { competitors: [], materialOmissions: ["what a first flush diverter costs"], contentTypesRecommended: [] };
@@ -186,7 +189,7 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     // A BELOW-BAR SEARCH SAYS ITS SIZE IN ONE UNIT, and a card asking for a minute of work never claims it is not asking: all three legacy tails close in the same honest frame, numbers intact.
     const soft = { ...topicSnapshot().ownedPages[1]!, search: { ...COMPOST, impressions90d: 600, topQueries: [{ query: "compost bin sizing", impressions: 600, clicks: 5, position: 6 }] } };
     const quiet = looked({ ...topicSnapshot(), ownedPages: [soft], research: asked }); const soften = compileCandidates(quiet)[0]!; const frame = "That is under the bar for a proven change, so this is a quick test, and what it does will be measured.";
-    expect(soften.reason).toContain("that search is worth about 25 clicks, under the 50 clicks on 500 searches that earn a change. Watching it rather than asking for work.");
+    expect(soften.reason).toContain("that search is worth about 25 clicks, under the 50 clicks that earn a change. Watching it rather than asking for work.");
     expect(["and that is only about 7 clicks, under the 50 I act on.", "and that gap is 1.5 percent, under the 2.0 percent I act on.", "and that is too little search to act on yet (I want 500 impressions on one query)."]
       .map((t) => suggestedEdits(quiet, [{ ...soften, reason: `Scope. Rates, ${t} Watching it rather than asking for work.` }], { now: OPTS.now!, basis: "b" })[0]!.whyItMatters.split(" This line leads")[0]!))
       .toEqual([`Scope. Rates, and that is only about 7 clicks. ${frame}`, `Scope. Rates, and that gap is 1.5 percent. ${frame}`, `Scope. Rates. ${frame}`]);
@@ -488,6 +491,35 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
     }
   });
+  it("puts what is riding on the change above how long it takes, and never lets a wrong lever ride a recovery", () => {
+    // A page proven to be losing 191 clicks against a description errand on a page shown twice: value leads, and
+    // the whole of the errand's speed is worth less than what the losing page has riding on it.
+    const losing = prop({ id: "losing", pagePath: "/persian-male-names", impactScore: 191, estimatedEffortMinutes: 30 });
+    const errand = prop({ id: "errand", pagePath: "/tiny", impactScore: null, demandImpressions90d: 2, estimatedEffortMinutes: 1 });
+    const ranked = rankProposals([errand, losing]);
+    expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
+    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[1]!, "effort")]).toEqual([7.64, 3.83]);
+    expect(factorOf(ranked[0]!, "visibility")).toBeGreaterThan(factorOf(ranked[1]!, "effort"));
+    // THE RECOVERY BELONGS TO THE CAUSE: a lever that does not touch the cause forfeits the figure outright, so a
+    // bigger page can never buy a wrong change past the right one however wide the visibility band gets.
+    const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
+    expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
+    expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(80); });
+  it("keeps homework behind finished work however big its page is, and names a lever for a page losing ground", () => {
+    // THE OWED CARD ON THE BIGGEST PAGE ON THE SITE still waits: while the copy is owed its visibility counts only
+    // as far as an audience does (40), which the flat 45 always outweighs, so no page is big enough to promote work
+    // nobody has written. Uncapped it scored 80 here and led a card that is actually finished.
+    const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
+      limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
+    const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
+    const ranked = rankProposals([owed, finished]);
+    expect(ranked.map((p) => p.id)).toEqual(["finished", "owed"]);
+    expect([factorOf(ranked[1]!, "visibility"), factorOf(ranked[1]!, "readiness")]).toEqual([40, -45]);
+    expect(ranked[1]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("only as far as an audience while the copy is owed");
+    // A PAGE LOSING GROUND ON A SEARCH PEOPLE STILL RUN has levers; a search fewer people run has none, and
+    // saying otherwise would score a decline card for a fix that is not one.
+    expect([factorOf(rankProposals([prop({ diagnosisCause: "ranking_loss", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit"),
+      factorOf(rankProposals([prop({ diagnosisCause: "demand_decline", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit")]).toEqual([25, 0]); });
   it("discounts a dangerous consolidation and a page that already has a change under measurement", () => {
     const safe = prop({ id: "safe", impactScore: 300, pagePath: "/quiet", bundle: bundleOf([comp({ kind: "title" })]) });
     const risky = prop({ id: "risky", impactScore: 300, pagePath: "/merge", status: "needs_review",

@@ -1,11 +1,10 @@
 /**
- * decision/diagnosis: THE CAUSE LADDER. One page loses clicks for exactly one reason I can name. Every cause is
- * asked in one fixed order and answers for itself: (1) does it HOLD what the cause is decided from? No, and it
- * is NOT CONSIDERED, by name, with the exact thing missing. (2) does the evidence FIRE it? Yes, and it carries
- * the receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing
- * explanation. Order is evidence strength: two of your own pages on one search beats a wording read beats a shared subject beats a shape beats an engine that never cites you beats how the page is served.
- *
- * EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`). NOTHING DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit this kernel can write. PURE + deterministic. */
+ * decision/diagnosis: THE CAUSE LADDER. One page loses clicks for exactly one reason that can be named. Every cause is asked in one fixed order and answers for
+ * itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name, with the exact thing missing. (2) does the evidence FIRE it?
+ * Yes, and it carries the receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing explanation. Order is evidence
+ * strength: two of your own pages on one search beats a page that fell beats a wording read beats a shared subject beats a shape beats an engine that never cites
+ * you beats how the page is served. EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`). NOTHING DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for
+ * every cause whose fix is not an edit this kernel can write. PURE + deterministic. */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -17,8 +16,7 @@ import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { RECEIPT } from "./diagnose";
 import { observationJoinsCase } from "./membership"; import { provenSurvivor, splitComparison, type SplitRow } from "./split";
 
-/** WHY one page loses the click, as ONE closed vocabulary, every member decided from evidence this account
- *  holds. No member means "some other reason": a cause I cannot name is `no_problem` plus a missing input. */
+/** WHY one page loses the click, as ONE closed vocabulary, every member decided from evidence this account holds. No member means "some other reason": a cause that cannot be named is `no_problem` plus a missing input. */
 type CandidateCause =
   | "cannibalization"
   | "ctr_snippet" | "competitor_content_gap" | "incomplete_coverage" | "weak_opening"
@@ -26,8 +24,7 @@ type CandidateCause =
   | "demand_decline" | "ranking_loss" | "retrieved_not_cited" | "technical_indexability"
   | "measuring_change" | "no_problem";
 
-/** WHAT THE CAUSE WAS READ OFF, KEPT: the SAME values the explanation is written from, so a cause that can
- *  explain a loss can also produce work. Absent = no structure worth keeping, never "the reading failed". */
+/** WHAT THE CAUSE WAS READ OFF, KEPT: the SAME values the explanation is written from, so a cause that can explain a loss can also produce work. Absent = no structure worth keeping, never "the reading failed". */
 export type CausePayload =
   | { cause: "weak_opening"; want: string[] }
   | { cause: "incomplete_coverage"; absentHeadings: string[]; absentEntities: string[] }
@@ -86,6 +83,9 @@ type LadderInput = {
   /** WHAT IS WRONG WITH HOW THESE PAGES ARE SERVED (decision/technical-findings). ABSENT means I never
    *  looked, so the cause is not considered; EMPTY means I looked and found nothing, which is ruled out. */
   technical?: readonly TechnicalFinding[];
+  /** THIS PAGE'S TWO CONSECUTIVE 28 DAY WINDOWS. ABSENT means they were never read, and the two causes decided from them stay unconsidered BY NAME. Present, and
+   *  they answer for themselves: whether the searching stopped or the page slipped is exactly the difference between these numbers. */
+  decline?: { clicksNow: number; clicksPrior: number; positionNow: number; positionPrior: number; impressionsNow: number; impressionsPrior: number } | undefined;
 };
 
 /** Derived once per page so no rule below re-derives it and no two rules can disagree. */
@@ -99,7 +99,8 @@ type Ctx = LadderInput & {
 };
 
 type Verdict =
-  | { fired: true; action: DiagnosedAction | null; evidenceKeys: string[]; explanation: string; payload?: CausePayload }
+  /** `cause` overrides the rule's own when ONE reading can reach more than one honest conclusion (the two windows: a page that slipped, or demand that dried up). */
+  | { fired: true; action: DiagnosedAction | null; evidenceKeys: string[]; explanation: string; payload?: CausePayload; cause?: CandidateCause }
   | { fired: false; reason: string };
 
 type Rule = {
@@ -110,7 +111,19 @@ type Rule = {
   falsifier: (c: Ctx) => string;
   /** The alternative this cause structurally rules out, so a finding always ships with one. */
   rulesOut: { cause: CandidateCause; reason: string };
+  /** Other causes this ONE rule decides, named too when it is not held: one reading can settle more than one cause, and every cause off the file is named or none is. */
+  alsoUnheld?: ReadonlyArray<{ cause: CandidateCause; missing: string }>;
 };
+
+/** WHEN A FALL IS A FALL, in ONE place: the ladder and the candidate carrying that fall onto the queue must agree, or a page is diagnosed as declining and ranked as if it were not.
+ *  `minPriorClicks` is what the page had to be earning first (one that went 6 clicks to 1 must never outrank one that went 400 to 200); `share` is how much of it is gone (a quarter is
+ *  past any ordinary wobble) OR `minLostClicks` is how many are gone outright, because a big page that shed 191 clicks on a 20 percent dip is the most valuable thing on the site and a
+ *  share floor alone never sees it; `positionSlip` is how far down counts as slipping (under a full position it is the same rank over a different mix of searches). */
+export const DECLINE_FLOORS = { minPriorClicks: 50, share: 0.75, minLostClicks: 100, positionSlip: 1 } as const;
+const { minPriorClicks: MIN_PRIOR_CLICKS, share: DECLINE_SHARE, minLostClicks: MIN_LOST, positionSlip: MIN_POSITION_SLIP } = DECLINE_FLOORS;
+/** The cause a fired rule actually concluded: its own, unless the reading named a different one. */
+const wonCause = (won: { rule: Rule; verdict: Extract<Verdict, { fired: true }> }): CandidateCause => won.verdict.cause ?? won.rule.cause;
+const NOT_DOWN = "this page is not down enough over its last two four week windows for a fall to explain anything";
 
 const quote = (s: string): string => `"${s}"`;
 const list = (t: readonly string[]): string => t.slice(0, 3).map(quote).join(", ");
@@ -133,11 +146,17 @@ function serpLoss(d: ActionDiagnosis): string {
   return "the results page for that search has not been read yet, so the wording accuses nothing";
 }
 
+/** THE TWO CAUSES DECIDED FROM THE TWO WINDOWS, for a finding built WITHOUT running the ladder. They are a RULE now (see RULES below); this is only what a
+ *  caller that was told nothing says. */
+const NOT_TOLD_DECLINE: Array<{ cause: CandidateCause; missing: string }> = [
+  { cause: "demand_decline", missing: "This page's two four week windows were not read here, so whether the searching itself fell off is not visible." },
+  { cause: "ranking_loss", missing: "This page's two four week windows were not read here, so whether it slipped down the results is not visible." },
+];
+
 // ── the ladder, strongest evidence first ─────────────────────────────────────
 
 const RULES: Rule[] = [
-  {
-    // A CHANGE ALREADY UNDER MEASUREMENT outranks every other reading: a second edit makes the first unreadable.
+  { // A CHANGE ALREADY UNDER MEASUREMENT outranks every other reading: a second edit makes the first unreadable.
     cause: "measuring_change",
     held: (c) => (c.measuringPagePaths ? null : NOT_TOLD_MEASURING.missing),
     read: (c) => ((c.measuringPagePaths ?? []).some((p) => namesPage(p, c.urlKey))
@@ -147,8 +166,7 @@ const RULES: Rule[] = [
     falsifier: () => "If the change recorded on this page was never actually applied, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "a second edit here would make the first one unreadable, whatever its wording does" },
   },
-  {
-    // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked before every wording question and SCOPED TO THIS SEARCH.
+  { // TWO OF YOUR OWN PAGES ON ONE SEARCH is the one cause no wording change can touch, so it is asked before every wording question and SCOPED TO THIS SEARCH.
     cause: "cannibalization",
     held: (c) => (c.snapshot.cannibalization.some((g) => canonicalQueryKey(g.query) === c.queryKey)
       || c.snapshot.research.retainedKeywords.some((k) => canonicalQueryKey(k.query) === c.queryKey && k.supports != null)
@@ -169,8 +187,25 @@ const RULES: Rule[] = [
     falsifier: (c) => `If the next look shows only one page of yours coming up for ${quote(c.query)}, this is not the explanation.`,
     rulesOut: { cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" },
   },
-  {
-    // THE LINE A SEARCHER ACTUALLY READS: decision/diagnose owns that read; here it is one rung like any other.
+  { // A PAGE THAT WAS EARNING AND STOPPED, off its own two four week windows. Asked before every wording question: no line a searcher reads wins back a click from
+    // a position the page no longer holds, and none wins one from somebody who never searched. WHICH OF THE TWO IT IS, THE WINDOWS DECIDE. Both causes were filed
+    // for a generation as untestable over one 90 day average, while 17 months of daily page totals sat in the store and the decay reader computed both windows.
+    cause: "ranking_loss",
+    held: (c) => (c.decline ? null : NOT_TOLD_DECLINE[1]!.missing),
+    alsoUnheld: [NOT_TOLD_DECLINE[0]!],
+    read: (c) => {
+      const d = c.decline!, at = `${d.positionPrior.toFixed(1)} to ${d.positionNow.toFixed(1)}`;
+      if (d.clicksPrior < MIN_PRIOR_CLICKS || (d.clicksNow > DECLINE_SHARE * d.clicksPrior && d.clicksPrior - d.clicksNow < MIN_LOST)) return { fired: false, reason: NOT_DOWN };
+      if (d.positionNow - d.positionPrior >= MIN_POSITION_SLIP) return { fired: true, action: null, evidenceKeys: [RECEIPT.gsc],
+        explanation: `This page fell from position ${at} between the last four weeks and the four before, and lost ${num(d.clicksPrior - d.clicksNow)} clicks with it. Something moved ahead of it, so those clicks come back by making the page worth that place again, not by rewriting the line under its name.` };
+      if (d.impressionsPrior > 0 && d.impressionsNow <= DECLINE_SHARE * d.impressionsPrior) return { fired: true, cause: "demand_decline", action: null, evidenceKeys: [RECEIPT.gsc],
+        explanation: `${num(d.impressionsPrior - d.impressionsNow)} fewer people saw this page in search over the last four weeks than the four before, while it held its position. Fewer people are searching for this, so the page lost nothing: it is being asked for less.` };
+      return { fired: false, reason: `this page held its position (${at}) and was seen by as many people, so neither a slip nor quieter demand is what cost the clicks` };
+    },
+    falsifier: () => "If this page is back where it was on both counts and the clicks have not followed, the fall is not the explanation.",
+    rulesOut: { cause: "ctr_snippet", reason: "no wording wins back a click from a position the page no longer holds, or from somebody who never searched" },
+  },
+  { // THE LINE A SEARCHER ACTUALLY READS: decision/diagnose owns that read; here it is one rung like any other.
     cause: "ctr_snippet",
     held: () => null,
     read: (c) => (c.serpRead.status === "diagnosed" && c.serpRead.action === "title"
@@ -179,8 +214,7 @@ const RULES: Rule[] = [
     falsifier: () => "If Google starts displaying this page with the wording the pages beating it share, and the click rate does not move, the wording was not the cause.",
     rulesOut: { cause: "competitor_content_gap", reason: "the line a searcher reads is what loses the click here, and that is wording rather than a subject the page never covers" },
   },
-  {
-    // WHAT MY PAGE DOES NOT DO, and only about the page the verdict put in front of the reading. A gap written about a page nobody supplied is an invention, so it is gated here too.
+  { // WHAT MY PAGE DOES NOT DO, and only about the page the verdict put in front of the reading. A gap written about a page nobody supplied is an invention, so it is gated here too.
     cause: "competitor_content_gap",
     held: (c) => (c.pattern ? null : "No reading of what the pages winning this subject have in common, taken against this page, is on file."),
     read: (c) => {
@@ -219,8 +253,7 @@ const RULES: Rule[] = [
     falsifier: () => "If this page covers those under wording that did not match, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "a line that promises what the page does not deliver wins the click and loses the reader" },
   },
-  {
-    // HOW THE PAGE OPENS, against how every winner opens. Not taste: they all answer the search in their first words, and this page's first words never say what it is about.
+  { // HOW THE PAGE OPENS, against how every winner opens. Not taste: they all answer the search in their first words, and this page's first words never say what it is about.
     cause: "weak_opening",
     held: (c) => (!c.pattern || !c.pattern.openingPattern ? "No reading of how the pages winning this subject open is on file."
       : !openingOf(c) ? "This page's own opening words are not on file." : null),
@@ -238,8 +271,7 @@ const RULES: Rule[] = [
     falsifier: () => "If the page answers the search in its first lines under wording that did not match, this is not the explanation.",
     rulesOut: { cause: "incomplete_coverage", reason: "the page carries the subject; it is the first thing a reader sees that never says so" },
   },
-  {
-    // THE KIND OF PAGE THAT WINS, settled one gate earlier by counting publishers. A page of a different kind is not losing on wording, and no rewrite turns one kind into another.
+  { // THE KIND OF PAGE THAT WINS, settled one gate earlier by counting publishers. A page of a different kind is not losing on wording, and no rewrite turns one kind into another.
     cause: "serp_shape_shift",
     held: (c) => (!c.mine ? "What kind of page wins this subject is not settled."
       : c.mine.investigation.pageType === "mixed" || c.mine.investigation.pageType === "unknown"
@@ -253,8 +285,7 @@ const RULES: Rule[] = [
     falsifier: () => "If the results for that search stop agreeing on one kind of page, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "the results have settled on a kind of page this one is not, and wording does not change what a page is" },
   },
-  {
-    // WHAT THE SEARCHER IS THERE TO DO, off the intent every priced search agrees on, against what this page is built to do. Only a real disagreement fires; a silence never does.
+  { // WHAT THE SEARCHER IS THERE TO DO, off the intent every priced search agrees on, against what this page is built to do. Only a real disagreement fires; a silence never does.
     cause: "intent_shift",
     held: (c) => (!c.mine || !c.mine.investigation.demand.intent ? "What someone searching this is actually trying to do is not on file."
       : !ownShape(c) ? "Too little of this page is on file to say what it is built to do." : null),
@@ -270,8 +301,7 @@ const RULES: Rule[] = [
     falsifier: () => "If what people want from that search is not what the keyword research recorded, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "the page answers a different question from the one being asked, and wording cannot answer a question the page does not cover" },
   },
-  {
-    // WHERE A READER CAN GO NEXT, counted off my own page against the winners. Both sides are real counts from reads already paid for, and a thinly linked subject accuses nobody.
+  { // WHERE A READER CAN GO NEXT, counted off my own page against the winners. Both sides are real counts from reads already paid for, and a thinly linked subject accuses nobody.
     cause: "internal_link_weakness",
     held: (c) => (!c.mine ? "This page has not been compared against the pages that win its subject."
       : !c.page.content ? "This page's own links are not on file." : winnerLinks(c).length < 2
@@ -290,8 +320,7 @@ const RULES: Rule[] = [
     falsifier: () => "If this page's links are on file and too few were read, this is not the explanation.",
     rulesOut: { cause: "incomplete_coverage", reason: "the page covers the subject and then strands the reader on it" },
   },
-  {
-    // READ AND PASSED OVER: the retrieval list held this page and the answer cited somebody else, which is a content verdict rather than a wording one.
+  { // READ AND PASSED OVER: the retrieval list held this page and the answer cited somebody else, which is a content verdict rather than a wording one.
     cause: "retrieved_not_cited",
     held: (c) => (aiAnswers(c).some((o) => (o.retrievedResults ?? null) != null)
       ? null : "What the engines cited is on file, and none of these observations recorded what was read before answering."),
@@ -309,8 +338,7 @@ const RULES: Rule[] = [
     falsifier: () => "If an engine that reads this page starts citing it, this is not the explanation.",
     rulesOut: { cause: "ai_citation_gap", reason: "a page the engine read and declined is a harder problem than one it never found" },
   },
-  {
-    // AN ENGINE THAT CITES EVERYBODY ELSE, off answers already observed about THIS page's search: cited sites that are not mine, and this page never once among them.
+  { // AN ENGINE THAT CITES EVERYBODY ELSE, off answers already observed about THIS page's search: cited sites that are not mine, and this page never once among them.
     cause: "ai_citation_gap",
     held: (c) => (aiAnswers(c).length > 0 ? null : "No AI answer about that search carries its sources on file."),
     read: (c) => {
@@ -326,8 +354,7 @@ const RULES: Rule[] = [
     falsifier: () => "If an engine cites this page for that subject on the next look, this is not the explanation.",
     rulesOut: { cause: "ctr_snippet", reason: "an engine that never names this page is not choosing against its wording" },
   },
-  {
-    // HOW THIS PAGE IS SERVED, off the inventory and the capture already held: an address that answers nothing, a hop through a hop, a canonical naming somebody else, a robots tag holding it out.
+  { // HOW THIS PAGE IS SERVED, off the inventory and the capture already held: an address that answers nothing, a hop through a hop, a canonical naming somebody else, a robots tag holding it out.
     // ASKED LAST ON PURPOSE: a page losing on its words is not fixed by its plumbing, so this wins only when nothing above fired, and that page's ONLY earned work is technical.
     cause: "technical_indexability",
     held: (c) => (c.technical ? null : NOT_READ_TECHNICAL.missing),
@@ -367,7 +394,7 @@ const openingOf = (c: Ctx): string | null =>
 /** What kind of page this one IS, by the same classifier that typed the results it is measured against. */
 const ownShape = (c: Ctx): string | null => classifyResult(c.page.content?.title ?? null, c.page.url);
 
-/** How many of their own pages the winners I have READ point on to, sorted, so the middle one is the middle. */
+/** How many of their own pages the winners READ point on to, sorted, so the middle one is the middle. */
 const winnerLinks = (c: Ctx): number[] => {
   const urls = new Set((c.mine?.investigation.winners ?? []).filter((w) => w.extractState === "current").map((w) => canonicalUrlKey(w.url)));
   return c.snapshot.research.winningPages
@@ -376,8 +403,7 @@ const winnerLinks = (c: Ctx): number[] => {
     .sort((a, b) => a - b);
 };
 
-/** The observed AI answers that are actually ABOUT this page's search, decided by the ONE membership predicate:
- *  a shared word this account puts on everything can never pull an unrelated answer in. */
+/** The observed AI answers actually ABOUT this page's search, decided by the ONE membership predicate: a shared word this account puts on everything can never pull an unrelated answer in. */
 const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
   const provenance = c.snapshot.research.retainedKeywords.filter((k) => canonicalQueryKey(k.query) === c.queryKey)
     .flatMap((k) => k.origins ?? []);
@@ -385,27 +411,17 @@ const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
     && observationJoinsCase(o, { queries: [c.query], provenance }));
 };
 
-/** CAUSES THIS GENERATION CANNOT TEST AT ALL, said out loud rather than left as a silence. Each one names
- *  the exact evidence that does not exist yet, so nobody has to wonder whether it was weighed and lost. */
-const UNHELD: Array<{ cause: CandidateCause; missing: string }> = [
-  { cause: "demand_decline", missing: "One 90 day total for that search is on file and nothing earlier, so a quiet season and a real fall in demand read the same." },
-  { cause: "ranking_loss", missing: "One average position for that search is on file and nothing earlier, so whether this page moved is not visible." },
-];
 /** The technical cause is a RULE now, so it is unheld only for a caller that never read the inventory. */
-const UNHELD_TECHNICAL = "How this page is served has not been read, so whether anything stops it being found is unknown.";
-const NOT_READ_TECHNICAL = { cause: "technical_indexability" as const, missing: UNHELD_TECHNICAL };
-
-/** The one cause that is a RULE rather than a permanent silence: a full run of the ladder answers it from
- *  what it was told. A finding built without running the ladder was told nothing, and says exactly that. */
+const NOT_READ_TECHNICAL = { cause: "technical_indexability" as const,
+  missing: "How this page is served has not been read, so whether anything stops it being found is unknown." };
+/** A RULE rather than a permanent silence: a full run of the ladder answers it from what it was told. A finding built without running the ladder was told nothing. */
 const NOT_TOLD_MEASURING = { cause: "measuring_change" as const,
   missing: "Which of your pages already carry a change under measurement is not on file, so whether this one does is unknown." };
 
 const MAX_COMPETING = 3;
 
-/**
- * THE cause ladder: the one reasoning step between "this page loses clicks" and "here is why". Returns exactly one cause, everything it was read off, what it beat, what would disprove it, and every cause that
- * was never considered because its evidence is not on file. `no_problem` is a real and common answer.
- */
+/** THE cause ladder: the one reasoning step between "this page loses clicks" and "here is why". Returns exactly one cause, everything it was read off, what it beat, what would disprove
+ *  it, and every cause that was never considered because its evidence is not on file. `no_problem` is a real and common answer. */
 export function diagnoseCauses(input: LadderInput): CauseFinding {
   const named = input.coverage && input.coverage.decision.ownedUrls
     .some((u) => canonicalUrlKey(u) === canonicalUrlKey(input.page.url)) ? input.coverage : null;
@@ -424,15 +440,13 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
 
   for (const rule of RULES) {
     const missing = rule.held(c);
-    if (missing) { notConsidered.push({ cause: rule.cause, missing }); continue; }
+    if (missing) { notConsidered.push({ cause: rule.cause, missing }, ...(rule.alsoUnheld ?? [])); continue; }
     const verdict = rule.read(c);
     if (!verdict.fired) { lost.push({ cause: rule.cause, reason: verdict.reason }); continue; }
     // IT FIRED and lost only on strength: a second real accusation, which the flag alone tells apart from a cause checked and ruled out.
-    if (won) lost.push({ cause: rule.cause, reason: `the evidence for ${LABEL[won.rule.cause]} is the stronger explanation`, fired: true });
+    if (won) lost.push({ cause: rule.cause, reason: `the evidence for ${LABEL[wonCause(won)]} is the stronger explanation`, fired: true });
     else won = { rule, verdict };
   }
-  notConsidered.push(...UNHELD);
-
   if (!won) {
     return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], notConsidered,
       competingExplanations: lost.slice(0, MAX_COMPETING),
@@ -445,15 +459,13 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
     const at = competing.findIndex((y) => y.cause === x.cause);
     if (at < 0) competing.push(x); else if (x.fired && !competing[at]!.fired) competing[at] = { ...competing[at]!, fired: true };
   }
-  return { cause: won.rule.cause, action: won.verdict.action, evidenceKeys: won.verdict.evidenceKeys,
+  return { cause: wonCause(won), action: won.verdict.action, evidenceKeys: won.verdict.evidenceKeys,
     ...(won.verdict.payload ? { payload: won.verdict.payload } : {}),
     competingExplanations: competing.slice(0, MAX_COMPETING), falsifier: won.rule.falsifier(c),
     explanation: won.verdict.explanation, notConsidered };
 }
 
-/** THE one operator-facing phrase for a cause. Every surface goes through this, so a raw slug
- *  can never reach a screen; an unrecognised value on a hand-edited row reads as the honest
- *  "something not named yet" rather than printing itself. */
+/** THE one operator-facing phrase for a cause. Every surface goes through this, so a raw slug can never reach a screen; an unrecognised value on a hand-edited row reads as the honest "something not named yet" rather than printing itself. */
 export function causeLabel(cause: string): string {
   return LABEL[cause as CandidateCause] ?? "something still unnamed";
 }
@@ -480,7 +492,7 @@ const LABEL: Record<CandidateCause, string> = {
 /** The finding for a page nothing accuses: a real answer carrying the same four things as every other one,
  *  because "leave it alone" deserves a reason and an alternative exactly as much as "change this" does. */
 export function noProblemFinding(explanation: string, ruledOut: string): CauseFinding {
-  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...UNHELD, NOT_READ_TECHNICAL, NOT_TOLD_MEASURING],
+  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...NOT_TOLD_DECLINE, NOT_READ_TECHNICAL, NOT_TOLD_MEASURING],
     competingExplanations: [{ cause: "ctr_snippet", reason: ruledOut }],
     falsifier: "If this page's click rate falls below what pages at its position usually earn, this stops being the answer." };
 }

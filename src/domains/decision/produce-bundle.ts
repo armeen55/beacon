@@ -14,7 +14,7 @@ import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import { draftAtomicEditStructured, draftInternalLinkStructured, draftSectionStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, MIN_CTR_DEFICIT, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
@@ -40,12 +40,15 @@ export type OwnedBody = { openingSample: string | null; fetchedAt: string | null
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[];
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
 
-/** RECOVERABLE OPPORTUNITY, never gross traffic: per query clearing MIN_QUERY_IMPRESSIONS, the shortfall under what that position earns on the frozen CTR curve, past MIN_CTR_DEFICIT. */
+/** RECOVERABLE OPPORTUNITY, never gross traffic: per query clearing MIN_QUERY_IMPRESSIONS, the shortfall under what that position earns on THE SAME curve the diagnosis
+ *  used, past CTR_DEFICIT_SHARE of it. `at` defaults to the industry table only for a caller running outside a pass, which holds no fitted curve to hand over. */
 type Gap = { query: string; impressions: number; clicks: number; position: number; recoverable: number };
-const gapsOf = (p: OwnedPageEvidence): Gap[] => (p.search?.topQueries ?? []).flatMap((q) => {
+const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): Gap[] => (p.search?.topQueries ?? []).flatMap((q) => {
   if (q.impressions < MIN_QUERY_IMPRESSIONS || q.position == null) return [];
-  const deficit = defaultExpectedCtrAt(q.position) - q.clicks / q.impressions;
-  return deficit < MIN_CTR_DEFICIT ? [] : [{ query: q.query, impressions: q.impressions, clicks: q.clicks, position: q.position, recoverable: deficit * q.impressions }];
+  const expected = at(q.position), deficit = expected - q.clicks / q.impressions, recoverable = deficit * q.impressions;
+  // BOTH BARS, because this figure is SUMMED onto a page: a share floor alone let a tail search missing 44 percent of a 1.8 percent position add 16 clicks to a page
+  // total, and the card then carried a number its own sentence (written from the one real gap) did not say. A search joins a page's worth only if it is worth something.
+  return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: q.query, impressions: q.impressions, clicks: q.clicks, position: q.position, recoverable }];
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
 const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 
@@ -203,6 +206,8 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
 type ProduceBundleOptions = ProposeOptions & {
+  /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table, which is right only for a caller running outside a pass. */
+  curve?: { expectedCtrAt: (position: number) => number };
   /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */
   coverage?: DecidedTopic | null;
   /** The pages already carrying a change under measurement, so a page still being read is left alone. */
@@ -296,7 +301,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const only = (opts.onlyPageUrl ?? "").trim().toLowerCase();
   const eligible = only ? snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) === canonicalUrlKey(only) || pathOf(p.url).toLowerCase() === only) : snapshot.ownedPages;
   const graded = eligible.filter((p) => hasCurrentCopy(p) && queriesOf(p).length > 0)
-    .map((p) => { const gaps = gapsOf(p); return { page: p, gaps, gap: totalRecoverable(gaps) }; })
+    .map((p) => { const gaps = gapsOf(p, opts.curve?.expectedCtrAt); return { page: p, gaps, gap: totalRecoverable(gaps) }; })
     .sort((a, b) => b.gap - a.gap || byText(pathOf(a.page.url), pathOf(b.page.url)));
   // THE CLICK DOOR: only a page whose own positions prove recoverable clicks.
   const scored = graded.filter((r) => r.gap >= MIN_RECOVERABLE_CLICKS);

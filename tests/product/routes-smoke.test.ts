@@ -68,38 +68,18 @@ describe("Today renders, and tells the truth about its own queue", () => {
     expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 edit ready, best first.");
   });
   const NO_WORK = "You have no edits waiting. The next one is ranked here the moment it earns its place.";
-  const alarm = (actionLabel: string, href: string) => ({ page: "/famous-iranian-comedians", pageKey: "/famous-iranian-comedians", clicksLost: 163,
-    windowLabel: "the previous 4 weeks", sentence: "", href, actionLabel, hasReadyFix: actionLabel === "See the fix" });
-  const command = (over: Record<string, unknown>) => ({ blockers: [], smokeAlarm: null, scoreboardDeltaPct: -12, readyChanges: [], firstReadOn: null, measuringCount: 0, ...over });
-  const readyChange = { changeId: "c1", pageLabel: "/famous-iranian-comedians", recommendation: "Sharpen the title for that search",
-    opportunityType: "Capture clicks", estimatedEffortMinutes: 4, upside: 163, evidenceStrength: "strong" as const };
-  it("never sends you to fix a page the decision resolved to watch, and never reads all clear while a page is losing", async () => {
-    const { buildTodayCommand } = await import("@/domains/measurement");
-    const watching = "Traffic fell here, but its search click-through is healthy, so I am watching it rather than asking you to rewrite a page that is winning.";
-    const held = buildTodayCommand(command({ smokeAlarm: alarm("Open Changes", "/changes"), declineVerdict: watching }));
-    // No ready change, so this is not an act-now day; the kernel's own verdict for the losing page
-    // rides the card in every state, and no CTA sends the operator at a page with no fix.
-    expect(held.state).toBe("researching"); expect(held.losingNote).toBe(watching); expect(held.cta).toBeNull(); expect(held.ranked).toEqual([]);
-    const ready = buildTodayCommand(command({ smokeAlarm: alarm("See the fix", "/changes/abc"), readyChanges: [readyChange] }));
-    expect(ready.state).toBe("act_now"); expect(ready.ranked).toHaveLength(1);
-    expect(ready.losingNote).toContain("the change I have ready for it is in your queue");
+  it("an empty queue claims only that no edit is waiting, whatever the pass concluded", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(NO_WORK);
     // A QUIET QUEUE IS NOT A QUIET ACCOUNT, and it is not a report either: the only claim an empty day makes is that no edit is waiting.
     expect(buildTodayViewFromChanges(empty).headerSentence).toBe(NO_WORK); });
-  it("points a bleeding page at its own ready fix, and never at a route that does not exist", async () => {
-    const { buildTodaySmokeAlarm } = await import("@/components/today/today-smoke-alarm");
-    const decay = [{ page: "https://site.example/nowruz", clicksNow: 10, clicksPrior: 60 }];
-    const fixed = buildTodaySmokeAlarm({ decay, readyFixes: new Map([["/nowruz", "t::/nowruz::existing_edit::title"]]) })!;
-    const bare = buildTodaySmokeAlarm({ decay, readyFixes: new Map() })!;
-    expect(fixed.href).toBe(`/changes/${encodeURIComponent("t::/nowruz::existing_edit::title")}`);
-    expect(fixed.actionLabel).toBe("See the fix"); expect(fixed.sentence).toContain("A fix is ready.");
-    expect(bare.href).toBe("/changes"); expect(bare.actionLabel).toBe("Open Changes"); expect(bare.sentence).not.toContain("fix ready");
-    for (const href of [fixed.href, bare.href]) expect(href.startsWith("/page/")).toBe(false); // never a route that does not exist
-    const long = "/" + "a".repeat(60); // the DISPLAY label truncates; the key any lookup matches on must not
-    const wide = buildTodaySmokeAlarm({ decay: [{ page: `https://site.example${long}`, clicksNow: 10, clicksPrior: 60 }], readyFixes: new Map() })!;
-    expect(wide.page.endsWith("...")).toBe(true); expect(wide.pageKey).toBe(long); });
+  it("one page key rule keys both sides of the ready-fix lookup, whatever the address length or case", async () => {
+    const { normalizedFixKey } = await import("@/components/today/today-smoke-alarm");
+    const long = "/" + "a".repeat(60); // no length cap: a long path is compared key for key
+    expect([normalizedFixKey(`https://site.example${long}`), normalizedFixKey("https://site.example/Nowruz/"),
+      normalizedFixKey("/now%C2%ADruz"), normalizedFixKey("https://site.example")])
+      .toEqual([long, "/nowruz", "/now­ruz", "/"]); });
 });
 
 describe("Connectors settings route smoke", () => {

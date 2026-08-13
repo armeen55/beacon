@@ -72,11 +72,13 @@ export type DecisionCandidate = {
   reason: string;
 };
 
-/** Action floors. A gap under ANY of these is not worth the operator's attention, so the honest answer is
- *  watch/do_nothing. Tuned against real data: a healthy page whose best gap was 23 clicks must not act. */
+/** Action floors. A gap under ANY of these is not worth the operator's attention, so the honest answer is watch/do_nothing. Tuned against real data: a healthy page whose best gap was 23 clicks must not act. */
 export const MIN_QUERY_IMPRESSIONS = 500;
-export const MIN_CTR_DEFICIT = 0.02;
 export const MIN_RECOVERABLE_CLICKS = 50;
+/** HOW FAR UNDER ITS OWN CURVE A SEARCH HAS TO SIT, as a share of what that position earns ON THIS ACCOUNT. A flat 0.02 of click rate is a floor only an account near the industry table can
+ *  clear: fitted to a site whose best position pays 0.9 percent, a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and a page that never earns a
+ *  click is reported as a page with nothing wrong. A share asks the one question that survives both worlds: is this search missing most of what its own position pays? */
+export const CTR_DEFICIT_SHARE = 0.4;
 
 /** EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It
  *  never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click,

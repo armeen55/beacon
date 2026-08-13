@@ -35,10 +35,6 @@ export {
   loadKernelLedger,
 } from "./kernel";
 
-// Read honesty: the group read for overlapping same-page changes
-export type { BundleRead } from "./read-honesty";
-export { bundleReads } from "./read-honesty";
-
 // Ledger loading
 export {
   loadProofLedger,

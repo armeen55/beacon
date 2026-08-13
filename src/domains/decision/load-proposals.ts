@@ -81,6 +81,33 @@ function holdsForUnresolvedSource(p: ChangeProposal): boolean {
  *  no longer measuring anything, so it may not discount the next change forever. */
 const MEASUREMENT_WINDOW_DAYS = 28;
 
+/** A reading only votes once its window has closed and it was read against pages nobody changed. */
+const SETTLED_WINDOW_DAYS = 28;
+
+/**
+ * WHAT EACH KIND OF CHANGE HAS ACTUALLY DONE ON THIS ACCOUNT, off its own finished readings: how many
+ * settled and the net clicks they moved against comparable pages. The producing pass has always handed
+ * this to the ranking and the SCREEN never did, so every card the operator actually read was ranked as
+ * though the account had no track record at all. Same ledger, same rule. THE REQUEST-CACHED READ, because
+ * this runs on every render of every queue surface and the uncached one would re-read the whole ledger each
+ * time. Fail-soft to nothing: "I could not read the ledger" is never "this kind of change has done nothing".
+ */
+async function familyHistoryFor(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
+  const out = new Map<string, { readings: number; netLift: number }>();
+  const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerCached(tenantId)).catch(() => null);
+  if (!ledger) return out;
+  const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
+  for (const r of ledger) {
+    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= SETTLED_WINDOW_DAYS)
+      .sort((a, b) => b.day - a.day)[0];
+    if (!read) continue;
+    const family = actionFamilyOf(r.actionType);
+    const cur = out.get(family) ?? { readings: 0, netLift: 0 };
+    out.set(family, { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) });
+  }
+  return out;
+}
+
 /**
  * THE PAGES STILL UNDER MEASUREMENT, out of rows the caller already holds (no read, no kernel crossed). A page counts only while its implemented change is inside the window above: a row of ANY age used
  * to discount its page forever, so a change shipped six months ago quietly buried every later change to
@@ -149,7 +176,8 @@ export async function loadProposalQueue(
   const basisUnreadable = currentBasis == null;
   // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.
-  const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()) });
+  const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()),
+    familyHistory: await familyHistoryFor(tenantId) });
   // READY has to mean ready: the validator passed it (status "ready") and it owes nobody a source. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
   const toDo: ChangeProposal[] = [];

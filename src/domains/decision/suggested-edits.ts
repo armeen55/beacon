@@ -105,11 +105,11 @@ function english(query: string, corpus: ReadonlySet<string>): boolean {
 /** A page that ALREADY EARNS MORE clicks than its own positions predict is never handed a rewrite: one line
  *  serves every search a page wins, so chasing its softest one bets the searches that are working. ONE
  *  MEASURED SEARCH IS STILL A MEASUREMENT, or the AEO clause waives the click test on a page that is winning. */
-function beatsItsCurve(page: OwnedPageEvidence): boolean {
+function beatsItsCurve(page: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): boolean {
   let earned = 0, predicted = 0;
   for (const q of page.search?.topQueries ?? []) {
     if (!(q.impressions > 0) || q.position == null || !(q.position > 0)) continue;
-    earned += q.clicks; predicted += defaultExpectedCtrAt(q.position) * q.impressions;
+    earned += q.clicks; predicted += at(q.position) * q.impressions;
   }
   return predicted > 0 && earned >= predicted;
 }
@@ -237,6 +237,9 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
      *  Google's ranking did not cause is a page to INVESTIGATE, and handing the operator a card that asks THEM
      *  to diagnose it was the queue asking for work rather than doing it. Absent = the note is simply dropped. */
     needs?: Map<string, string>;
+    /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with, so one page cannot beat its
+     *  curve here and fail it there. Absent = the industry table, for a caller running outside a pass. */
+    curve?: { expectedCtrAt: (position: number) => number };
   }): ChangeProposal[] {
   const tenantId = snapshot.scope.tenantId;
   const skip = opts.skip ?? new Set<string>();
@@ -274,7 +277,7 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     const path = pathOf(c.pageUrl!);
     const page = byUrl.get(canonicalUrlKey(c.pageUrl!));
     const content = page?.content;
-    if (!content || beatsItsCurve(page)) continue;
+    if (!content || beatsItsCurve(page, opts.curve?.expectedCtrAt)) continue;
     const query = c.query!;
     // A results page that was READ and cleared the wording means the line is not the problem, so a sharper line there is disproved work. Never having looked is not that: it is a card that owes an honest label.
     if (DISPROVED.has(c.diagnosis?.cause ?? "")) continue;

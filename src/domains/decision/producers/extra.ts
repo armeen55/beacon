@@ -1,14 +1,17 @@
 /** decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all off evidence this account already paid
- * for. Every card is minted from stored rows: the stored AI answers, the stored page snapshots and the stored
- * link graph, and every number on one traces back to a row. The strict path and suggested-edits are untouched; these land beside them at `needs_review`.
+ * for. Every card is minted from stored rows (the stored AI answers, page snapshots and link graph) and every
+ * number on one traces back to a row. The strict path and suggested-edits are untouched; these land beside them
+ * at `needs_review`. Every card carries what is riding on it: the audience its page is shown to, and the clicks
+ * its page is measurably leaving behind wherever its own search rows can say so.
  *
- * THE ONE THING THIS PASS BUYS is a page reading (producers/page-job.ts): one durable sentence saying what a page is
- * FOR, held per page and re-read only when that page changes. It decides WHERE a card lands, and for a card that
- * carries a subject from somewhere else onto a page it decides WHETHER one exists at all: a page nobody has read holds its card and lands on this pass's receipt instead of taking a guess.
+ * THE ONE THING THIS PASS BUYS is a page reading (producers/page-job.ts): one durable sentence saying what a
+ * page is FOR, held per page and re-read only when that page changes. It decides WHERE a card lands, and for a
+ * card carrying a subject from elsewhere onto a page it decides WHETHER one exists at all: a page nobody has
+ * read holds its card and lands on this pass's receipt instead of taking a guess.
  *
- * WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references,
- * follow-up questions and related searches, and NO rich-result flag of any kind, so "the winners show an FAQ
- * result and this page has none" is a claim this evidence cannot support. Skipped rather than guessed.
+ * WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references, follow-up
+ * questions and related searches and NO rich-result flag, so "the winners show an FAQ result and this page has
+ * none" is a claim this evidence cannot support. Skipped rather than guessed.
  *
  * ONE CARD PER PAGE PER CHANGE FAMILY: the store files a change under (page, family) and a save SUPERSEDES
  * whatever held it, so every candidate is checked against the queue on file AND against this pass's own.
@@ -18,41 +21,39 @@ import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
-/** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is the whole
- *  basis the sweep behind it acts on: it is true only when the queue on file was actually read and every
- *  card below was minted against it. Never inferred from how many cards came back, because "none this
- *  pass" and "I could not look" are the same length and opposite facts. `held` is every card this pass
- *  would have minted and did not, with the reason, so work that was refused is on the receipt instead of  vanishing. */
-type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
+/** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the
+ *  queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not
+ *  look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a
+ *  family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds
+ *  only its own out of that sweep. `held` puts refusals on the receipt. */
+type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 
-/** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the
- *  queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
+/** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
 type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
-  /** The question this card came out of. ONE QUESTION, ONE CARD: an answer and the follow-up search an
-   *  engine ran while writing it are the same question, so the strongest of them is the only one filed. */
+  /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file
+   *  writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */
+  refs: number; impact?: number | null;
+  /** The question this card came out of. ONE QUESTION, ONE CARD: an answer and the follow-up search an engine
+   *  ran while writing it are the same question, so the strongest of them is the only one filed. */
   asked?: string };
 
-/** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page
- *  is a stub to a reader and to Google. TOP_PAGES_PER_CLASS is how many pages one defect mints cards for in one
- *  pass: a sweep is still done one page at a time, so it is filed one page at a time. */
+/** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is
+ *  a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
 const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
-/** A thin page shown this often is not a stub to fill, it is a page to write. */
-const HEAVY_IMPRESSIONS = 5_000;
-/** Words of the page's own tie to a search, past the site wide ones, before it may be asked to answer it. */
-const MIN_EARNED_OVERLAP = 2;
-/** Past this a heading is a paragraph a page builder wrapped in a heading tag, and it says nothing about  what the page is built to answer. */
-const MAX_HEADING_WORDS = 12;
-/** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products,
- *  so "add a section answering this question" there is work nobody would ever publish. */
+/** A page shown HEAVY_IMPRESSIONS often is a page to write, not a stub to fill. MIN_EARNED_OVERLAP is the words
+ *  of a page's own tie to a search, past the site wide ones, before it may be asked to answer it, and past
+ *  MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
+const HEAVY_IMPRESSIONS = 5_000, MIN_EARNED_OVERLAP = 2, MAX_HEADING_WORDS = 12;
+/** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products, so "add a section answering this question" there is work nobody would ever publish. */
 const STOREFRONT = /(^|[/-])(explore|shop|store|categor(y|ies)|collections?|product|cart|checkout)([/-]|$)/i;
-/** A search asking WHICH SITES cover something wants a directory. No page of this account is the answer to
- *  it, and writing one reads as an advert for itself. A question where somebody DESCRIBES THEMSELVES is
- *  their own situation, not a search: whatever page it lands on, it landed there by accident. */
+/** A search asking WHICH SITES cover something wants a directory, and no page of this account is the answer to
+ *  it. A question where somebody DESCRIBES THEMSELVES is their own situation, not a search. */
 const META_QUESTION = /\b(web ?sites?|sites?|blogs?)\b/i;
 const PERSONAL = /\b(i'm|im|i am|i've|myself|my)\b/i;
 const askable = (q: string): boolean => !META_QUESTION.test(q) && !PERSONAL.test(q);
@@ -61,76 +62,58 @@ const SHOP_DOMAIN = /(^|\.)(amazon|etsy|ebay|aliexpress|walmart|redbubble|teepub
 const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
 
 const pathOf = (url: string): string => {
-  try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
-};
+  try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 /** Words carried in from an engine, a publisher or a title, made safe to paste: no dash Beacon never writes,  no bracket that reads as a blank somebody forgot to fill in. */
-const plain = (s: string | null | undefined): string =>
-  (s ?? "").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim();
+const plain = (s: string | null | undefined): string => (s ?? "").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim();
 const labelOf = (p: OwnedPageEvidence): string => plain(p.content?.h1 ?? p.content?.title ?? pathOf(p.url)) || pathOf(p.url);
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 const count = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
 /** The words a page can be judged on without paying for a body read: its title, its heading and its outline. */
-const pageWords = (p: OwnedPageEvidence): Set<string> =>
-  new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []), pathOf(p.url).replace(/[-/]/g, " ")].filter(Boolean).join(" ")));
+const pageWords = (p: OwnedPageEvidence): Set<string> => new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []), pathOf(p.url).replace(/[-/]/g, " ")].filter(Boolean).join(" ")));
 const flat = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
-/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, its heading, and the headings of its
- *  own sections. Site wide furniture, paragraphs wrapped in a heading tag, and the page's own FAQ questions
- *  are none of those: a question a page ASKS is not a subject it covers, and a tie made of any of them is no  tie at all. That is how a page about film directors was asked to write about books. */
+/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. Furniture,
+ *  paragraphs in a heading tag and its own FAQ questions are none of those: a question a page ASKS is not a
+ *  subject it covers. */
 const earnedWords = (p: OwnedPageEvidence, furniture: ReadonlySet<string>): Set<string> =>
-  new Set(topicTokens([p.content?.title, p.content?.h1,
-    ...(p.content?.outline ?? []).filter((h) => !furniture.has(flat(h)) && !h.trim().endsWith("?")
-      && h.trim().split(/\s+/).length <= MAX_HEADING_WORDS)].filter(Boolean).join(" ")));
-/** ONE PAGE, WHATEVER SPELLING ASKED FOR IT: the address the read landed on, else the address the page names
- *  as its own, else the address asked for. Three retired slugs forwarding to one product are ONE page, and
- *  counting them as three invented duplicate headings and missing descriptions out of nothing. */
+  new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []).filter((h) => !furniture.has(flat(h))
+    && !h.trim().endsWith("?") && h.trim().split(/\s+/).length <= MAX_HEADING_WORDS)].filter(Boolean).join(" ")));
+/** ONE PAGE, WHATEVER SPELLING ASKED FOR IT: the address the read landed on, else the address the page names as
+ *  its own, else the address asked for. Three retired slugs forwarding to one product are ONE page. */
 const identityOf = (p: OwnedPageEvidence): string =>
   canonicalUrlKey(p.content?.finalUrl || p.content?.canonicalUrl || p.url);
 
 /** The words of a question that carry its subject: a site wide word this account puts on everything proves no  connection at all, so it never makes a page look like the answer to anything. */
-const subjectWords = (text: string, weak: ReadonlySet<string>): string[] =>
-  [...new Set(topicTokens(text))].filter((t) => t.length > 2 && !weak.has(t));
+const subjectWords = (text: string, weak: ReadonlySet<string>): string[] => [...new Set(topicTokens(text))].filter((t) => t.length > 2 && !weak.has(t));
 
 /** Matching runs on stems and an operator must never be told to write "persepoli", so every stem is handed  back the word it was cut from, spelled as the search spelled it. */
 const asWritten = (text: string, stems: readonly string[]): string[] => {
   const words = plain(text).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}'-]/gu, "")).filter(Boolean);
-  return stems.map((s) => words.find((w) => topicTokens(w).includes(s)) ?? s);
-};
+  return stems.map((s) => words.find((w) => topicTokens(w).includes(s)) ?? s); };
 
 type Match = { page: OwnedPageEvidence; hits: string[]; missing: string[] };
-/** WHERE A REAL SEARCH BELONGS. `fits` names the page. `needs_own_page` means pages did share the words and every
- *  one of them is FOR something else: a routing fact the coverage path acts on, never this file, because new page
- *  identity is not this producer's to mint. `held` means the best page for it has never been read, so the work is  research and not a card. `no_candidate` is the old silence, unchanged. */
+/** WHERE A REAL SEARCH BELONGS. `fits` names the page. `needs_own_page` means pages shared the words and every one
+ *  is FOR something else, a routing fact only the coverage path acts on. `held` means the best page for it has
+ *  never been read, so the work is research and not a card. `no_candidate` is silence. */
 type Fit = { match: Match | null; verdict: "fits" | "needs_own_page" | "no_candidate" | "held"; reason?: string; refused?: string[] };
-/** WHAT A MISSING READING LICENSES: NOTHING. The old rule let an unaffordable or unreadable page fall back to
- *  word overlap, and one dead provider account filled the queue with a culture page answering a sources
- *  question and a single animal answering all wildlife. Two shared words are evidence a page exists, not that
- *  it owns a subject: no reading, no admission, and the card waits with its reason named. */
+/** WHAT A MISSING READING LICENSES: NOTHING. Two shared words are evidence a page exists, not that it owns a subject: no reading, no admission, and the card waits with its reason named. */
 type Understanding = Awaited<ReturnType<typeof pageUnderstanding>>;
-/** The page of this account's own that best answers a question, or null when nothing of its own comes close.
- *  Two subject words is the floor: one shared word is a coincidence, not coverage. THE HOME PAGE AND THE
- *  SHOP RAILS ARE NEVER IT, and neither is a page whose only tie to the question is site wide furniture.
- *  THE READING DECIDES, best candidate first: a page whose subjects do not include this search, or whose shape  is a rail an essay never goes on, is not the answer however many words it shares. */
+/** The page of this account's own that best answers a question, or null when nothing comes close. Two subject words
+ *  is the floor: one shared word is a coincidence, not coverage. THE HOME PAGE AND THE SHOP RAILS ARE NEVER IT, nor is a page tied to the question only by furniture. THE READING DECIDES, best candidate first. */
 async function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding): Promise<Fit> {
   const words = subjectWords(text, weak);
   if (words.length < 2) return { match: null, verdict: "no_candidate" };
-  // THE HUB, NOT THE BUSIEST LEAF. Two pages tied on the same words are not equal: the one the rest of the
-  // subject hangs under is where a whole-subject answer belongs, and a single animal's page is not it.
+  // THE HUB, NOT THE BUSIEST LEAF: of two pages tied on the same words, the one the rest of the subject hangs under is where a whole-subject answer belongs.
   const rankOf = (p: OwnedPageEvidence): [number, number] => [children.get(pathOf(p.url)) ?? 0, clicksOf(p)];
   const beats = (a: OwnedPageEvidence, b: OwnedPageEvidence): boolean => {
-    const [ac, ak] = rankOf(a), [bc, bk] = rankOf(b);
-    return ac !== bc ? ac > bc : ak > bk;
-  };
+    const [ac, ak] = rankOf(a), [bc, bk] = rankOf(b); return ac !== bc ? ac > bc : ak > bk; };
   const ranked: Match[] = [];
   for (const page of pages) {
-    const path = pathOf(page.url);
-    if (path === "/" || STOREFRONT.test(path)) continue;
-    const own = earned.get(page.url);
-    if (!own || words.filter((w) => own.has(w)).length < MIN_EARNED_OVERLAP) continue;
+    const path = pathOf(page.url), own = earned.get(page.url);
+    if (path === "/" || STOREFRONT.test(path) || !own || words.filter((w) => own.has(w)).length < MIN_EARNED_OVERLAP) continue;
     const has = pageWords(page), hits = words.filter((w) => has.has(w));
-    if (hits.length < 2) continue;
-    ranked.push({ page, hits, missing: words.filter((w) => !has.has(w)) });
+    if (hits.length >= 2) ranked.push({ page, hits, missing: words.filter((w) => !has.has(w)) });
   }
   ranked.sort((a, b) => b.hits.length - a.hits.length || (beats(a.page, b.page) ? -1 : beats(b.page, a.page) ? 1 : 0));
   const refusedPaths: string[] = [];
@@ -138,22 +121,30 @@ async function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: Reado
   // THE READING IS BOUGHT AT MINTING TIME for the page a card would actually land on, so "nobody asked" is rare.
   for (const m of ranked) {
     const { job, reason } = await u.of(m.page);
-    if (job) {
-      if (sectionFit(job, words, u.corpus, text) === "fits") return { match: m, verdict: "fits" };
-      refusedPaths.push(pathOf(m.page.url));
-      continue;
-    }
-    held ??= { match: m, verdict: "held", reason };
+    if (!job) { held ??= { match: m, verdict: "held", reason }; continue; }
+    if (sectionFit(job, words, u.corpus, text) === "fits") return { match: m, verdict: "fits" };
+    refusedPaths.push(pathOf(m.page.url));
   }
   return held ?? (refusedPaths.length > 0 ? { match: null, verdict: "needs_own_page", refused: refusedPaths } : { match: null, verdict: "no_candidate" });
 }
 
-/** A search whose words this account shares but whose subject no page of it is FOR. Acted on nowhere here: the
- *  coverage path decides whether a page should exist, so this is a line in the log and never a card. */
+/** A search whose words this account shares but whose subject no page of it is FOR. The coverage path decides whether a page should exist, so this is a line in the log and never a card. */
 const noteNeedsOwnPage = (tenantId: string, text: string, bank?: { query: string; refusedPages?: string[] }[], refused?: string[]): void => {
   log.info("[extra] no page of this account is for this search", { tenantId, query: text.slice(0, 120) });
-  bank?.push({ query: text, ...(refused?.length ? { refusedPages: refused } : {}) });
-};
+  bank?.push({ query: text, ...(refused?.length ? { refusedPages: refused } : {}) }); };
+
+/** WHAT THIS PAGE IS LEAVING BEHIND at the position it holds: at its biggest search, the clicks pages at that
+ *  position usually earn against the clicks it earns. The only figure on these cards that is a recovery and not
+ *  an audience, so it MUST be held to the same bar the strict path uses: on the industry table this account's
+ *  own position 1 read as 28 percent against the 1.34 it truly earns, sizing one extras card at 6,600 clicks
+ *  where the opportunity path scored 539 on identical rows. The caller threads the fitted curve; the industry
+ *  table is only the fallback. NULL, never zero, with no row worth reading or a page already earning its share. */
+function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: number) => number): number | null {
+  const q = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];
+  if (!q || q.position == null || q.impressions < MIN_IMPRESSIONS) return null;
+  const n = Math.round((expectedCtrAt(q.position) - Math.min(1, q.clicks / Math.max(1, q.impressions))) * q.impressions);
+  return n > 0 ? n : null;
+}
 
 /** ONE card, in the ONE shape the store files and every surface renders. */
 function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
@@ -165,13 +156,16 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after },
     whyItMatters: d.why, operatorSteps: d.steps, estimatedEffortMinutes: d.minutes, riskLevel: "low",
     confidence: d.confidence, limitations: [d.limitation],
-    evidence: { query: d.query, hints: d.hints, evidenceRefCount: d.hints.length },
-    impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: now.toISOString(),
+    evidence: { query: d.query, hints: d.hints, evidenceRefCount: Math.max(1, Math.round(d.refs)) },
+    // WHAT IS RIDING ON IT, off this page's own rows: the clicks it is measurably leaving behind, and the
+    // audience it is shown to. Either one absent stays null, never a zero the ranking would believe.
+    impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.page.search?.impressions90d ?? null,
+    publish: "manual", createdAt: now.toISOString(),
   };
 }
 
-/** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE. Every stored answer that credited a page and never credited this account, grouped by the question it
- *  answered. Recurrence across answers is the claim, so the question the most answers skipped comes first. */
+/** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE, grouped by the question they answered. Recurrence across answers
+ *  is the claim, so the question the most answers skipped comes first. */
 async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string): Promise<Draft[]> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
@@ -181,8 +175,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   for (const o of snapshot.research.aiObservations) {
     const cites = o.citations ?? [];
     if (cites.length === 0 || cites.some((c) => c.domain.replace(/^www\./, "").toLowerCase().endsWith(site))) continue;
-    const key = canonicalQueryKey(o.promptText);
-    const g = byPrompt.get(key) ?? { prompt: plain(o.promptText), answers: 0, engines: new Set<string>(), domains: new Map() };
+    const key = canonicalQueryKey(o.promptText), g = byPrompt.get(key) ?? { prompt: plain(o.promptText), answers: 0, engines: new Set<string>(), domains: new Map() };
     g.answers += 1; g.engines.add(o.engine);
     for (const c of new Map(cites.map((c) => [c.domain, c])).values()) {
       const d = g.domains.get(c.domain) ?? { n: 0, url: c.url.split("?")[0] ?? c.url, title: plain(c.title) || c.domain, engine: o.engine };
@@ -211,7 +204,8 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
       hints: [`${cite.engine} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
         `${count(g.answers, "stored answer")} to this question from ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
-      minutes: 30, confidence: g.answers >= 3 ? "medium" : "low",
+      // Every stored answer to this question is one row this card stands on, and there are as many as there are.
+      minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
     if (out.length >= MAX_PER_PRODUCER) break;
@@ -219,20 +213,29 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   return out;
 }
 
-/** 2. THE FOLLOW-UP SEARCHES ENGINES RUN FOR THEMSELVES. The searches an engine fired while answering a tracked question. A page that covers most of one and misses
- *  the rest is a section away from being the thing the engine reads next time. */
+/** 2. THE FOLLOW-UP SEARCHES ENGINES RUN FOR THEMSELVES while answering a tracked question. A page that covers
+ *  most of one and misses the rest is a section away from being what the engine reads next time. */
 async function fanoutCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string): Promise<Draft[]> {
-  const byFanout = new Map<string, { text: string; n: number; prompt: string; engines: Set<string> }>();
+  // ONE FAN-OUT, AND THE PROMPTS THAT ACTUALLY RAN IT. An engine echoing the question back was filed as a
+  // follow-up search, so a card read "while answering X, engines ran their own follow-up search for X"; an echo
+  // is nobody's search and is dropped. And engines were unioned across every parent while the copy named the
+  // FIRST parent seen, so a card could say Gemini ran this search for a question Gemini never answered. Engines
+  // count per parent prompt now, and the card names the parent that ran it most with only that parent's engines.
+  type Parent = { prompt: string; engines: Set<string>; n: number };
+  const byFanout = new Map<string, { text: string; n: number; parents: Map<string, Parent> }>();
   for (const o of snapshot.research.aiObservations) for (const f of o.fanOutQueries ?? []) {
-    const key = canonicalQueryKey(f);
-    if (!key) continue;
-    const e = byFanout.get(key) ?? { text: plain(f), n: 0, prompt: plain(o.promptText), engines: new Set<string>() };
-    e.n += 1; e.engines.add(o.engine); byFanout.set(key, e);
+    const key = canonicalQueryKey(f), asked = canonicalQueryKey(o.promptText);
+    if (!key || key === asked) continue;
+    const e = byFanout.get(key) ?? { text: plain(f), n: 0, parents: new Map<string, Parent>() };
+    const par = e.parents.get(asked) ?? { prompt: plain(o.promptText), engines: new Set<string>(), n: 0 };
+    e.n += 1; par.n += 1; par.engines.add(o.engine);
+    e.parents.set(asked, par); byFanout.set(key, e);
   }
   const out: Draft[] = [];
   for (const f of [...byFanout.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text))) {
-    if (!askable(f.text) || !askable(f.prompt)) continue;
+    const parent = [...f.parents.values()].sort((a, b) => b.n - a.n || a.prompt.localeCompare(b.prompt))[0];
+    if (!parent || !askable(f.text) || !askable(parent.prompt)) continue;
     const fit = await bestPageFor(f.text, pages, weak, earned, children, u);
     if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, f.text, bank, fit.refused);
     if (fit.verdict === "held") { u.hold(fit.match!.page.url, `${fit.reason} for "${f.text}"`); continue; }
@@ -241,16 +244,17 @@ async function fanoutCards(bank: { query: string; refusedPages?: string[] }[], s
     const total = match.hits.length + match.missing.length;
     const gap = asWritten(f.text, match.missing).slice(0, 4).join(", "), covers = asWritten(f.text, match.hits).join(", ");
     out.push({
-      page: match.page, slug: "engine_followup", field: "section", query: f.text, asked: f.prompt,
+      page: match.page, slug: "engine_followup", field: "section", query: f.text, asked: parent.prompt,
       headline: `Add a section on "${f.text}" to ${pathOf(match.page.url)} (engines search it while answering about you)`, before: null,
       after: `Add a section that answers the search "${f.text}", naming ${gap} in its first paragraph, under a heading a reader would type. The search phrase itself is evidence, not the heading.`,
-      why: `While answering "${f.prompt}", engines ran their own follow-up search for "${f.text}". ${labelOf(match.page)} at ${pathOf(match.page.url)} covers ${match.hits.length} of the ${total} subjects in that search and its title and headings never mention ${gap}. Add one section that says those words plainly.`,
+      why: `While answering "${parent.prompt}", engines ran their own follow-up search for "${f.text}". ${labelOf(match.page)} at ${pathOf(match.page.url)} covers ${match.hits.length} of the ${total} subjects in that search and its title and headings never mention ${gap}. Add one section that says those words plainly.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${f.text}"`,
         `Name ${gap} in the first paragraph`, "Mark it done here and the next answers get checked against it"],
-      hints: [`${[...f.engines].sort().join(", ")} ran the follow-up search "${f.text}" on ${count(f.n, "stored answer")}`,
-        `The question being answered was "${f.prompt}"`,
+      hints: [`${[...parent.engines].sort().join(", ")} ran the follow-up search "${f.text}" on ${count(parent.n, "stored answer")} to "${parent.prompt}"`,
+        `That search came up on ${count(f.n, "stored answer")} in all`,
         `${pathOf(match.page.url)} already covers ${covers} and is missing ${asWritten(f.text, match.missing).join(", ")}`],
-      minutes: 30, confidence: "low",
+      // The stored answers whose own follow-up search this was, plus this page's stored copy.
+      minutes: 30, confidence: "low", refs: f.n + 1,
       limitation: "The check is against this page's title and headings, which is all that is stored for it, so a paragraph deep in the body may already mention some of these words.",
     });
     if (out.length >= MAX_PER_PRODUCER) break;
@@ -258,26 +262,30 @@ async function fanoutCards(bank: { query: string; refusedPages?: string[] }[], s
   return out;
 }
 
-/** 3. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Reads the stored
- *  link graph, which the lean page projection leaves out on purpose, so absence of a link is a fact here. */
-async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding): Promise<Draft[]> {
-  const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => []);
-  if (graphs.length === 0) return [];
+/** 3. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss
+ *  pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
+async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding): Promise<{ drafts: Draft[]; complete: boolean }> {
+  // A READ THAT THREW IS NOT A SITE WITH NO LINKS. Swallowed, it returned the same empty list as a linkless
+  // site, this producer still reported FINISHED, and the sweep then withdrew every internal_link card on file
+  // for a database blip. The failure is carried out instead of flattened.
+  const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
+  if (graphs == null) return { drafts: [], complete: false };
+  if (graphs.length === 0) return { drafts: [], complete: true };
   const linksByPage = new Map<string, Set<string>>();
   for (const g of graphs) {
     const key = canonicalUrlKey(g.url);
-    if (linksByPage.has(key)) continue;
-    linksByPage.set(key, new Set(g.internal_links.map((l) => pathOf(l.href).toLowerCase())));
+    if (!linksByPage.has(key)) linksByPage.set(key, new Set(g.internal_links.map((l) => pathOf(l.href).toLowerCase())));
   }
-  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0)
-    .sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 3);
+  // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's
+  // purpose said as a number the operator can check, rather than as link equity.
+  const inbound = new Map<string, number>();
+  for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
+  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0).sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 3);
   const nearMiss = pages.flatMap((p) => {
-    // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator
-    // like "site:" or a pasted address is something a person typed at Google, never anchor text. A dictionary ask ("hyena in farsi") earns a translation line on its own page, never a body link:
-    // routing a reader from one page to another to learn one word helps nobody and reads as spam.
+    // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like
+    // "site:" is never anchor text, and a dictionary ask ("hyena in farsi") earns a line on its own page.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
-      && !/\bin (farsi|persian|english)\b/i.test(q.query)
-      && q.position != null && q.position >= NEAR_MISS_MIN
+      && !/\bin (farsi|persian|english)\b/i.test(q.query) && q.position != null && q.position >= NEAR_MISS_MIN
       && q.position <= NEAR_MISS_MAX && q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
     return q ? [{ page: p, query: q }] : [];
   }).sort((a, b) => b.query.impressions - a.query.impressions);
@@ -285,21 +293,13 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   for (const from of strongest) {
     const links = linksByPage.get(canonicalUrlKey(from.url))!;
     const words = pageWords(from);
-    // DOWNHILL ONLY. A link passes standing from the page that has it to the page that needs it, so the
-    // source must out-earn the destination. Pointed the other way it asks the weaker page to lift the stronger one, which is the opposite of the change.
-    // THE WORDS ON THE LINK MUST BE WHAT THE DESTINATION IS FOR, and the two pages must have something to do
-    // with each other. BOTH ENDS MUST BE READ AND THE READING MUST SAY FITS: a link between two pages nobody
-    // has read, or a verdict the reader could not settle, holds the card with its reason on the receipt
-    // instead of falling back to word overlap.
+    // DOWNHILL ONLY: the source must out-earn the destination, or the link asks the weaker page to lift the stronger one.
+    // THE WORDS ON THE LINK MUST BE WHAT THE DESTINATION IS FOR, and BOTH ENDS MUST BE READ AND SAY FITS: an unread pair, or an unsettled verdict, holds the card with its reason.
     const belongs = async (to: OwnedPageEvidence, anchor: string): Promise<boolean> => {
       const [dest, src] = [await u.of(to), await u.of(from)];
       for (const [page, read] of [[to, dest], [from, src]] as const) {
-        if (read.job) continue;
-        u.hold(page.url, `${read.reason} for the link "${anchor}"`);
-        return false;
-      }
-      return linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus) === "fits";
-    };
+        if (!read.job) { u.hold(page.url, `${read.reason} for the link "${anchor}"`); return false; } }
+      return linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus) === "fits"; };
     let target: { page: OwnedPageEvidence; query: OwnedQuerySignal } | undefined;
     for (const t of nearMiss) {
       if (t.page.url === from.url || clicksOf(from) <= clicksOf(t.page)
@@ -309,38 +309,38 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     }
     if (!target) continue;
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
+    const held = inbound.get(to.toLowerCase()) ?? 0, support = held === 0 ? `No page of this site links to ${to} at all today`
+      : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
       page: from, slug: "internal_link", field: "section", query: target.query.query,
       headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
-      why: `${labelOf(from)} at ${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in 90 days and carries ${count(links.size, "internal link")}, not one of them to ${to}. That page earns ${count(clicksOf(target.page), "click")} and sits at position ${position} for "${target.query.query}" on ${count(target.query.impressions, "impression")} and ${count(target.query.clicks, "click")}. The link runs from the stronger page to the weaker one, which is the only direction that helps.`,
+      // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell
+      // Google that page is for, and why this source page is the one being asked to give it.
+      why: `${support}, and it sits at position ${position} for "${target.query.query}" on ${count(target.query.impressions, "impression")} and ${count(target.query.clicks, "click")}. This link is what tells Google that page is the answer to "${target.query.query}": the words on it are the search itself. ${labelOf(from)} at ${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in 90 days against that page's ${count(clicksOf(target.page), "click")} and already links to ${count(links.size, "page")} of this site, not one of them ${to}, so the help runs from the page that can spare it to the page that needs it.`,
       steps: [`Open the site editor on ${pathOf(from.url)}`, `Add a link to ${to} inside the body copy, not the menu`,
         `Use "${target.query.query}" as the anchor text`, "Mark it done here and the position gets read again"],
       hints: [`${pathOf(from.url)} links to ${count(links.size, "page")} of this site and none of them is ${to}`,
+        `${support}, counted across every page of this site read so far`,
         `${to} ranks at position ${position} for "${target.query.query}" with ${count(target.query.impressions, "impression")} in Search Console`,
         `${pathOf(from.url)} earns ${count(clicksOf(from), "click")} in the last 90 days`],
-      minutes: 5, confidence: "medium",
+      // Every page whose stored link graph was read for the counts above, plus the destination's own search row.
+      minutes: 5, confidence: "medium", refs: linksByPage.size + 1,
       limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.",
     });
     if (out.length >= MAX_PER_PRODUCER) break;
   }
-  return out;
+  return { drafts: out, complete: true };
 }
 
-/** 4. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on
- *  nine more" is not a change: it cannot be done in one sitting, marked done, or measured, and the nine never
- *  get their own numbers. Each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card, its own
- *  figures and its own headline, and the class total rides along as context instead of as an instruction. */
-function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): Draft[] {
+/** 4. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine
+ *  more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
+function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
-  const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] =>
-    [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
+  const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
   // ONE ROW PER PAGE, not per address that reaches it. The address a read landed on decides which is which, so retired slugs never accuse the page they forward to of duplicating itself.
   const byIdentity = new Map<string, OwnedPageEvidence>();
-  for (const p of all) {
-    const key = identityOf(p);
-    if (!byIdentity.has(key) || canonicalUrlKey(p.url) === key) byIdentity.set(key, p);
-  }
+  for (const p of all) { const key = identityOf(p); if (!byIdentity.has(key) || canonicalUrlKey(p.url) === key) byIdentity.set(key, p); }
   const pages = [...byIdentity.values()];
   /** THE PAGES GOOGLE PUTS IN FRONT OF THIS PAGE'S BIGGEST SEARCH, when that search has been read. */
   const winnersAreStores = (p: OwnedPageEvidence): boolean => {
@@ -361,13 +361,12 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
     hints: [`${pathOf(p.url)} holds no description of its own`,
       `${pathOf(p.url)} earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days`,
       `${count(noMeta.length, "page")} with content stored carry no description`],
-    minutes: 1, confidence: "medium",
+    minutes: 1, confidence: "medium", refs: 2, impact: recoverableClicks(p, expectedCtrAt),
     limitation: "Read off the last stored copy of this page, so a description added since that read is not counted here.",
   });
 
-  // A TEMPLATED DESCRIPTION IS A MISSING ONE WEARING WORDS: strip each page's own name out of its meta and
-  // what is left, when five or more pages share it, is one boilerplate line stamped across a template. One
-  // card per top page by impressions, because the busiest page loses the most to a line that says nothing.
+  // A TEMPLATED DESCRIPTION IS A MISSING ONE WEARING WORDS: strip each page's own name out of its meta and what is
+  // left, when five or more pages share it, is one boilerplate line stamped across a template. Busiest first.
   const boilerplate = new Map<string, OwnedPageEvidence[]>();
   for (const p of pages) {
     const meta = (p.content?.metaDescription ?? "").trim().toLowerCase();
@@ -380,7 +379,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
   for (const p of rank(templated.flat()).slice(0, 2)) {
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
-      page: p, slug: "missing_description", field: "meta", query: labelOf(p), minutes: 3, confidence: "low",
+      page: p, slug: "missing_description", field: "meta", query: labelOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
       headline: `Write a real description on ${pathOf(p.url)}: ${family} pages share one templated line`, before: (p.content?.metaDescription ?? "").trim() || null,
       after: "Write a description of about 150 characters that says what only this page answers, and ends with a reason to click.",
       why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
@@ -406,14 +405,13 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
       hints: [`${pathOf(p.url)} and ${count(sharers, "other page")} carry the heading "${heading}"`,
         `${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days`,
         `${count(dupes.length, "heading")} are duplicated across this site`],
-      minutes: 1, confidence: "medium",
+      minutes: 1, confidence: "medium", refs: sharers + 1, impact: recoverableClicks(p, expectedCtrAt),
       limitation: "Headings are compared exactly as stored, so two headings that differ only by a stray word read as separate here.",
     });
   }
 
-  // A THIN CARD MUST CARRY THE EARNED SHAPE, not a word count. Without the stored results page for the
-  // page's own biggest search there is no outline to hand over, and "add 1,200 words" to a page that may
-  // already rank near the top is a risk dressed as advice. No winners on file, no card.
+  // A THIN CARD MUST CARRY THE EARNED SHAPE, not a word count. With no stored results page for this page's biggest
+  // search there is no outline to hand over, and "add 1,200 words" is a risk dressed as advice.
   const winnersOnFile = (p: OwnedPageEvidence): boolean => {
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
     return head != null && (snapshot.research?.serpEvidence ?? []).some((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head) && (s.organic ?? []).length > 0);
@@ -436,61 +434,65 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
       hints: [`${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} of copy`,
         `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`,
         `${count(thin.length, "page")} of the ${pages.length} stored pages are under ${THIN_WORDS} words and are being shown in search`],
-      minutes: 30, confidence: "medium",
+      // This page's stored copy, its search row, and the stored results page the shape came from.
+      minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
       limitation: "Word count is read off the last stored copy of the page, so copy added since that read is not counted here.",
     });
   }
   return out;
 }
 
-/** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against
- * the queue it already holds. Never throws: a source that will not read narrows the answer instead of failing
- * the pass. Every card is a proposal, never a live edit.
- */
-export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<ExtraQueueRun> {
+/** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the
+ * queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
+export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
+  /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to
+   *  the industry table, a far more generous bar, so a caller that can fit one should. */
+  curve?: Pick<TenantCtrCurve, "expectedCtrAt"> }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
+  const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
+  // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so
+  // an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
+  const answersRead = snapshot.sources.some((s) => s.source === "native_ai" && s.status === "fresh");
+  const DEFECTS = ["missing_description", "duplicate_heading", "thin_page"];
   const pages = snapshot.ownedPages.filter((p) => !!p.content);
-  // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full, and the sweep
-  // behind them only retires what a producer that FINISHED no longer stands behind, so a pass that never
-  // looked at a single page says so instead of being read as "these families are empty now".
-  if (pages.length === 0) return { cards: [], complete: false, held: [], needsOwnPage: [] };
+  // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
+  if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
   // WHAT THIS SITE PRINTS ON EVERY PAGE, and what is left once it is taken out: the words each page has actually earned the right to be asked about.
   const furniture = templateHeadings(pages.map((p) => p.content?.outline ?? []));
   const earned = new Map(pages.map((p) => [p.url, earnedWords(p, furniture)]));
   // How much of this site hangs UNDER each page: what makes one address a hub and another a leaf.
-  const children = new Map(pages.map((p) => [pathOf(p.url),
-    pages.filter((o) => o !== p && pathOf(o.url).startsWith(`${pathOf(p.url)}/`)).length]));
-  // WHAT THIS ACCOUNT ALREADY HOLDS, so a card never supersedes a change the strict path drafted for the same
-  // page and the same family. An unreadable queue emits nothing rather than writing over work it cannot see.
-  // A ROW THIS PRODUCER MINTED ITSELF IS NOT SOMEBODY ELSE'S WORK: blocking on the family alone froze every card
-  // it had ever written, so a sharper headline for the same page and the same defect never reached the store.
-  // The ids it already owns are kept beside the families, and only a family held under ANOTHER id blocks.
+  const children = new Map(pages.map((p) => [pathOf(p.url), pages.filter((o) => o !== p && pathOf(o.url).startsWith(`${pathOf(p.url)}/`)).length]));
+  // WHAT THIS ACCOUNT ALREADY HOLDS, so a card never supersedes a change the strict path drafted for the same page and
+  // family, and an unreadable queue emits nothing rather than writing over work it cannot see. A ROW THIS PRODUCER MINTED ITSELF IS NOT SOMEBODY ELSE'S WORK: only a family held under ANOTHER id blocks.
   const store = await loadChangeProposals(tenantId).catch(() => null);
-  if (!store) return { cards: [], complete: false, held: [], needsOwnPage: [] };
+  if (!store) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const rows = [...store.values()];
   const taken = new Set(rows.map((p) => `${(p.pagePath ?? "").toLowerCase()}::${actionFamilyOf(p)}`));
   const mine = new Set(rows.map((p) => p.id));
   // WHAT AN ESSAY MAY NEVER LAND ON is this file's rule, so this file decides which pages are worth reading.
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())) });
-    const bank: { query: string; refusedPages?: string[] }[] = [];
-const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
+  const bank: { query: string; refusedPages?: string[] }[] = [];
+  const links = await linkCards(tenantId, pages, weak, u);
+  const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
     ...(await fanoutCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
-    ...(await linkCards(tenantId, pages, weak, u)), ...technicalCards(pages, snapshot)];
+    ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
   const out: ChangeProposal[] = [];
-  // ONE QUESTION, ONE CARD. The answer an engine wrote and the follow-up search it ran to write it are the
-  // same question, so two pages were being sent to answer it. The strongest reading is filed and the rest go.
+  // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
   const answered = new Set<string>();
   for (const d of drafts) {
     const asks = d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
     if (asks.some((k) => answered.has(k))) continue;
-    const card = mint(tenantId, d, now);
-    const key = `${(card.pagePath ?? "").toLowerCase()}::${actionFamilyOf(card)}`;
+    const card = mint(tenantId, d, now), key = `${(card.pagePath ?? "").toLowerCase()}::${actionFamilyOf(card)}`;
     if (taken.has(key) && !mine.has(card.id)) continue;
     taken.add(key);
     for (const k of asks) answered.add(k);
     out.push(card);
   }
-  return { cards: out, complete: true, held: u.held, needsOwnPage: bank };
+  // EACH FAMILY ANSWERS FOR ITS OWN SOURCE. A family whose evidence did not answer is left off this list, so the
+  // sweep behind this producer leaves its cards alone instead of retiring work nobody was able to re-read.
+  const families = [...(answersRead ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
+  if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
+  return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank };
 }

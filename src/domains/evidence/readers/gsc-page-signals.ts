@@ -47,7 +47,16 @@ export type GscPageSignal = {
 
 /** The fuller history GSC holds: more pages, steadier CTR and position. */
 const WINDOW_DAYS = 90;
-const TOP_QUERIES_CAP = 8;
+/** HOW MANY OF A PAGE'S OWN SEARCHES DECISION EVER SEES. At 8 the kernel measured 6.9 percent of this
+ *  account's page-and-search pairs and never saw the rest: 155 discarded pairs carried over 100 views each
+ *  and zero clicks, which is exactly the evidence a change is earned on. The read itself does not grow (the
+ *  same one grouped statement returns the same rows); only how many of its searches per page survive.
+ *
+ *  THE SERVER STILL HOLDS THE REAL CEILING: gsc_page_signals_v1 filters `rn <= 10` inside the function
+ *  (migrations/2026-06-13_gsc_page_signals_rpc.sql), so today this cap binds at 10 per page, not 40. Widening
+ *  it the rest of the way is a one-line change to that filter and needs an operator-approved migration. This
+ *  number is set where it belongs so the grain widens the moment the function does. */
+const TOP_QUERIES_CAP = 40;
 /** Bounded read. The result is one row per page, so this is a safety net, never the working size. */
 const MAX_ROWS = 80_000;
 /** PostgREST response cap — page through in chunks of this size. */

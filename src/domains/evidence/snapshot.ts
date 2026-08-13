@@ -383,7 +383,9 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
         impressions90d: r.impressions90d,
         ctr90d: r.ctr90d,
         position90d: r.position90d,
-        topQueries: [...r.topQueries].sort((a, b) => b.impressions - a.impressions).slice(0, 12),
+        // THE SAME GRAIN THE READER KEPT: a second, tighter cut here threw away searches the reader had
+        // already paid to fetch, and a search the kernel never sees is a change it can never earn.
+        topQueries: [...r.topQueries].sort((a, b) => b.impressions - a.impressions).slice(0, 40),
       };
   }
   for (const r of input.ga4.payload) {
