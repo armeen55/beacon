@@ -14,7 +14,6 @@
  * whatever held it, so every candidate is checked against the queue on file AND against this pass's own.
  */
 import "server-only";
-
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
@@ -22,7 +21,6 @@ import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEv
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
-
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is the whole
  *  basis the sweep behind it acts on: it is true only when the queue on file was actually read and every
  *  card below was minted against it. Never inferred from how many cards came back, because "none this
@@ -78,8 +76,7 @@ const pageWords = (p: OwnedPageEvidence): Set<string> =>
 const flat = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
 /** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, its heading, and the headings of its
  *  own sections. Site wide furniture, paragraphs wrapped in a heading tag, and the page's own FAQ questions
- *  are none of those: a question a page ASKS is not a subject it covers, and a tie made of any of them is no
- *  tie at all. That is how a page about film directors was asked to write about books. */
+ *  are none of those: a question a page ASKS is not a subject it covers, and a tie made of any of them is no  tie at all. That is how a page about film directors was asked to write about books. */
 const earnedWords = (p: OwnedPageEvidence, furniture: ReadonlySet<string>): Set<string> =>
   new Set(topicTokens([p.content?.title, p.content?.h1,
     ...(p.content?.outline ?? []).filter((h) => !furniture.has(flat(h)) && !h.trim().endsWith("?")
@@ -103,20 +100,17 @@ const asWritten = (text: string, stems: readonly string[]): string[] => {
 type Match = { page: OwnedPageEvidence; hits: string[]; missing: string[] };
 /** WHERE A REAL SEARCH BELONGS. `fits` names the page. `needs_own_page` means pages did share the words and every
  *  one of them is FOR something else: a routing fact the coverage path acts on, never this file, because new page
- *  identity is not this producer's to mint. `held` means the best page for it has never been read, so the work is
- *  research and not a card. `no_candidate` is the old silence, unchanged. */
+ *  identity is not this producer's to mint. `held` means the best page for it has never been read, so the work is  research and not a card. `no_candidate` is the old silence, unchanged. */
 type Fit = { match: Match | null; verdict: "fits" | "needs_own_page" | "no_candidate" | "held"; reason?: string; refused?: string[] };
-/** WHAT A MISSING READING LICENSES. Nobody asked, or the reading came back unusable: an essay carried from a
- *  search onto a page nobody has read is a guess, and the card waits for the reading. Out of money, or a page with
- *  no words captured, is the case the fail-open rule was written for: the word overlap decides exactly as it did
- *  before jobs existed, so a budget ceiling can never empty this queue. */
-const HOLDS_THE_CARD: ReadonlySet<string> = new Set(["not_asked", "refused"]);
+/** WHAT A MISSING READING LICENSES: NOTHING. The old rule let an unaffordable or unreadable page fall back to
+ *  word overlap, and one dead provider account filled the queue with a culture page answering a sources
+ *  question and a single animal answering all wildlife. Two shared words are evidence a page exists, not that
+ *  it owns a subject: no reading, no admission, and the card waits with its reason named. */
 type Understanding = Awaited<ReturnType<typeof pageUnderstanding>>;
 /** The page of this account's own that best answers a question, or null when nothing of its own comes close.
  *  Two subject words is the floor: one shared word is a coincidence, not coverage. THE HOME PAGE AND THE
  *  SHOP RAILS ARE NEVER IT, and neither is a page whose only tie to the question is site wide furniture.
- *  THE READING DECIDES, best candidate first: a page whose subjects do not include this search, or whose shape
- *  is a rail an essay never goes on, is not the answer however many words it shares. */
+ *  THE READING DECIDES, best candidate first: a page whose subjects do not include this search, or whose shape  is a rail an essay never goes on, is not the answer however many words it shares. */
 async function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding): Promise<Fit> {
   const words = subjectWords(text, weak);
@@ -149,8 +143,7 @@ async function bestPageFor(text: string, pages: OwnedPageEvidence[], weak: Reado
       refusedPaths.push(pathOf(m.page.url));
       continue;
     }
-    if (HOLDS_THE_CARD.has(reason)) { held ??= { match: m, verdict: "held", reason }; continue; }
-    return { match: m, verdict: "fits" };
+    held ??= { match: m, verdict: "held", reason };
   }
   return held ?? (refusedPaths.length > 0 ? { match: null, verdict: "needs_own_page", refused: refusedPaths } : { match: null, verdict: "no_candidate" });
 }
@@ -250,7 +243,7 @@ async function fanoutCards(bank: { query: string; refusedPages?: string[] }[], s
     out.push({
       page: match.page, slug: "engine_followup", field: "section", query: f.text, asked: f.prompt,
       headline: `Add a section on "${f.text}" to ${pathOf(match.page.url)} (engines search it while answering about you)`, before: null,
-      after: `Add a section that answers the search "${f.text}", naming ${gap} in its first paragraph and in its heading.`,
+      after: `Add a section that answers the search "${f.text}", naming ${gap} in its first paragraph, under a heading a reader would type. The search phrase itself is evidence, not the heading.`,
       why: `While answering "${f.prompt}", engines ran their own follow-up search for "${f.text}". ${labelOf(match.page)} at ${pathOf(match.page.url)} covers ${match.hits.length} of the ${total} subjects in that search and its title and headings never mention ${gap}. Add one section that says those words plainly.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${f.text}"`,
         `Name ${gap} in the first paragraph`, "Mark it done here and the next answers get checked against it"],
@@ -280,8 +273,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     .sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 3);
   const nearMiss = pages.flatMap((p) => {
     // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator
-    // like "site:" or a pasted address is something a person typed at Google, never anchor text.
-    // A dictionary ask ("hyena in farsi") earns a translation line on its own page, never a body link:
+    // like "site:" or a pasted address is something a person typed at Google, never anchor text. A dictionary ask ("hyena in farsi") earns a translation line on its own page, never a body link:
     // routing a reader from one page to another to learn one word helps nobody and reads as spam.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
       && !/\bin (farsi|persian|english)\b/i.test(q.query)
@@ -296,18 +288,17 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     // DOWNHILL ONLY. A link passes standing from the page that has it to the page that needs it, so the
     // source must out-earn the destination. Pointed the other way it asks the weaker page to lift the stronger one, which is the opposite of the change.
     // THE WORDS ON THE LINK MUST BE WHAT THE DESTINATION IS FOR, and the two pages must have something to do
-    // with each other. The regex above still throws out anything that is not anchor text at all; the reading
-    // throws out a real search pointed at a page it does not belong on. A page nobody has read holds the card
-    // and lands on the receipt; a page that could not be afforded or could not be read keeps the old overlap.
+    // with each other. BOTH ENDS MUST BE READ AND THE READING MUST SAY FITS: a link between two pages nobody
+    // has read, or a verdict the reader could not settle, holds the card with its reason on the receipt
+    // instead of falling back to word overlap.
     const belongs = async (to: OwnedPageEvidence, anchor: string): Promise<boolean> => {
       const [dest, src] = [await u.of(to), await u.of(from)];
       for (const [page, read] of [[to, dest], [from, src]] as const) {
-        if (read.job || !HOLDS_THE_CARD.has(read.reason)) continue;
+        if (read.job) continue;
         u.hold(page.url, `${read.reason} for the link "${anchor}"`);
         return false;
       }
-      const verdict = linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus);
-      return verdict === "fits" || verdict === "unknown";
+      return linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus) === "fits";
     };
     let target: { page: OwnedPageEvidence; query: OwnedQuerySignal } | undefined;
     for (const t of nearMiss) {
@@ -420,7 +411,14 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot): D
     });
   }
 
-  const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < THIN_WORDS && impressions(p) > 0));
+  // A THIN CARD MUST CARRY THE EARNED SHAPE, not a word count. Without the stored results page for the
+  // page's own biggest search there is no outline to hand over, and "add 1,200 words" to a page that may
+  // already rank near the top is a risk dressed as advice. No winners on file, no card.
+  const winnersOnFile = (p: OwnedPageEvidence): boolean => {
+    const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
+    return head != null && (snapshot.research?.serpEvidence ?? []).some((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head) && (s.organic ?? []).length > 0);
+  };
+  const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < THIN_WORDS && impressions(p) > 0 && winnersOnFile(p)));
   for (const p of thin.slice(0, TOP_PAGES_PER_CLASS)) {
     // THE TARGET IS THE AUDIENCE. Three hundred words on a page shown thirty thousand times is still a stub; what a page at that size of search has to become is an article.
     const target = impressions(p) > HEAVY_IMPRESSIONS ? "800 to 1,200" : "200 to 300";

@@ -196,9 +196,14 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // ONE SENTENCE, AND IT IS ABOUT HIS WORK. Today used to open on which of six internal states the last production pass ended in, which
   // is a status report nobody asked for. It now says how many edits are open, or names the date a blocked read gets tried again, and
   // nothing else. The queue is the whole queue: an edit still waiting on a review is an edit he can make.
+  // READY IS A CLAIM. An idea still waiting on review is not an edit ready to paste, and calling 16 unproven
+  // ideas "16 edits ready" was the queue overselling itself by its whole length.
   const openTotal = readyTotal + (view.summary?.todo ?? view.toDo.length);
+  const ideaTotal = openTotal - readyTotal;
   const headerSentence = openTotal > 0
-    ? `You have ${openTotal} ${openTotal === 1 ? "edit" : "edits"} ready, best first.`
+    ? readyTotal > 0
+      ? `You have ${readyTotal} ${readyTotal === 1 ? "edit" : "edits"} ready${ideaTotal > 0 ? ` and ${ideaTotal} ${ideaTotal === 1 ? "idea" : "ideas"} to review` : ""}, best first.`
+      : `You have ${ideaTotal} ${ideaTotal === 1 ? "idea" : "ideas"} to review. None is a proven edit yet; each names what it still needs.`
     : waiting
       ? `Some of your pages could not be read, so they get another try on ${retryDay(waiting)}. Nothing is waiting on you today.`
       : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
