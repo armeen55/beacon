@@ -208,7 +208,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
 
   return (
     <div className="space-y-8" data-changes-feed="true">
-      <Lane title="Your edits" blurb="Every card here is an edit you can make right now, ranked by payoff. The chip on each one tells you how proven it is. Every edit is measured after you make it.">
+      <Lane title="Your edits" blurb="Ranked by payoff: most cards here are an edit you can make right now, and a few are a finding to read while the work behind them is still owed. The chip on each one tells you how proven it is. Every edit is measured after you make it.">
         {/* THE WATERMARK, ONCE. Every Google number on this screen ends on the same finalized day, so it is
             said here rather than in brackets on every row that happens to quote one. */}
         {through ? <p className="-mt-1 text-[12px] tabular-nums text-muted-foreground" data-watermark="true">Google data through {through}.</p> : null}

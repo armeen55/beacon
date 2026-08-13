@@ -92,8 +92,13 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
     void f.push({ name, input, contribution: round2(contribution), max });
 
   const tier = TIER[p.status] ?? 0;
-  add("actionability", p.status === "needs_review" ? "this draft is waiting on your review"
-    : "this draft passed every safety check", tier, MAX.actionability);
+  // A CARD THE PASS STILL OWES ITS OWN WORK ON IS NOT A DRAFT WAITING ON ANYBODY. It keeps its tier, because
+  // what is riding on it is real, but the receipt may not call it reviewable or safe to paste: there is nothing
+  // to review and nothing to paste. Matched on the marker's stable phrase (decision/authorization), export budget.
+  const research = (p.limitations ?? []).some((l) => l.includes("this card is research, not an edit"));
+  add("actionability", research ? "this is research still owed, not an edit waiting on you"
+    : p.status === "needs_review" ? "this draft is waiting on your review"
+      : "this draft passed every safety check", tier, MAX.actionability);
 
   // A CARD STILL OWED ITS EXACT COPY CANNOT LEAD. "Write a description" is an errand, not an edit: while
   // the drafted words are owed (the marker drafted-copy leaves on the card), the card waits behind every
@@ -168,7 +173,8 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const danger = dangerousComponents(p.bundle?.components ?? []);
   const risky = danger.length > 0 || p.riskLevel === "high";
   add("risk", risky ? "this one moves or hides a page, so it is held for your confirmation"
-    : p.riskLevel === "medium" ? "this one touches claims worth reading twice" : "this one is safe to paste",
+    : research ? "nothing here goes onto the site, so there is nothing to risk yet"
+      : p.riskLevel === "medium" ? "this one touches claims worth reading twice" : "this one is safe to paste",
   risky ? -MAX.risk : p.riskLevel === "medium" ? -8 : 0, MAX.risk);
 
   add("overlap", measuring ? "this page already has a change under measurement" : "nothing is being measured on this page",

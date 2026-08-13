@@ -175,7 +175,9 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const { evidence } = await replayFunnel();
     const snapshot = fx.replaySnapshot({ gsc: [...fx.gscCannibalPair(), fx.gscStableWinner()], research: evidence,
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(TWIN_URL, "Kite Festival Food"), fx.staleOwnedBody()] });
-    expect(snapshot.cannibalization[0]).toEqual({ query: GAP_QUERY, competingUrls: [GAP_URL, TWIN_URL].sort(), note: `2 of your pages compete for "${GAP_QUERY}", so pick one owner and point the rest at it.` });
+    // BIGGEST FIRST, not alphabetical: a split is read one address at a time and the page most shown for that search leads it.
+    expect(snapshot.cannibalization[0]).toEqual({ query: GAP_QUERY, competingUrls: [GAP_URL, TWIN_URL], note: `2 of your pages compete for "${GAP_QUERY}", so pick one owner and point the rest at it.` });
+    expect(fx.replaySnapshot({ gsc: fx.gscCannibalPair().map((r) => ({ ...r, topQueries: r.topQueries.map((k) => ({ ...k, impressions: 49 })) })), research: evidence, wix: [] }).cannibalization).toEqual([]); // 49 views against 49 is two pages barely shown, not a split
     const dated = (url: string) => freshnessAt(snapshot.ownedPages.find((p) => p.url === url)!.content!.fetchedAt, NOW_MS, freshnessMsFor("owned_page"));
     expect([dated(GAP_URL), dated(fx.STALE_URL)]).toEqual(["current", "stale"]); // one body read this week, one read in the spring
     expect(buildTopicInvestigations(snapshot).length).toBeGreaterThan(0);

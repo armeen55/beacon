@@ -401,7 +401,14 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
   const instruction = steps.length > 0 && DETAIL_INSTRUCTION.test(after);
-  const shownSteps = instruction && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
+  // RESEARCH IS READ HERE TOO. A card the pass still owes its own work on opens with a count or a "The", so the
+  // verb regex above waves it through onto a Copy button under a limitation saying nothing here is ready to
+  // paste. It carries its own marker (decision/authorization), which the kernel facade does not export.
+  const research = (proposal.limitations ?? []).some((l) => l.includes("this card is research, not an edit"));
+  // A RESEARCH CARD MAY CARRY NO STEPS AT ALL (an ownership decision asks the operator for nothing), so its own
+  // line leads the block or the page would print an empty list where the finding should be.
+  const lead = instruction || research;
+  const shownSteps = lead && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";
   return (
@@ -414,9 +421,9 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         </h2>
         <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
       </div>
-      {instruction || (steps.length > 0 && !after) ? (
+      {instruction || research || (steps.length > 0 && !after) ? (
         <div className="space-y-1">
-          <Heading>Read this twice, then:</Heading>
+          <Heading>{research ? "What is settled, and what is still owed:" : "Read this twice, then:"}</Heading>
           <ol className="list-none space-y-1 text-[14px] leading-relaxed text-muted-foreground">
             {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
           </ol>
@@ -426,7 +433,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
             <p className="min-w-0 flex-1 text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
-            <CopyButton text={after} label="Copy" />
+            {research ? null : <CopyButton text={after} label="Copy" />}
           </div>
         </div>
       ) : null}

@@ -59,7 +59,7 @@ const CATEGORY: [RegExp, string][] = [
   [/::internal_link$/, "Internal link"], [/::ai_answer_gap$/, "AI answer gap"],
   [/::engine_followup$/, "Follow-up search"], [/::thin_page$/, "Thin page"], [/::divergence$/, "Diagnosis"],
   [/::answer_block$/, "Answer block"], [/::consolidation$/, "Page merge"], [/::h1$/, "Heading"],
-  [/::title(-family)?$/, "Title"],
+  [/::title(-family)?$/, "Title"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
 ];
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "New page";
@@ -172,7 +172,10 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   // "Position held..." is the GA4 divergence diagnosis: a finding to read, never a line to paste.
   const instruction = !isConsolidation(proposal) && steps.length > 0
     && /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/.test(after ?? "");
-  const merge = isConsolidation(proposal) || instruction;
+  // AND RESEARCH IS READ TOO. A card the pass still owes its own work on opens with a count rather than a verb,
+  // so the regex above waves it through onto a Copy button. It carries its own marker instead.
+  const research = (proposal.limitations ?? []).some((l) => l.includes("this card is research, not an edit"));
+  const merge = isConsolidation(proposal) || instruction || research;
   // THE SAME INSTRUCTION TWICE IS NOT TWO STEPS: when the first written step already opens with the line the
   // change carries, the line is that step and prepending it printed it back to back with itself.
   const echoed = steps.length > 0 && after != null
@@ -262,7 +265,8 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
         )}
 
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
-          {merge ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
+          {/* NO TIME IS ASKED FOR ON A RESEARCH CARD, so "about 0 min" is a pill claiming a duration for work nobody has been given. */}
+          {merge && proposal.estimatedEffortMinutes > 0 ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
           <Pill intent={chip.intent}>{chip.label}</Pill>
           {checks.length > 0 ? (

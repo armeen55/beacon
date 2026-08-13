@@ -1,31 +1,4 @@
-/**
- * EvidenceSnapshot kernel (2026-07-22) — the ONE normalized evidence contract
- * every Decision (recommendations / rec-intel / drafts) and every surface
- * (Today / Changes / Results) consumes. It collapses the six mandatory sources
- * into a single per-tenant/site object so downstream code never again reaches
- * into demand-graph, serp, pages, ai-visibility, research, scanning, provenance,
- * profound-coverage, or prompt-answer-observations directly.
- *
- * The six mandatory sources normalize in here:
- *   GSC        → owned-page search metrics (clicks/impressions/ctr/position) + query demand
- *   GA4        → owned-page engagement + real revenue $
- *   Wix/crawl  → owned-page CONTENT (title/h1/outline/schema/faq/word count/internal links)
- *   Clarity    → owned-page friction (rage/dead/quickback/script errors)
- *   DataForSEO → keyword/volume demand
- *   native AI  → DERIVED from the canonical AI answers on the research payload: the questions those
- *                answers answered and the addresses they credited. No input slot, so there is ONE AI truth.
- *
- * This module is PURE and deterministic (no I/O, no LLM, no Date.now beyond the
- * caller-supplied `builtAt`). The I/O edge that reuses the existing cached
- * connector readers lives in `snapshot-loader.ts`. Every source is represented
- * in `sources[]` with an HONEST freshness/failure state so a dormant native-AI
- * adapter or a failed GA4 read is visible, never silently zeroed.
- *
- * Derived views live NEXT to this contract, never inside it: `topic-investigation.ts`
- * projects the same snapshot into non-actionable research packets (what has been
- * investigated about a topic and whether it is enough to compare), computed on
- * demand by the slice that needs it rather than on every snapshot build.
- */
+/** EvidenceSnapshot kernel (2026-07-22) — the ONE normalized evidence contract every Decision (recommendations / rec-intel / drafts) and every surface (Today / Changes / Results) consumes. It collapses the six mandatory sources into a single per-tenant/site object so downstream code never again reaches into demand-graph, serp, pages, ai-visibility, research, scanning, provenance, profound-coverage, or prompt-answer-observations directly. The six mandatory sources normalize in here: GSC → owned-page search metrics (clicks/impressions/ctr/position) + query demand GA4 → owned-page engagement + real revenue $ Wix/crawl → owned-page CONTENT (title/h1/outline/schema/faq/word count/internal links) Clarity → owned-page friction (rage/dead/quickback/script errors) DataForSEO → keyword/volume demand native AI → DERIVED from the canonical AI answers on the research payload: the questions those answers answered and the addresses they credited. No input slot, so there is ONE AI truth. This module is PURE and deterministic (no I/O, no LLM, no Date.now beyond the caller-supplied `builtAt`). The I/O edge that reuses the existing cached connector readers lives in `snapshot-loader.ts`. Every source is represented in `sources[]` with an HONEST freshness/failure state so a dormant native-AI adapter or a failed GA4 read is visible, never silently zeroed. Derived views live NEXT to this contract, never inside it: `topic-investigation.ts` projects the same snapshot into non-actionable research packets (what has been investigated about a topic and whether it is enough to compare), computed on demand by the slice that needs it rather than on every snapshot build. */
 
 import { createHash } from "node:crypto";
 
@@ -34,9 +7,7 @@ import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
 
-/** The six mandatory sources. `native_ai` may fail soft / stay dormant when
- *  creds/config are absent, but its slot is ALWAYS present so its absence is
- *  honest and visible rather than a silent gap. */
+/** The six mandatory sources. `native_ai` may fail soft / stay dormant when creds/config are absent, but its slot is ALWAYS present so its absence is honest and visible rather than a silent gap. */
 export type EvidenceSourceKind = "gsc" | "ga4" | "wix" | "clarity" | "dataforseo" | "native_ai";
 
 export const MANDATORY_SOURCES: readonly EvidenceSourceKind[] = [
@@ -48,13 +19,7 @@ export const MANDATORY_SOURCES: readonly EvidenceSourceKind[] = [
   "native_ai",
 ] as const;
 
-/**
- * fresh   — data present and within its freshness window.
- * stale   — data present but older than its window (usable, flagged).
- * empty   — reader ran clean but returned nothing (no rows yet).
- * failed  — reader threw / errored (a real failure, NOT the same as empty).
- * dormant — source intentionally not configured (native AI with no creds).
- */
+/** fresh — data present and within its freshness window. stale — data present but older than its window (usable, flagged). empty — reader ran clean but returned nothing (no rows yet). failed — reader threw / errored (a real failure, NOT the same as empty). dormant — source intentionally not configured (native AI with no creds). */
 export type SourceStatus = "fresh" | "stale" | "empty" | "failed" | "dormant";
 
 export type SourceFreshness = {
@@ -185,10 +150,15 @@ export type IntentCluster = {
 
 export type CannibalizationGroup = {
   query: string;
-  /** Two+ owned URLs Google serves for the same query — self-competition. */
+  /** Two+ owned URLs Google MATERIALLY serves for the same query: self-competition. Exactly the addresses a surface may name, so a count and a list can never disagree. */
   competingUrls: string[];
   note: string;
 };
+/** WHEN A SECOND PAGE OF YOURS IS REALLY COMPETING, in the units the operator can check. One appearance in 90 days is noise, not a split: every page owes MIN_SPLIT_IMPRESSIONS views of its own, the HOME PAGE owes SPLIT_SHARE of that search on top because it is shown for everything a site ranks for at all, and MAX_SPLIT_PAGES because a group is read one address at a time. */
+const MIN_SPLIT_IMPRESSIONS = 50, SPLIT_SHARE = 0.05, MAX_SPLIT_PAGES = 6;
+/** The site root, whatever spelling it arrives in. */
+const isHomeUrl = (url: string): boolean => {
+  try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") === ""; } catch { return false; } };
 
 export type ContentGapKind =
   | "unanswered_question"
@@ -239,9 +209,7 @@ export type EvidenceSnapshot = {
     engines: string[];
     rowsScanned: number;
   };
-  /** The research funnel's basis-scoped evidence, carried verbatim: retained
-   *  keyword metrics with intent, exact AI prompt/engine observations, per-query
-   *  SERP evidence, winning pages with true provenance, and the funnel receipt. */
+  /** The research funnel's basis-scoped evidence, carried verbatim: retained keyword metrics with intent, exact AI prompt/engine observations, per-query SERP evidence, winning pages with true provenance, and the funnel receipt. */
   research: FunnelResearchEvidence;
   /** Stable over timestamps; changes only when material evidence changes. */
   evidenceHash: string;
@@ -249,9 +217,7 @@ export type EvidenceSnapshot = {
 
 // ── pure assembler input (already-loaded, fail-soft per source) ──────────────
 
-/** One loaded source payload wrapped with its honest status. `payload` is the
- *  source's already-normalized rows; a failed/dormant/empty source carries an
- *  empty payload but STILL occupies its slot in the snapshot. */
+/** One loaded source payload wrapped with its honest status. `payload` is the source's already-normalized rows; a failed/dormant/empty source carries an empty payload but STILL occupies its slot in the snapshot. */
 export type LoadedSource<T> = {
   status: SourceStatus;
   lastSyncedAt: string | null;
@@ -271,10 +237,7 @@ export type EvidenceSnapshotInput = {
   clarity: LoadedSource<({ url: string } & OwnedPageFriction)[]>;
   /** DataForSEO: keyword volume rows. */
   dataforseo: LoadedSource<{ query: string; searchVolume: number | null; competition: number | null; competitionLevel: "low" | "medium" | "high" | null }[]>;
-  /** Research funnel: retained keywords WITH intent, the CANONICAL AI answers,
-   *  per-query SERP evidence, winning pages with true provenance, + the receipt.
-   *  The native-AI source is DERIVED from the answers on this payload; it has no
-   *  input slot of its own, so there is one AI truth and never a weaker second. */
+  /** Research funnel: retained keywords WITH intent, the CANONICAL AI answers, per-query SERP evidence, winning pages with true provenance, + the receipt. The native-AI source is DERIVED from the answers on this payload; it has no input slot of its own, so there is one AI truth and never a weaker second. */
   research: LoadedSource<FunnelResearchEvidence>;
   /** TRUE when the canonical answer read FAILED this run: not an empty account (it told a 418 answer account "nothing stored yet"). REQUIRED so no later builder can forget it and quietly claim the same. */
   aiAnswersUnread: boolean;
@@ -309,14 +272,7 @@ const NAVIGATIONAL = /\b(login|log in|contact|about|homepage|official site|dashb
 const classifyIntent = (label: string): IntentCluster["intent"] =>
   TRANSACTIONAL.test(label) ? "transactional" : NAVIGATIONAL.test(label) ? "navigational" : COMMERCIAL.test(label) ? "commercial" : "informational";
 
-/**
- * WEAK ANCHORS: the one word this account puts on nearly everything it owns fits anything, so on its own it
- * proves no topical connection and must never make every page look related to every other. Read from the
- * account's OWN corpus (its page titles, the searches it retained, the prompts it observed); under
- * MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the set is empty and a
- * single-topic account keeps its honest overlaps unchanged. ONE definition per account, shared by the
- * snapshot's evidence joins and by the TopicInvestigation projection in `topic-investigation.ts`.
- */
+/** WEAK ANCHORS: the one word this account puts on nearly everything it owns fits anything, so on its own it proves no topical connection and must never make every page look related to every other. Read from the account's OWN corpus (its page titles, the searches it retained, the prompts it observed); under MIN_ANCHOR_CORPUS phrases nothing has recurred often enough to earn the label, so the set is empty and a single-topic account keeps its honest overlaps unchanged. ONE definition per account, shared by the snapshot's evidence joins and by the TopicInvestigation projection in `topic-investigation.ts`. */
 export function weakAnchorsOf(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence): Set<string> {
   const corpus = [...new Set([...ownedPages.map((p) => p.content?.title || p.content?.h1 || p.url),
     ...research.retainedKeywords.map((k) => k.query), ...research.aiObservations.map((o) => o.promptText)]
@@ -344,14 +300,7 @@ function freshnessOf(source: EvidenceSourceKind, loaded: LoadedSource<unknown>, 
 
 // ── the pure assembler ───────────────────────────────────────────────────────
 
-/**
- * Normalize the six loaded sources into ONE EvidenceSnapshot. PURE: same input
- * → same output (the only clock is scope.builtAt, supplied by the caller). Joins
- * owned pages by canonical URL, derives intent/clustering, cannibalization,
- * content gaps, internal-link opportunities, and a stable
- * evidenceHash. Every source occupies a freshness slot even when empty/failed/
- * dormant, so the snapshot never hides a missing source.
- */
+/** Normalize the six loaded sources into ONE EvidenceSnapshot. PURE: same input → same output (the only clock is scope.builtAt, supplied by the caller). Joins owned pages by canonical URL, derives intent/clustering, cannibalization, content gaps, internal-link opportunities, and a stable evidenceHash. Every source occupies a freshness slot even when empty/failed/ dormant, so the snapshot never hides a missing source. */
 export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSnapshot {
   const { scope } = input;
 
@@ -383,8 +332,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
         impressions90d: r.impressions90d,
         ctr90d: r.ctr90d,
         position90d: r.position90d,
-        // THE SAME GRAIN THE READER KEPT: a second, tighter cut here threw away searches the reader had
-        // already paid to fetch, and a search the kernel never sees is a change it can never earn.
+        // THE SAME GRAIN THE READER KEPT: a second, tighter cut here threw away searches the reader had already paid to fetch, and a search the kernel never sees is a change it can never earn.
         topQueries: [...r.topQueries].sort((a, b) => b.impressions - a.impressions).slice(0, 40),
       };
   }
@@ -402,11 +350,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     if (row) { const { url: _url, ...friction } = r; void _url; row.friction = friction; }
   }
 
-  // ── the AI answers on file: which addresses they keep crediting, split into this account's and everybody else's ──
-  // RECURRENCE ACROSS ANSWERS, never inside one: an address is evidence because it comes back on question after
-  // question. ONE ANSWER IS ONE VOTE, whatever its citation list repeats: an answer that named the same address
-  // eleven times used to outrank one that three separate questions credited. An address the account owns
-  // attaches to that page; every other one is a competitor citation.
+  // ── the AI answers on file: which addresses they keep crediting, split into this account's and everybody else's ── RECURRENCE ACROSS ANSWERS, never inside one: an address is evidence because it comes back on question after question. ONE ANSWER IS ONE VOTE, whatever its citation list repeats: an answer that named the same address eleven times used to outrank one that three separate questions credited. An address the account owns attaches to that page; every other one is a competitor citation.
   const observations = input.research.payload.aiObservations;
   const citedByUrl = new Map<string, { url: string; count: number; prompts: Map<string, string>; engines: Set<string> }>();
   for (const o of observations) { const voted = new Set<string>(); for (const c of o.citations ?? []) {
@@ -429,8 +373,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   }
 
   const ownedPages = [...ownedByUrl.values()].sort((a, b) => a.url.localeCompare(b.url));
-  // HOW MANY QUESTIONS CREDIT IT FIRST, how many answers second: recurrence across questions is the claim, and
-  // the answer count only breaks a tie between rivals that recur equally often.
+  // HOW MANY QUESTIONS CREDIT IT FIRST, how many answers second: recurrence across questions is the claim, and the answer count only breaks a tie between rivals that recur equally often.
   const competitors = [...competitorByUrl.values()]
     .sort((a, b) => b.distinctPrompts - a.distinctPrompts || b.citationCount - a.citationCount || a.url.localeCompare(b.url)).slice(0, MAX_CITED_PAGES);
 
@@ -488,8 +431,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   );
   const weak = weakAnchorsOf(ownedPages, input.research.payload);
   const relatedTopic = (a: string, b: string): boolean => anchoredTopicMatch(a, b, weak).relevant;
-  // The questions the answers themselves ANSWERED, read off the settled readings only: an unsettled or refused
-  // reading carries no analysis, so nothing here is ever a question nobody actually read out of an answer.
+  // The questions the answers themselves ANSWERED, read off the settled readings only: an unsettled or refused reading carries no analysis, so nothing here is ever a question nobody actually read out of an answer.
   const askedByText = new Map<string, { weight: number; prompts: Set<string> }>();
   for (const o of observations) for (const q of Array.isArray(o.analysis?.questionsAnswered) ? o.analysis.questionsAnswered : []) {
     const text = typeof q === "string" ? q.trim() : "";
@@ -532,23 +474,33 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
     .map((c) => ({ ...c, queries: c.queries.slice(0, 12) }))
     .sort((a, b) => b.queries.length - a.queries.length || a.key.localeCompare(b.key));
 
-  // ── cannibalization: 2+ owned URLs serving the same query ──
-  const urlsByQuery = new Map<string, Set<string>>();
+  // ── cannibalization: 2+ owned URLs MATERIALLY serving the same query ── A page Google showed once for a search lands in that search's rows, and counting it as competition told an operator six of their pages compete for something four of them are never really shown for. A page joins a split on its own weight.
+  const urlsByQuery = new Map<string, Map<string, number>>();
   for (const p of ownedPages) {
     for (const q of p.search?.topQueries ?? []) {
       const key = norm(q.query);
       if (!key) continue;
-      if (!urlsByQuery.has(key)) urlsByQuery.set(key, new Set());
-      urlsByQuery.get(key)!.add(p.url);
+      if (!urlsByQuery.has(key)) urlsByQuery.set(key, new Map());
+      const at = urlsByQuery.get(key)!;
+      at.set(p.url, (at.get(p.url) ?? 0) + Math.max(0, q.impressions));
     }
   }
+  const materialSplit = (rows: Map<string, number>): Array<[string, number]> => {
+    const total = [...rows.values()].reduce((a, n) => a + n, 0);
+    return [...rows.entries()]
+      // THE HOME PAGE IS SHOWN FOR EVERYTHING a site ranks for at all, so a flat floor lets it into every split on the site. It joins only by carrying a real share of the search, never on the floor alone.
+      // THE FLOOR IS UNCONDITIONAL AND THE SHARE IS AN EXTRA HURDLE, never a second way in. As an OR it admitted
+      // every page of a search only two pages are ever shown for, so 49 views against 49 read as a split and so
+      // did 1 against 1. The home page clears the floor and then has to carry a real share of the search too.
+      .filter(([url, n]) => n >= MIN_SPLIT_IMPRESSIONS && (!isHomeUrl(url) || (total > 0 && n >= SPLIT_SHARE * total)))
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, MAX_SPLIT_PAGES);
+  };
   const cannibalization: CannibalizationGroup[] = [...urlsByQuery.entries()]
-    .filter(([, urls]) => urls.size >= 2)
-    .map(([query, urls]) => ({
-      query,
-      competingUrls: [...urls].sort(),
-      note: `${urls.size} of your pages compete for "${query}", so pick one owner and point the rest at it.`,
-    }))
+    .map(([query, rows]) => ({ query, kept: materialSplit(rows) }))
+    .filter(({ kept }) => kept.length >= 2)
+    // WHAT IS COUNTED IS WHAT IS NAMED: every surface downstream lists these addresses one by one, so the count in the sentence and the length of the list are the same number by construction.
+    .map(({ query, kept }) => ({ query, competingUrls: kept.map(([url]) => url),
+      note: `${kept.length} of your pages compete for "${query}", so pick one owner and point the rest at it.` }))
     .sort((a, b) => b.competingUrls.length - a.competingUrls.length || a.query.localeCompare(b.query));
 
   // ── content gaps: unanswered AI questions + owned-vs-competitor structure ──
@@ -584,8 +536,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   // ── AI citation rollup, off the same answers everything above was built from ──
   const ownedCited = ownedPages.filter((p) => p.aiCitations.count > 0).length;
   const aiEngines = [...new Set(observations.map((o) => o.engine))].sort();
-  // FOUR STATES, FOUR CLAIMS, each in my own words: a read I did not get, no answer stored yet, answers that named
-  // nobody, answers that named pages. The shared default said "nothing recorded yet" over a row counting stored answers.
+  // FOUR STATES, FOUR CLAIMS, each in my own words: a read I did not get, no answer stored yet, answers that named nobody, answers that named pages. The shared default said "nothing recorded yet" over a row counting stored answers.
   const unread = input.aiAnswersUnread, credited = citedByUrl.size > 0;
   const nativeAi: LoadedSource<null> = { payload: null,
     status: unread ? "failed" : observations.length === 0 ? "dormant" : credited ? "fresh" : "empty",
@@ -627,11 +578,7 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   return { ...snapshot, evidenceHash: hashSnapshot(snapshot) };
 }
 
-/**
- * Stable evidence hash over the MATERIAL evidence (not timestamps or the
- * per-source freshness/lastSyncedAt clock). Two runs with the same underlying
- * evidence produce the same hash even if built at different times.
- */
+/** Stable evidence hash over the MATERIAL evidence (not timestamps or the per-source freshness/lastSyncedAt clock). Two runs with the same underlying evidence produce the same hash even if built at different times. */
 export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): string {
   const stable = {
     t: snapshot.scope.tenantId,
@@ -651,13 +598,7 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     gap: snapshot.contentGaps.map((g) => [g.kind, g.topic]),
     ilo: snapshot.internalLinkOpportunities.map((l) => [l.fromUrl, l.toUrl]),
     can: snapshot.cannibalization.map((c) => [c.query, c.competingUrls]),
-    // MATERIAL research truth, not counters: the actual retained keyword metrics,
-    // the exact AI observations (observation MODE, models served/requested,
-    // web-search state, cited urls+domains, fan-out queries), the per-query SERP
-    // evidence, and the winning pages with their extract structure. Every timestamp
-    // and every spend/cache counter is excluded, so the same evidence at a later
-    // clock hashes identically while a changed citation, mode, served model,
-    // fan-out, settled reading, volume/intent, or extract structure changes it.
+    // MATERIAL research truth, not counters: the actual retained keyword metrics, the exact AI observations (observation MODE, models served/requested, web-search state, cited urls+domains, fan-out queries), the per-query SERP evidence, and the winning pages with their extract structure. Every timestamp and every spend/cache counter is excluded, so the same evidence at a later clock hashes identically while a changed citation, mode, served model, fan-out, settled reading, volume/intent, or extract structure changes it.
     res: {
       kw: snapshot.research.retainedKeywords.map((k) => [k.query, k.searchVolume, k.competition, k.intent]),
       // The SETTLED READING is material too: same citations, same fan-outs, a reading now on file is different evidence.

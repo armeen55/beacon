@@ -62,6 +62,15 @@ export const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
 const OWNERSHIP_FAMILY = "ownership";
 /** The family a diagnosed problem with no drafting evidence yet lands under. */
 const RESEARCHING_FAMILY = "researching";
+/**
+ * THE MARKER THAT SAYS THIS CARD IS NOT AN EDIT. It rides on `limitations`, where the operator reads it as the
+ * plain truth about the card, and every surface that would otherwise offer a Copy button matches its stable
+ * phrase: the ranking, Today's one big move, and the queue card. A researching row rendered as "Change the
+ * section" over a paste box, under a receipt calling it safe to paste and waiting on review, which is three
+ * claims about work nobody has written. Matched on the phrase rather than exported, exactly as the drafted-copy
+ * marker above it is, because the readers sit on the other side of the kernel facade.
+ */
+const RESEARCH_MARKER = "Nothing here is ready to paste: this card is research, not an edit.";
 
 /** The component kinds this proposal actually touches. A bundled change says so
  *  directly; a pre-bundle row is read off its one exact edit. */
@@ -156,14 +165,16 @@ const MAX_OWNERSHIP = 3;
  * wording that says which search each page answers.
  */
 export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKeyOf: (q: string) => string }): { cards: ChangeProposal[]; covered: Set<string> } {
-  const groups = new Map<string, { c: Judged; paths: readonly string[] }>();
+  const groups = new Map<string, { c: Judged; paths: readonly string[]; survivor: string | null; unproven: string[] }>();
   for (const c of w.judged) {
     const p = c.cause.payload;
     if (c.cause.cause !== "cannibalization" || p?.cause !== "cannibalization" || !c.query || !c.pageUrl) continue;
+    // WHAT IS COUNTED IS WHAT IS NAMED: the ladder's own group, whole, so the sentence it wrote and the list
+    // this card prints are the same pages. Nothing is sliced off here.
     const paths = [...new Set([c.pageUrl, ...p.competingPaths].map((u) => pathOf(u)))];
     if (paths.length < 2) continue;
     const key = w.queryKeyOf(c.query), held = groups.get(key);
-    if (!held || c.recoverableClicks > held.c.recoverableClicks) groups.set(key, { c, paths });
+    if (!held || c.recoverableClicks > held.c.recoverableClicks) groups.set(key, { c, paths, survivor: p.survivor ? pathOf(p.survivor) : null, unproven: p.comparison.filter((r) => r.clicks == null).map((r) => pathOf(r.url)) });
   }
   const cards: ChangeProposal[] = [], covered = new Set<string>();
   for (const g of [...groups.values()].sort((a, b) => b.c.recoverableClicks - a.c.recoverableClicks
@@ -172,33 +183,51 @@ export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKey
     if (!own) continue;
     cards.push(ownershipCard({ tenantId: w.tenantId, now: w.now, basis: w.basis, pageUrl: url, pageLabel: labelOf(own, url),
       query: g.c.query!, finding: g.c.cause, demandImpressions90d: own.search?.impressions90d ?? null,
-      competingPaths: g.paths, impactScore: g.c.recoverableClicks > 0 ? g.c.recoverableClicks : null }));
+      competingPaths: g.paths, survivor: g.survivor, unproven: g.unproven,
+      impactScore: g.c.recoverableClicks > 0 ? g.c.recoverableClicks : null }));
     for (const u of g.paths) for (const k of keysOf(u)) covered.add(k);
   }
   return { cards, covered };
 }
 
-function ownershipCard(b: CardBase & { competingPaths: readonly string[]; impactScore: number | null }): ChangeProposal {
+/**
+ * ONE DECISION, ONE PRESCRIPTION, ZERO CONTRADICTIONS. This card used to assign the search to the page it was
+ * filed under while the finding's own payload named a different survivor, and to promise "nothing here moves an
+ * address" while the finding's action was `consolidate`. It reads the finding now and never argues with it.
+ *
+ * AND IT NEVER HANDS THE STRATEGY BACK. Telling an operator to "give the other pages wording that names what
+ * each answers" is the whole job, restated as homework. Settling a split takes the owner of the head search,
+ * the distinct search every other page is for, and the exact title and opening line for each, and none of that
+ * is drafted here yet. So this card asks for nothing: it states what the evidence settled, names what is still
+ * owed, and carries the loss it is ranked on. It is RESEARCH until every one of those exists.
+ */
+function ownershipCard(b: CardBase & { competingPaths: readonly string[]; survivor: string | null; unproven: readonly string[]; impactScore: number | null }): ChangeProposal {
   const mine = pathOf(b.pageUrl);
-  // THIS PAGE FIRST, then the rest in a fixed order: the card opens on the page it is filed under, and the same
-  // split always produces the same sentence, so nothing here moves a stored row on a pass that learned nothing.
-  const named = [mine, ...[...new Set(b.competingPaths.map((u) => pathOf(u)))].filter((p) => p !== mine).sort()].slice(0, 4);
+  // THIS PAGE FIRST, then the rest in a fixed order, and ALL of them: the ladder's count and this list are one
+  // number, so the same split always produces the same sentence and nothing on file moves on a settled pass.
+  const named = [mine, ...[...new Set(b.competingPaths.map((u) => pathOf(u)))].filter((p) => p !== mine).sort()];
   const list = named.join(", ");
-  const others = named.filter((p) => p !== mine);
-  // The assignment, written here and only here: which page takes the search, and what the rest have to say instead.
-  const assignment = `Say in the title and first line of ${mine} that it answers "${b.query}", and give ${others.join(" and ")} wording that names what ${others.length === 1 ? "it answers" : "each of them answers"} instead. Nothing here moves an address.`;
+  // WHAT THE FINDING ITSELF CONCLUDED. `consolidate` is a merge, and a merge moves an address; saying otherwise
+  // over the top of it is the contradiction this card exists to stop.
+  const merges = b.finding.action === "consolidate";
+  const settled = b.survivor && named.includes(b.survivor) ? b.survivor : null;
+  const plan = settled
+    ? `Your own figures name ${settled} as the page to keep, and settling it is ${merges ? "a merge, which moves an address" : "wording that tells these pages apart"}.`
+    : `Which of them should own it is not settled: ${b.unproven.length > 0
+      ? `${b.unproven.join(" and ")} ${b.unproven.length === 1 ? "carries" : "carry"} no clicks of ${b.unproven.length === 1 ? "its" : "their"} own for that search on file, so no page here is proven to be the one to keep`
+      : "no page here is far enough ahead on both clicks and position for the figures to pick one"}.`;
+  const owed = `The exact ${merges && settled ? "addresses to forward and the wording that survives" : "titles and opening lines that would tell these pages apart"} have not been drafted, so nothing here is an instruction yet.`;
   return {
     ...shell(b, OWNERSHIP_FAMILY, b.impactScore),
-    opportunityType: `Settle which of your pages owns "${b.query}"`,
+    opportunityType: settled ? `Settle "${b.query}": the figures name ${settled} as the page to keep`
+      : `Find out which of your pages should own "${b.query}"`,
     recommendedChange: { kind: "existing_edit", field: "section", before: null,
-      after: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. Give each one a title and an opening line that says which search it answers, so Google stops choosing between them.` },
-    whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so ownership is settled first and every other change on these pages waits behind it.`,
-    operatorSteps: [`Open the site editor on ${mine}`, assignment,
-      `Give ${others.join(" and ")} ${others.length === 1 ? "a title and an opening line" : "titles and opening lines"} naming what ${others.length === 1 ? "it answers" : "they answer"} instead`,
-      `Mark it done here and clicks and average position for "${b.query}" get read across all ${num(named.length)} addresses`],
-    estimatedEffortMinutes: 30, confidence: "medium",
-    limitations: ["Which pages come up for that search is read off the last stored search data, so a page that stopped coming up since then is still counted here."],
-    evidence: { query: b.query, hints: [b.finding.explanation, `Competing pages on file: ${list}`, assignment], evidenceRefCount: 3 },
+      after: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. ${plan} ${owed}` },
+    whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so ownership is settled first and every other change on these pages waits behind it. ${plan}`,
+    estimatedEffortMinutes: 0, confidence: "low",
+    limitations: [RESEARCH_MARKER,
+      "Which pages come up for that search is read off the last stored search data, so a page that stopped coming up since then is still counted here."],
+    evidence: { query: b.query, hints: [b.finding.explanation, `Competing pages on file: ${list}`, plan, owed], evidenceRefCount: 4 },
   };
 }
 
@@ -245,7 +274,8 @@ function researchingCard(b: CardBase & { recoverable: number }): ChangeProposal 
       `The pages holding those positions get read against ${path}`,
       "The exact change lands on this card once that read is on file"],
     estimatedEffortMinutes: 15, confidence: "low",
-    limitations: ["This is what the gap is worth, not a promise of what comes back: what to change is not known until the results page for that search is read."],
+    limitations: [RESEARCH_MARKER,
+      "This is what the gap is worth, not a promise of what comes back: what to change is not known until the results page for that search is read."],
     evidence: { query: b.query, hints: [`${num(b.recoverable)} clicks are recoverable here`, b.finding.explanation, missing], evidenceRefCount: 3 },
   };
 }

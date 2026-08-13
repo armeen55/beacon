@@ -223,6 +223,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
   const top = today.nextOpportunities[0] ?? null;
   const edit = today.topEdit ?? null;
+  // THE RESEARCH SHAPE, read off the projection itself: nothing to paste and no line to paste it into. That is
+  // the one card that asks the operator for nothing, so it may not promise steps or call itself a change.
+  const research = !!edit && !edit.paste && !edit.after;
   const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
@@ -254,6 +257,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
               </div>
             </div>
+          ) : edit && research ? (
+            // RESEARCH IS NOT A PLAN WITH STEPS. This card asks the operator for nothing at all, so promising
+            // steps to read leads to a card that has none: what it holds is a finding and what is still owed.
+            <p className="mt-1 text-[13px] text-muted-foreground">What is settled and what is still owed is on the card.</p>
           ) : edit ? (
             <p className="mt-1 text-[13px] text-muted-foreground">A plan, not a paste. Open it and read the steps before touching anything.</p>
           ) : (
@@ -265,7 +272,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              Make this change
+              {research ? "Open the details" : "Make this change"}
             </Link>
             {openTotal > 1 ? (
               <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">

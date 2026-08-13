@@ -122,6 +122,12 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   const c = p.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   if (!after) return undefined;
+  // RESEARCH IS READ, NEVER PASTED. A card the pass still owes its own work on rendered here as "Change the
+  // section" over a paste box, which is an edit nobody has written. It leads on what is riding on it and says
+  // so plainly. Matched on the marker's stable phrase (decision/authorization), which the facade does not export.
+  if ((p.limitations ?? []).some((l) => l.includes("this card is research, not an edit"))) {
+    return { action: `Read this first: ${recommendationOf(p)}`, lead: "", before: null, after: "", paste: false };
+  }
   if (c.kind === "new_page") {
     return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "Page title: ", before: null, after, paste: true };
   }
