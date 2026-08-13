@@ -30,11 +30,14 @@ const pairKey = (p: FunnelPair) => `${p.promptId}|${p.engine}|${modeOf(p)}|${slo
 const capabilityFor = (p: FunnelPair): CapabilityKey => (p.engine === "chatgpt" && modeOf(p) === "consumer_search" ? "llm_scraper_chatgpt" : (`llm_${p.engine}` as CapabilityKey));
 /** The engines I can actually ask. Anything else is answered honestly as unsupported at ZERO spend. */
 const OBSERVABLE = new Set<string>(ENGINES);
+/** How many readings wait on their assistant at once. Four keeps every provider well inside its own concurrency
+ *  and one pass inside its deadline, and it is what the page reader already uses. The per-engine ceilings above
+ *  still decide WHICH readings are asked; this only decides how many of them wait at the same time. */
+const ASK_AT_ONCE = 4;
 
 /** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected force, 40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based.
  *  The plan's reporting day and a deliberate second slot ride ALONGSIDE that ask: the registry keys on them
- *  and no builder emits them, so tomorrow's reading and a second sample are genuinely new questions to the
- *  provider instead of a $0 replay of the answer already in the one-day cache. */
+ *  and no builder emits them, so tomorrow's reading and a second sample are genuinely new questions to the  provider instead of a $0 replay of the answer already in the one-day cache. */
 function observeCall(callProvider: ResolvedDeps["callProvider"], p: FunnelPair, text: string, ids: { tenantId: string; unitKey: string }): Promise<CachedCallResult> {
   const obs = { observation_day: p.day, ...(slotOf(p) > 0 ? { sample_slot: slotOf(p) } : {}) };
   switch (capabilityFor(p)) {
@@ -204,11 +207,23 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
       //    A carried in-flight pair from another day is collected above and never re-posted here.
       const todo = pairs.filter((p) => p.status === "pending" && plannedKeys.has(pairKey(p)));
       let processed = 0, perp = 0, progressed = false;
+      // THE WAVE, NOT THE QUEUE. Every reading was asked one at a time, and an assistant that searches before it
+      // answers takes over a minute, so a pass spent its whole deadline on three readings and a day of a hundred
+      // and forty needed dozens of passes across dozens of half-hourly ticks to finish work worth a few minutes.
+      // The eligible readings are chosen FIRST, in the planner's own order and under the same ceilings, and then
+      // asked ASK_AT_ONCE at a time: the order, the ceilings, the per-pair writes and every disposition below are exactly what they were, and only the waiting overlaps.
+      const wave: typeof todo = [];
       for (const p of todo) {
-        if (blockedDetail || limitDetail || d.now() > deadline || processed >= 20) break;
-        const text = textOf.get(p.promptId);
-        if (!text || (p.engine === "perplexity" && perp >= 3)) continue;
+        if (wave.length >= 20) break;
+        const t = textOf.get(p.promptId);
+        if (!t || (p.engine === "perplexity" && perp >= 3)) continue;
         if (p.engine === "perplexity") perp += 1;
+        wave.push(p);
+      }
+      let taken = 0;
+      const ask = async (p: (typeof wave)[number]): Promise<void> => {
+        const text = textOf.get(p.promptId);
+        if (!text) return;
         const r = interp(await observeCall(d.callProvider, p, text, ids)); track(state, r);
         p.modelRequested = r.modelRequested ?? p.modelRequested ?? null;
         if (r.kind === "waiting") { p.status = "posted"; p.cacheKey = r.cacheKey; p.requestedAt = nowIso(); p.postCostUsd = (p.postCostUsd ?? 0) + r.costUsd; progressed = true; await note(p, "pending", null, { costUsd: r.costUsd }); }
@@ -219,14 +234,26 @@ export function promptObservationUnit(deps: FunnelDeps = {}, due: DueObservation
         } else if (r.kind === "failed") {
           const held = r.disposition === "quarantined"; // same ladder as the collect above, and the same terminal row: quarantined = EXPLICIT unavailable coverage
           await note(p, held ? "unavailable" : "failed", r.detail ?? null, { cacheKey: r.cacheKey, ...(held ? { completedAt: nowIso() } : {}) });
-          if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; break; }
-          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); break; }
+          if (r.disposition === "daily_limit") { limitDetail = r.detail ?? null; return; }
+          if (r.disposition === "blocked") { blockedDetail = blockedNote(r); return; }
           if (r.disposition === "quarantined") { p.status = "unsupported"; p.cacheKey = r.cacheKey; p.observedAt = nowIso(); p.requestedAt = undefined; fail(r.detail); }
           else fail(r.detail ?? pauseDetail(r.disposition, "A prompt check did not run. I will retry it on the next pass."));
         }
         else if (r.soft === "not_configured") softUnavailable = true; // genuine unavailable coverage
         processed += 1;
-      }
+      };
+      // A REFUSAL STOPS EVERYTHING, so the first reading is asked ALONE. A provider that is blocked, out of credit
+      // or past its daily ceiling says so on that one call, and nothing else has been sent or stored: the batch
+      // dies exactly where it died before. Only once one reading has come back clean do the rest overlap, and a refusal inside the wave still stops anything that has not been picked up.
+      if (!blockedDetail && !limitDetail && wave.length > 0 && d.now() <= deadline) await ask(wave[taken++]!);
+      await Promise.all(Array.from({ length: Math.min(ASK_AT_ONCE, Math.max(0, wave.length - taken)) }, async () => {
+        for (;;) {
+          if (blockedDetail || limitDetail || d.now() > deadline) return;
+          const p = wave[taken++];
+          if (!p) return;
+          await ask(p);
+        }
+      }));
 
       state.prompts.pairs = pairs; // bounded by construction: one bounded daily plan plus its carried in-flight tasks
       await save(d, tenantId, basis, state, ctx);
@@ -261,8 +288,7 @@ const refs = (parsed: ParsedSerp | null) => (parsed?.aiOverview?.references ?? [
 
 /** THE SEARCH THE PROVIDER SAYS IT RAN, off the envelope it sent back: the SERP result block echoes the ask
  *  (tasks[0].result[0].keyword) and the task carries the same string on its stored data. The typed ParsedSerp
- *  keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed
- *  nothing, which is never proof of a match and is never treated as one. */
+ *  keeps only the results, so the echo is read here from the envelope itself. null = this payload echoed  nothing, which is never proof of a match and is never treated as one. */
 function echoedKeyword(payload: unknown): string | null {
   const task = (payload as { tasks?: { data?: { keyword?: unknown }; result?: { keyword?: unknown }[] }[] } | null)?.tasks?.[0];
   const echo = (Array.isArray(task?.result) ? task.result[0]?.keyword : undefined) ?? task?.data?.keyword;
@@ -272,8 +298,7 @@ function echoedKeyword(payload: unknown): string | null {
 /** A LANDING IS ACCEPTED ONLY WHERE THE PROVIDER ANSWERED THE SEARCH THAT WAS ASKED. The keyword it echoes is
  *  compared under the SAME normalization the ask was sent in; a mismatch is named on the row, held as
  *  unavailable coverage and kept out of evidence rather than stored as this search's own results page. An
- *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and
- *  what is verified is only what the response itself carries (its rows and its status). */
+ *  envelope that echoes NOTHING is not a mismatch: it is a match nobody can prove, so the results stand and  what is verified is only what the response itself carries (its rows and its status). */
 function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: unknown, tenantId: string): void {
   const echo = echoedKeyword(payload), served = echo ? normalizeKeyword(echo) : null;
   if (served && served !== normalizeKeyword(s.query)) {
