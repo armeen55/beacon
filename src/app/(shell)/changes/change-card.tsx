@@ -11,8 +11,7 @@ import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
-import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
-import { receiptComposition } from "@/domains/decision/contracts";
+import { componentIdOf, dangerousComponents, isResearchCard, receiptComposition } from "@/domains/decision/contracts";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
 import { pageLabel } from "./types";
@@ -173,8 +172,8 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   const instruction = !isConsolidation(proposal) && steps.length > 0
     && /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/.test(after ?? "");
   // AND RESEARCH IS READ TOO. A card the pass still owes its own work on opens with a count rather than a verb,
-  // so the regex above waves it through onto a Copy button. It carries its own marker instead.
-  const research = (proposal.limitations ?? []).some((l) => l.includes("this card is research, not an edit"));
+  // so the regex above waves it through onto a Copy button. It says what it is in a typed field instead.
+  const research = isResearchCard(proposal);
   const merge = isConsolidation(proposal) || instruction || research;
   // THE SAME INSTRUCTION TWICE IS NOT TWO STEPS: when the first written step already opens with the line the
   // change carries, the line is that step and prepending it printed it back to back with itself.

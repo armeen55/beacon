@@ -76,6 +76,8 @@ export { resolveCurrentBasis } from "./load-proposals";
 export type { ProposalOutcome, ProposeOptions } from "./propose";
 export { proposeExistingPageChange } from "./propose";
 export { rankProposals, proposalValueScore } from "./rank-proposals";
+// THE ONE TYPED READ every surface makes about a card nothing is written for: no paste box, no Mark done, no ready tier.
+export { isResearchCard } from "./contracts";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
 export { validateProposal, actionableProposalFailures } from "./validate-proposal";
 

@@ -16,7 +16,7 @@ import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdr
 import { actionableProposalFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
 import { ownershipCards, researchingCards, withholdReason } from "./authorization";
-import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
+import { confidenceFor, isResearchCard, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
@@ -470,10 +470,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const drafted = await applyDraftedCopy(allowed, { tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache }).catch(() => allowed);
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
-  // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. AND ONE THAT RULES OUT THE VERY ACTION THIS CARD DECIDED ON IS NOT SHOWN AT ALL: a card whose figures settled on a merge may not also carry the sentence saying no merge is available here. Read off the refusal's typed `refusedAction` against the card's own diagnosed action, never off the words either one is written in, or one voice edit puts the contradiction back. That refusal stays on the run receipt, where the reason a producer wrote nothing belongs.
+  // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).
   for (let i = 0; i < proposals.length; i += 1) {
     const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : "";
-    if (!block || p.bundle || !(p.limitations ?? []).some((l) => l.includes("this card is research, not an edit")) || (p.operatorSteps ?? []).includes(block.reason) || (p.limitations ?? []).includes(notYet) || (block.refusedAction != null && block.refusedAction === (p.causeFinding?.action ?? null))) continue;
+    if (!block || p.bundle || !isResearchCard(p) || (p.operatorSteps ?? []).includes(block.reason) || (p.limitations ?? []).includes(notYet)) continue;
     proposals[i] = { ...p, limitations: [...(p.limitations ?? []), notYet], evidence: { ...p.evidence, hints: [...p.evidence.hints, block.reason], evidenceRefCount: p.evidence.evidenceRefCount + 1 } };
     await persistIfChanged(proposals[i]!); }
   // A PROVEN FALL WITH NO DRAFTING EVIDENCE IS STILL WORK: no door reaches it and no producer can write for it, so the loss was invisible. It gets the ONE card naming what is missing, ranked on what it LOST.

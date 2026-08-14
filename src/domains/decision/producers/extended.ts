@@ -330,10 +330,8 @@ export const produceSourceExpansion: Producer = async (ctx) => {
 
 export const produceConsolidation: Producer = async (ctx) => {
   if (ctx.finding.cause !== "cannibalization") return refuse("Two of your own pages are not competing for that search, so there is nothing here to settle. The cause that was found is on the receipt.");
-  const keys = evidenceKeysOf(ctx);
-  if (!keys) return refuse(NO_EVIDENCE);
-  const group = competingPages(ctx.finding);
-  if (!group) return refuse(UNSETTLED);
+  const keys = evidenceKeysOf(ctx); if (!keys) return refuse(NO_EVIDENCE);
+  const group = competingPages(ctx.finding); if (!group) return refuse(UNSETTLED);
   // The ladder carries the competing pages as whole addresses; an operator reads them as paths on their own site, and anything I cannot resolve is named exactly as it was given rather than reshaped.
   const abs = (u: string): string => (u.startsWith("http") || u.startsWith("/") ? u : `https://${u}`);
   const short = (p: string): string => ownPath(abs(p), abs(ctx.page.url)) ?? p;
@@ -350,42 +348,44 @@ export const produceConsolidation: Producer = async (ctx) => {
   // one shape under one prefix, the two addresses answer two different searches, and the merge would retire
   // one of a series while every sibling stands. Structural, so it reads the same on any site: the count of
   // pages under the same prefix. Those pages get told apart instead, and no address moves.
-  const under = (p: string): number => {
-    const at = p.lastIndexOf("/");
-    return at > 0 ? ctx.ownedPages.filter((o) => short(o.url).startsWith(p.slice(0, at + 1))).length : 0;
-  };
+  // NOTE: a root-level path scores 0 here (no prefix above it), so the merge gate below is what guards those.
+  const under = (p: string): number => { const at = p.lastIndexOf("/");
+    return at > 0 ? ctx.ownedPages.filter((o) => short(o.url).startsWith(p.slice(0, at + 1))).length : 0; };
   const crowded = losers.find((p) => under(p) >= MIN_SIBLINGS);
   // STRUCTURAL, SO IT IS TYPED: this rules the merge out here for good, not until more evidence lands, and the card that decided on a merge reads that off the field rather than off these words.
   if (crowded) return refuse(`${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing. Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`, "consolidate");
   // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
-  const bodies = ctx.heldBodies ?? new Map();
-  const bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
-  const held = named.map((p) => ({ path: p, body: bodyFor(p) }));
-  if (held.some((h) => !h.body)) return refuse(`${held.filter((h) => !h.body).map((h) => h.path).join(" and ")} has not been read closely enough to say what would be lost by folding ${losers.length === 1 ? "it" : "them"} into ${keep}, so nothing here says combine anything yet. ${losers.length === 1 ? "That page needs" : "Those pages need"} reading, and then exactly what moves can be named.`);
+  const bodies = ctx.heldBodies ?? new Map(), bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
+  const held = named.map((p) => ({ path: p, body: bodyFor(p) })); if (held.some((h) => !h.body)) return refuse(`${held.filter((h) => !h.body).map((h) => h.path).join(" and ")} has not been read closely enough to say what would be lost by folding ${losers.length === 1 ? "it" : "them"} into ${keep}, so nothing here says combine anything yet. ${losers.length === 1 ? "That page needs" : "Those pages need"} reading, and then exactly what moves can be named.`);
+  // A SAMPLE PROVES PRESENCE, NEVER ABSENCE. The gate below reads "the survivor already carries every section this page carries" off the headings on file, so a partly captured page whose few captured headings happen to be covered would authorize a permanent redirect on what was never read. Only a whole capture can say nothing is missing.
+  const short_read = held.filter((h) => h.body!.completeness !== "complete").map((h) => h.path); if (short_read.length > 0) return refuse(`${short_read.join(" and ")} ${short_read.length === 1 ? "is" : "are"} only partly on file, so what ${short_read.length === 1 ? "it carries" : "they carry"} that ${keep} does not cannot be told from what was never read, and a redirect is permanent. ${short_read.length === 1 ? "That page needs" : "Those pages need"} reading in full first.`);
   // ONE JOB, OR THEY ARE NOT DUPLICATES: two pages built for different jobs are not a merge, and folding them
   // loses the job one of them does. A PROVEN disagreement refuses; a kind I cannot read is not a disagreement,
   // and what stands there is that Google serves both for the one search, which is why this is still a question.
-  const kinds = new Set(held.map((h) => classifyResult(h.body!.title ?? h.body!.h1, abs(h.body!.url || h.path))).filter((k) => !!k));
-  if (kinds.size > 1) return refuse(`Your pages at ${named.join(" and ")} come up for the same search and they are not the same kind of page, so folding one into the other would lose the job it does. They need reading side by side against that search first.`, "consolidate");
+  const kinds = new Set(held.map((h) => classifyResult(h.body!.title ?? h.body!.h1, abs(h.body!.url || h.path))).filter((k) => !!k)); if (kinds.size > 1) return refuse(`Your pages at ${named.join(" and ")} come up for the same search and they are not the same kind of page, so folding one into the other would lose the job it does. They need reading side by side against that search first.`, "consolidate");
   // WHAT MOVES AND WHAT STAYS, named off the words I hold on both sides, so this is work rather than a decision.
   const survivorHas = new Set((bodyFor(keep)?.headings ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
   // FURNITURE IS NOT CONTENT. The stored headings are the page's h1 then its h2s, so a merge told an operator to move "Explore More" and the site's own brand line off a page:
   // chrome this site prints everywhere, plus the loser's own title, which is not a section at all. The survivor's headings catch neither, because it does not carry them.
   const furniture = (p: string, h: string): boolean => ctx.templateHeadings?.has(h.toLowerCase().replace(/\s+/g, " ")) === true || h.toLowerCase() === (bodyFor(p)?.h1 ?? "").trim().toLowerCase();
-  const moves = [...new Set(losers.flatMap((p) => (bodyFor(p)?.headings ?? []).map((h) => h.trim())
-    .filter((h) => h.length > 0 && !survivorHas.has(h.toLowerCase()) && !furniture(p, h))))].slice(0, MAX_MOVED);
+  const moves = [...new Set(losers.flatMap((p) => (bodyFor(p)?.headings ?? []).map((h) => h.trim()).filter((h) => h.length > 0 && !survivorHas.has(h.toLowerCase()) && !furniture(p, h))))].slice(0, MAX_MOVED);
+  // A WINNER OF ONE SEARCH IS NOT A HOME FOR A WHOLE PAGE, so A MERGE MAY MOVE NOTHING. Everything above settles
+  // who owns one search; a redirect retires every OTHER search the losing page answers, and one query cannot
+  // speak for those. Structural test, off both pages' own words: a section the survivor does not already carry
+  // is a job it does not do, so absorbing it makes it a different page and dropping it loses whoever came for
+  // it. What survives this is a true duplicate, where the redirect costs no subject. 2026-08-14: /persian-names
+  // carried boy names and last names, and this card told an operator to fold it into a girl-names page. Typed,
+  // so the card that decided on a merge reads the refusal off the field and never off these words.
+  if (moves.length > 0) return refuse(`${losers.join(" and ")} ${losers.length === 1 ? "carries a section" : "carry sections"} ${keep} does not: ${moves.map((m) => `"${m}"`).join(", ")}. ${keep} wins "${ctx.primary}", and that settles one search, not every search ${losers.join(" and ")} ${losers.length === 1 ? "answers" : "answer"}: folding ${losers.length === 1 ? "it" : "them"} in would either turn ${keep} into a different page or drop those sections and whoever comes looking for them. Give ${named.join(" and ")} titles and opening lines that say which search each one answers, and no address moves.`, "consolidate");
   const win = earns.get(keep)!;
   const rest = losers.map((p) => { const c = earns.get(p)?.clicks ?? null; return c == null ? `nothing measurable on ${p}` : `${count(c)} on ${p}`; }).join(" and ");
   // A MERGE IS A JOB, NOT A PASTE. The component carries the DECISION and its numbers, which is all an operator
   // would ever copy; every instruction lives in the steps below, so "Copy new section" can never copy an order.
-  const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so ${keep} is the page to keep. The risk is high, because a web address changes.`);
+  const after = plain(`${count(named.length)} of your own pages come up for "${ctx.primary}": ${named.join(", ")}. ${keep} earns ${count(win.clicks!)} clicks from that search against ${rest}${win.position == null ? "" : `, at about position ${count(win.position)}`}, so ${keep} is the page to keep. ${keep} already carries every section ${losers.join(" and ")} ${losers.length === 1 ? "carries" : "carry"}, so no subject is dropped by forwarding ${losers.length === 1 ? "it" : "them"}; what is lost is ${losers.join(" and ")} as ${losers.length === 1 ? "an address" : "addresses"}, and every search ${losers.length === 1 ? "it answers" : "they answer"} is answered on ${keep}. The risk is high, because a web address changes.`);
   const steps = [
-    moves.length > 0
-      ? `Move ${moves.map((m) => `"${m}"`).join(", ")} from ${losers.join(" and ")} into ${keep}`
-      : `Check ${keep} already says everything ${losers.join(" and ")} ${losers.length === 1 ? "says" : "say"}: nothing on file there is missing from it`,
+    `Check ${keep} already says everything ${losers.join(" and ")} ${losers.length === 1 ? "says" : "say"}: nothing on file there is missing from it`,
     `Redirect ${losers.join(" and ")} to ${keep} for good`,
-    `Come back here and mark it done, about ${effortMinutesFor("consolidation")} minutes of work in all, and clicks and average position for "${ctx.primary}" get read across all ${count(named.length)} addresses`,
-  ];
+    `Come back here and mark it done, about ${effortMinutesFor("consolidation")} minutes of work in all, and clicks and average position for "${ctx.primary}" get read across all ${count(named.length)} addresses`];
   return {
     operatorSteps: steps,
     components: [{

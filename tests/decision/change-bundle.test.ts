@@ -3,7 +3,7 @@
  *  determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a
  *  round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-import { receiptComposition } from "@/domains/decision/contracts";
+import { receiptComposition, isResearchCard } from "@/domains/decision/contracts";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -464,8 +464,7 @@ describe("the complete change universe answers for itself", () => { it("round-tr
     const merged = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Merge this page into the sizing guide once the copy is moved." })]) }));
     expect([merged.verdict, merged.reasons.some((r) => r.includes("merges it into another"))]).toEqual(["rejected", true]);
     // and an honest section rewrite that names none of them is still a safe paste
-    expect(validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Add a short section on roof area, with the gallons each one collects per storm." })]) })).verdict).not.toBe("rejected");
-  });
+    expect(validateProposal(prop({ bundle: bundleOf([comp({ kind: "section", after: "Add a short section on roof area, with the gallons each one collects per storm." })]) })).verdict).not.toBe("rejected"); });
   it("keeps a legal or medical correction dangerous however small the edit reads", () => {
     const legal = (risk: BundleComponent["risk"]): BundleComponent => comp({ kind: "factual_correction", risk, after: "Under the county statute the permit is required above 60 gallons.",
       sourcePack: { sourceRequirements: ["Cite the county statute."], factRequirements: ["Confirm the 60 gallon threshold."] } });
@@ -489,8 +488,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     for (const cause of ["demand_decline", "measuring_change"] as const) { const [only] = rankProposals([prop({ diagnosisCause: cause, bundle: bundleOf([comp({ kind: "title" })]) })]);
       expect(factorOf(only!, "causeFit")).toBe(0);
       expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
-    }
-  });
+    } });
   it("puts what is riding on the change above how long it takes, and never lets a wrong lever ride a recovery", () => {
     // A page proven to be losing 191 clicks against a description errand on a page shown twice: value leads, and
     // the whole of the errand's speed is worth less than what the losing page has riding on it.
@@ -505,6 +503,15 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
     expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
     expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(80); });
+  // THE SENTENCE IS COPY, THE FACT IS TYPED. Rewording the line an operator reads must move nothing: the ranker, both surfaces and the server
+  // mutation all ask researchOnly, so a voice edit can never hand a card nobody has written a Copy button, a Mark done, or a finished card's tier.
+  it("decides research off the typed field, never off the sentence the operator reads", () => {
+    const MARKER = "Nothing here is ready to paste: this card is research, not an edit.", REWORDED = "A read, not an edit: nothing on this one is written.";
+    const say = (l: string, typed?: true) => prop({ status: "needs_review", limitations: [l], ...(typed ? { researchOnly: true } : {}) });
+    expect([isResearchCard(say(MARKER)), isResearchCard(say(REWORDED, true))]).toEqual([false, true]);
+    const rank = (l: string) => { const r = rankProposals([say(l, true)])[0]!; return [factorOf(r, "actionability"), r.rankingReceipt!.factors.find((f) => f.name === "actionability")!.input]; };
+    expect(rank(REWORDED)).toEqual(rank(MARKER));
+    expect([rank(MARKER)[1], deserializeChangeProposal(serializeChangeProposal(say(MARKER, true)))!.researchOnly]).toEqual(["this is research still owed, not an edit waiting on you", true]); });
   it("keeps homework behind finished work however big its page is, and names a lever for a page losing ground", () => {
     // THE OWED CARD ON THE BIGGEST PAGE ON THE SITE still waits: while the copy is owed its visibility counts only
     // as far as an audience does (40), which the flat 45 always outweighs, so no page is big enough to promote work

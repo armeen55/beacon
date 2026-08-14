@@ -23,8 +23,7 @@ vi.mock("@/lib/persistence/supabase", () => {
         if (prop === "then") return (res: (v: RpcAnswer) => unknown, rej: (e: unknown) => unknown) =>
           Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null }).then(res, rej);
         return () => chain(answer);
-      },
-    });
+      }, });
   const next = (name: string): RpcAnswer => {
     const queue = env.rpc[name];
     if (!queue || queue.length === 0) return { data: [] };
@@ -35,8 +34,7 @@ vi.mock("@/lib/persistence/supabase", () => {
       rpc: (name: string, args: unknown) => { env.calls.push({ name, args }); return chain(next(name)); },
       from: () => chain({ data: [] }),
     }),
-  };
-});
+  }; });
 
 vi.mock("@/domains/account", () => ({
   loadBusinessProfile: async () => null,
@@ -48,8 +46,7 @@ vi.mock("@/domains/account", () => ({
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) =>
-    env.snapshot ?? actual.loadEvidenceSnapshot(t, o) };
-});
+    env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
 
 vi.mock("@/domains/decision/proposal-store", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
@@ -57,8 +54,7 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => {
     loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>),
     withdrawnProposalIds: async () => new Set<string>(),
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
-    saveChangeProposal: async () => "unchanged" as const };
-});
+    saveChangeProposal: async () => "unchanged" as const }; });
 
 import { loadGscPageSignalsForTenant, readGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
@@ -102,24 +98,20 @@ const openCard = (suffix: string): ChangeProposal => ({
   recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short answer block." },
   whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10,
   riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
-  publish: "manual", createdAt: "2026-08-10T00:00:00.000Z",
-});
+  publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
 
 beforeEach(() => {
-  env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = [];
-});
+  env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = []; });
 
 describe("a search read that did not answer", () => {
   it("throws instead of handing back an account with no search data", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
-    await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/);
-  });
+    await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/); });
 
   it("marks a read cut short after some rows INCOMPLETE, keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const read = await readGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"));
-    expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]);
-  });
+    expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]); });
 
   it("asks the database ONE question per account per reporting day, however the caller spells now", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: [] }], gsc_page_totals_v1: [{ data: [] }] };
@@ -132,9 +124,7 @@ describe("a search read that did not answer", () => {
   it("travels to the snapshot as a FAILED source, never as an empty one", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const snapshot = await loadEvidenceSnapshot(TENANT, { now: new Date("2026-08-12T09:00:00Z") });
-    expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed");
-  });
-});
+    expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed"); }); });
 
 describe("the sweep only retires what a producer that FINISHED rewrote", () => {
   it("changes nothing at all when the search source failed, so open cards survive", async () => {
@@ -142,15 +132,13 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.store = new Map([["a", openCard("answer_block")], ["t", openCard("title")]].map(([, p]) => [(p as ChangeProposal).id, p]));
     const out = await produceProposalsForTenant(TENANT);
     expect(out.outcome).toBe("evidence_unreadable");
-    expect(env.withdrawn).toEqual([]);
-  });
+    expect(env.withdrawn).toEqual([]); });
 
   it("withdraws nothing when the search source is merely EMPTY: unread is not rewritten", async () => {
     env.snapshot = snapshotWith("empty");
     env.store = new Map([[openCard("title").id, openCard("title")]]);
     await produceProposalsForTenant(TENANT);
-    expect(env.withdrawn).toEqual([]);
-  });
+    expect(env.withdrawn).toEqual([]); });
 
   it("withdraws a stale card in its own family once the producer that owns it finished", async () => {
     env.snapshot = snapshotWith("fresh");
@@ -158,6 +146,4 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     await produceProposalsForTenant(TENANT);
     // The extras producer never ran on this path, so its family is left exactly where it was.
-    expect(env.withdrawn).toEqual([stale.id]);
-  });
-});
+    expect(env.withdrawn).toEqual([stale.id]); }); });

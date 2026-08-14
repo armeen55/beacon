@@ -40,10 +40,10 @@ import type { ChangeProposal } from "./contracts";
  *   6 = a new page is proposed again, and ONLY where the page by page comparison proved
  *       the winning pages share searches no page of this account reaches. Every page
  *       brief drafted under any earlier rule is history.
- *   7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung
- *       instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry.
+ *   7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry.
+ *   8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead.
  */
-const DECISION_GENERATION = 7;
+const DECISION_GENERATION = 8;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes exactly what Runtime and the Evidence funnel compose, so one basis serves every
@@ -155,12 +155,7 @@ export async function loadProposalQueue(
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
-  // A bundle REPLACES its own shallow rows, historical included: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC.
-  const bundledPages = new Set(live.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
   const topicOf = (p: ChangeProposal): string => p.primaryQuery.trim().toLowerCase();
-  const bundledTopics = new Set(live.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
-  const all = live.filter((p) => p.bundle
-    || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at
   // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is
   // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it
@@ -170,9 +165,14 @@ export async function loadProposalQueue(
   // turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below.
   // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
   // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
-  const current = all.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
+  const all = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
-  const demotedStaleBasis = all.length - current.length;
+  // A bundle REPLACES its own shallow rows: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC. READ AFTER the basis filter above, never before it: a bundle from a retired generation can never be shown, and one that censored the current card for its own page took a whole split off the queue rather than the wrong half of it (2026-08-14). A row that cannot be presented may not suppress one that can.
+  const bundledPages = new Set(all.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
+  const bundledTopics = new Set(all.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
+  const current = all.filter((p) => p.bundle
+    || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
+  const demotedStaleBasis = live.length - all.length;
   // WHY the queue is empty decides what may be said: a raised bar is true of an older or missing basis and a lie when the account simply could not be read, so the surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
   // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker

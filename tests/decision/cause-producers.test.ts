@@ -44,7 +44,7 @@ const snapshot = (over: Partial<EvidenceSnapshot> = {}): EvidenceSnapshot => ({
   internalLinkOpportunities: [], evidenceHash: "fixture", research: emptyResearchEvidence(), ownedPages: [page()], ...over });
 const BODY: ReadonlyMap<string, OwnedBody> = new Map([["fixture-content.example/rain-barrels", {
   openingSample: OPENING, fetchedAt: "2026-07-20T00:00:00.000Z", cardTexts: ["Roof area and gallons"], entityNames: [],
-  internalLinks: [], metaDescription: null }]]);
+  headings: ["Barrel sizes", "Winter care"], completeness: "complete", internalLinks: [], metaDescription: null }]]);
 const pattern = (over: Partial<WinningPattern> = {}): WinningPattern => ({
   archetype: "informational_guide", commonHeadings: [{ heading: "Sizing by roof area", seenOn: [0, 1, 2] }], commonEntities: [],
   questionsAnswered: [], openingPattern: "they answer the sizing question in the first line", disagreements: [], ownedGaps: [], uniqueNotCommon: [],
@@ -82,8 +82,7 @@ describe("a named cause produces the change that fixes it", () => {
     // THROUGH THE REAL VALIDATOR, not a mock of it, and a round trip through the one decoder
     expect(validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected");
     expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p);
-    expect([b.objective, b.measurementPlan, ...b.risks, ...b.components.map((c) => `${c.label} ${c.after} ${c.where} ${c.objective} ${c.mechanism}`)].join(" ")).not.toMatch(/[–—]|experiment|control group|baseline|SERP/i);
-  });
+    expect([b.objective, b.measurementPlan, ...b.risks, ...b.components.map((c) => `${c.label} ${c.after} ${c.where} ${c.objective} ${c.mechanism}`)].join(" ")).not.toMatch(/[–—]|experiment|control group|baseline|SERP/i); });
   it("writes one section per subject the winning pages agree on and this page leaves out, each answering for itself", async () => {
     const p2 = pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }, { heading: "Chaining a container", seenOn: [0, 1] }] });
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), coverage: decided(p2) });
@@ -162,7 +161,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect([p.diagnosisCause, p.status, p.riskLevel]).toEqual(["cannibalization", "needs_review", "high"]); // a question, never a paste, priced as the lever it is
     expect([c.kind, c.risk, c.redirectTo]).toEqual(["consolidation", "dangerous", "/rain-barrels"]);
     expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /rain-barrel-guide");
-    expect(p.operatorSteps).toEqual(['Move "Barrel sizes", "Winter care" from /rain-barrel-guide into /rain-barrels', "Redirect /rain-barrel-guide to /rain-barrels for good", 'Come back here and mark it done, about 90 minutes of work in all, and clicks and average position for "rain barrel sizing" get read across all 2 addresses']);
+    expect(p.operatorSteps).toEqual(["Check /rain-barrels already says everything /rain-barrel-guide says: nothing on file there is missing from it", "Redirect /rain-barrel-guide to /rain-barrels for good", 'Come back here and mark it done, about 90 minutes of work in all, and clicks and average position for "rain barrel sizing" get read across all 2 addresses']);
     // the comparison that proves it is a line the operator can read, and the component cites it
     expect(b.receipt.items.find((i) => i.key === "demand-competing")!.fact).toContain("/rain-barrel-guide takes 20 clicks from 900 views at about position 9");
     expect(c.evidenceKeys).toContain("demand-competing");

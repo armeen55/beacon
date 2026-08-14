@@ -3,7 +3,7 @@
  *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
  *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, dangerousComponents, sameComponentId } from "@/domains/decision";
+import { causeLabel, componentIdOf, dangerousComponents, isResearchCard, sameComponentId } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -403,8 +403,8 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const instruction = steps.length > 0 && DETAIL_INSTRUCTION.test(after);
   // RESEARCH IS READ HERE TOO. A card the pass still owes its own work on opens with a count or a "The", so the
   // verb regex above waves it through onto a Copy button under a limitation saying nothing here is ready to
-  // paste. It carries its own marker (decision/authorization), which the kernel facade does not export.
-  const research = (proposal.limitations ?? []).some((l) => l.includes("this card is research, not an edit"));
+  // paste. It says what it is in a typed field (decision/authorization), which the kernel facade exports.
+  const research = isResearchCard(proposal);
   // A RESEARCH CARD MAY CARRY NO STEPS AT ALL (an ownership decision asks the operator for nothing), so its own
   // line leads the block or the page would print an empty list where the finding should be.
   const lead = instruction || research;

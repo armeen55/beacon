@@ -7,7 +7,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, componentIdOf, dangerousComponents, dismissChangeProposal, editLifecycleStatus,
+import { actionableProposalFailures, componentIdOf, dangerousComponents, dismissChangeProposal, editLifecycleStatus, isResearchCard,
   loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
@@ -196,11 +196,11 @@ export async function markProposalImplementedAction(args: {
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
       return { success: false, error: "This change was skipped, so it is not being recorded. Open Changes for the work that stands today." };
     }
-    // RESEARCH IS NOT WORK SOMEBODY CAN HAVE DONE. A card the pass still owes its own copy on carries the stable
-    // marker below (decision/authorization writes it, and the queue and Today read the same phrase), and its
-    // "change" is the sentence naming what is still missing. The screen hides the control, and this is the rule:
-    // a stale tab or a hand-made request cannot start a 28 day reading of a change that was never written.
-    const owed = (stored.limitations ?? []).some((l) => l.includes("this card is research, not an edit"))
+    // RESEARCH IS NOT WORK SOMEBODY CAN HAVE DONE. A card the pass still owes its own copy on says so in a typed
+    // field (decision/authorization sets it, and the queue and Today read that same field), and its "change" is
+    // the sentence naming what is still missing. The screen hides the control, and this is the rule: a stale tab
+    // or a hand-made request cannot start a 28 day reading of a change that was never written.
+    const owed = isResearchCard(stored)
       || !((stored.recommendedChange.kind === "new_page" ? stored.recommendedChange.proposedTitle : stored.recommendedChange.after) ?? "").trim();
     if (owed) return { success: false, error: "Nothing has been written for this page yet, so there is nothing to record as done. This one is research: it becomes work once the read it names is on file." };
     // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a

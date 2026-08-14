@@ -33,6 +33,7 @@ vi.mock("@/domains/decision", async () => ({
   actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
   dangerousComponents: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).dangerousComponents,
   componentIdOf: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).componentIdOf,
+  isResearchCard: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).isResearchCard,
   sameComponentId: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).sameComponentId,
 }));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
@@ -80,8 +81,7 @@ const proposal = (over: Record<string, unknown> = {}) => ({
       missing: [], freshestObservedAt: new Date(Date.now() - 86_400_000).toISOString() },
     // One component graded dangerous on an ORDINARY kind: the grade is the only thing that says so.
     components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] },
-  ...over,
-});
+  ...over, });
 
 beforeEach(() => {
   ownerFlag.value = true;

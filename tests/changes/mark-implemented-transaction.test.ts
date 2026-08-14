@@ -46,6 +46,13 @@ describe("nothing is marked done that no record stands behind", () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision");
     expect(Object.keys(facade)).not.toContain("markProposalImplemented");
     expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
+  // A TYPED READ IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks researchOnly and never the prose, so a stale tab cannot open a 28 day reading on a change nobody wrote, and that same sentence on a card carrying finished copy stops nothing.
+  it("refuses to record a typed research card as done, and never reads the sentence to decide it", async () => {
+    const research = await press({ ...change(), researchOnly: true } as ChangeProposal); // full copy on the row, so only the typed fact can be refusing it
+    expect([research.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
+    expect(research.error).toContain("This one is research: it becomes work once the read it names is on file.");
+    const prose = await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal);
+    expect([prose.success, led.records.length]).toEqual([true, 1]); });
   it("a crash BEFORE the record lands flips nothing, so the change is still theirs to do", async () => {
     led.breakWrite = true;
     const res = await press(change());

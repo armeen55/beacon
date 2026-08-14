@@ -63,12 +63,10 @@ const OWNERSHIP_FAMILY = "ownership";
 /** The family a diagnosed problem with no drafting evidence yet lands under. */
 const RESEARCHING_FAMILY = "researching";
 /**
- * THE MARKER THAT SAYS THIS CARD IS NOT AN EDIT. It rides on `limitations`, where the operator reads it as the
- * plain truth about the card, and every surface that would otherwise offer a Copy button matches its stable
- * phrase: the ranking, Today's one big move, and the queue card. A researching row rendered as "Change the
- * section" over a paste box, under a receipt calling it safe to paste and waiting on review, which is three
- * claims about work nobody has written. Matched on the phrase rather than exported, exactly as the drafted-copy
- * marker above it is, because the readers sit on the other side of the kernel facade.
+ * WHAT THE OPERATOR READS on a card nothing is written for. COPY ONLY: every surface decides off the typed
+ * `researchOnly` below, so rewording this sentence changes what is printed and nothing else. It was the fact
+ * itself until 2026-08-14, matched by substring on six surfaces, which made a voice edit to customer-facing
+ * prose enough to hand a research card a Copy button, a Mark done and a full ranking tier.
  */
 const RESEARCH_MARKER = "Nothing here is ready to paste: this card is research, not an edit.";
 
@@ -130,6 +128,8 @@ const shell = (b: CardBase, family: string, impactScore: number | null): Omit<Ch
   id: `${b.tenantId}::${pathOf(b.pageUrl).toLowerCase()}::existing_edit::${family}`, tenantId: b.tenantId,
   kind: "existing_edit", pagePath: pathOf(b.pageUrl), pageUrl: b.pageUrl.startsWith("http") ? b.pageUrl : `https://${b.pageUrl}`,
   pageLabel: b.pageLabel, primaryQuery: b.query, changeFamily: family, status: "needs_review", riskLevel: "low",
+  // BOTH CARDS THIS SHELL MINTS ARE READS. Ownership and researching are the only callers, and neither carries copy.
+  researchOnly: true,
   impactScore, upsidePerMonth: null, demandImpressions90d: b.demandImpressions90d, publish: "manual",
   createdAt: b.now.toISOString(), ...(b.basis ? { basis: b.basis } : {}),
   diagnosisCause: b.finding.cause, causeFinding: b.finding,
@@ -207,16 +207,16 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
   // number, so the same split always produces the same sentence and nothing on file moves on a settled pass.
   const named = [mine, ...[...new Set(b.competingPaths.map((u) => pathOf(u)))].filter((p) => p !== mine).sort()];
   const list = named.join(", ");
-  // WHAT THE FINDING ITSELF CONCLUDED. `consolidate` is a merge, and a merge moves an address; saying otherwise
-  // over the top of it is the contradiction this card exists to stop.
-  const merges = b.finding.action === "consolidate";
+  // THE FIGURES SETTLE WHICH PAGE TO KEEP, NEVER WHAT SETTLING IT TAKES. Winning ONE search does not make a page the
+  // home for a whole other page, so this card named a merge as the answer while the producer had structurally ruled
+  // one out (2026-08-14). Which mechanism it is comes off what each page carries, and that read is not on this card.
   const settled = b.survivor && named.includes(b.survivor) ? b.survivor : null;
   const plan = settled
-    ? `Your own figures name ${settled} as the page to keep, and settling it is ${merges ? "a merge, which moves an address" : "wording that tells these pages apart"}.`
+    ? `Your own figures name ${settled} as the page to keep. What settling it takes, forwarding the others to it or wording that tells them apart, is decided by what each page carries, and that read is not on this card.`
     : `Which of them should own it is not settled: ${b.unproven.length > 0
       ? `${b.unproven.join(" and ")} ${b.unproven.length === 1 ? "carries" : "carry"} no clicks of ${b.unproven.length === 1 ? "its" : "their"} own for that search on file, so no page here is proven to be the one to keep`
       : "no page here is far enough ahead on both clicks and position for the figures to pick one"}.`;
-  const owed = `The exact ${merges && settled ? "addresses to forward and the wording that survives" : "titles and opening lines that would tell these pages apart"} have not been drafted, so nothing here is an instruction yet.`;
+  const owed = "The exact titles and opening lines that would tell these pages apart have not been drafted, so nothing here is an instruction yet.";
   return {
     ...shell(b, OWNERSHIP_FAMILY, b.impactScore),
     opportunityType: settled ? `Settle "${b.query}": the figures name ${settled} as the page to keep`

@@ -17,7 +17,12 @@
 //  10. exported-symbol count <= exports.max (public surface cap)
 //  11. Markdown budget: file count, total LOC, per-file ceilings, no archive, no forbidden-name docs
 //  12. package.json dependencies are a subset of deps.allow
-//  13. named past incidents: forbidden phrases in the surfaces that once carried them
+//
+// This guard holds STRUCTURAL ceilings only. Scanning source for phrases was tried here (section 13, removed
+// 2026-08-14) and is not protection: a grep pins the spelling of a past incident, not the behaviour, so it
+// fails on a paraphrase and passes on a rewrite that reintroduces the bug. Behavioural promises are owed a
+// behavioural test. Deleting it gives up two greps: Today's research narration and connector copy naming a
+// server setting. Both are copy rules with no test standing behind them today.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, relative, sep } from "node:path";
@@ -161,20 +166,6 @@ if (cfg.markdown) {
 if (cfg.deps && Array.isArray(cfg.deps.allow)) {
   const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   for (const d of Object.keys(pkg.dependencies || {})) if (!cfg.deps.allow.includes(d)) fail(`unauthorized dependency: ${d} (add to deps.allow only with operator approval)`);
-}
-
-// 13. NAMED PAST INCIDENTS, PINNED AT THE SOURCE. These are greps, not behaviour, so they live here rather than
-// in a suite: Today is work and never narrates a research pass again (2026-08-11), and Beacon's insides are
-// never advice, so no customer-facing connector line names a server setting or where Beacon runs.
-const surfaceBans = [
-  ["src/app/(shell)/page.tsx", /answersReadClosely|aiChecksAnswered|answers collected today|topics under research|researchStatusLine|In research/, false],
-  ["src/app/(shell)/settings/connectors/connectors-client.tsx", /GOOGLE_|NEXT_PUBLIC_|Vercel/, true],
-  ["src/app/(shell)/settings/connectors/actions.ts", /GOOGLE_|NEXT_PUBLIC_|Vercel/, true],
-];
-for (const [f, banned, stripComments] of surfaceBans) {
-  const src = readFileSync(join(ROOT, f), "utf8");
-  const hit = (stripComments ? src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n") : src).match(banned);
-  if (hit) fail(`forbidden surface phrase in ${f}: "${hit[0]}" (a named past incident is pinned here)`);
 }
 
 // report

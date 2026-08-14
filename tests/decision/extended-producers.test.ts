@@ -40,11 +40,11 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
     fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", heldNote: "I hold a sample of this page, not the whole page." },
   pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null,
-    internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over,
-});
+    internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over, });
 /** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
-const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide" }],
-  ["fixture-content.example/barrel-sizes", { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes", "Gallons per storm"] }]]);
+const OTHER_KEY = "fixture-content.example/barrel-sizes";
+const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide", completeness: "complete" as const }],
+  [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const }]]);
 /** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
 const OPENING = "Rain barrel sizing comes down to roof area and how much rain one storm brings.";
 const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { internalLink: async () => null, openingAnswer: async () => OPENING,
@@ -127,8 +127,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
     const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
-    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, true]);
-  });
+    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, true]); });
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
     const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] }));
@@ -144,8 +143,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const section = async (i: { heading: string | null }) => ({
       heading: i.heading ?? "Where these claims come from",
       body: "A downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed.",
-      sources: [{ kind: "manufacturer", detail: "diverter fitting guide" }], containsNumber: false,
-    });
+      sources: [{ kind: "manufacturer", detail: "diverter fitting guide" }], containsNumber: false, });
     const gap = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
       draft: { section, internalLink: async () => null },
@@ -199,7 +197,10 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // the operator reads their own pages as paths, the comparison that proves it is in the copy, and so is what moves
     expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
     expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
-    expect([steps.join(" ").includes("Gallons per storm"), c.after.includes("https://"), c.after.endsWith("The risk is high, because a web address changes.")]).toEqual([true, false, true]); // instructions live in the steps, the risk on the row
+    expect([steps[0]!.startsWith("Check /rain-barrels already says everything"), c.after.includes("https://"), c.after.endsWith("The risk is high, because a web address changes.")]).toEqual([true, false, true]);
+    // A WINNER OF ONE SEARCH IS NOT A HOME FOR A WHOLE PAGE: the same proven numbers, plus one section the survivor does not carry, is a page told apart and never an address moved.
+    const hub = await merge({ comparison: CMP, survivor: PAGE_URL }, new Map([...BODIES, [OTHER_KEY, { ...BODIES.get(OTHER_KEY)!, headings: ["Barrel sizes", "Gallons per storm"] }]]));
+    expect([hub.components.length, hub.refusedAction, hub.refusal!.includes('carries a section /rain-barrels does not: "Gallons per storm"'), /titles and opening lines/.test(hub.refusal!)]).toEqual([0, "consolidate", true, true]);
     expect(c.after).not.toMatch(/I am not choosing for you|you pick|stronger position/i);
     // The change the row would carry IS this component: a merge filed as a section change, never a title rewrite.
     expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });

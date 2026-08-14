@@ -128,14 +128,12 @@ export type ActionDiagnosis = {
 /** A change is Ready only for a DIAGNOSED action naming a real edit. Completeness alone never earns it. */
 export function readyForAction(d: ActionDiagnosis | null | undefined): boolean {
   return !!d && d.status === "diagnosed" && d.action != null && d.action !== "watch"
-    && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0;
-}
+    && d.evidenceKeys.length > 0 && d.alternativesRuledOut.length > 0; }
 
 /** Confidence follows EVIDENCE COMPLETENESS, never how the draft reads: a proposal that admits it never saw  the results page cannot be high confidence. */
 export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null): ChangeProposal["confidence"] {
   if (!evidenceComplete(r) || (d !== undefined && !readyForAction(d))) return "low";
-  return r.winners >= 2 && r.body ? "high" : "medium";
-}
+  return r.winners >= 2 && r.body ? "high" : "medium"; }
 
 // ── ChangeProposal: the ONE persisted output ──────────────────────────────────
 
@@ -246,8 +244,7 @@ export const sameComponentId = (a: string, b: string): boolean => { const [ai, a
  *  will not present the change as ready and the operator has to look and then act. */
 export function dangerousComponents(components: readonly BundleComponent[]): BundleComponent[] {
   return components.filter((c) => c.risk === "dangerous" || DANGEROUS_COMPONENT_KINDS.has(c.kind)
-    || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`)));
-}
+    || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`))); }
 
 /** One piece of canonical evidence the bundle used, in plain English. `key` is stable within the bundle and cited by BundleComponent.evidenceKeys; `fact` carries no raw id; `observedAt` null = undated aggregate. */
 export type BundleEvidenceItem = {
@@ -324,6 +321,11 @@ export type ChangeProposal = {
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the
    *  account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
   basis?: string;
+  /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server
+   *  refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a
+   *  substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a
+   *  Mark done. Absent on a pre-field row, which reads as an edit. */
+  researchOnly?: boolean;
   /** THE CAUSE the ladder named, so the ranker can ask whether this change's levers address it. Absent when
    *  nothing was diagnosed; an unrecognised value on a hand-edited row matches no lever and is discounted nothing. */
   diagnosisCause?: CauseFinding["cause"];
@@ -351,6 +353,9 @@ export type ChangeProposal = {
   publish: "manual";
   createdAt: string;
 };
+
+/** THE ONE READ of the field above: same answer for the ranker, both surfaces and the server mutation. Lives here, not beside the producer, because the queue card is a client component and this is what it reaches. */
+export const isResearchCard = (p: Pick<ChangeProposal, "researchOnly">): boolean => p.researchOnly === true;
 
 // ── Zod schema (re-validate on every load; reject tampered/legacy rows) ────────
 
@@ -431,6 +436,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   demandImpressions90d: z.number().nullable().optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
+  researchOnly: z.boolean().optional(), // unknown keys are STRIPPED here: leave this out and a research card reloads as an edit
   diagnosisCause: z.string().min(1).optional(),
   causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
     // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the per-cause shape; a second copy of that union in this schema is a second thing to keep in step.
@@ -456,11 +462,9 @@ export function serializeChangeProposal(proposal: ChangeProposal): string { retu
 /** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can
  *  never be served as a trusted proposal. Fail-soft to null. */
 export function deserializeChangeProposal(content: string | null | undefined): ChangeProposal | null {
-  try {
-    const obj = content ? JSON.parse(content) as { v?: number; proposal?: unknown } : null;
+  try { const obj = content ? JSON.parse(content) as { v?: number; proposal?: unknown } : null;
     const res = obj && obj.v === PERSIST_VERSION ? ChangeProposalSchema.safeParse(obj.proposal) : null;
-    return res?.success ? res.data : null;
-  } catch { return null; }
+    return res?.success ? res.data : null; } catch { return null; }
 }
 
 // ── pure derivations (identity, family, effort) ───────────────────────────────
@@ -469,21 +473,18 @@ export function deserializeChangeProposal(content: string | null | undefined): C
 export function proposalFamily(input: EvidenceInput): string {
   if (input.opportunity.kind === "new_page") return "new_page";
   const f = (input.opportunity.field ?? "").toLowerCase();
-  return f === "title" ? "title" : f === "meta" ? "meta" : "other";
-}
+  return f === "title" ? "title" : f === "meta" ? "meta" : "other"; }
 
 /** Stable proposal id from the evidence input. */
 export function proposalId(input: EvidenceInput): string {
   const isNew = input.opportunity.kind === "new_page";
   const pageKey = isNew ? `new::${input.opportunity.query.toLowerCase().trim()}` : (input.page.path ?? input.page.url ?? input.page.label).toLowerCase().trim();
-  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${isNew ? "new_page" : (input.opportunity.field ?? "edit")}`;
-}
+  return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${isNew ? "new_page" : (input.opportunity.field ?? "edit")}`; }
 
 /** Coarse effort minutes by family (a real per-move figure overrides this). */
 export function effortForFamily(family: string): number {
   if (family === "title" || family === "meta" || family === "h1") return 1;
-  return family === "answer" ? 3 : family === "new_page" ? 60 : 5;
-}
+  return family === "answer" ? 3 : family === "new_page" ? 60 : 5; }
 /** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE;
  *  lives here rather than the bundle producer so a client card may import it without dragging server modules. */
 const CLASS_OF: Record<string, string> = {
@@ -495,5 +496,4 @@ export const receiptComposition = (items: readonly { kind: string }[]): string =
   const by = new Map<string, number>();
   for (const it of items) by.set(CLASS_OF[it.kind] ?? it.kind, (by.get(CLASS_OF[it.kind] ?? it.kind) ?? 0) + 1);
   const parts = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([c, n]) => (n > 1 ? `${c} (${n})` : c));
-  return items.length === 0 ? "nothing to show" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`;
-};
+  return items.length === 0 ? "nothing to show" : `${items.length} ${items.length === 1 ? "check" : "checks"}: ${parts.join(", ")}`; };

@@ -9,8 +9,8 @@ import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./
 import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions } from "@/domains/runtime";
-import type { ChangeProposal } from "@/domains/decision";
-import type { ProducerOutcome } from "@/domains/decision";
+import { isResearchCard } from "@/domains/decision";
+import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
 
 /** How much comparison evidence stands behind a move. */
 type EvidenceStrength = "strong" | "directional" | "tracking";
@@ -124,8 +124,8 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   if (!after) return undefined;
   // RESEARCH IS READ, NEVER PASTED. A card the pass still owes its own work on rendered here as "Change the
   // section" over a paste box, which is an edit nobody has written. It leads on what is riding on it and says
-  // so plainly. Matched on the marker's stable phrase (decision/authorization), which the facade does not export.
-  if ((p.limitations ?? []).some((l) => l.includes("this card is research, not an edit"))) {
+  // so plainly. Read off the card's typed fact, never off the sentence the operator sees.
+  if (isResearchCard(p)) {
     return { action: `Read this first: ${recommendationOf(p)}`, lead: "", before: null, after: "", paste: false };
   }
   if (c.kind === "new_page") {
