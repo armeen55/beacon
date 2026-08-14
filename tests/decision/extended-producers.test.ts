@@ -36,7 +36,7 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
   primary: QUERY, tenantId: TENANT, ownedPages: OWNED,
   page: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", outline: ["How much rain a roof collects", "Barrel sizes"], internalLinkCount: 3 },
   body: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "How much rain a roof collects", "Barrel sizes"],
-    passages: ["Rain barrels catch what runs off a roof."], openingSample: "Rain barrels catch what runs off a roof.",
+    passages: ["Rain barrels catch what runs off a roof."], openingSample: "Rain barrels catch what runs off a roof.", vocabulary: "Rain barrels catch what runs off a roof.",
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
     fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", heldNote: "I hold a sample of this page, not the whole page." },
   pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null,

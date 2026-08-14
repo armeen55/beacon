@@ -18,7 +18,8 @@ import type { ChangeProposal } from "./contracts";
  *  sections..."); stems carry every inflection. THE CLAUSE is what keeps ordinary imperative page copy whole: a
  *  recipe step and a visa step open on these verbs and name no artifact of Beacon's, so "Cover the pot with a lid
  *  so it steams for ten minutes" is a finished sentence and stays one. */
-const VERB = String.raw`\b(?:add|writ|rewrit|replac|creat|draft|giv|fill|includ|insert|past|link|put|expand|cover|merg|consolidat|mov|redirect|remov|delet|retir|combin|need|requir|consider)(?:e|es|ed|ing|s)?\b[^.!?;:\n]{0,70}?`;
+/** Passive forms are FINISHED copy about the page ("X is covered in this guide's section"), so a be-verb directly ahead disarms the match. */
+const VERB = String.raw`\b(?:(?<!\b(?:is|are|was|were|been|be)\s)(?:cover|describ|list|nam|show|mention)|add|writ|rewrit|replac|creat|draft|giv|fill|includ|insert|past|link|put|expand|merg|consolidat|mov|redirect|remov|delet|retir|combin|need|requir|consider)(?:e|es|ed|ing|s|n)?\b[^.!?;:\n]{0,70}?`;
 /** BEACON'S OWN DELIVERABLE CLASSES, and an amount of work instead of the words. */
 const OWN = String.raw`(?:\b(?:titles?|descriptions?|headings?|h1s?|sections?|paragraphs?|outlines?|anchor text)\b|\b\d[\d,]*(?:\s*(?:to|and|or|-)\s*[\d,]+)?\s*(?:words|characters)\b)`;
 /** Everything a longer instruction is about: a deliverable class, an address on this site, or the job the copy is
@@ -37,8 +38,7 @@ const SAYS_UNFINISHED = /\b(?:not been (?:drafted|read|written)|is not settled|n
 
 const noCopy = (t: string | null | undefined): boolean => !t || t.trim().length === 0;
 const flat = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
-/** The three fields that REPLACE a line the page already has, so the line itself is the whole deliverable. */
-const SHORT_FIELD = new Set(["title", "meta", "h1"]);
+const SHORT_FIELD = new Set(["title", "meta", "h1"]); // fields that REPLACE a line the page already has, so the line itself is the whole deliverable
 /** Is this piece of copy the finished words, or a note about producing them? `short` marks those three fields. */
 const notFinal = (t: string, short = false): boolean =>
   (short ? DECLARES_UNWRITTEN : INSTRUCTION).test(t) || BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
@@ -70,8 +70,10 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   // COPY THAT LANDS SOMEWHERE NEW OWES ITS PLACE. A title, a description or a heading replaces a field the page
   // already has, so its own address is its placement; an opening or a section does not, and a Change is never an
   // instruction to guess where copy goes.
-  if ((c.field === "section" || c.field === "answer_block")
-    && !(p.bundle?.components ?? []).some((x) => (x.where ?? "").trim().length > 0)) {
+  // A PLACEMENT MUST ITSELF BE FINISHED: a blank-ish or instruction-shaped `where` is no placement at all, whichever writer stamped it.
+  const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
+  if ((c.field === "section" || c.field === "answer_block") && !placed(c.where)
+    && !(p.bundle?.components ?? []).some((x) => placed(x.where))) {
     gaps.push("where it goes on the page is not named");
   }
   return [...new Set(gaps)];

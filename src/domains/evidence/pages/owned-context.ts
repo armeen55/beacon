@@ -32,6 +32,8 @@ export type OwnedPageBody = {
   passages: string[];
   /** The opening passages joined, for callers that only ever wanted an opener. */
   openingSample: string | null;
+  /** EVERY stored word of the page, for word-containment checks only, never for prompting. Empty when the crawl kept no body_text. */
+  vocabulary: string;
   cardTexts: string[];
   faqs: { question: string; answer: string }[];
   entityNames: string[];
@@ -44,10 +46,8 @@ export type OwnedPageBody = {
   heldNote: string;
 };
 
-/** ONE SPLIT'S OWN PAGES, WHOLE, and the page under work. A wider ask is refused outright: this reader exists
- *  BECAUSE the whole-site read is too heavy. It sat at three while the ladder groups up to six competing pages
- *  (evidence/snapshot MAX_SPLIT_PAGES), so a three-page split asked four, was refused, and lost even the primary
- *  page's own words: the merge then refused itself for a missing read of pages that were on file all along. */
+/** ONE SPLIT'S OWN PAGES, WHOLE, and the page under work; a wider ask is refused outright because the
+ *  whole-site read is too heavy. Sized to the ladder's MAX_SPLIT_PAGES plus the page under work. */
 const MAX_URLS = 7;
 /** The byte ceiling on ONE page's held content: roughly four times the largest capture the crawler can
  *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
@@ -184,7 +184,7 @@ function bodyOf(row: Row): OwnedPageBody {
     title, h1, metaDescription: cap(row.meta_description, MAX_META_CHARS), headings, passages,
     openingSample: passages.length === 0 ? null
       : cap(passages.slice(0, MAX_OPENING_PARAGRAPHS).join(" ").replace(/\s+/g, " "), MAX_OPENING_CHARS),
-    cardTexts, faqs, entityNames, internalLinks,
+    vocabulary: full, cardTexts, faqs, entityNames, internalLinks,
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
     heldNote: ((sampled

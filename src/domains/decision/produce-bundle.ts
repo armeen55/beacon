@@ -38,7 +38,7 @@ const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: s
 /** The page's OWN WORDS, whole, read by the caller through the targeted Evidence reader. Absent means absent. */
 export type OwnedBody = { openingSample: string | null; fetchedAt: string | null;
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
-  headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[];
+  headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
 
 /** RECOVERABLE OPPORTUNITY, never gross traffic: per query clearing MIN_QUERY_IMPRESSIONS, the shortfall under what that position earns on THE SAME curve the diagnosis
@@ -329,7 +329,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   // against this page's, and a change that moves a section off ANOTHER page of yours reads it here or refuses.
   const heldOf = (url: string, c: OwnedPageEvidence["content"], b?: OwnedBody): OwnedPageBody | null => !b ? null
     : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
-      headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, cardTexts: b.cardTexts ?? [],
+      headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
       completeness: b.completeness ?? "sample_only", heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page." };
   const held = heldOf(page.url, content, body ?? undefined);
