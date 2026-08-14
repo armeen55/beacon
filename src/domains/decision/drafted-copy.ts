@@ -39,7 +39,9 @@ const words = (s: string): number => s.trim().split(/\s+/).filter(Boolean).lengt
 
 /** `judge` is the semantic reader of a finished edit. ABSENT MEANS NOTHING IS ACCEPTED, so a pass with no
  *  judge wired writes no copy and buys nothing, and wiring one is a deliberate act rather than a default. */
-type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn };
+type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
+  /** The account's banned vocabulary, read once per pass by the caller so this file does no I/O of its own. */
+  bannedTerms?: readonly string[] };
 
 const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted
 
@@ -66,10 +68,12 @@ type EditorDeliverable = {
   /** A LINK IS A SENTENCE, NEVER AN ERRAND. `finalCopy` is the whole sentence carrying it, `linkTo` the owned page it lands on and `anchorText` the words on it, all three so the live check reads the link rather than a paraphrase of the instruction. */
   linkTo?: string | null; anchorText?: string | null };
 /** The stored facts the deliverable is checked against; `evidence` maps an id to the exact words behind it, so "the evidence supports this" is a lookup. */
-type SourcePacket = { targetUrl: string; title: string | null; h1: string | null; bodyText: string;
+type SourcePacket = { targetUrl: string; title: string | null; h1: string | null; metaDescription: string | null; bodyText: string;
   headings: readonly string[]; evidence: Readonly<Record<string, string>>; trackedQuestion: string | null;
   /** Every path this account owns, so a link's destination is checked against the real site instead of being believed. */
-  ownedPaths: readonly string[] };
+  ownedPaths: readonly string[];
+  /** The account's own banned vocabulary (BusinessProfile constraints), never a hardcoded list. */
+  bannedTerms: readonly string[] };
 /** Every ruling the judge owes on a finished edit. All seven must hold; `notes` is for the log line and nothing else. */
 type JudgeVerdict = { pageFit: boolean; claimsEntailed: boolean; usefulAndNatural: boolean; placementCorrect: boolean;
   implementableNow: boolean; improvesPage: boolean; wouldHandToCustomer: boolean; notes: string };
@@ -79,6 +83,20 @@ export type JudgeFn = (d: EditorDeliverable, p: SourcePacket) => Promise<JudgeVe
 /** WHAT ONE ACTION TYPE MAY WEIGH: characters for a line that replaces a field, words for a block of copy. */
 const BAND: Record<EditorDeliverable["actionType"], [number, number, "c" | "w"]> = { title: [20, 70, "c"], h1: [10, 90, "c"],
   meta: [META_MIN, META_MAX, "c"], answer_block: [ANSWER_MIN, ANSWER_MAX, "w"], section: [40, 400, "w"], internal_link: [8, 90, "w"] };
+/** COPY THAT POINTS AT THE PAGE INSTEAD OF ANSWERING. Deleted in the editor pass on the theory a judge would
+ *  read for this; the judge then passed "This page lists hello, goodbye, thank you" for a page listing no such
+ *  phrase, and "See the headings below for each example" as an answer. It is cheap, it is exact, and it is back.
+ *  An ANSWER is the words a reader needs, never a description of where those words live. */
+const SELF_POINTER = /\b(?:covered|described|explained|shown|listed)\s+(?:in|on|here)\b|\bthis (?:guide|page|article)\b|\bsee the\b|\bsections?\s+(?:below|above)\b|\bheadings?\s+below\b/i;
+/** WHAT A PAGE IS SAID TO CONTAIN IS CHECKABLE. Catches the class where a named item is genuinely absent; it does
+ *  NOT catch an item the page merely mentions in passing, which is why the self-pointer rule above carries the weight. */
+const PAGE_CONTAINS = /\bthis page (?:lists|contains|shows|includes|gives)\b([^.!?]{0,200})/i;
+/** CRAWLER MARKERS ARE NOT PAGE COPY. The capture brackets every body with these, and an anchor cut from them
+ *  ("top of pagePopular Persian...") names a string no operator can find on the rendered page. */
+const CHROME = /\b(?:top|bottom) of page/gi;
+/** The same marker, NON-global: a /g regex carries `lastIndex` between calls, so testing with the one used for replacing alternates true and false. */
+const CHROME_AT = /\b(?:top|bottom) of page/i;
+const ANCHOR_MAX = 160; // a place on the page, not a paragraph: a 300 character blob is not an anchor
 const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
 const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
@@ -89,7 +107,7 @@ const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replac
  *  the timeout is the memory's floor and not the drafter's default. Any transport or schema failure is null,
  *  which is a refusal: nothing about a judge that could not read the copy says the copy is good. */
 const JUDGE_SYSTEM = 'You are a senior SEO and AEO editor reviewing ONE finished edit before it is handed to a paying customer. You are given the edit and the exact stored evidence it names. Return ONLY a JSON object with seven booleans and "notes" (one sentence naming what decided it): '
-  + '"pageFit" (does this belong on THIS page), "claimsEntailed" (does the named evidence actually carry EVERY material claim, with no fact added that the evidence does not show), "usefulAndNatural" (does it read as a person wrote it and tell a reader something), "placementCorrect" (does it belong exactly where it says it lands), '
+  + '"pageFit" (does this belong on THIS page), "claimsEntailed" (check EVERY material claim against the quoted evidence one at a time: the evidence must carry it, with no fact added that the evidence does not show. ANY claim about what the page itself contains, lists or shows must be verifiable in the stored page excerpt below; a page that merely mentions a subject does not list it. When in doubt on any claim, answer false), "usefulAndNatural" (does it read as a person wrote it and tell a reader something), "placementCorrect" (does it belong exactly where it says it lands), '
   + '"implementableNow" (could an operator paste this today with no further decisions), "improvesPage" (does it improve the page rather than repeat the search back, and does an answer answer rather than point at its own page), "wouldHandToCustomer" (would you personally hand this to a customer). Judge only what you are given. When in doubt on any field, answer false.';
 const liveJudge = (tenantId: string, now: Date): JudgeFn => async (d, p) => {
   const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`, `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`,
@@ -113,8 +131,16 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (d.claims.length === 0) out.push("it makes no claim anybody could check");
   if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
   // WHAT IS BEING REPLACED HAS TO EXIST, or the operator is told to swap words the page does not have, and the swap deletes whatever is truly there.
-  if (d.beforeText != null && !stored.includes(flat(d.beforeText))) out.push("the words it says it replaces are not on the stored page");
-  if (!blankish(d.placementAnchor) && !stored.includes(flat(d.placementAnchor))) out.push("the place it says it lands is not on the stored page");
+  // A FIELD IS ITS OWN PLACE. A title, a heading and a description are lines the page already HAS, so what they
+  // replace is the stored FIELD and where they land IS that field, never a string inside the body copy. Checked
+  // against the body they were refused every single time: a description is not printed in a page's own words, so
+  // no real description edit could ever finish. Copy that lands in the body still owes a real anchor in it.
+  const FIELD: Partial<Record<EditorDeliverable["actionType"], string | null>> = { title: p.title, h1: p.h1, meta: p.metaDescription };
+  if (d.actionType in FIELD) {
+    if (d.beforeText != null && flat(d.beforeText) !== flat(FIELD[d.actionType] ?? "\u0000")) out.push("the line it says it replaces is not the one this page carries");
+  } else {
+    if (d.beforeText != null && !stored.includes(flat(d.beforeText))) out.push("the words it says it replaces are not on the stored page");
+    if (!blankish(d.placementAnchor) && !stored.includes(flat(d.placementAnchor))) out.push("the place it says it lands is not on the stored page"); }
   if (d.actionType === "answer_block") {
     if (blankish(d.naturalHeading)) out.push("it lands somewhere new and names no heading");
     // A TRACKED PROMPT PASTED ABOVE A BLOCK IS A SEARCH STRING ON A CUSTOMER'S PAGE, the one thing a reader can see was written by a machine.
@@ -123,6 +149,20 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   const n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
   if (n < lo || n > hi || UNSAFE.test(d.finalCopy)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted.
+  // AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
+  if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) {
+    out.push("it points at the page instead of answering"); }
+  const contains = PAGE_CONTAINS.exec(d.finalCopy);
+  if (contains) {
+    // ONLY THE LIST ITSELF. ", and <verb>" starts a new predicate ("and recommends lessons"), and reading its
+    // words as things the page was said to contain invented failures nobody could act on.
+    const missing = (contains[1] ?? "").split(/,\s+and\s+/)[0]!.split(/,| and /).map((t) => t.trim())
+      .filter((t) => t.length > 3 && t.length <= 40 && !stored.includes(flat(t)));
+    if (missing.length > 0) out.push(`it says the page contains things it does not: ${missing.slice(0, 3).join(", ")}`); }
+  const banned = p.bannedTerms.filter((t) => t.trim() && new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(`${d.finalCopy} ${d.naturalHeading ?? ""}`));
+  if (banned.length > 0) out.push(`it uses words this account does not publish: ${banned.slice(0, 3).join(", ")}`);
+  if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
+  if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
   if (d.actionType === "internal_link") {
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
@@ -146,17 +186,17 @@ async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: J
 /** THE STORED FACTS THIS PAGE'S EDIT IS CHECKED AGAINST, each under an id the drafter is handed and the
  *  deliverable must name back. Nothing here is fetched: it is the snapshot's own capture and this card's own
  *  evidence, so "the evidence supports this" is a lookup rather than a belief. */
-function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[]): SourcePacket {
+function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[]): SourcePacket {
   const evidence: Record<string, string> = {};
   card.evidence.hints.forEach((h, i) => { evidence[`card-${i + 1}`] = h; });
   if (page.content?.title) evidence["page-title"] = page.content.title;
   if (page.content?.h1) evidence["page-h1"] = page.content.h1;
   (page.content?.outline ?? []).slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   (body?.passages ?? []).slice(0, 6).forEach((t, i) => { evidence[`page-copy-${i + 1}`] = t; });
-  return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null,
-    bodyText: [...(body?.passages ?? []), body?.vocabulary ?? ""].join(" "),
+  return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null, metaDescription: body?.metaDescription ?? page.content?.metaDescription ?? null,
+    bodyText: [...(body?.passages ?? []), body?.vocabulary ?? ""].join(" ").replace(CHROME, " "),
     headings: [...(page.content?.outline ?? []), ...(body?.headings ?? [])], evidence, trackedQuestion: card.primaryQuery,
-    ownedPaths: owned.map((o) => pathOf(o.url)) };
+    ownedPaths: owned.map((o) => pathOf(o.url)), bannedTerms };
 }
 
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes.
@@ -165,7 +205,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
  *  and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
   opts: DraftedCopyOptions, kind: "description" | "answer"): Promise<EditorDeliverable | null> {
-  const packet = packetFor(card, page, body, opts.snapshot.ownedPages);
+  const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []);
   const outline = (page.content?.outline ?? []).slice(0, 8);
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
@@ -178,23 +218,52 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(spec ? [`The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page."];
   const field = kind === "description" ? "meta" : "answer_block";
+  // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored
+  // `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a
+  // re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field
+  // edit was refused for disagreeing with itself.
+  const held = kind === "description" ? packet.metaDescription : null;
   const drafted = await draftAtomicEditStructured({
-    query: card.primaryQuery, pageLabel: card.pageLabel, field,
-    currentValue: card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.before : null,
+    query: card.primaryQuery, pageLabel: card.pageLabel, field, currentValue: held,
     outline, evidenceHints: hints, tenantId: opts.tenantId,
   }, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch(() => null);
-  if (!drafted || drafted.status !== "drafted") return refuse("no draft came back", { status: drafted?.status ?? "threw" });
+  // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that
+  // could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
+  if (!drafted || drafted.status !== "drafted") return refuse("no draft came back", { status: drafted?.status ?? "threw",
+    errors: (drafted as { errors?: string[] } | null)?.errors?.slice(0, 4) ?? null, failure: (drafted as { failure?: string } | null)?.failure ?? null });
   const v = drafted.value as AtomicEditDraft;
   const claims = v.claims.map((c) => ({ text: c.text, supportedBy: c.supportedBy }));
-  const deliverable: EditorDeliverable = {
+  const deliverable: { -readonly [K in keyof EditorDeliverable]: EditorDeliverable[K] } = {
     actionType: kind === "description" ? "meta" : "answer_block", targetUrl: page.url,
     placementAnchor: v.placementAnchor, beforeText: v.before, finalCopy: v.after.replace(/\s+/g, " ").trim(),
     naturalHeading: v.naturalHeading, claims, evidenceIdsUsed: [...new Set(claims.flatMap((c) => [...c.supportedBy]))],
     uncertaintyOrOmitted: v.risks, implementationMinutes: v.implementationMinutes || (card.estimatedEffortMinutes ?? 0),
     measurementTarget: v.proofPlan.metrics[0] ?? "",
   };
+  // THE MODEL PROPOSES, CODE VERIFIES. A field edit replaces the page's OWN stored line, and a model that
+  // paraphrases or re-spaces it by a character was refused outright. A near miss is RESOLVED to the exact stored
+  // form here, so what persists is still character-exact to the page; only a `before` naming something else fails.
+  // A NEAR MISS IS PUNCTUATION, NOT DISAGREEMENT. The house rule forbids en dashes, so a model asked to echo a
+  // stored line containing one rewrites it ("550-330" for "550\u2013330") and the two strings stop matching. They are
+  // compared with dashes and their spacing normalized, and the STORED form is what gets written back.
+  const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-");
+  const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
+  // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in
+  // the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for,
+  // so the anchor is resolved to that and only an anchor nothing on the page carries is refused below.
+  const anchor = deliverable.placementAnchor.trim();
+  if (anchor) {
+    // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the
+    // operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
+    const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
+      .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
+    if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] });
+    if (cands[0]) deliverable.placementAnchor = cands[0];
+  }
+  if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
   const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? liveJudge(opts.tenantId, opts.now));
-  if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3) });
+  // A REFUSAL NAMES THE TWO STRINGS IT COMPARED. "not the line this page carries" was unactionable without them.
+  if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120) });
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are
   // house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : "section",

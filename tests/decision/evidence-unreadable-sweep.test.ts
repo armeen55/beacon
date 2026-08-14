@@ -4,7 +4,6 @@
  *  these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the
  *  cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
 const env = vi.hoisted(() => ({
   /** Queued answers per RPC name; the last one repeats. */
@@ -14,7 +13,6 @@ const env = vi.hoisted(() => ({
   store: new Map<string, unknown>(),
   withdrawn: [] as string[],
 }));
-
 /** A Supabase admin whose every builder method chains and whose await resolves the queued answer. */
 vi.mock("@/lib/persistence/supabase", () => {
   const chain = (answer: RpcAnswer): unknown =>
@@ -35,19 +33,16 @@ vi.mock("@/lib/persistence/supabase", () => {
       from: () => chain({ data: [] }),
     }),
   }; });
-
 vi.mock("@/domains/account", () => ({
   loadBusinessProfile: async () => null,
   getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }),
   basisTag: () => "basis_fx",
 }));
-
 /** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
   return { ...actual, loadEvidenceSnapshot: async (t: string, o: never) =>
     env.snapshot ?? actual.loadEvidenceSnapshot(t, o) }; });
-
 vi.mock("@/domains/decision/proposal-store", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/decision/proposal-store");
   return { ...actual,
@@ -55,14 +50,12 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => {
     withdrawnProposalIds: async () => new Set<string>(),
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
     saveChangeProposal: async () => "unchanged" as const }; });
-
 import { loadGscPageSignalsForTenant, readGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { buildEvidenceSnapshot, type EvidenceSnapshotInput } from "@/domains/evidence/snapshot";
 import { emptyResearchEvidence } from "@/domains/evidence/funnel/research-evidence";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
 import type { ChangeProposal } from "@/domains/decision/contracts";
-
 const TENANT = "tenant-fx";
 const TIMEOUT = { message: "canceling statement due to statement timeout", code: "57014" };
 /** One full PostgREST page, so the reader asks for a second one and meets the error on it. */
@@ -70,7 +63,6 @@ const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({
   page: `https://fixture.example/p${String(i).padStart(4, "0")}`,
   clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],
 }));
-
 /** A snapshot whose GSC leg says exactly what the test needs it to say. */
 function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
   const gscPayload = status === "fresh"
@@ -88,7 +80,6 @@ function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
   };
   return buildEvidenceSnapshot(input);
 }
-
 /** One untouched card the operator can still act on, in a family the sweep rewrites. */
 const openCard = (suffix: string): ChangeProposal => ({
   id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit",
@@ -99,20 +90,16 @@ const openCard = (suffix: string): ChangeProposal => ({
   whyItMatters: "The page never answers the question it ranks for.", estimatedEffortMinutes: 10,
   riskLevel: "low", confidence: "medium", limitations: [], impactScore: 20, upsidePerMonth: 5,
   publish: "manual", createdAt: "2026-08-10T00:00:00.000Z", });
-
 beforeEach(() => {
   env.rpc = {}; env.calls = []; env.snapshot = null; env.store = new Map(); env.withdrawn = []; });
-
 describe("a search read that did not answer", () => {
   it("throws instead of handing back an account with no search data", async () => {
     env.rpc = { gsc_page_signals_v1: [{ error: TIMEOUT }] };
     await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/); });
-
   it("marks a read cut short after some rows INCOMPLETE, keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const read = await readGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"));
     expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]); });
-
   it("asks the database ONE question per account per reporting day, however the caller spells now", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: [] }], gsc_page_totals_v1: [{ data: [] }] };
     await loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"));

@@ -1,6 +1,5 @@
 /** decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into persisted ChangeProposals. loadEvidenceSnapshot ($0) -> compileCandidates (act / watch / do nothing) -> candidatesToEvidenceInputs (only what EARNED an action) -> the cold, gated, budgeted drafter plus the ONE validator -> saveChangeProposal. PAID DRAFTING IS BOUNDED to the strongest DEFAULT_MAX_DRAFTS pages. The deep read has FIVE doors (deep-candidates.ts) and each page carries the door it came through. Three halves reach the operator: the strict drafts, every concrete edit the held evidence supports (suggested-edits.ts) and the $0 extras (producers/extra.ts), the last two at needs_review. ONE EVIDENCE BASIS, ONE ROW: an unchanged fingerprint is never re-drafted and never re-inserted. A family this pass rewrites in full and did not re-emit is SWEPT, so a card the rules retired leaves the queue. Publishing stays MANUAL: this only proposes. server-only. */
 import "server-only";
-
 import { log } from "@/lib/logger";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -467,7 +466,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
   // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize is not worth paying to write.
   const allowed: ChangeProposal[] = []; for (const c of extra.cards) if (await admit(c)) allowed.push(c);
-  const drafted = await applyDraftedCopy(allowed, { tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache }).catch(() => allowed);
+  const bannedTerms = await loadBusinessProfile(tenantId).then((p) => p.constraints.value.bannedTerms).catch(() => [] as string[]);
+  const drafted = await applyDraftedCopy(allowed, { tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms }).catch(() => allowed); // the account's own vocabulary reaches the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).

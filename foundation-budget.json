@@ -1,7 +1,7 @@
 {
-  "_doc": "Bloat firewall. Ceilings are NON-INCREASING and sit at the exact verified counts of the Dream V1 landing (2026-08-03, operator-approved one-time test-pool correction, maxima 11600/85000): ratchet DOWN as code shrinks, never up without operator approval. Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
+  "_doc": "Bloat firewall. Ceilings are NON-INCREASING and ratchet DOWN as code shrinks, never up without operator approval. Two operator-approved exceptions on record: the 2026-08-03 one-time test-pool correction at the Dream V1 landing (maxima 11600/85000), and the 2026-08-14 Breakthrough Pass raise (+300 production for the deterministic editor safety checks and the multi-page differentiation producer; operator authorized ratcheting mechanical budgets blocking the MVP, recorded here and in the campaign report). Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule.",
   "production": {
-    "max": 74400,
+    "max": 74700,
     "target": 55000
   },
   "tests": {
@@ -9,7 +9,7 @@
     "target": 4000
   },
   "combined": {
-    "hardCap": 86600,
+    "hardCap": 86900,
     "target": 60000
   },
   "domains": {
