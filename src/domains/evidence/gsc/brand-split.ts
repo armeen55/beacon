@@ -143,7 +143,7 @@ export function buildScoreboardBrandLens(args: {
           : ", about even with the week before";
   const subLine =
     `Non-brand clicks: ${sum.last7.nonBrandClicks.toLocaleString("en-US")} (the growth that finds NEW people)` +
-    `${deltaClause}. Counted from searches where Google shows me the words.`;
+    `${deltaClause}. Counted from searches where Google shows the words.`;
 
   return { last7: sum.last7, prior7: sum.prior7, nonBrandDeltaPct, subLine };
 }

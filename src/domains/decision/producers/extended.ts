@@ -32,7 +32,7 @@ const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 const nodash = (s: string): string => s.replace(/[–—]/g, " ").replace(/[^\S\r\n]{2,}/g, " ");
 const plain = (s: string): string => nodash(s).replace(/\s+/g, " ").trim();
 const sentence = (s: string): string => (/[.?!]$/.test(s.trim()) ? s.trim() : `${s.trim()}.`);
-const refuse = (refusal: string, refusedAction?: Produced["refusedAction"]): Produced => ({ components: [], refusal, ...(refusedAction ? { refusedAction } : {}) });
+const refuse = (refusal: string): Produced => ({ components: [], refusal });
 
 const NO_EVIDENCE = "Nothing on file stands behind this, so no change is written for it. Research this page again and the finding comes back here.";
 /** A SPLIT IS SETTLED BY EVIDENCE OR IT IS NOT SETTLED: neither of these ever hands the decision back. */
@@ -353,7 +353,7 @@ export const produceConsolidation: Producer = async (ctx) => {
     return at > 0 ? ctx.ownedPages.filter((o) => short(o.url).startsWith(p.slice(0, at + 1))).length : 0; };
   const crowded = losers.find((p) => under(p) >= MIN_SIBLINGS);
   // STRUCTURAL, SO IT IS TYPED: this rules the merge out here for good, not until more evidence lands, and the card that decided on a merge reads that off the field rather than off these words.
-  if (crowded) return refuse(`${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing. Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`, "consolidate");
+  if (crowded) return refuse(`${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing. Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`);
   // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
   const bodies = ctx.heldBodies ?? new Map(), bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
   const held = named.map((p) => ({ path: p, body: bodyFor(p) })); if (held.some((h) => !h.body)) return refuse(`${held.filter((h) => !h.body).map((h) => h.path).join(" and ")} has not been read closely enough to say what would be lost by folding ${losers.length === 1 ? "it" : "them"} into ${keep}, so nothing here says combine anything yet. ${losers.length === 1 ? "That page needs" : "Those pages need"} reading, and then exactly what moves can be named.`);
@@ -362,7 +362,7 @@ export const produceConsolidation: Producer = async (ctx) => {
   // ONE JOB, OR THEY ARE NOT DUPLICATES: two pages built for different jobs are not a merge, and folding them
   // loses the job one of them does. A PROVEN disagreement refuses; a kind I cannot read is not a disagreement,
   // and what stands there is that Google serves both for the one search, which is why this is still a question.
-  const kinds = new Set(held.map((h) => classifyResult(h.body!.title ?? h.body!.h1, abs(h.body!.url || h.path))).filter((k) => !!k)); if (kinds.size > 1) return refuse(`Your pages at ${named.join(" and ")} come up for the same search and they are not the same kind of page, so folding one into the other would lose the job it does. They need reading side by side against that search first.`, "consolidate");
+  const kinds = new Set(held.map((h) => classifyResult(h.body!.title ?? h.body!.h1, abs(h.body!.url || h.path))).filter((k) => !!k)); if (kinds.size > 1) return refuse(`Your pages at ${named.join(" and ")} come up for the same search and they are not the same kind of page, so folding one into the other would lose the job it does. They need reading side by side against that search first.`);
   // WHAT MOVES AND WHAT STAYS, named off the words I hold on both sides, so this is work rather than a decision.
   const survivorHas = new Set((bodyFor(keep)?.headings ?? []).map((h) => h.trim().toLowerCase()).filter(Boolean));
   // FURNITURE IS NOT CONTENT. The stored headings are the page's h1 then its h2s, so a merge told an operator to move "Explore More" and the site's own brand line off a page:
@@ -376,7 +376,7 @@ export const produceConsolidation: Producer = async (ctx) => {
   // it. What survives this is a true duplicate, where the redirect costs no subject. 2026-08-14: /persian-names
   // carried boy names and last names, and this card told an operator to fold it into a girl-names page. Typed,
   // so the card that decided on a merge reads the refusal off the field and never off these words.
-  if (moves.length > 0) return refuse(`${losers.join(" and ")} ${losers.length === 1 ? "carries a section" : "carry sections"} ${keep} does not: ${moves.map((m) => `"${m}"`).join(", ")}. ${keep} wins "${ctx.primary}", and that settles one search, not every search ${losers.join(" and ")} ${losers.length === 1 ? "answers" : "answer"}: folding ${losers.length === 1 ? "it" : "them"} in would either turn ${keep} into a different page or drop those sections and whoever comes looking for them. Give ${named.join(" and ")} titles and opening lines that say which search each one answers, and no address moves.`, "consolidate");
+  if (moves.length > 0) return refuse(`${losers.join(" and ")} ${losers.length === 1 ? "carries a section" : "carry sections"} ${keep} does not: ${moves.map((m) => `"${m}"`).join(", ")}. ${keep} wins "${ctx.primary}", and that settles one search, not every search ${losers.join(" and ")} ${losers.length === 1 ? "answers" : "answer"}: folding ${losers.length === 1 ? "it" : "them"} in would either turn ${keep} into a different page or drop those sections and whoever comes looking for them. Give ${named.join(" and ")} titles and opening lines that say which search each one answers, and no address moves.`);
   const win = earns.get(keep)!;
   const rest = losers.map((p) => { const c = earns.get(p)?.clicks ?? null; return c == null ? `nothing measurable on ${p}` : `${count(c)} on ${p}`; }).join(" and ");
   // A MERGE IS A JOB, NOT A PASTE. The component carries the DECISION and its numbers, which is all an operator

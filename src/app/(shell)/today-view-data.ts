@@ -6,25 +6,13 @@ import "server-only";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
-import { normalizedFixKey } from "@/components/today/today-smoke-alarm";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
-import { countTrackedQuestions } from "@/domains/runtime";
-import { isResearchCard } from "@/domains/decision";
+import { countTrackedQuestions, researchPermission } from "@/domains/runtime";
 import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
 
-/** How much comparison evidence stands behind a move. */
-type EvidenceStrength = "strong" | "directional" | "tracking";
-
-/** One ranked "do this next" change Today reads, derived from a ranked ChangeProposal. */
-type TodayOpportunity = {
-  changeId: string; pageLabel: string; recommendation: string; opportunityType: string;
-  estimatedEffortMinutes: number; upside: number | null; evidenceStrength: EvidenceStrength;
-  /** WHY THIS SITS WHERE IT SITS, stamped by the ONE ranker (rank-proposals) and rendered rather than
-   *  recomputed. Absent on the last ranked row, which has nothing below it. */
-  whyRankedAboveNext?: string;
-  /** THE PROBLEM THIS SOLVES, in the proposal's own sentence. */
-  problem?: string;
-};
+/** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
+ *  the ranking sentence and the evidence tier rode this shape for months and no screen ever read one of them. */
+type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: string; problem?: string };
 
 /** The minimal Today read model the Today page renders: the header sentence plus the ranked next opportunities. Owned here now that the
  *  changes-domain today-view was retired. */
@@ -36,10 +24,6 @@ type TodayView = {
    *  the words on the page and the words to put there; the reason follows. Absent when the top change carries no
    *  line at all, and `paste` is false for a plan that is read rather than pasted. */
   topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean };
-  /** Pages with a READY proposal in THIS release, keyed by the path the smoke alarm blames, carrying the change to open. Today says "I have
-   *  a fix ready" only from here, and links straight at it. proposalId is EMPTY when the change has no bundle: the fix is real, but
-   *  /changes/<id> would 404, so the CTA falls back to the queue. */
-  readyFixes?: { page: string; proposalId: string }[];
   /** The kernel's OWN verdict for pages it judged and declined to change, keyed the same way. Today quotes it instead of a generic "still
    *  checking", so a page it resolved to watch reads as a decision, not silence. */
   declineNotes?: { page: string; note: string }[];
@@ -75,12 +59,10 @@ export type TodayComposite = {
   needsTrackedQuestions?: boolean;
   /** Where that fix lives. */
   trackedQuestionsHref?: string;
-};
-
-const CONFIDENCE_TO_STRENGTH: Record<ChangeProposal["confidence"], EvidenceStrength> = {
-  high: "strong",
-  medium: "directional",
-  low: "tracking",
+  /** TRUE only when the account's real pause switch says research is off. Beacon may not promise a daily round,
+   *  a next pass or work happening behind the scenes while it is off, so the surfaces read this and say the
+   *  truthful line with the control that fixes it. A switch that could not be read claims nothing either way. */
+  researchPaused?: boolean;
 };
 
 /** A plain first-person directive for one proposal (the "do this next" line). */
@@ -95,47 +77,24 @@ function recommendationOf(p: ChangeProposal): string {
   return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
 }
 
-/** PURE: map a ranked proposal to Today's opportunity shape. `whyRankedAboveNext` is RENDERED, never recomputed: the ONE ranker stamped it,
- *  so Today and Changes give the same reason for the same order. */
-function proposalToOpportunity(p: ChangeProposal): TodayOpportunity {
-  return {
-    changeId: p.id,
-    pageLabel: p.pageLabel,
-    recommendation: recommendationOf(p),
-    opportunityType: p.opportunityType,
-    estimatedEffortMinutes: p.estimatedEffortMinutes,
-    upside: p.upsidePerMonth,
-    evidenceStrength: CONFIDENCE_TO_STRENGTH[p.confidence],
-    ...(p.whyRankedAboveNext ? { whyRankedAboveNext: p.whyRankedAboveNext } : {}),
-    // THE PROBLEM, carried onto the move. Today used to hand over three directives with no
-    // statement of what any of them was for, which is a chore list, not a recommendation.
-    ...(p.whyItMatters ? { problem: p.whyItMatters } : {}),
-  };
-}
+/** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
+ *  with no statement of what any of them is for is a chore list, not a recommendation. */
+const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
+  recommendation: recommendationOf(p), ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
 
-/** An after that opens with a do-this verb is an instruction to follow, never a line to paste onto the site.
- *  The queue card draws the same line; both refuse to put a Copy button on a sentence telling you what to do. */
-const INSTRUCTION = /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/;
-
-/** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there. */
+/** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there.
+ *  EVERY CHANGE THAT REACHES HERE IS FINISHED: the completeness boundary keeps unfinished work out of the queue
+ *  Today reads, so the "read this first" and instruction-paragraph branches this used to carry are gone with the
+ *  cards that needed them. A merge is still read rather than pasted, because its work is several moves. */
 function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   const c = p.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   if (!after) return undefined;
-  // RESEARCH IS READ, NEVER PASTED. A card the pass still owes its own work on rendered here as "Change the
-  // section" over a paste box, which is an edit nobody has written. It leads on what is riding on it and says
-  // so plainly. Read off the card's typed fact, never off the sentence the operator sees.
-  if (isResearchCard(p)) {
-    return { action: `Read this first: ${recommendationOf(p)}`, lead: "", before: null, after: "", paste: false };
-  }
   if (c.kind === "new_page") {
     return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "Page title: ", before: null, after, paste: true };
   }
   const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
-  const merge = String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
-  if (merge || INSTRUCTION.test(after)) {
-    // A PLAN IS NOT A PASTE: a paragraph of instructions in the do-this box is how a wall of text led
-    // Today. The plan card gets its real headline and sends the reader to the steps; nothing to copy here.
+  if (String(p.kind) === "consolidation" || p.changeFamily === "consolidation") {
     return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false };
   }
   return {
@@ -191,10 +150,6 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const flat = [...view.ready, ...view.toDo];
   const ready = flat.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
   const topEdit = flat[0] ? topEditOf(flat[0]) : undefined;
-  const readyFixes = view.ready
-    .filter((p) => p.pagePath || p.pageUrl)
-    .map((p) => ({ page: normalizedFixKey(p.pagePath ?? p.pageUrl ?? ""), proposalId: p.bundle ? p.id : "" }))
-    .filter((f) => f.page.length > 0);
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
   const unread = view.countsUnavailable === true;
   const measuring = unread ? 0 : view.measuringCountCanonical;
@@ -212,27 +167,27 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     toDoTotal: view.summary?.todo ?? view.toDo.length,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
-  // ONE SENTENCE, AND IT IS ABOUT HIS WORK. Today used to open on which of six internal states the last production pass ended in, which
-  // is a status report nobody asked for. It now says how many edits are open, or names the date a blocked read gets tried again, and
-  // nothing else. The queue is the whole queue: an edit still waiting on a review is an edit he can make.
-  // READY IS A CLAIM. An idea still waiting on review is not an edit ready to paste, and calling 16 unproven
-  // ideas "16 edits ready" was the queue overselling itself by its whole length.
+  // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK. The queue Today reads holds complete deliverables
+  // only, so this number is changes that can actually be made today. An unfinished opportunity is never counted
+  // here and never called an edit: it rides its own clause, as a count and a next step, and nothing else.
+  // "16 ideas to review" over a card pointing at research was one screen contradicting itself twice.
   const openTotal = readyTotal + (view.summary?.todo ?? view.toDo.length);
-  const ideaTotal = openTotal - readyTotal;
+  const developing = view.developing ?? 0;
+  const stillComing = developing > 0
+    ? ` ${developing} ${developing === 1 ? "opportunity is" : "opportunities are"} still being developed.`
+    : "";
   const headerSentence = openTotal > 0
-    ? readyTotal > 0
-      ? `You have ${readyTotal} ${readyTotal === 1 ? "edit" : "edits"} ready${ideaTotal > 0 ? ` and ${ideaTotal} ${ideaTotal === 1 ? "idea" : "ideas"} to review` : ""}, best first.`
-      : `You have ${ideaTotal} ${ideaTotal === 1 ? "idea" : "ideas"} to review. None is a proven edit yet; each names what it still needs.`
+    ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.${stillComing}`
     : waiting
-      ? `Some of your pages could not be read, so they get another try on ${retryDay(waiting)}. Nothing is waiting on you today.`
+      ? `No finished change is ready today. Some of your pages could not be read, so they get another try on ${retryDay(waiting)}.${stillComing}`
       // A BAR THAT COULD NOT BE READ IS NOT A QUEUE THAT IS EMPTY. With the basis unreadable, every stored idea
       // is held back as unconfirmed rather than judged, so the queue reads zero for a reason that has nothing to
       // do with the operator's work, and "no edits waiting" is the one sentence that must not be said over it.
       // Changes already says exactly this on the same release; Today may not disagree with it.
       : view.basisUnreadable
         ? "Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically."
-        : "You have no edits waiting. The next one is ranked here the moment it earns its place.";
-  return { headerSentence, nextOpportunities: ready, readyFixes, ...(topEdit ? { topEdit } : {}), ...rest };
+        : `No finished change is ready today.${stillComing || " The next one is ranked here the moment Beacon has written the exact work."}`;
+  return { headerSentence, nextOpportunities: ready, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 
 /** Compose Today from the exact Changes release that will ship beside it, and from what that release's own production pass concluded. */
@@ -254,10 +209,14 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   // One lean head-count, in parallel with the surface read: zero tracked questions is the ONE state that stops research outright, and Today
   // has to name it rather than look merely quiet. A failed count (null) claims NOTHING: a false zero would advertise a recovery the account
   // does not need.
-  const [customer, trackedCount] = await Promise.all([
+  const [customer, trackedCount, permission] = await Promise.all([
     readCustomerSurface(tenantId).catch(() => null),
     countTrackedQuestions(tenantId).catch(() => null),
+    // THE REAL SWITCH, NOT AN ASSUMPTION. A surface that promises a nightly round while research is off is
+    // telling the operator work is happening that is not. Unreadable claims nothing.
+    researchPermission(tenantId).catch(() => "unreadable" as const),
   ]);
+  const research = permission === "paused" ? { researchPaused: true } : {};
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
   const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";
@@ -276,6 +235,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
       ...customer.today,
       today: view ? buildTodayViewFromChanges(view, carriedProducerSignal(customer.today.today)) : customer.today.today,
       ...paused,
+      ...research,
       surfaceVersion: view?.surfaceVersion ?? customer.releaseId,
       surfaceComputedAt: sanitizeSurfaceComputedAt(customer.computedAt) ?? undefined,
     };
@@ -284,7 +244,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   scheduleReleaseRebuild();
   const view = await loadChangesView().catch(() => null);
   if (!view || (view.releaseUnreadable && view.proposals.length === 0)) {
-    return { today: { headerSentence: unreadable, nextOpportunities: [] }, hasChanges: false, ...paused };
+    return { today: { headerSentence: unreadable, nextOpportunities: [] }, hasChanges: false, ...paused, ...research };
   }
-  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0, ...paused };
+  return { today: buildTodayViewFromChanges(view), hasChanges: view.proposals.length > 0, ...paused, ...research };
 }

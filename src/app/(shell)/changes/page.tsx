@@ -15,6 +15,7 @@ import { HonestDelay } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
 import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForTenant, type TopicInvestigation } from "@/domains/evidence";
 import { loadProofLedgerCached } from "@/domains/measurement";
+import { researchPermission } from "@/domains/runtime";
 import { splitLedgerLifecycle } from "@/domains/decision";
 import { readCustomerSurface } from "../surface-release";
 import { runSingleFlight } from "@/lib/single-flight";
@@ -26,10 +27,17 @@ import { runSingleFlight } from "@/lib/single-flight";
  *  strand a Suspense fallback or hold the HTTP stream open. */
 const MAIN_LIST_DEADLINE_MS = 5_000;
 
-/** THE RANKED QUEUE SLOT: the Ready and Needs review lanes, or the honest reason there is nothing in them.
- *  This is the ONLY part of the screen an empty queue may empty; everything under it renders regardless,
- *  because a queue with no Ready change is never an account with nothing happening. */
-function QueueSlot({ view }: { view: ChangesView }) {
+/** THE PAUSE, SAID WHERE THE EMPTY QUEUE IS READ, never only as a drawer label at the bottom. "The next one is
+ *  ranked here the moment Beacon has written the exact work" implies work in progress; while research is off
+ *  nothing will be written, so the reader gets that fact at the top with the control that turns it back on. Today's
+ *  own sentence and link, so the two surfaces cannot drift. */
+const PausedLine = ({ paused }: { paused: boolean }) => (!paused ? null : (
+  <span data-changes-paused="true"> Research is paused, so no new opportunity is being worked on and nothing new lands here until it is back on.{" "}
+    <Link href="/settings" className="font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Turn research back on</Link></span>));
+
+/** THE RANKED QUEUE SLOT: the queue, or the honest reason there is nothing in it. The ONLY part of the screen an
+ *  empty queue may empty; everything under it renders regardless, because no finished change is never no account. */
+function QueueSlot({ view, researchPaused = false }: { view: ChangesView; researchPaused?: boolean }) {
   if (view.proposals.length === 0) {
     // W2-B - a COLD first-ever render (the SWR snapshot is building in the background) is not a genuinely
     // empty list, and "no changes" may never be claimed while the rebuild is still running.
@@ -48,15 +56,15 @@ function QueueSlot({ view }: { view: ChangesView }) {
         <HonestDelay message="Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically." />
       ) : (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-          {setAsideHint()}
+          {setAsideHint()}<PausedLine paused={researchPaused} />
         </p>
       );
     }
     return (
       <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">
-        No edit is ready for you yet, and the drawer at the bottom says what is being done about that.{" "}
-        <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
-        gets you there faster.
+        {setAsideHint()}{researchPaused ? <PausedLine paused /> : <>{" "}
+          <Link href="/settings/connectors" className="underline underline-offset-2">Connecting Google Search Console</Link>{" "}
+          gets you there faster.</>}
       </p>
     );
   }
@@ -100,18 +108,21 @@ function twice<T>(key: string, tenantId: string, read: () => Promise<T>, empty: 
  *  same cached snapshot the producers read, the declining pages off the same decay read Today uses, and the
  *  measuring and results rows off the SAME ledger split the counts come from. */
 async function loadLanes(tenantId: string) {
-  const [investigations, decayMap, ledger, release] = await Promise.all([
+  const [investigations, decayMap, ledger, release, permission] = await Promise.all([
     twice("evidence", tenantId, () => loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations), [] as TopicInvestigation[]),
     twice("decay", tenantId, () => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
     twice("ledger", tenantId, () => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
     valueWithDeadline(
       runSingleFlight(`changes-lane:release:${tenantId}`, () => readCustomerSurface(tenantId)).catch(() => null),
       null, MAIN_LIST_DEADLINE_MS),
+    // THE ACCOUNT'S REAL PAUSE SWITCH, read here rather than off the release: no screen may promise a nightly round or work behind the scenes while research is off. Unreadable claims neither way.
+    valueWithDeadline(researchPermission(tenantId).catch(() => "unreadable" as const), "unreadable" as const, MAIN_LIST_DEADLINE_MS),
   ]);
   const bands = splitLedgerLifecycle(ledger.v, new Date());
   const today = release?.today?.today;
   return {
     ledgerRead: ledger.read,
+    researchPaused: permission === "paused",
     evidenceRead: investigations.read && decayMap.read,
     // Last-known open-lane counts off the release stamp, with their age, for the strip's failed-read fallback.
     staleCounts: release?.laneCounts
@@ -144,7 +155,7 @@ export async function ChangesSection() {
   return (
     <ChangesFeed
       view={view}
-      queue={<QueueSlot view={view} />}
+      queue={<QueueSlot view={view} researchPaused={lanes?.researchPaused ?? false} />}
       investigations={lanes?.investigations ?? []}
       decay={lanes?.decay ?? []}
       declineNotes={lanes?.declineNotes ?? []}
@@ -153,6 +164,7 @@ export async function ChangesSection() {
       heldForMeasurement={lanes?.heldForMeasurement ?? 0}
       evidenceRead={lanes?.evidenceRead ?? false}
       ledgerRead={lanes?.ledgerRead ?? false}
+      researchPaused={lanes?.researchPaused ?? false}
       staleCounts={lanes?.staleCounts ?? null}
     />
   );
@@ -173,9 +185,11 @@ export default async function WorklistPage() {
   if (access.kind === "suspended") redirect("/");
   return (
     <div className="max-w-5xl space-y-6">
+      {/* THE HEADING HAS TO BE TRUE OF EVERY ROW UNDER IT. "Every edit ready to make" was printed over cards telling the
+          operator to go and write the edit, so it says what the queue now guarantees. Unfinished work is counted, never ranked. */}
       <PageHeader
         title="Changes"
-        description="Every edit ready to make on your site, ranked by payoff. Make one, mark it done, and the page is measured against pages that were not changed."
+        description="Every change here carries the exact work to make, ranked by payoff. Make one, mark it done, and the page is measured against pages that were not changed."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

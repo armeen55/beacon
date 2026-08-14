@@ -354,9 +354,6 @@ export type ChangeProposal = {
   createdAt: string;
 };
 
-/** THE ONE READ of the field above: same answer for the ranker, both surfaces and the server mutation. Lives here, not beside the producer, because the queue card is a client component and this is what it reaches. */
-export const isResearchCard = (p: Pick<ChangeProposal, "researchOnly">): boolean => p.researchOnly === true;
-
 // ── Zod schema (re-validate on every load; reject tampered/legacy rows) ────────
 
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [

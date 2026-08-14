@@ -74,16 +74,13 @@ beforeEach(async () => {
   await stamp("rel-1"); });
 
 describe("Today and Changes answer one question once", () => {
-  // The release blob has no way to say "put aside", so Today counted a dismissed row and offered a fix whose link 404s, while Changes (reading the database) had already
-  // dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, with no operator action.
-  it("drops a dismissed change from Today's count and its ready fixes on the next render, naming the same release as Changes", async () => {
-    const before = await loadTodayView();
-    expect([before.today.readyTotal, before.today.readyFixes?.some((f) => f.page === "/p0")]).toEqual([N, true]);
+  // The release blob has no way to say "put aside", so Today counted a dismissed row while Changes (reading the database) had already dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, under ONE release id and ONE count, with no operator action.
+  it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
+    expect((await loadTodayView()).today.readyTotal).toBe(N);
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
     const after = await loadTodayView(), changes = await loadChangesView();
-    expect([after.today.readyTotal, after.today.readyFixes?.some((f) => f.page === "/p0")]).toEqual([N - 1, false]);
-    // ONE release id and ONE actionable count across the two screens, on the same render.
-    expect([after.surfaceVersion, after.today.readyTotal]).toEqual([changes.surfaceVersion, changes.summary.ready]); });
+    expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
+    expect(changes.summary.ready).toBe(N - 1); });
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one
   // claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit:
   // the number the operator reads may only FALL as I learn, never climb back.

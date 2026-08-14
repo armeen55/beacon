@@ -141,50 +141,45 @@ export async function recordAiObservation(rec: AiObservationRecord, tenantId: st
   await dualWriteUpsertScoped(AI_OBSERVATIONS_TABLE, [rec], "id", tenantId);
 }
 
-/** ONE page of a paginated read, and the ceiling on a whole read. Bounded so no single visit pulls an
- *  unbounded table into memory; a range past the ceiling is a fault I say out loud, never a quiet cut. */
+/** ONE page of a paginated read, and the ceiling on a whole read. Bounded so no single visit pulls an unbounded table into memory; a range past the ceiling is a fault said out loud, never a quiet cut. */
 const PAGE_ROWS = 1000, MAX_ROWS = 40_000;
 
-/** THE LEAN OUTCOME PROJECTION: the only columns an outcome read actually reads, and deliberately NOT the
- *  two heavy ones. `answer_text` is a whole AI answer and `journey` is every page it read and credited, so
- *  a full-row read of a 28 day window is megabytes per account per visit and is exactly the shape that has
- *  timed out a statement here before. The keyset cursor rides on requested_at + id, so both stay in. */
-// prompt_text rides the lean projection so scope joins can fire on the WORDING route; answer_text and
-// journey stay off it, which is what keeps this read lean.
-const OUTCOME_COLUMNS = "id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis,analysis_hash,answer_hash,requested_at,prompt_text";
-
-/** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy
- *  column. A screen of whole AI answers is the shape that has timed a statement out here before, so
- *  `answer_text` is read only by the drill-down below, which asks for one row by id. */
+/** THE TWO JSONB BODIES, NARROWED TO THE KEYS A COUNT ACTUALLY READS. Measured on the live table, one account's 28 days of first readings is 17 MB whole: 6.1 MB of answer text, 4.9 MB of stored verdicts, 4.5 MB of retrieval journeys. A trend needs six keys off the verdict and two off the journey, so both are asked for BY KEY and put back together below, and the tab that read all 17 MB against a 12 second deadline now reads about a third of it. PostgREST names a json path by its last key, hence the aliases. */
+const ANALYSIS_KEYS = "mention:analysis->ownedBrandMention,rivals:analysis->competitors,rejected:analysis->rejected,outcome:analysis->outcome,readOutcome:analysis->readOutcome,verdictRules:analysis->verdictRules";
+/** THE LEAN OUTCOME PROJECTION: the only columns an outcome read actually reads. prompt_text rides it so scope joins can fire on the WORDING route; the answer text and the journey stay off it entirely. The keyset cursor rides on requested_at + id, so both stay in. */
+const OUTCOME_COLUMNS = `id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis_hash,answer_hash,requested_at,prompt_text,${ANALYSIS_KEYS}`;
+/** THE OVERVIEW PROJECTION: the outcome columns, the instrument each answer was served on, and the two journey lists a citation count is derived from. Never the answer text, never the whole verdict, never the whole journey; a full-row read of this window is what left the AI tab blank. */
+const OVERVIEW_COLUMNS = `${OUTCOME_COLUMNS},site,model_served,observation_mode,cited:journey->cited_sources,retrieved:journey->retrieved_results`;
+/** A narrow projection arrives FLAT. The two bodies are rebuilt here holding ONLY the keys that were asked for, and a body whose every asked key came back null is null: the row's own claim that nothing was reported, never an empty object standing in for one. The journey is rebuilt only when it was asked for, so an outcome read keeps saying "this path reports no journey" exactly as it did before. */
+function narrowRow(r: Record<string, unknown>, wantJourney: boolean): AiObservationRecord {
+  const { mention, rivals, rejected, outcome, readOutcome, verdictRules, cited, retrieved, ...rest } = r;
+  const analysis = { ownedBrandMention: mention ?? null, competitors: rivals ?? null, rejected, outcome, readOutcome, verdictRules };
+  return { ...rest, analysis: Object.values(analysis).every((v) => v == null) ? null : analysis,
+    ...(wantJourney ? { journey: { cited_sources: cited ?? null, retrieved_results: retrieved ?? null, fan_outs: null, brand_mentions: null, web_search_reported: null } } : {}) } as unknown as AiObservationRecord;
+}
+/** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy column. A screen of whole AI answers is the shape that has timed a statement out here before, so `answer_text` is read only by the drill-down below, which asks for one row by id. */
 const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
 
-/** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity,
- *  the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the
- *  journey, and never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
+/** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity, the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the journey, never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
 const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash";
 
 /**
- * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so
- * re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would
- * read as "this account has no answers", which is a different and false claim).
- *
- * EVERY FILTER IS IN THE QUERY, and a NAMED DAY is then PAGED until it is exhausted: asking for a day, or a
- * range of them, means asking for all of it. One `.limit(2000)` over the newest rows cut a 140 answer a day
- * account's "28 day" history around day 14, and the planner's read of one 600 row day held 500 of them.
- *
+ * Read stored observations back for RE-ANALYSIS. Everything a later pass needs is already on the row, so re-reading an answer costs nothing and no provider is called. A failed read throws (an empty list would read as "this account has no answers", which is a different and false claim).
+ * EVERY FILTER IS IN THE QUERY, and a NAMED DAY is then PAGED until it is exhausted: asking for a day, or a range of them, means asking for all of it. One `.limit(2000)` over the newest rows cut a 140 answer a day account's "28 day" history around day 14, and the planner's read of one 600 row day held 500 of them.
  * PAGES ADVANCE BY CURSOR, never by offset. Rows arrive newest first with the id breaking every tie, and each page starts strictly
  * after the last row before it; an offset window re-numbers itself whenever a row is inserted mid-read, which is what the collect
  * step does, so one row was read twice and another never. ASK FOR WHAT YOU READ: `projection: "outcome"` narrows the SELECT to the
- * identity, day, slot, status and stored verdict, `"list"` drops only the whole answer text, and a caller that passes neither gets
- * the whole row. ONE BOUNDED PAGE, ON DEMAND: a surface showing a day's readings passes `after` (the cursor off the last row it
+ * identity, day, slot, status and the six verdict keys a count reads, `"overview"` adds the served instrument and the two journey
+ * lists a citation count needs, `"list"` drops only the whole answer text, and a caller that passes none of them gets the whole row.
+ * ONE BOUNDED PAGE, ON DEMAND: a surface showing a day's readings passes `after` (the cursor off the last row it
  * holds) with a `limit` and gets exactly that page, the same keyset the loop below walks, so a screen can page a 140 answer day
  * without any single request reading all of it. `id` asks for one stored reading by its own identity, which is how a drill-down
- * loads the answer text.
+ * loads the answer text: THE ONLY PATH THAT EVER LOADS IT.
  */
 export async function readAiObservations(
   tenantId: string,
   opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
-    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "list" | "stamp" } = {},
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -194,7 +189,7 @@ export async function readAiObservations(
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
-      .select(opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : "*")
+      .select(opts.projection === "overview" ? OVERVIEW_COLUMNS : opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : "*")
       .eq("tenant_id", tenantId);
     if (opts.id) q = q.eq("id", opts.id);
     if (opts.day) q = q.eq("reporting_day", opts.day);
@@ -215,9 +210,11 @@ export async function readAiObservations(
     // can land on both sides of a page edge, so one is read twice and another never at all.
     const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(size);
     if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
-    // On the lean projection the row genuinely has no answer_text and no journey; every caller that asks
-    // for it reads only the columns it named, which is why it asked for them.
-    const page = (data ?? []) as unknown as AiObservationRecord[];
+    // On the lean projections the row genuinely has no answer_text and no whole journey; every caller that asks
+    // for one reads only the columns it named, which is why it asked for them.
+    const narrow = opts.projection === "overview" || opts.projection === "outcome";
+    const page = (narrow ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => narrowRow(r, opts.projection === "overview"))
+      : (data ?? [])) as unknown as AiObservationRecord[];
     rows.push(...page);
     const last = page[page.length - 1];
     if (last) after = { at: String(last.requested_at ?? ""), id: String(last.id) };

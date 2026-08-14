@@ -3,7 +3,7 @@
  *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
  *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, dangerousComponents, isResearchCard, sameComponentId } from "@/domains/decision";
+import { causeLabel, componentIdOf, dangerousComponents, deliverableGaps, sameComponentId } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -394,21 +394,17 @@ function CopyBlock({ component }: { component: BundleComponent }) {
  *  page. Before this, a live bundleless row REDIRECTED back to /changes, and once the queue became mostly
  *  suggestion and sweep cards, every "See the change" press bounced. Steps render as steps, a pasteable line
  *  keeps its Copy press, and Mark done and Skip work here exactly as they do on the list. */
-const DETAIL_INSTRUCTION = /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/;
 export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const c = proposal.recommendedChange;
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
-  const instruction = steps.length > 0 && DETAIL_INSTRUCTION.test(after);
-  // RESEARCH IS READ HERE TOO. A card the pass still owes its own work on opens with a count or a "The", so the
-  // verb regex above waves it through onto a Copy button under a limitation saying nothing here is ready to
-  // paste. It says what it is in a typed field (decision/authorization), which the kernel facade exports.
-  const research = isResearchCard(proposal);
-  // A RESEARCH CARD MAY CARRY NO STEPS AT ALL (an ownership decision asks the operator for nothing), so its own
-  // line leads the block or the page would print an empty list where the finding should be.
-  const lead = instruction || research;
-  const shownSteps = lead && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
+  // A DIRECT LINK STILL REACHES A ROW THE QUEUE NO LONGER RANKS, so the detail page asks the SAME completeness
+  // boundary: an unfinished deliverable is read, never pasted and never recorded as done here either.
+  // A card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own
+  // line, or the page would print an empty list where the finding should be.
+  const research = deliverableGaps(proposal).length > 0;
+  const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";
   return (
@@ -421,9 +417,9 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         </h2>
         <p className="text-[12px] text-muted-foreground">{proposal.pagePath ?? proposal.pageLabel}</p>
       </div>
-      {instruction || research || (steps.length > 0 && !after) ? (
+      {research || (steps.length > 0 && !after) ? (
         <div className="space-y-1">
-          <Heading>{research ? "What is settled, and what is still owed:" : "Read this twice, then:"}</Heading>
+          <Heading>What is settled, and what is still owed:</Heading>
           <ol className="list-none space-y-1 text-[14px] leading-relaxed text-muted-foreground">
             {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
           </ol>

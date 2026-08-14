@@ -7,7 +7,6 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import type { AiOutcomeReport } from "@/domains/measurement";
 import type { AnswerIntel, ClassifiedDomain, CompetitorKind, GscDecaySignal, GscPageSignal } from "@/domains/evidence";
 // ── shared shapes (structural: the table and chart components infer them, so nothing extra is public) ─
-
 /** ONE cell. `sort` is the number the column sorts on when the text is formatted, `tone` colours a change or marks a page of yours, `sub` is the second line that keeps a wide table from lying. */
 type Cell = { text: string; sub?: string; tone?: "up" | "down" | "flat" | "own"; sort?: number; href?: string };
 type Table = { columns: Array<{ key: string; label: string; numeric?: boolean; wide?: boolean }>;
@@ -31,8 +30,8 @@ const delta = (now: number, prior: number): Pick<Tile, "delta" | "tone"> => prio
 const change = (now: number, prior: number): Cell => ({ sort: now - prior, tone: now > prior ? "up" : now < prior ? "down" : "flat",
   text: prior === 0 && now === 0 ? "even" : `${now - prior > 0 ? "+" : ""}${num(now - prior)}` });
 const table = (over: Partial<Table> & Pick<Table, "columns" | "empty">): Table => ({ rows: [], note: null, ...over });
-/** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. A bare empty list told an account with seven hundred stored answers that not one had ever been read, the worst lie this surface could tell. */
-const UNREAD = "That could not be read back in time just now. Nothing is lost: it lands on your next visit, and the daily round keeps collecting either way.";
+/** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. A bare empty list told an account with seven hundred stored answers that not one had ever been read, the worst lie this surface could tell. It claims nothing about collection either: every stored answer stays exactly where it is whether the daily round is on or off. */
+const UNREAD = "That could not be read back in time just now. Nothing is lost: the stored answers are safe and this fills in on the next visit.";
 
 const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
 const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
@@ -43,13 +42,11 @@ const instant = (iso: string | null): string | null => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isFinite(t) ? `${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC` : null;
 };
-
 /** THE TAIL OF A STORED RECEIPT KEY, and never an empty string: a key that ends in its separator has no tail, so the whole key stands in rather than printing "Stored answer receipt ." at a customer. */
 const receiptTail = (key: string): string => {
   const tail = key.split(":").pop() ?? "";
   return (tail.trim() ? tail : key).slice(0, 8);
 };
-
 /** Plain English for the eight groups a recurring domain lands in. */
 const KIND_LABEL: Record<CompetitorKind, string> = { commercial_competitor: "A competitor", citation_authority: "A source",
   publisher: "A publisher", marketplace_directory: "A marketplace", social_community: "A social platform",
@@ -63,7 +60,6 @@ type GoogleInput = {
   rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal> };
 
 const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Appearances", ctr: "Click rate" };
-
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
@@ -94,7 +90,6 @@ export function googleView(input: GoogleInput) {
   const value = (d: { clicks: number; impressions: number }): number => input.metric === "clicks" ? d.clicks : input.metric === "impressions" ? d.impressions : d.impressions > 0 ? d.clicks / d.impressions : 0;
   const chart = { label: METRIC_LABEL[input.metric], percent: input.metric === "ctr", points: now.map((d) => ({ day: d.date, label: monthDayLabel(d.date) ?? d.date, value: value(d) })),
     prior: prior.length === span ? prior.map((d) => value(d)) : null, priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
-
   // EVERY PAGE THAT MOVED, not a top five. A page losing ground is the whole point of this table, so the list is complete and scrolls; slicing it is how a decline hides.
   const moved = input.decay.filter((r) => r.page && (r.clicksNow > 0 || r.clicksPrior > 0 || r.impressionsNow > 0));
   const losing = moved.filter((r) => r.clicksNow < r.clicksPrior).length;
@@ -117,7 +112,6 @@ export function googleView(input: GoogleInput) {
       ] };
     }),
   });
-
   // THE SEARCHES THEMSELVES, off the same 90 reported days the page rows carry. One row is one search on one page: that is the grain Google reports, and merging them would invent a position nobody measured.
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));
   const QUERY_CAP = 150;
@@ -141,7 +135,6 @@ export function googleView(input: GoogleInput) {
 }
 
 // ── AI answers ───────────────────────────────────────────────────────────────────────────────────
-
 /** ONE stored answer flattened by the page. The tri-state survives end to end: a reading nobody has taken reports null, not false, and an engine that never said which pages it used reports null, not "nobody". */
 export type AnswerRow = {
   id: string; day: string; promptId: string; promptText: string; engine: string; slot: number; answered: boolean;
@@ -156,7 +149,6 @@ export type AnswerRow = {
   /** read = every word read closely. part = some of it. checked = only the deterministic look for this account's own name settled it, a check and not a reading. unread = nobody has looked. */
   reading: "read" | "part" | "checked" | "unread";
 };
-
 type AiInput = {
   /** Null = the daily read did not land, which is a different claim from an account with no answers. */
   segments: AiOutcomeReport["segments"] | null;
@@ -164,6 +156,8 @@ type AiInput = {
   checks: { done?: number; total?: number; answered?: number; unavailable?: number; unsupported?: number }; // today's planned round
   /** IS THE RESEARCH ALIVE, in the run's own words: what the last pass produced and when, or how long it has been and what to press. Null only when that could not be read, and then nothing is claimed either way. */
   liveness?: string | null;
+  /** THE OPERATOR'S OWN OFF SWITCH, read at load. A page that says checks are planned for today over an account whose collection is switched off is a plain untruth, and "unreadable" is a third state that claims neither. */
+  collecting?: "paused" | "running" | "unreadable" | null;
   /** The newest day that holds readings and every reading on it: the searches the assistants ran and the pages they credited live only on this shape, so both subviews name that one day out loud. */
   day: string | null; dayRows: AnswerRow[] | null;
   /** Every canonical reading over the window, lean (no answer text, no journey): what the question table counts, and what the window before it is compared against. */
@@ -172,28 +166,30 @@ type AiInput = {
   /** The one question opened, with every reading of it I hold. */
   focus: { promptId: string; rows: AnswerRow[] } | null;
 };
-
 /** A FAN-OUT IS WHAT THE ASSISTANT WENT AND SEARCHED FOR, NEVER WHAT IT WAS ASKED: a tracked question sitting in that list reads as the assistant's own idea, so every reader of one goes through here. */
 const fanOutsExcluding = (fanOuts: readonly string[], asked: readonly string[]): string[] => {
   const same = (q: string) => q.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const mine = new Set(asked.map(same));
   return [...new Set(fanOuts.map((q) => q.trim()).filter(Boolean))].filter((q) => !mine.has(same(q)));
 };
-
 /** WHERE AI ANSWERS HAVE YOU. `empty` is set when nothing has been read at all, so the view says so rather than showing a wall of honest looking zeros. */
 export function aiView(input: AiInput) {
   const days = (input.segments ?? []).flatMap((s) => s.days);
   const dayRows = input.dayRows ?? [], windowRows = input.window ?? [];
-  if (days.length === 0) return { empty: input.segments == null ? UNREAD : "Not one AI answer has been read for this account yet. The daily round reads them, and this fills in from the first one it stores.",
-    tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null, retrieval: null, byEngine: null,
-    detail: null, engines: [] as Array<{ id: string; label: string }>, boundaries: [] as string[] };
-  const span = Math.min(input.rangeDays, days.length);
+  // ONE SUBSECTION THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT: the trend, the last day read and the window are three separate reads on three separate deadlines, so losing one narrows this tab to the other two, and the whole page collapses only when all three came back with nothing at all.
+  if (days.length === 0 && dayRows.length === 0 && windowRows.length === 0) {
+    return { empty: input.segments == null || input.dayRows == null || input.window == null ? UNREAD : "Not one AI answer is stored for this account yet. This fills in from the first answer that lands.",
+      tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null, retrieval: null, byEngine: null,
+      detail: null, engines: [] as Array<{ id: string; label: string }>, boundaries: [] as string[] };
+  }
+  // WITHOUT THE TREND THERE IS NO RATE AND NO LINE. Every headline number divides by days that read did not bring back, so the tiles, the chart and the per assistant table go away rather than printing honest looking zeros over them; the question, citation and search tables are read off their own rows and stay.
+  const trend = days.length > 0;
+  const span = Math.min(input.rangeDays, days.length || input.rangeDays);
   const now = days.slice(-span), prior = days.slice(Math.max(0, days.length - span * 2), days.length - span);
   const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting" | "ownedRetrieved" | "retrievedNotCited") => rows.reduce((a, d) => a + d[k], 0);
   const [observed, analyzed, mentioning, citeSample, ownedCiting, opened, passedOver] = (["observed", "analyzed", "mentioning", "citationSample", "ownedCiting", "ownedRetrieved", "retrievedNotCited"] as const).map((k) => pool(now, k));
   const mentionRate = rate(mentioning, analyzed), priorMention = rate(pool(prior, "mentioning"), pool(prior, "analyzed")),
     citeRate = rate(ownedCiting, citeSample), priorCite = rate(pool(prior, "ownedCiting"), pool(prior, "citationSample"));
-
   // CITATION SHARE, ONE VOTE PER ANSWER: an answer that credits the same domain five times is still one answer saying that domain's name, so counting links would sell a chatty citation style as authority.
   const votes = new Map<string, { answers: number; prompts: Set<string>; engines: Set<string>; owned: boolean; pages: Map<string, number> }>();
   for (const r of dayRows) for (const d of new Set((r.citations ?? []).map((c) => c.domain))) {
@@ -205,8 +201,7 @@ export function aiView(input: AiInput) {
   const myVotes = [...votes.entries()].filter(([, v]) => v.owned).reduce((a, [, v]) => a + v.answers, 0);
   const cut = now[0]?.day ?? "", dayLabel = monthDayLabel(input.day);
   const placed = windowRows.filter((r) => r.day >= cut && r.position != null).map((r) => r.position!);
-
-  const tiles: Tile[] = [
+  const tiles: Tile[] = !trend ? [] : [
     { label: "Answers that name you", value: mentionRate == null ? "not checked yet" : pct(mentionRate),
       basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers finished checking over ${num(span)} days`, ...points(mentionRate, priorMention) },
     { label: "Answers crediting a page of yours", value: citeRate == null ? "not reported" : pct(citeRate),
@@ -219,24 +214,22 @@ export function aiView(input: AiInput) {
       basis: observed > 0 ? `${num(analyzed)} of the ${num(observed)} answers collected over ${num(span)} days. Every rate above divides by what was checked, never by what was collected` : "nothing came back in this window",
       delta: null, tone: analyzed >= observed && observed > 0 ? "up" : "flat" },
   ];
-
   // READ AND PASSED OVER: the assistant opened a page of yours and credited somebody else for the answer. The claim needs BOTH halves reported, so the denominator is the answers that opened your page, never every answer.
   const missRate = rate(passedOver, opened);
   const retrieval = opened === 0 || missRate == null ? null : { value: pct(missRate),
     basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead, or nobody at all`,
     next: "Those pages were worth reading and not worth quoting. Rewrite one so an answer can lift a line straight out of it." };
-
   // THE TREND, per day, over the assistants asked for. A day nobody checked is a HOLE in the line, never a zero.
-  const enginesSeen = [...new Set(days.flatMap((d) => d.byEngine.map((e) => e.engine)))].sort();
+  const enginesSeen = [...new Set(trend ? days.flatMap((d) => d.byEngine.map((e) => e.engine)) : [...windowRows, ...dayRows].map((r) => r.engine))].sort();
   const forEngine = (d: typeof now[number]): { top: number; bottom: number } => input.engine == null
     ? { top: d.mentioning, bottom: d.analyzed }
     : d.byEngine.filter((e) => e.engine === input.engine).reduce((a, e) => ({ top: a.top + e.mentioning, bottom: a.bottom + e.analyzed }), { top: 0, bottom: 0 });
-  const chart = { label: input.engine ? `Answers from ${engineName(input.engine)} that name you` : "Answers that name you", percent: true,
+  const chart = !trend ? null : { label: input.engine ? `Answers from ${engineName(input.engine)} that name you` : "Answers that name you", percent: true,
     points: now.map((d) => { const { top, bottom } = forEngine(d); return { day: d.day, label: monthDayLabel(d.day) ?? d.day, value: bottom > 0 ? top / bottom : null }; }),
     prior: prior.length === span ? prior.map((d) => { const { top, bottom } = forEngine(d); return bottom > 0 ? top / bottom : null; }) : null,
     priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
   // EVERY ASSISTANT SIDE BY SIDE, so four filters do not have to be clicked one at a time and held in your head.
-  const byEngine = table({
+  const byEngine = !trend ? null : table({
     columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "named", label: "Named you", numeric: true },
       { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "checked", label: "Answers checked", numeric: true }],
     empty: "No assistant has answered for this account yet.",
@@ -255,7 +248,6 @@ export function aiView(input: AiInput) {
   });
   const boundaries = (input.segments ?? []).flatMap((s) => s.boundary ?? []).map((b) =>
     `${engineName(b.engine)} ${b.fromMode !== b.toMode ? "started answering a different way" : "changed the version behind its answers"} on ${monthDayLabel(b.day) ?? b.day}, so the line before and after it was read on different instruments.`);
-
   // ── the question table: one row per tracked question, counted over ITS OWN readings ──
   const byPrompt = new Map<string, { text: string; engines: Set<string>; answered: number; analyzed: number; mentioning: number;
     positions: number[]; competitors: Map<string, number>; last: string; priorAnalyzed: number; priorMentioning: number }>();
@@ -306,7 +298,6 @@ export function aiView(input: AiInput) {
       ] };
     }),
   });
-
   // ── every page and domain the answers credited, on the day I read last ──
   const citations = table({
     columns: [{ key: "domain", label: "Site the answers credited", wide: true }, { key: "kind", label: "What it is", wide: true },
@@ -329,7 +320,6 @@ export function aiView(input: AiInput) {
       ] };
     }),
   });
-
   // ── the searches the assistants ran themselves before answering ──
   const runs = new Map<string, { answers: number; engines: Set<string>; prompts: Set<string> }>();
   for (const r of dayRows) for (const q of new Set(fanOutsExcluding(r.fanOuts ?? [], [r.promptText]))) {
@@ -349,10 +339,25 @@ export function aiView(input: AiInput) {
       { text: [...v.prompts].slice(0, 2).join(" / "), sub: v.prompts.size > 2 ? `and ${num(v.prompts.size - 2)} more` : undefined, sort: v.prompts.size },
     ] })),
   });
-
   const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []), ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
   const read = days.filter((d) => d.observed > 0);
   const gaps = days.filter((d) => d.observed === 0 && read[0] && d.day >= read[0].day).map((d) => monthDayLabel(d.day) ?? d.day);
+  // THE PERIOD, WHAT COVERED IT, AND EVERY HOLE IN IT, dated and counted: the stretch, how many questions and assistants stand behind it, the days that came back with nothing, the newest day when it holds less than the one before it, the answers nobody has read closely, and the answers that never named their pages. A rate with no window and no missingness beside it is the oldest lie in this business.
+  const last = monthDayLabel(days[days.length - 1]?.day ?? null), newest = read[read.length - 1], older = read[read.length - 2];
+  const missing = !trend ? ["The daily trend could not be read back in time, so no rate, no chart and no period is claimed here. What follows is read off the last day stored and the window beside it."] : [
+    `Reporting period ${monthDayLabel(days[0]?.day ?? null) ?? "an unnamed day"} to ${last ?? "an unnamed day"}, the ${num(days.length)} days holding answers, and answers came back on ${num(read.length)} of them.`,
+    `The last ${num(span)} days cover ${num(byPrompt.size)} tracked ${byPrompt.size === 1 ? "question" : "questions"} on ${num(enginesSeen.length)} ${enginesSeen.length === 1 ? "assistant" : "assistants"}: ${enginesSeen.map(engineName).join(", ")}.`,
+    ...(gaps.length > 0 ? [`${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and a missed day is never filled in.`] : []),
+    ...(newest && older && newest.observed < older.observed ? [`${monthDayLabel(newest.day) ?? newest.day} holds ${num(newest.observed)} answers against ${num(older.observed)} the day before, so it is counted as the part day it is.`] : []),
+    ...(observed - analyzed > 0 ? [`${num(observed - analyzed)} of the ${num(observed)} answers collected in those ${num(span)} days have not been read closely yet, so they sit in none of the rates above.`] : []),
+    ...(observed - citeSample > 0 ? [`${num(observed - citeSample)} of those ${num(observed)} never said which pages they used, so they sit in no citation count.`] : []),
+  ];
+  // NOTHING HERE CLAIMS TO BE RUNNING WHILE IT IS NOT. The off switch is read at load: paused gets the fact and the switch to flip, unreadable claims neither state, and only a switch read as on may quote today's plan.
+  const activity = input.collecting === "paused"
+    ? `Collection is paused, so no day after ${last ?? "the last one read"} is added. Turn it back on in Settings to keep this moving.`
+    : input.collecting === "unreadable" ? "Whether collection is on could not be read just now, so nothing is claimed either way. The switch is in Settings."
+      : `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
+        ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}${input.liveness ? `${input.liveness} ` : ""}Open Changes for the move these answers point at.`;
   return {
     empty: null, tiles, chart, boundaries, prompts, citations, searches, retrieval, byEngine, detail: detailOf(input),
     engines: enginesSeen.map((e) => ({ id: e, label: engineName(e) })),
@@ -362,14 +367,10 @@ export function aiView(input: AiInput) {
       formats: input.intel.contentTypes.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
       omissions: input.intel.omissions.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
     } : null,
-    coverage: `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
-      ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}`
-      + `Answers were read on ${num(read.length)} of the last ${num(days.length)} days.${gaps.length > 0 ? ` ${gaps.slice(0, 3).join(", ")}${gaps.length > 3 ? ` and ${num(gaps.length - 3)} more` : ""} came back with nothing, and a missed day is never filled in.` : ""}`
-      + `${input.liveness ? ` ${input.liveness}` : ""}`, // A COUNT OF DAYS IS NOT A PULSE: it says what was collected, never whether anything is still running, so the run's own reading of that stands beside it.
+    coverage: [...missing, activity].join(" "), // A COUNT OF DAYS IS NOT A PULSE: it says what was collected, never whether anything is running, so the off switch is read and stands beside it.
     watermark: `Stored AI answers, through ${dayLabel ?? "a day not yet read"}. Nothing on this page asks an assistant anything: every number is read back off answers already bought.`,
   };
 }
-
 /** ONE QUESTION OPENED: every reading on file, per assistant and per day, with the rivals it named, the searches it ran and the pages it credited. The whole of any single run is one click further in. */
 function detailOf(input: AiInput) {
   if (!input.focus) return null;
@@ -432,7 +433,6 @@ function detailOf(input: AiInput) {
     }),
   };
 }
-
 /** ONE STORED READING, WHOLE and cut nowhere: the complete answer, every search it ran, every page it credited with the part it quoted, every page it read without crediting, both model names, how it was asked, the day, the
  *  instants, the cost and how far it has been read. WHAT THE PROVIDER NEVER REPORTED SAYS SO: "it credited nobody" and "it never said what it used" are different claims. */
 export function answerDetail(

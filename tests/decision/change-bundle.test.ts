@@ -3,7 +3,8 @@
  *  determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a
  *  round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-import { receiptComposition, isResearchCard } from "@/domains/decision/contracts";
+import { receiptComposition } from "@/domains/decision/contracts";
+import { deliverableGaps } from "@/domains/decision/completeness";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -503,15 +504,25 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
     expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
     expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(80); });
-  // THE SENTENCE IS COPY, THE FACT IS TYPED. Rewording the line an operator reads must move nothing: the ranker, both surfaces and the server
-  // mutation all ask researchOnly, so a voice edit can never hand a card nobody has written a Copy button, a Mark done, or a finished card's tier.
-  it("decides research off the typed field, never off the sentence the operator reads", () => {
-    const MARKER = "Nothing here is ready to paste: this card is research, not an edit.", REWORDED = "A read, not an edit: nothing on this one is written.";
-    const say = (l: string, typed?: true) => prop({ status: "needs_review", limitations: [l], ...(typed ? { researchOnly: true } : {}) });
-    expect([isResearchCard(say(MARKER)), isResearchCard(say(REWORDED, true))]).toEqual([false, true]);
-    const rank = (l: string) => { const r = rankProposals([say(l, true)])[0]!; return [factorOf(r, "actionability"), r.rankingReceipt!.factors.find((f) => f.name === "actionability")!.input]; };
-    expect(rank(REWORDED)).toEqual(rank(MARKER));
-    expect([rank(MARKER)[1], deserializeChangeProposal(serializeChangeProposal(say(MARKER, true)))!.researchOnly]).toEqual(["this is research still owed, not an edit waiting on you", true]); });
+  // IF BEACON HAS NOT FINISHED THE DELIVERABLE, IT IS NOT A CHANGE. One boundary, read off the deliverable itself and
+  // never off the sentence an operator reads, so a voice edit can never hand unfinished work a Copy button, a Mark done
+  // or a place in the ranked queue. Every shape below shipped to a paying operator as an edit on 2026-08-14.
+  it("calls a deliverable finished only when it is the work, by type", () => {
+    const gaps = (after: string, field: "title" | "meta" | "h1" | "section" = "title", over: Partial<ChangeProposal> = {}) => deliverableGaps(prop({ recommendedChange: { kind: "existing_edit", field, before: null, after }, ...over }))[0];
+    const WORDS = "Rain barrels for a 1,200 square foot roof hold 50 gallons.", SAYS = "it describes the work instead of being it", OUT = ["Roof area", "Rainfall", "Overflow"];
+    const page = (cs: BundleComponent[]) => deliverableGaps(prop({ kind: "new_page", pagePath: null, ...(cs.length ? { bundle: bundleOf(cs) } : {}), recommendedChange: { kind: "new_page", proposedTitle: "Rain barrel sizing", metaDescription: "How to size a rain barrel for your roof.", openingAnswer: WORDS, outline: OUT, faqQuestions: [], schemaTypes: [] } }))[0];
+    // A DIRECTIVE, A SIZE INSTEAD OF THE WORDS, A BLANK and a typed research fact are all unfinished; a real title is a Change. New copy owes the place it lands, which only a component's `where` carries, and a NEW PAGE IS NEVER TITLE ONLY: every section it names owes written copy first. The typed fact still round trips.
+    const owed = prop({ status: "needs_review", researchOnly: true });
+    expect([gaps("Write a description of about 150 characters that names this page's subject.", "meta"), gaps("Add 800 to 1,200 words to /rain-barrels that answer its main question.", "section"), gaps("Rain barrels hold [NUMBER] gallons."), deliverableGaps(owed)[0], gaps(TITLE_AFTER), gaps(WORDS, "section"),
+      gaps(WORDS, "section", { bundle: bundleOf([comp({ kind: "section_add", where: "under the sizing heading" })]) }), page([]), page(OUT.map((h) => comp({ kind: "section_add", label: h, after: `${h}: a roof sheds 750 gallons in an inch of rain.` }))),
+      rankProposals([owed])[0]!.rankingReceipt!.factors.find((f) => f.name === "actionability")!.input, deserializeChangeProposal(serializeChangeProposal(owed))!.researchOnly])
+      .toEqual([SAYS, SAYS, SAYS, "nothing has been written for it yet", undefined, "where it goes on the page is not named", undefined, "3 of its 3 sections have no copy written", undefined,
+        "this is research still owed, not an edit waiting on you", true]);
+    // A PREFIX MAY NOT DEFEAT THE BOUNDARY and ordinary imperative page copy may not trip it. The next pass is a model whose phrasing varies, so homework is caught wherever the verb sits; a recipe step, a visa step and a description that opens on a production verb name no artifact of Beacon's in that clause and stay exactly as written.
+    const g = (after: string, field: "title" | "meta" | "h1" | "section" = "section") => gaps(after, field, { bundle: bundleOf([comp({ kind: "section_add", where: "under the sizing heading" })]) });
+    expect([g("Then write a section that answers the search."), g("You should add 800 to 1,200 words to /rain-barrels."), g("Consider adding a description that names the subject.", "meta"), g("This page needs three more sections before it ranks."), g("Rewrite this heading so it names what only this page covers.", "h1"), g("Cover the pot with a lid so it steams for ten minutes, then fluff the rice with a fork."),
+      g("Fill in the form online, then pay the fee at a designated bank branch."), g("Include a copy of your passport photo page when you apply."), g("Link building for a Persian culture site works best through museums and university pages.", "meta"), g("Learn 500 Persian words fast with this beginner guide", "title"), g("Add Saffron to Your Rice: A Persian Cook's Guide", "title")])
+      .toEqual([...Array(5).fill(SAYS), ...Array(6).fill(undefined)]); });
   it("keeps homework behind finished work however big its page is, and names a lever for a page losing ground", () => {
     // THE OWED CARD ON THE BIGGEST PAGE ON THE SITE still waits: while the copy is owed its visibility counts only
     // as far as an audience does (40), which the flat 45 always outweighs, so no page is big enough to promote work

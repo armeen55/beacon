@@ -8,7 +8,7 @@ import { reportingDay } from "@/lib/reporting-day";
 import { requireReadyAccount, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { visibilitySeries } from "@/domains/measurement";
-import { researchRunStatus } from "@/domains/runtime";
+import { researchPermission, researchRunStatus } from "@/domains/runtime";
 import { answerIntelOf, canonicalPairOf, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
@@ -138,15 +138,15 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const engine = one(params, "engine"), prompt = one(params, "prompt"), openId = one(params, "reading");
   // A READ I COULD NOT MAKE COMES BACK NULL, NEVER EMPTY. Falling back to a bare empty list told an account
   // with seven hundred stored answers that I had never read one of them, and the view says so instead.
-  const [segments, run, landscape] = await Promise.all([
-    // THE SPINE OF THIS TAB gets the longest rope: every headline number, the line and the question table
-    // are read off it, so losing it to a five second race costs the whole side of the surface.
+  const [segments, run, landscape, collecting] = await Promise.all([
+    // THE SPINE OF THIS TAB gets the longest rope: every headline number, the line and the question table are read off it, so losing it to a five second race costs the whole side of the surface. It asks for the OVERVIEW projection, about a third of the row: the whole answer text and the whole stored verdict are megabytes a trend never reads, and asking for them is what left this tab blank.
     valueWithDeadline(visibilitySeries(tenantId, TREND_DAYS).catch(() => null), null as Awaited<ReturnType<typeof visibilitySeries>> | null, 12_000),
     valueWithDeadline(researchRunStatus(tenantId).catch(() => null), null, 1500),
     valueWithDeadline(landscapeFor(tenantId).catch(() => null) as Promise<ClassifiedDomain[] | null>, null),
+    // THE OFF SWITCH ITSELF, so no line here says checks are planned for today over an account that is paused.
+    valueWithDeadline(researchPermission(tenantId).catch(() => "unreadable" as const), "unreadable" as const, 1500),
   ]);
-  // The newest day that actually holds readings. WHOLE ANSWERS ARE NEVER PULLED IN BULK: the day read drops
-  // the one genuinely heavy column, and the complete text of a single run loads only when one is opened.
+  // The newest day that actually holds readings. WHOLE ANSWERS ARE NEVER PULLED IN BULK: the day read drops the one genuinely heavy column, and the complete text of a single run loads only when one is opened, by id, one row.
   const allDays = (segments ?? []).flatMap((s) => s.days), observedDays = allDays.filter((d) => d.observed > 0);
   const latestDay = observedDays[observedDays.length - 1]?.day ?? reportingDay(new Date());
   const leanFrom = allDays.slice(-Math.min(range * 2, TREND_DAYS))[0]?.day ?? latestDay;
@@ -162,7 +162,7 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
     segments, rangeDays: range, engine, sub, landscape, intel, day: observedDays.length > 0 ? latestDay : null,
     checks: { done: run?.counters.aiChecksDone, total: run?.counters.aiChecksIntended, answered: run?.counters.aiChecksAnswered,
       unavailable: run?.counters.aiChecksUnavailable, unsupported: run?.counters.aiChecksUnsupported },
-    liveness: run?.liveness?.line ?? null,
+    liveness: run?.liveness?.line ?? null, collecting,
     dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null,
     focus: prompt ? { promptId: prompt, rows: focusRows.map(answerRow) } : null,
   });

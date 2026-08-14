@@ -122,11 +122,11 @@ explains where the business stands, and every action lives in Changes.
 
 ### Changes
 
-Changes is the complete ranked opportunity system, not only the finished queue. Beacon never fabricates a
-Ready change, but opportunity discovery is continuous: evidence controls an opportunity's state, confidence
-and readiness, and missing evidence changes its state and names the next research step rather than making the
-opportunity disappear. The feed spans Ready, needs review, researching, watching, measuring and results, every
-row earned by real signals, ranked, and paginated so length never breaks the page.
+Analysis is Beacon's work; a customer-facing Change contains the complete deliverable: exactly what to add,
+replace, delete, move, link, redirect or create, exactly where, and the final copy whenever copy is involved
+(operator-approved 2026-08-14). Opportunity discovery stays continuous, but an opportunity without its
+finished deliverable is internal research: it feeds a small status count, never the ranked execution queue,
+never leads Today, and never offers completion controls. Zero finished Changes is an honest state.
 
 Canonical lifecycle:
 

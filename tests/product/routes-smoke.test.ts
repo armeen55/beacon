@@ -54,32 +54,23 @@ describe("Today renders, and tells the truth about its own queue", () => {
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
-      opportunityType: "Sharpen the title", estimatedEffortMinutes: 2, upsidePerMonth: null, confidence: "high", recommendedChange: { kind: "existing_edit", field: "title" } })),
+      opportunityType: "Sharpen the title", recommendedChange: { kind: "existing_edit", field: "title" } })),
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
-  it("counts EVERY ready change and says the three it previews are a preview", async () => {
+  const NO_WORK = "No finished change is ready today. The next one is ranked here the moment Beacon has written the exact work.";
+  // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is
+  // not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
+  it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
-    expect(view.headerSentence).toBe("You have 12 edits ready, best first.");
-    const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
-    expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i);
-    expect(view.nextOpportunities).toHaveLength(3);
-    expect(view.readyFixes).toHaveLength(12); // every ready page is linkable, not just the previewed three
-    expect(buildTodayViewFromChanges(readyView(1, 0)).headerSentence).toBe("You have 1 edit ready, best first.");
-  });
-  const NO_WORK = "You have no edits waiting. The next one is ranked here the moment it earns its place.";
-  it("an empty queue claims only that no edit is waiting, whatever the pass concluded", async () => {
-    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
-    expect(buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence).toBe(NO_WORK);
-    // A QUIET QUEUE IS NOT A QUIET ACCOUNT, and it is not a report either: the only claim an empty day makes is that no edit is waiting.
-    expect(buildTodayViewFromChanges(empty).headerSentence).toBe(NO_WORK); });
-  it("one page key rule keys both sides of the ready-fix lookup, whatever the address length or case", async () => {
-    const { normalizedFixKey } = await import("@/components/today/today-smoke-alarm");
-    const long = "/" + "a".repeat(60); // no length cap: a long path is compared key for key
-    expect([normalizedFixKey(`https://site.example${long}`), normalizedFixKey("https://site.example/Nowruz/"),
-      normalizedFixKey("/now%C2%ADruz"), normalizedFixKey("https://site.example")])
-      .toEqual([long, "/nowruz", "/now­ruz", "/"]); });
+    expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence,
+      buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence, buildTodayViewFromChanges(empty).headerSentence,
+      buildTodayViewFromChanges({ ...empty, developing: 7 }).headerSentence])
+      .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
+        "No finished change is ready today. 7 opportunities are still being developed."]);
+    const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
+    expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
 });
 
 describe("Connectors settings route smoke", () => {

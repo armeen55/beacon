@@ -246,9 +246,12 @@ describe("re-analysis reads what was already bought", () => {
     db.read = stored(3); db.selected = [];
     await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "outcome" });
     const asked = db.selected[0]!;
-    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "analysis", "requested_at"]) expect(asked.split(",")).toContain(col);
-    for (const heavy of ["answer_text", "journey"]) expect(asked).not.toContain(heavy);
-    db.selected = []; await readAiObservations(TENANT, { day: DAY }); // a caller that needs the whole answer simply does not ask for a projection
+    for (const col of ["id", "tenant_id", "prompt_id", "engine", "reporting_day", "sample_slot", "status", "mention:analysis->ownedBrandMention", "requested_at"]) expect(asked.split(",")).toContain(col);
+    for (const heavy of ["answer_text", "journey", ",analysis,"]) expect(asked).not.toContain(heavy); // the whole verdict is 4.9 MB a count never reads: six keys are asked for by name
+    db.selected = []; await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0, projection: "overview" });
+    for (const col of ["cited:journey->cited_sources", "retrieved:journey->retrieved_results", "model_served"]) expect(db.selected[0]!.split(",")).toContain(col);
+    for (const heavy of ["answer_text", ",journey,", ",analysis,"]) expect(db.selected[0]).not.toContain(heavy); // the overview reads two journey lists, never the whole journey and never the answer
+    db.selected = []; await readAiObservations(TENANT, { day: DAY }); // a caller that needs the whole answer simply does not ask for a projection, and it is the ONLY path that ever loads one
     expect(db.selected[0]).toBe("*");
   });
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
@@ -257,8 +260,7 @@ describe("re-analysis reads what was already bought", () => {
     db.read = [row("o1", 4, { cited_sources: [at("https://rival.example/a", "rival.example"), at("", "acme.com")] }),
       row("o2", 3, { cited_sources: [] }), row("o3", 2, { cited_sources: null }), row("o4", 1)];
     const views = await readAiObservationViews(TENANT, { day: DAY });
-    // The address when there is one, the bare site when the engine named only a site, in the order credited.
-    expect(views.find((v) => v.id === "o1")!.citationUrls).toEqual(["https://rival.example/a", "acme.com"]);
+    expect(views.find((v) => v.id === "o1")!.citationUrls).toEqual(["https://rival.example/a", "acme.com"]); // The address when there is one, the bare site when the engine named only a site, in the order credited.
     expect(views.find((v) => v.id === "o2")!.citationUrls).toEqual([]);   // it credited nobody: an OBSERVED zero
     expect(views.find((v) => v.id === "o3")!.citationUrls).toBeNull();    // this path does not report citations at all
     expect(views.find((v) => v.id === "o4")!.citationUrls).toBeNull();    // and a row with no journey claims nothing
@@ -306,8 +308,7 @@ describe("retrieved is not the same claim as not cited", () => {
   const at = (url: string) => ({ url, domain: url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]!, title: null });
   const MINE = "https://mine.example/guide";
   it("subtracts the citations from the retrieval list by canonical url, and claims nothing without them", () => {
-    // The SAME page, read and then credited, differing by scheme, www, a trailing slash and a fragment.
-    const retrieved = [at("http://www.mine.example/guide/#top"), at("https://rival.example/a")];
+    const retrieved = [at("http://www.mine.example/guide/#top"), at("https://rival.example/a")]; // The SAME page, read and then credited, differing by scheme, www, a trailing slash and a fragment.
     const cited = [at(MINE)];
     expect(retrievedNotCitedLinks(retrieved, cited).map((r) => r.url)).toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(retrieved, null)).toEqual([]); // citations not observable cannot accuse anyone
@@ -321,8 +322,7 @@ describe("retrieved is not the same claim as not cited", () => {
     const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")];
     expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url))
       .toEqual(["https://rival.example/a"]);
-    // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
-    expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url))
+    expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url)) // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
       .toEqual(["https://acme.com/guide", "https://rival.example/a"]);
   });
   it("decodes a row stored before this rule as the raw list it always was, subtracted once and never twice", async () => {

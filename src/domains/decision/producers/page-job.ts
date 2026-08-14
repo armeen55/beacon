@@ -282,6 +282,11 @@ const COMMON_SHARE = 0.4;
 /** Every word one reading puts on its page: its subjects, the sentence saying what it is for, and who reads it. */
 const vocabularyOf = (job: OwnedPageJob): Set<string> =>
   new Set(topicTokens([job.topics.join(" "), job.job, job.audience].join(" ")));
+/** WHAT THE PAGE IS ACTUALLY FOR, and only that: the named subjects the reading settled on. Admission used to be
+ *  decided on the whole vocabulary above, which is a sentence of prose and a sentence about readers, so a
+ *  timeline of Iranian history matched a question about famous Iranian PEOPLE on the incidental words around its
+ *  subjects. A page answers for its subjects; the prose describing it is not a claim of coverage. */
+const subjectsOf = (job: OwnedPageJob): Set<string> => new Set(topicTokens(job.topics.join(" ")));
 
 const commonCache = new WeakMap<object, ReadonlySet<string>>();
 const EMPTY: ReadonlySet<string> = new Set<string>();
@@ -294,6 +299,8 @@ function commonWords(jobs: Jobs | null | undefined): ReadonlySet<string> {
   const cached = commonCache.get(jobs);
   if (cached) return cached;
   const counts = new Map<string, number>();
+  // COUNTED OVER THE WHOLE VOCABULARY on purpose, while admission below is decided on subjects alone: finding the
+  // words a site says everywhere wants breadth, and deciding what a page covers wants precision.
   for (const j of jobs.values()) for (const t of vocabularyOf(j)) counts.set(t, (counts.get(t) ?? 0) + 1);
   const floor = Math.max(3, Math.ceil(jobs.size * COMMON_SHARE));
   const out: ReadonlySet<string> = new Set([...counts.entries()].filter(([, n]) => n >= floor).map(([t]) => t));
@@ -307,8 +314,28 @@ function covers(job: OwnedPageJob, words: readonly string[], jobs: Jobs | null |
   const common = commonWords(jobs);
   const distinct = [...new Set(words)].filter((w) => !common.has(w));
   if (distinct.length === 0) return false;
-  const has = vocabularyOf(job);
+  const has = subjectsOf(job);
   return distinct.filter((w) => has.has(w)).length >= Math.min(MIN_JOB_MATCHES, distinct.length);
+}
+
+/** THE PAGE SHAPES THAT SPEAK FOR ONE NAMED THING and never for the whole it belongs to. */
+const SCOPED: ReadonlySet<PageJob["pageType"]> = new Set(["city", "entity", "product", "translation"]);
+/**
+ * A PAGE ABOUT ONE THING IS NOT THE ANSWER ABOUT EVERYTHING AROUND IT. A city page is not the national landmarks
+ * answer, a product page is not the category answer, and a word's translation page is not the language answer.
+ * Subject overlap can never see this, because the city page genuinely covers landmarks: what it does not cover is
+ * the SCOPE that was asked about. So a page whose job speaks for one named thing may answer only a request that
+ * names that thing, read off the page's own address and its most specific subject. Deterministic, no spend.
+ */
+function inScope(job: OwnedPageJob, request: string): boolean {
+  if (!SCOPED.has(job.pageType)) return true;
+  // ITS OWN NAME, read off its address and nothing else. Its topics are what it COVERS, and matching on those is
+  // the very mistake this check exists to catch: a Tehran page covers landmarks, which is why it was handed a
+  // question about the landmarks of a whole country. An address with no words in it settles nothing, so it passes.
+  const own = topicTokens(job.url.replace(/^https?:\/\/[^/]+/, "").replace(/[-/]/g, " "));
+  if (own.length === 0) return true;
+  const asked = new Set(topicTokens(request));
+  return own.some((w) => asked.has(w));
 }
 
 /** WHAT THE REQUEST ASKS SOMEONE TO ACCOMPLISH, read off its own words. Deterministic, no spend. A page
@@ -346,6 +373,9 @@ export function sectionFit(job: OwnedPageJob | null | undefined, subjectWords: r
   // shape, that shape's own row is the whole answer; ESSAY_NEVER is the rule for a request that names none.
   const need = request ? SATISFIES[requestShape(request)] : null;
   if (need ? !need.has(job.pageType) : ESSAY_NEVER.has(job.pageType)) return "wrong_type";
+  // AND THE SCOPE HAS TO MATCH, not just the shape and the subjects: /tehran was handed "the most famous
+  // landmarks in Iran" because it genuinely covers landmarks, on a question that never mentions Tehran.
+  if (request && !inScope(job, request)) return "wrong_type";
   if (subjectWords.length === 0) return "unknown";
   return covers(job, subjectWords, jobs) ? "fits" : "off_topic";
 }

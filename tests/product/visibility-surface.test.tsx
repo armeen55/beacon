@@ -11,7 +11,7 @@ globalThis.fetch = (async (...a: unknown[]) => { store.fetched.push(a); throw ne
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
 vi.mock("@/domains/account", () => ({ requireReadyAccount: async () => ({ access: { kind: "ready" } }), loadBusinessProfile: async () => null }));
 vi.mock("@/domains/decision", () => ({ loadDailyTotalsForTenant: async () => [] }));
-vi.mock("@/domains/runtime", () => ({ researchRunStatus: async () => null }));
+vi.mock("@/domains/runtime", () => ({ researchRunStatus: async () => null, researchPermission: async () => "running" }));
 vi.mock("@/domains/measurement", () => ({ visibilitySeries: async () => SEGMENTS }));
 import type { AiOutcomeReport } from "@/domains/measurement";
 import { aiView, answerDetail, googleView, type AnswerRow } from "@/app/(shell)/visibility/visibility-view";
@@ -79,8 +79,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.pages!.columns.map((c) => c.label)).toContain("Strongest search, 90 days"); // a 90 day figure inside a 28 day comparison names its OWN window
     // The searches Google named, each on the page it lands on, with its own rate rather than the site's.
     expect(v.queries!.rows[0]!.cells.map((c) => c.text)).toEqual(["nowruz table", "/nowruz", "12", "900", "1.3%", "8.2"]);
-    // Clicks against the stretch before it, and a rank that names the only window Google gives me per page.
-    expect(v.tiles[0]!.basis).toBe("over the last 7 reported days, against 189 over the 7 days before");
+    expect(v.tiles[0]!.basis).toBe("over the last 7 reported days, against 189 over the 7 days before"); // Clicks against the stretch before it, and a rank that names the only window Google gives me per page.
     expect(v.tiles[3]!.basis).toContain("weighted by appearances across 2 pages over the 28 days ending Aug 1");
     expect(v.chart!.prior).toHaveLength(7); // the stretch before, drawn behind the line rather than described
   });
@@ -103,8 +102,10 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.boundaries[0]).toContain("changed the version behind its answers on Jul 30");
     expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
     expect(v.coverage).toContain("Aug 1 came back with nothing, and a missed day is never filled in.");
-    // A READ THAT DID NOT LAND IS NOT AN ACCOUNT WITH NO ANSWERS: the live account had 697 stored answers and one slow read told it I had never read one.
-    expect(ai({ segments: null }).empty).toContain("That could not be read back in time just now");
+    // A READ THAT DID NOT LAND IS NOT AN ACCOUNT WITH NO ANSWERS: the live account had 697 stored answers and one slow read told it I had never read one. And ONE READ THAT DID NOT LAND NEVER BLANKS THE OTHER TWO: the trend going missing costs the rates and the line and nothing else.
+    expect(ai({ segments: null, dayRows: null, window: null }).empty).toContain("That could not be read back in time just now");
+    const part = ai({ segments: null }); expect([part.empty, part.tiles.length, part.chart, part.byEngine, part.citations!.rows.length > 0, part.prompts!.rows.length > 0]).toEqual([null, 0, null, null, true, true]);
+    expect(part.coverage).toContain("The daily trend could not be read back in time, so no rate, no chart and no period is claimed here.");
     for (const said of [ai({ dayRows: null, window: null }).citations!.empty, ai({ dayRows: null, window: null }).prompts!.empty]) expect(said).toContain("That could not be read back in time just now");
   });
   it("never lists a question of mine as a search an assistant thought of, and links every question to the runs behind it", () => {
@@ -121,8 +122,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const own = v.citations!.rows.find((r) => r.id === "own.example")!;
     expect([own.cells[1]!.text, own.cells[0]!.tone]).toEqual(["Your own site", "own"]);
     expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[1]!.text).toBe("A source");
-    // One question opened: every run, each one linkable on its own.
-    const d = ai({ focus: { promptId: "p1", rows: [ROW, { ...ROW, id: "obs_8", engine: "claude", answered: false, mentioned: null, cited: null, fanOuts: null, citations: null }] } }).detail!;
+    const d = ai({ focus: { promptId: "p1", rows: [ROW, { ...ROW, id: "obs_8", engine: "claude", answered: false, mentioned: null, cited: null, fanOuts: null, citations: null }] } }).detail!; // One question opened: every run, each one linkable on its own.
     expect(d.headline).toBe("You are named in 1 of the 1 answers finished checking on this question, across 2 assistants.");
     expect(d.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7");
     const quiet = d.executions.rows.find((r) => r.id === "obs_8")!.cells.map((c) => c.text);

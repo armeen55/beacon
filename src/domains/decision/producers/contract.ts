@@ -92,9 +92,6 @@ export type Produced = { components: BundleComponent[]; refusal: string | null;
    *  than one fix owes the rejections as loudly as the pick, or "add a section" reads as the only thing it
    *  ever considered. They join the change's alternatives, and a refusal carries them to the research card. */
   considered?: { option: string; reason: string }[];
-  /** THE ACTION THIS REFUSAL RULES OUT, typed off the ladder's own vocabulary, for a structural refusal that says
-   *  the lever is not available here at all rather than not yet. A card that DECIDED on this action may not then
-   *  carry the sentence refusing it, and a phrase match on authored copy is one voice edit from letting it back. */
-  refusedAction?: CauseFinding["action"] };
+};
 
 export type Producer = (ctx: ProducerCtx) => Promise<Produced>;

@@ -18,6 +18,12 @@ const STORE = "customer-surface";
 const CUSTOMER_SURFACE_FRESH_MS = 15 * 60 * 1000;
 /** How many judged-but-declined pages one release carries a verdict for. */
 const DECLINE_NOTE_LIMIT = 20;
+/** THE one page-key rule, so a page written two ways is still one page on both sides of a lookup: host prefix
+ *  and one trailing slash removed, percent-encoding decoded (Search Console reports encoded paths where the
+ *  account's own records hold the readable form), lowercased, and no length cap. */
+const normalizedFixKey = (u: string): string => {
+  const path = u.replace(/^https?:\/\/[^/]+/i, "").replace(/\/$/, "") || "/";
+  try { return decodeURIComponent(path).toLowerCase(); } catch { return path.toLowerCase(); } };
 
 /** One decaying page as the release carries it: the two 28-day windows, six numbers, nothing derived. */
 type ReleaseDecayRow = {
@@ -104,7 +110,7 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  builds. Build-then-publish: a failed build throws and the previous release
  *  stays in place. (Builders are imported at call time - this module is a leaf
  *  at init, so the loaders that read the release can import it statically.) */
-export async function refreshCustomerSurface(tenantId: string): Promise<CustomerSurface> {
+export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts?: number } = {}): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
     const [{ produceProposalsForTenant, reconcileImplementedWithoutShipment }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
@@ -130,7 +136,10 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // the OLD release: "show more" paged a ranking the screen above it did not belong to. Read now, used only
     // on that failure path, so the happy path costs one extra read and nothing else.
     const previous = await readCustomerSurface(tenantId).catch(() => null);
-    const produced = await produceProposalsForTenant(tenantId);
+    // `maxDrafts` rides through so a pass can be asked to REGENERATE the queue from stored evidence alone: at 0 the
+    // paid drafter never fires, which is how the queue is rebuilt and inspected without spending a cent. Omitted, the
+    // producer keeps its own bounded default, so every ordinary visit and every scheduled pass is unchanged.
+    const produced = await produceProposalsForTenant(tenantId, opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts });
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }
@@ -165,7 +174,6 @@ export async function refreshCustomerSurface(tenantId: string): Promise<Customer
     // release so Today can quote the decision for the page it blames instead of a
     // generic "still checking". Biggest measured gap first, bounded: Today quotes at
     // most one, and a release is a blob, not a log.
-    const { normalizedFixKey } = await import("@/components/today/today-smoke-alarm");
     const declineNotes = (produced?.candidates ?? [])
       .filter((c) => c.action !== "act_existing_page" && !!c.pageUrl)
       .sort((a, b) => b.recoverableClicks - a.recoverableClicks)

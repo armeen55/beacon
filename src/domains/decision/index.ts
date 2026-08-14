@@ -76,8 +76,10 @@ export { resolveCurrentBasis } from "./load-proposals";
 export type { ProposalOutcome, ProposeOptions } from "./propose";
 export { proposeExistingPageChange } from "./propose";
 export { rankProposals, proposalValueScore } from "./rank-proposals";
-// THE ONE TYPED READ every surface makes about a card nothing is written for: no paste box, no Mark done, no ready tier.
-export { isResearchCard } from "./contracts";
+// THE ONE COMPLETENESS BOUNDARY every surface asks: has Beacon finished this deliverable, or is it still an
+// opportunity being developed? Empty means it is a Change; anything else keeps it out of the queue, out of
+// Today, out of measurement, and out of Mark done.
+export { deliverableGaps } from "./completeness";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
 export { validateProposal, actionableProposalFailures } from "./validate-proposal";
 

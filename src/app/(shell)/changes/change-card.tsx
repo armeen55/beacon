@@ -11,7 +11,7 @@ import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
-import { componentIdOf, dangerousComponents, isResearchCard, receiptComposition } from "@/domains/decision/contracts";
+import { componentIdOf, dangerousComponents, receiptComposition } from "@/domains/decision/contracts";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
 import { pageLabel } from "./types";
@@ -32,8 +32,10 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
  *  number the chip renders, so a filter and a chip can never disagree. */
 export const evidenceTier = (p: ChangeProposal, proven: boolean): 0 | 1 | 2 =>
   proven ? 0 : (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page") ? 1 : 2;
+/** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument
+ *  behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. */
 const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Proven" },
-  { intent: "measuring", label: "Early evidence" }, { intent: "waiting", label: "Best guess" }];
+  { intent: "measuring", label: "Early evidence" }, { intent: "waiting", label: "Thin evidence" }];
 
 /** Today, in the operator's words, for the sentence a just-finished card prints. */
 const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
@@ -46,8 +48,6 @@ const effortLabel = (m: number): string =>
 /** A CONSOLIDATION IS NOT A PASTEABLE LINE: it merges or retires live pages, so it carries ordered steps and a
  *  confirmation instead of a copy box. A search naming a year dies every January, so it is worth redoing then. */
 const isConsolidation = (p: ChangeProposal): boolean => String(p.kind) === "consolidation" || p.changeFamily === "consolidation";
-/** One shape for comparing two written lines: spacing and case never made two sentences different. */
-const norm = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
 const YEAR_QUERY = /\b20\d{2}\s*$/;
 const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
@@ -135,7 +135,6 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [checksOpen, setChecksOpen] = useState(false);
   // MARKED DONE FLIPS THE CARD WHERE IT SITS: the row stays put, says what happens next, and comes off the open
   // count on the spot. It leaves the list on the next load, which is the release's job, never this render's.
   const [done, setDone] = useState(false);
@@ -164,29 +163,11 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
   const secondary = path === pageTitle ? null : path;
   const tier = evidenceTier(proposal, proven);
   const chip = TIER_CHIP[tier]!;
-  // A MERGE IS READ, NEVER PASTED: no copy box, no copy button, and the ordered steps become the whole fix. The
-  // caution a best-guess card carries, when the row wrote one, is what the line there now already earns.
-  // An instruction is read the same way: a Copy button on "Write a description that..." would paste the
-  // instruction onto the site, so an after that starts with a do-this verb renders as steps, never as copy.
-  // "Position held..." is the GA4 divergence diagnosis: a finding to read, never a line to paste.
-  const instruction = !isConsolidation(proposal) && steps.length > 0
-    && /^(Add|Write|Rewrite|Open|Move|Redirect|Paste|Link|Position held)\b/.test(after ?? "");
-  // AND RESEARCH IS READ TOO. A card the pass still owes its own work on opens with a count rather than a verb,
-  // so the regex above waves it through onto a Copy button. It says what it is in a typed field instead.
-  const research = isResearchCard(proposal);
-  const merge = isConsolidation(proposal) || instruction || research;
-  // THE SAME INSTRUCTION TWICE IS NOT TWO STEPS: when the first written step already opens with the line the
-  // change carries, the line is that step and prepending it printed it back to back with itself.
-  const echoed = steps.length > 0 && after != null
-    && norm(steps[0]!).slice(0, 25) === norm(after).slice(0, 25);
-  const shownSteps = instruction && after && !echoed ? [after, ...steps] : steps;
-  // A MERGE WITH NO STEPS ON FILE STILL HAS TO SAY WHAT TO DO. "Read this twice, then:" over an empty list was
-  // the whole instruction, so the plan the change carries is read as a paragraph instead. It is never copyable:
-  // pasting a plan onto the site is exactly the mistake this card exists to prevent.
-  const mergePlan = merge && shownSteps.length === 0
-    ? (after?.trim() || (bundle?.components ?? []).map((c) => c.after?.trim()).find(Boolean) || null)
-    : null;
-  const caution = tier === 2 ? proposal.limitations[0] ?? null : null;
+  // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy
+  // box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the
+  // completeness boundary keeps a card that tells the operator to go and write the work out of the queue
+  // entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
+  const merge = isConsolidation(proposal);
   const recordDone = () => { setDone(true); onDone(proposal.id); };
 
   if (done) return (
@@ -231,17 +212,12 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
             the quiet one, because nobody is being asked to write the old one again. A merge has no line to
             paste at all, so it shows its ordered steps instead and never offers a copy button. */}
         {merge ? (
-          shownSteps.length > 0 ? (
+          steps.length > 0 ? (
             <div className="space-y-1" data-merge-steps="true">
-              <p className="text-[12px] font-semibold text-foreground">Read this twice, then:</p>
+              <p className="text-[12px] font-semibold text-foreground">The moves, in order:</p>
               <ol className="list-none space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
-                {shownSteps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
+                {steps.map((s, i) => <li key={i}><span className="tabular-nums font-semibold">{i + 1}. </span>{s}</li>)}
               </ol>
-            </div>
-          ) : mergePlan ? (
-            <div className="space-y-1" data-merge-plan="true">
-              <p className="text-[12px] font-semibold text-foreground">Read this twice before you touch anything:</p>
-              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-muted-foreground">{mergePlan}</p>
             </div>
           ) : null
         ) : (
@@ -263,25 +239,17 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
           </div>
         )}
 
+        {/* THE FACTS, AS CHIPS. Everything they stand for opens in the ONE expander below, so a card is what to
+            change, where, the final work, and why it ranks; the argument, the checks and the risks live in one
+            place instead of three toggles reprinting the same paragraph. */}
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
-          {/* NO TIME IS ASKED FOR ON A RESEARCH CARD, so "about 0 min" is a pill claiming a duration for work nobody has been given. */}
           {merge && proposal.estimatedEffortMinutes > 0 ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
           <Pill intent={chip.intent}>{chip.label}</Pill>
           {checks.length > 0 ? (
-            <button type="button" onClick={() => setChecksOpen((v) => !v)} aria-expanded={checksOpen}>
-              <Pill intent="measuring">{bundle ? `Backed by ${receiptComposition(bundle.receipt.items)}` : `Backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
-            </button>
+            <Pill intent="measuring">{bundle ? `Backed by ${receiptComposition(bundle.receipt.items)}` : `Backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
           ) : null}
         </p>
-        {caution ? (
-          <p className="text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">{caution}</p>
-        ) : null}
-        {checksOpen && checks.length > 0 ? (
-          <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
-            {checks.map((c, i) => <li key={i}>{c}</li>)}
-          </ul>
-        ) : null}
 
         {held.length > 0 ? (
           <p data-dangerous-hold="true" className="rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2 text-[12px] leading-relaxed text-foreground">
@@ -315,24 +283,26 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
                 </ol>
               </div>
             ) : null}
-            {proposal.limitations.length > (caution ? 1 : 0) ? (
+            {checks.length > 0 ? (
+              <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
+                {checks.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            ) : null}
+            {proposal.limitations.length > 0 ? (
               <div className="space-y-1">
                 <p className="text-[12px] font-semibold text-foreground">What to keep in mind</p>
-                <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
-                  {proposal.limitations.slice(caution ? 1 : 0).map((l, i) => <li key={i}>{l}</li>)}
+                <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">
+                  {proposal.limitations.map((l, i) => <li key={i}>{l}</li>)}
                 </ul>
               </div>
             ) : null}
             {proposal.whyRankedAboveNext ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
-            {/* EVERY CARD THAT IS AN EDIT CAN RECORD THAT HE MADE IT, and hiding this control on the unproven half
-                promised measurement on work that was then refused. RESEARCH IS NOT AN EDIT: nothing has been
-                written for this page yet, so "Mark done" would start a 28 day reading of a change nobody made. */}
-            {research ? null : (
-              <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
-                components={piecesOf(bundle)} onRecorded={recordDone} />
-            )}
+            {/* EVERY CARD HERE IS FINISHED WORK, so every one of them can record that it was made. Nothing
+                unfinished reaches this list, which is what makes this control safe on all of them. */}
+            <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
+              components={piecesOf(bundle)} onRecorded={recordDone} />
           </div>
         ) : null}
 
@@ -343,7 +313,7 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
           </Link>
           {/* THE ONE-PRESS RECORD, on the collapsed card. A new page owes its live address and a merge owes a
               confirmation, so those two keep the full form above rather than being refused after the press. */}
-          {!isNew && !research && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
+          {!isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip

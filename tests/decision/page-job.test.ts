@@ -55,14 +55,14 @@ describe("what one page is for, held durably", () => {
 });
 describe("what a job changes, and what a missing one may never change", () => {
   it("keeps a section off a page that is not for it and off a rail an essay never goes on", () => {
-    expect([sectionFit(POPULATION, ["population", "demographic"], CORPUS), sectionFit(job(), ["tabriz", "travel"])]).toEqual(["fits", "fits"]);
-    // THE FIVE SHAPES, none named in the code: one word this whole site carries is not a tie, and a shop rail is no place for an essay.
-    expect([sectionFit(PAINTERS, ["persian", "musician"], CORPUS), sectionFit(POETS, ["persian", "book"], CORPUS),
-      sectionFit(RUGS, ["iran", "travel", "guide"], CORPUS), sectionFit(SCIENCE, ["iranian", "culture", "tradition"], CORPUS),
-      sectionFit(POPULATION, ["beautiful", "city", "iran"], CORPUS)]).toEqual(["off_topic", "off_topic", "wrong_type", "off_topic", "off_topic"]);
-    // NO VERDICT WITHOUT A READING: what "unknown" licenses is the caller's decision, made on the typed reason.
-    expect([sectionFit(null, ["tabriz"]), sectionFit(undefined, ["tabriz"])]).toEqual(["unknown", "unknown"]);
-  });
+    // THE SHAPES, none named in the code: one word this whole site carries is not a tie, a shop rail is no place for an essay, and NO VERDICT WITHOUT A READING (what "unknown" licenses is the caller's decision, made on the typed reason). A PAGE ABOUT ONE THING IS NOT THE ANSWER ABOUT EVERYTHING AROUND IT either (a city page covers landmarks, so overlap alone handed it a whole country's), and a page answers for its SUBJECTS, never the prose around them, so a history timeline is not a famous-people page.
+    const CITY = job({ pageType: "city", topics: ["tabriz population", "famous landmarks and attractions"] }), TIMELINE = page("timeline", "guide", "An interactive visual timeline of the famous people and events of Iran for readers.", "history readers", ["visual timeline", "dynasties", "wars and invasions"]);
+    expect([sectionFit(POPULATION, ["population", "demographic"], CORPUS), sectionFit(job(), ["tabriz", "travel"]), sectionFit(PAINTERS, ["persian", "musician"], CORPUS),
+      sectionFit(POETS, ["persian", "book"], CORPUS), sectionFit(RUGS, ["iran", "travel", "guide"], CORPUS), sectionFit(SCIENCE, ["iranian", "culture", "tradition"], CORPUS),
+      sectionFit(POPULATION, ["beautiful", "city", "iran"], CORPUS), sectionFit(null, ["tabriz"]), sectionFit(undefined, ["tabriz"]),
+      sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in iran"), sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in tabriz"),
+      sectionFit(TIMELINE, ["famous", "people", "history"], CORPUS, "who are some famous iranian people in history")])
+      .toEqual(["fits", "fits", "off_topic", "off_topic", "wrong_type", "off_topic", "off_topic", "unknown", "unknown", "wrong_type", "fits", "off_topic"]); });
   it("lets what was asked for decide which shape of page can answer it, and never fires a roster on a bare word", () => {
     const RUGW = ["persian", "rug", "carpet"];
     // A REQUEST TO BUY, LANDING ON THE PAGE THAT SELLS IT, FITS: the rail rule ran before the request was read at

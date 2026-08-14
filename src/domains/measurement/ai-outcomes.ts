@@ -28,7 +28,7 @@ type Analysis = { ownedBrandMention?: { mentioned?: unknown } | null };
 /** The injectable read. Production passes nothing and gets the stored-observation reader itself. The DAY
  *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it, and so is
  *  the PROJECTION, so an outcome read never drags whole answers and retrieval journeys across the wire. */
-type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string; projection?: "full" | "outcome" }) => Promise<AiObservationRecord[]>;
+type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string; projection?: "full" | "outcome" | "overview" }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
 
 /** What one engine was serving on one day. `asked` is every first reading planned that day whatever came back, `observed` the ones that actually answered, so an
@@ -257,18 +257,17 @@ function segmentize(days: OutcomeDay[]): OutcomeSegment[] {
 /** The stored first readings OVER ONE DAY RANGE: range and slot are asked for in the QUERY and the
  *  store pages until the range is exhausted (the newest-2,000 shot built a 28 day report from a
  *  fortnight). The filter after the read is the belt to those braces. */
-const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts & { projection?: "outcome" }): Promise<AiObservationRecord[]> =>
+const readRows = async (tenantId: string, window: { from: string; to: string }, opts: ReadOpts & { projection?: "outcome" | "overview" }): Promise<AiObservationRecord[]> =>
   (await (opts.readObservations ?? readAiObservations)(tenantId, { fromDay: window.from, toDay: window.to, slot: FIRST_READING_SLOT,
     ...(opts.projection ? { projection: opts.projection } : {}) }))
     .filter((r) => r.tenant_id === tenantId && isFirstReading(r) && r.reporting_day >= window.from && r.reporting_day <= window.to);
 
-/** THE DAILY TREND READ over stored answers. Pure over what is on file; a failed read THROWS, because
- *  an empty report reads as "AI never mentions you", which is a different and false claim. */
+/** THE DAILY TREND READ over stored answers. Pure over what is on file; a failed read THROWS, because an empty report reads as "AI never mentions you", which is a different and false claim. */
 export async function aiOutcomes(tenantId: string, range: { from: string; to: string } & ReadOpts): Promise<AiOutcomeReport> {
   // Read in bounded pieces for the same reason the ledger is: a year of first readings is past the store's
   // own row ceiling. The trend still THROWS on a piece it could not read, because a short series drawn as if
-  // it were the whole stretch would read as days AI said nothing, which is a different and false claim.
-  const { rows, failed } = await readPartitioned([{ from: range.from, to: range.to }], (from, to) => readRows(tenantId, { from, to }, range));
+  // it were the whole stretch would read as days AI said nothing, which is a different and false claim. AND IT ASKS FOR WHAT IT READS: a trend needs the day, the instrument, the verdict and the two journey lists, so it takes the overview projection and never the whole row, whose answer text alone is 6 MB over 28 days.
+  const { rows, failed } = await readPartitioned([{ from: range.from, to: range.to }], (from, to) => readRows(tenantId, { from, to }, { ...range, projection: "overview" }));
   if (failed.length > 0) throw new Error(`[ai-outcomes] could not read ${failed[0]!.from} to ${failed[0]!.to}`);
   const root = ownedRootOf(rows, range.ownedHost);
   const days = [...groupBy(rows, (r) => r.reporting_day).entries()]

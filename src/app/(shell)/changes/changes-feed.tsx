@@ -12,7 +12,7 @@ import Link from "next/link";
 
 import { changeSentence, ledgerProofLine } from "@/domains/decision";
 import type { TopicInvestigation } from "@/domains/evidence";
-import { setAsideClause, type ChangesView } from "../changes-data";
+import { developingClause, type ChangesView } from "../changes-data";
 import { isWatchedDecay } from "./lane-counts";
 
 /** One page's two consecutive 28 day windows, as the decay read hands them over. */
@@ -151,7 +151,7 @@ const nextOf = (inv: TopicInvestigation): string =>
 
 /** THE one Changes screen. `queue` is the ranked list (its own client component, which owns paging, set aside
  *  and mark implemented); the ledger sits under it, and the background sits in a closed drawer under that. */
-export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true, staleCounts = null }: {
+export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true, researchPaused = false, staleCounts = null }: {
   view: ChangesView;
   queue: ReactNode;
   investigations: readonly TopicInvestigation[];
@@ -167,6 +167,9 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   /** FALSE when the evidence behind the drawer could not be read. Absence of a source is not an account with
    *  nothing open: the drawer says which of the two happened and claims no count. */
   evidenceRead?: boolean;
+  /** TRUE when the account's research switch is off. Nothing on this screen may then promise a next daily round
+   *  or work happening behind the scenes, because none is. */
+  researchPaused?: boolean;
   /** Release-stamped open-lane counts (same arithmetic, lane-counts.ts), shown with their age ONLY when the live read failed. */
   staleCounts?: { researching: number; watching: number; ago: string | null } | null;
 }) {
@@ -208,11 +211,18 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
 
   return (
     <div className="space-y-8" data-changes-feed="true">
-      <Lane title="Your edits" blurb="Ranked by payoff: most cards here are an edit you can make right now, and a few are a finding to read while the work behind them is still owed. The chip on each one tells you how proven it is. Every edit is measured after you make it.">
+      {/* THE BLURB IS A PROMISE ABOUT EVERY ROW, so it says only what the completeness boundary guarantees: the exact work, in full, on every card. */}
+      <Lane title="Your changes" blurb="Ranked by payoff. Every card carries the exact work to make: what to change, where, and the final wording. The chip on each one says how strong the evidence behind it is. Every change is measured after you make it.">
         {/* THE WATERMARK, ONCE. Every Google number on this screen ends on the same finalized day, so it is
             said here rather than in brackets on every row that happens to quote one. */}
         {through ? <p className="-mt-1 text-[12px] tabular-nums text-muted-foreground" data-watermark="true">Google data through {through}.</p> : null}
         {queue}
+        {/* THE ONE STATUS COUNT for unfinished work: a number and a next step, never a ranked row, never an edit, and with no control that records it done. */}
+        {(view.developing ?? 0) > 0 ? (
+          <p className="text-[12px] leading-relaxed text-muted-foreground tabular-nums" data-developing-count="true">
+            {developingClause(view.developing)}
+          </p>
+        ) : null}
       </Lane>
 
       <Lane title="Measuring and results" blurb="Changes you have already made. Each page is read against how it did before and against similar pages that were not changed.">
@@ -222,7 +232,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
           </p>
         ) : measuring.length === 0 && results.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-4 text-[13px] leading-relaxed text-muted-foreground">
-            Nothing is measuring yet. Make the top edit above on your site, mark it done, and that page starts being read.
+            Nothing is measuring yet. Make the top change above on your site, mark it done, and that page starts being read.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -256,11 +266,17 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
       {/* THE BACKGROUND, CLOSED. It is true, it is mine, and it is not his work: one line per row, no bullets,
           no per-row repetition of a sentence that is the same on every one of them. */}
       <details id="researching" className="rounded-2xl border border-border bg-surface-inset/40 px-4 py-3" data-backstage="true">
+        {/* A PAUSED ACCOUNT HAS NOTHING HAPPENING BEHIND THE SCENES, and saying otherwise is the one claim here the operator can check and catch. */}
         <summary className="cursor-pointer text-[13px] font-semibold text-foreground">
-          Work happening behind the scenes
+          {researchPaused ? "Open while research is paused" : "Work happening behind the scenes"}
           {backstage ? ` (${num(backstage.topics)} ${plural(backstage.topics, "topic", "topics")}, ${num(backstage.pages)} ${plural(backstage.pages, "page", "pages")})` : ""}
         </summary>
         <div className="mt-3 space-y-4">
+          {researchPaused ? (
+            <p className="text-[13px] leading-relaxed text-muted-foreground" data-paused-note="true">
+              Research is paused, so none of this is being worked on right now. Turn it back on in Settings and the next round picks it up.
+            </p>
+          ) : null}
           {/* A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING OPEN. The two lists below come off that
               read; the ideas I set aside and the ones waiting on a measured page come off the release, so they
               are still said. */}
@@ -271,7 +287,9 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
           ) : (
               <div className="space-y-1" data-backstage-topics="true">
                 {shownResearch.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">No topic is open right now. The next daily round opens the strongest one it finds and it lands here.</p>
+                  <p className="text-[13px] text-muted-foreground">{researchPaused
+                    ? "No topic is open right now, and none is opened while research is paused."
+                    : "No topic is open right now. The next daily round opens the strongest one it finds and it lands here."}</p>
                 ) : (
                   <>
                     {oneNext ? <p className="text-[12px] text-muted-foreground" data-lane-note="true">Next on every one of these: {oneNext}.</p> : null}
@@ -312,7 +330,7 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
                   </li>
                 ) : null}
                 {setAside > 0 ? (
-                  <li className="text-[13px] leading-relaxed text-muted-foreground" data-watching-row="true">{setAsideClause(setAside)}</li>
+                  <li className="text-[13px] leading-relaxed text-muted-foreground" data-watching-row="true">{`The bar for what counts as worth your time went up, so ${num(setAside)} earlier ${plural(setAside, "idea", "ideas")} that no longer clear it went aside.`}</li>
                 ) : null}
                 {evidenceRead !== false && declining.length === 0 && setAside === 0 && heldForMeasurement === 0 ? (
                   <li className="text-[13px] leading-relaxed text-muted-foreground">No page of yours is losing clicks against the four weeks before.</li>

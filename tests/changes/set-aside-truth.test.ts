@@ -43,7 +43,7 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "163 clicks lost in 4 weeks.", observedAt: SEEN }], missing: [], freshestObservedAt: SEEN } },
 } as unknown as ChangeProposal);
 const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [],
-  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
+  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, developing: 0, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
 
 async function renderDetail(): Promise<string> {
@@ -150,16 +150,15 @@ describe("an account that skipped the connectors still reaches its own Today", (
 
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
-  it("says how many ideas I set aside, why, and what happens next", async () => {
-    const html = await renderChanges(emptyView(21));
-    for (const said of ["21 earlier ideas that no longer clear it went aside", "No change has cleared Ready yet", "the next one that earns it lands here"]) expect(html).toContain(said);
+  // ONE STORY ACROSS BOTH SURFACES: the empty queue says which empty it is, Changes owns the housekeeping sentence, and unfinished work is ONE status count with a next step on either screen, never a rank and never the word edit. A bar that could not be READ is not a bar that was raised, so that case claims none.
+  it("says which empty it is, counts what is still being developed, and never calls it an edit", async () => {
+    const view = emptyView(21), { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"), html = await renderChanges(view);
+    for (const said of ["21 earlier ideas that no longer clear it went aside", "No finished change is ready right now", "the moment Beacon has written the exact work"]) expect(html).toContain(said);
     expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
-    // A bar I could not READ is not a bar I raised, so that case may not claim one.
-    expect(await renderChanges({ ...emptyView(21), basisUnreadable: true })).not.toContain("21 earlier ideas"); });
-  it("Changes and Today tell the same story when the decision has zero actionable candidates", async () => {
-    const view = emptyView(21); const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
-    const today = buildTodayViewFromChanges(view); const said = "21 earlier ideas that no longer clear it went aside";
-    expect([today.headerSentence, today.nextOpportunities.length, (await renderChanges(view)).includes(said)]).toEqual(["You have no edits waiting. The next one is ranked here the moment it earns its place.", 0, true]); }); // Today says the one thing he acts on; Changes owns the housekeeping sentence, said once
+    expect([(await renderChanges({ ...view, basisUnreadable: true })).includes("21 earlier ideas"), buildTodayViewFromChanges(view).headerSentence, buildTodayViewFromChanges(view).nextOpportunities.length,
+      buildTodayViewFromChanges({ ...view, developing: 4 }).headerSentence, (await renderChanges({ ...view, developing: 4 })).includes("4 opportunities are still being developed")])
+      .toEqual([false, "No finished change is ready today. The next one is ranked here the moment Beacon has written the exact work.", 0,
+        "No finished change is ready today. 4 opportunities are still being developed.", true]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's
     // own verdicts.

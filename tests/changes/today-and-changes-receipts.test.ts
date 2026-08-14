@@ -96,7 +96,7 @@ const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low
 
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
   proposals: rows, ready: rows, toDo: [], summary: { todo: 0, ready: rows.length, implemented: 0, measuring: 0, results: 0 },
-  measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
+  measuringCountCanonical: 0, demotedStaleBasis: 0, developing: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 
 async function renderList(view: ChangesView): Promise<string> {

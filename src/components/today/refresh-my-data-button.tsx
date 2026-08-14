@@ -75,9 +75,11 @@ export function RefreshResultList({ results }: { results: RefreshResult[] }) {
  * there was nothing of theirs to pull. An unknown count says the one thing that is true either way.
  */
 export function RefreshMyDataButton({
-  connectedCount,
+  connectedCount, researchPaused = false,
 }: {
   connectedCount: number | null;
+  /** TRUE when the account's own research switch is off. This control may then promise the pull it really does and NOTHING about a round that is not running. */
+  researchPaused?: boolean;
 }) {
   const router = useRouter();
   const [pulling, setPulling] = useState(false);
@@ -118,11 +120,8 @@ export function RefreshMyDataButton({
         <span>Update data</span>
       </button>
       <p className="text-[11px] text-muted-foreground">
-        {connectedCount == null
-          ? "Updates your data now, and the daily round runs on its own either way."
-          : connectedCount > 0
-          ? "Pulls your latest numbers now, and the daily round runs on its own either way."
-          : "Picks up anything unfinished now, and the daily round runs on its own either way."}
+        {(connectedCount == null ? "Updates your data now" : connectedCount > 0 ? "Pulls your latest numbers now" : "Picks up anything unfinished now")
+          + (researchPaused ? ", and nothing else runs while research is paused." : ", and the daily round runs on its own either way.")}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (

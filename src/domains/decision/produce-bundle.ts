@@ -26,8 +26,8 @@ import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorToke
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
 
-/** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. `refusedAction` rides one that rules its lever out structurally, so the card that DECIDED on that lever can refuse the sentence without matching on its words. */
-type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[]; refusedAction?: CauseFinding["action"] };
+/** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
+type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[] };
 
 type Research = EvidenceSnapshot["research"];
 type Observation = Research["aiObservations"][number];
@@ -425,7 +425,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
         [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
     }
-    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.considered?.length ? { considered: produced.considered } : {}), ...(produced.refusedAction ? { refusedAction: produced.refusedAction } : {}) };
+    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.considered?.length ? { considered: produced.considered } : {}) };
   }
 
   // A REASON MUST BE TRUE OF THE CARD IT SITS ON: this said the body text was not on file on a card quoting six headings off that very body, so the smaller lever read as a missing read.

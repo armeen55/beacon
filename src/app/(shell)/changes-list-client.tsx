@@ -16,18 +16,17 @@ import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions"
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
 type Lane = "ready" | "todo";
-type Filter = "all" | "proven" | "early" | "guess";
 type Sort = "rank" | "gap" | "quick";
 
-/** The three tiers the CARDS already print, in the same order, so a filter and a chip can never disagree. */
-const FILTERS: [Filter, string][] = [["all", "All"], ["proven", "Proven"], ["early", "Early evidence"], ["guess", "Best guesses"]];
-const TIER_OF: Record<Filter, number> = { all: -1, proven: 0, early: 1, guess: 2 };
+/** THE PROVEN / EARLY / BEST GUESSES FILTER IS GONE. It sorted the queue by how finished the work LOOKED, over a
+ *  list that mixed finished changes with instructions to go and write one, so "Best guesses" read as a tray of
+ *  things to do. Readiness is settled before a row is here at all; evidence strength stays on the card, where it
+ *  is a fact about the argument and not a claim about whether the work exists. */
 const SORTS: [Sort, string][] = [["rank", "Rank"], ["gap", "Biggest gap"], ["quick", "Quickest"]];
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
-  const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("rank");
   // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT: the server cuts one page per lane in the database and counts
   // the rest there too, so what is behind this screen is a fact rather than a length. The two lanes survive as
@@ -57,13 +56,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const readyIds = useMemo(() => new Set(laneRows("ready").map((p) => p.id)), [laneRows]);
   const tierOf = useMemo(() => (p: ChangeProposal) => evidenceTier(p, readyIds.has(p.id)), [readyIds]);
   const rows = useMemo(() => {
-    const kept = raw.filter((p) => !hidden.includes(p.id) && (filter === "all" || tierOf(p) === TIER_OF[filter]));
-    // QUICKEST TIES BREAK ON EVIDENCE: two one-minute edits are not equal work, and the proven one is the one
+    const kept = raw.filter((p) => !hidden.includes(p.id));
+    // QUICKEST TIES BREAK ON EVIDENCE: two one-minute changes are not equal work, and the proven one is the one
     // to do first.
     if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || tierOf(a) - tierOf(b));
     if (sort === "gap") return [...kept].sort((a, b) => (b.upsidePerMonth ?? b.impactScore ?? 0) - (a.upsidePerMonth ?? a.impactScore ?? 0));
     return kept;
-  }, [raw, hidden, filter, sort, tierOf]);
+  }, [raw, hidden, sort, tierOf]);
   // THE COUNT ON THE SCREEN IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts its lane (the old
   // total said 35 above a list holding 12), `lost` takes off what a DEEPER page refused, and a change the
   // operator just put aside comes off it too, so it only ever falls.
@@ -73,14 +72,6 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const openTotal = Math.max(0, countOf("ready") + countOf("todo") - gone);
   const leftIn = (l: Lane) => Math.max(0, countOf(l) - laneRows(l).length);
   const remaining = leftIn("ready") + leftIn("todo");
-  // EVERY CHIP'S OWN COUNT, and only where it is a fact. Proven is counted in the database, so it is exact even
-  // with pages unloaded; the two guess tiers can only be told apart on rows in hand, so they say nothing at all
-  // until the whole queue is loaded rather than printing a number that is short by whatever is still behind it.
-  const doneIn = (tier: number) => raw.filter((p) => closed.has(p.id) && tierOf(p) === tier).length;
-  const chipCount = (f: Filter): number | null =>
-    f === "all" ? openTotal
-      : f === "proven" ? Math.max(0, countOf("ready") - doneIn(0))
-        : remaining > 0 ? null : raw.filter((p) => !closed.has(p.id) && tierOf(p) === TIER_OF[f]).length;
   // ONE BUTTON, TWO LANES BEHIND IT: finish the proven ones, then keep going into the rest.
   const nextLane: Lane = canMore.ready && leftIn("ready") > 0 ? "ready" : "todo";
 
@@ -107,19 +98,16 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       }</p> : null}
       {moved ? <p data-list-moved="true" className="text-[12px] text-amber-800">{moved.note}</p> : null}
 
+      {/* THE COUNT IS FINISHED WORK ONLY, so it is said as changes ready to make and never as ideas open. */}
       <p className="text-[14px] font-semibold tabular-nums text-foreground" data-open-count="true">
-        {openTotal.toLocaleString("en-US")} {openTotal === 1 ? "edit" : "edits"} open
+        {openTotal.toLocaleString("en-US")} finished {openTotal === 1 ? "change" : "changes"} ready to make
       </p>
-      <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        {/* A ZERO IS NOT A COUNT WORTH PRINTING: "Proven 0" beside "All 0" read as a scoreboard of nothing.
-            A chip with no rows behind it is just its name, and the list under it says the rest. */}
-        {FILTERS.map(([k, l]) => {
-          const n = chipCount(k);
-          return <TabButton key={k} active={filter === k} onClick={() => setFilter(k)}>{n == null || n === 0 ? l : `${l} ${n.toLocaleString("en-US")}`}</TabButton>;
-        })}
-        <span className="text-muted-foreground">Sorted by</span>
-        {SORTS.map(([k, l]) => <TabButton key={k} active={sort === k} onClick={() => setSort(k)}>{l}</TabButton>)}
-      </div>
+      {openTotal > 1 ? (
+        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+          <span className="text-muted-foreground">Sorted by</span>
+          {SORTS.map(([k, l]) => <TabButton key={k} active={sort === k} onClick={() => setSort(k)}>{l}</TabButton>)}
+        </div>
+      ) : null}
 
       {rows.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-6 text-[13px] leading-relaxed text-muted-foreground">

@@ -153,7 +153,7 @@ function weekStrip(rows: Awaited<ReturnType<typeof loadProofLedgerCached>>, nowM
   const settled = b.won.length + b.learned.length;
   return {
     made: {
-      label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "edit" : "edits"} this week` : "No edits this week",
+      label: "made", value: made.length > 0 ? `${made.length} ${made.length === 1 ? "change" : "changes"} this week` : "No changes this week",
       sub: measuring > 0 ? `${measuring} measuring now` : "nothing measuring right now",
       pages: pagesHover(made),
     },
@@ -223,9 +223,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
   const top = today.nextOpportunities[0] ?? null;
   const edit = today.topEdit ?? null;
-  // THE RESEARCH SHAPE, read off the projection itself: nothing to paste and no line to paste it into. That is
-  // the one card that asks the operator for nothing, so it may not promise steps or call itself a change.
-  const research = !!edit && !edit.paste && !edit.after;
+  // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
+  // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
+  const plan = !!edit && !edit.paste && !edit.after;
   const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
@@ -233,7 +233,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   return (
     <div className="space-y-6">
       <PageHeader title={greeting} description={`${dayLine}. ${today.headerSentence}`}>
-        <RefreshMyDataButton connectedCount={connectedSourceCount} />
+        <RefreshMyDataButton connectedCount={connectedSourceCount} researchPaused={composite.researchPaused === true} />
       </PageHeader>
 
       {/* THE EDIT ITSELF, above everything, AND THE ACTION LEADS. The card used to open on the paragraph arguing the change, so the
@@ -257,10 +257,6 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
               </div>
             </div>
-          ) : edit && research ? (
-            // RESEARCH IS NOT A PLAN WITH STEPS. This card asks the operator for nothing at all, so promising
-            // steps to read leads to a card that has none: what it holds is a finding and what is still owed.
-            <p className="mt-1 text-[13px] text-muted-foreground">What is settled and what is still owed is on the card.</p>
           ) : edit ? (
             <p className="mt-1 text-[13px] text-muted-foreground">A plan, not a paste. Open it and read the steps before touching anything.</p>
           ) : (
@@ -272,20 +268,29 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              {research ? "Open the details" : "Make this change"}
+              {plan ? "Open the steps" : "Make this change"}
             </Link>
             {openTotal > 1 ? (
               <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "edit" : "edits"}
+                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "change" : "changes"}
               </Link>
             ) : null}
           </div>
         </div>
       ) : (
-        <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground">
-          No edit is ready for you right now. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see what is in progress for your pages.
+        /* ZERO FINISHED CHANGES IS AN HONEST DAY, SAID PLAINLY. The header above already carries how many opportunities
+           are still being developed, so this states the fact and points at the screen that lists what has been written. */
+        <p className="rounded-2xl border border-dashed border-border bg-surface-raised p-5 text-[13px] leading-relaxed text-muted-foreground" data-no-finished-change="true">
+          No finished change is ready today. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see everything that has been written for your pages.
         </p>
       )}
+      {/* THE PAUSE SWITCH IS A FACT ABOUT THIS ACCOUNT, said where the work is with the control that turns it back on. Nothing here may promise a nightly round while it is off. */}
+      {composite.researchPaused ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-paused="true">
+          Research is paused, so no new opportunity is being worked on and nothing new lands here until it is back on.{" "}
+          <Link href="/settings" className="font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Turn research back on</Link>
+        </p>
+      ) : null}
 
       {/* The scoreboard chart: the ONE place a clicks delta is stated, in its own week-over-week window. */}
       <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl border border-border bg-surface-inset" />}>

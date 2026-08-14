@@ -23,7 +23,7 @@
  */
 
 import type { ChangeProposal, ProposalStatus } from "./contracts";
-import { dangerousComponents, isResearchCard } from "./contracts";
+import { dangerousComponents } from "./contracts";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import type { CauseFinding } from "./diagnosis";
 // THE TRUTH TABLE LIVES WHERE THE BOUNDARY LIVES. This ranking discounts a lever that cannot treat the cause the evidence named; decision/authorization REFUSES one. One table, read twice, never restated.
@@ -95,7 +95,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // A CARD THE PASS STILL OWES ITS OWN WORK ON IS NOT A DRAFT WAITING ON ANYBODY. It keeps its tier, because
   // what is riding on it is real, but the receipt may not call it reviewable or safe to paste: there is nothing
   // to review and nothing to paste. Read off the typed fact, so no wording change moves a card up this scale.
-  const research = isResearchCard(p);
+  const research = p.researchOnly === true;
   add("actionability", research ? "this is research still owed, not an edit waiting on you"
     : p.status === "needs_review" ? "this draft is waiting on your review"
       : "this draft passed every safety check", tier, MAX.actionability);

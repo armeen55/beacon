@@ -1,4 +1,5 @@
-/** decision/producers/extra: FOUR MORE WAYS THE QUEUE FILLS ITSELF, all off evidence this account already paid for. Every card is minted from stored rows (the stored AI answers, page snapshots and link graph) and every number on one traces back to a row. The strict path and suggested-edits are untouched; these land beside them at `needs_review`. Every card carries what is riding on it: the audience its page is shown to, and the clicks its page is measurably leaving behind wherever its own search rows can say so. THE ONE THING THIS PASS BUYS is a page reading (producers/page-job.ts): one durable sentence saying what a page is FOR, held per page and re-read only when that page changes. It decides WHERE a card lands, and for a card carrying a subject from elsewhere onto a page it decides WHETHER one exists at all: a page nobody has read holds its card and lands on this pass's receipt instead of taking a guess. WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references, follow-up questions and related searches and NO rich-result flag, so "the winners show an FAQ result and this page has none" is a claim this evidence cannot support. Skipped rather than guessed. ONE CARD PER PAGE PER CHANGE FAMILY: the store files a change under (page, family) and a save SUPERSEDES whatever held it, so every candidate is checked against the queue on file AND against this pass's own. */
+/** A FAN-OUT IS EVIDENCE, NEVER A PAGE TOPIC. The engine's own follow-up search is a trace of how it went looking, not a subject anybody asked to read about, and turning one straight into a section shipped "Add a section on Encyclopaedia Iranica Persian literature Ferdowsi Hafez Saadi Rumi Nezami": a search trace printed as a heading. Content may be authorized off a fan-out only once it is tied to its parent prompt, intent-clustered, checked against the confirmed business scope, matched to a page whose job actually fits, checked against what that page already answers and compared with the shape that wins it, and none of that is a word-overlap count. Until every one of those exists, a fan-out stays internal evidence and mints nothing. THE PRODUCER IS DELETED, not flagged off, and its family stays in the sweep below so the cards it already wrote withdraw themselves. */
+/** decision/producers/extra: THREE MORE WAYS THE QUEUE FILLS ITSELF, all off evidence this account already paid for. Every card is minted from stored rows (the stored AI answers, page snapshots and link graph) and every number on one traces back to a row. The strict path and suggested-edits are untouched; these land beside them at `needs_review`. Every card carries what is riding on it: the audience its page is shown to, and the clicks its page is measurably leaving behind wherever its own search rows can say so. THE ONE THING THIS PASS BUYS is a page reading (producers/page-job.ts): one durable sentence saying what a page is FOR, held per page and re-read only when that page changes. It decides WHERE a card lands, and for a card carrying a subject from elsewhere onto a page it decides WHETHER one exists at all: a page nobody has read holds its card and lands on this pass's receipt instead of taking a guess. WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references, follow-up questions and related searches and NO rich-result flag, so "the winners show an FAQ result and this page has none" is a claim this evidence cannot support. Skipped rather than guessed. ONE CARD PER PAGE PER CHANGE FAMILY: the store files a change under (page, family) and a save SUPERSEDES whatever held it, so every candidate is checked against the queue on file AND against this pass's own. */
 import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
@@ -174,51 +175,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   return out;
 }
 
-/** 2. THE FOLLOW-UP SEARCHES ENGINES RUN FOR THEMSELVES while answering a tracked question. A page that covers most of one and misses the rest is a section away from being what the engine reads next time. */
-async function fanoutCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
-  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string): Promise<Draft[]> {
-  // ONE FAN-OUT, AND THE PROMPTS THAT ACTUALLY RAN IT. An engine echoing the question back was filed as a follow-up search, so a card read "while answering X, engines ran their own follow-up search for X"; an echo is nobody's search and is dropped. And engines were unioned across every parent while the copy named the FIRST parent seen, so a card could say Gemini ran this search for a question Gemini never answered. Engines count per parent prompt now, and the card names the parent that ran it most with only that parent's engines.
-  type Parent = { prompt: string; engines: Set<string>; n: number };
-  const byFanout = new Map<string, { text: string; n: number; parents: Map<string, Parent> }>();
-  for (const o of snapshot.research.aiObservations) for (const f of o.fanOutQueries ?? []) {
-    const key = canonicalQueryKey(f), asked = canonicalQueryKey(o.promptText);
-    if (!key || key === asked) continue;
-    const e = byFanout.get(key) ?? { text: plain(f), n: 0, parents: new Map<string, Parent>() };
-    const par = e.parents.get(asked) ?? { prompt: plain(o.promptText), engines: new Set<string>(), n: 0 };
-    e.n += 1; par.n += 1; par.engines.add(o.engine);
-    e.parents.set(asked, par); byFanout.set(key, e);
-  }
-  const out: Draft[] = [];
-  for (const f of [...byFanout.values()].sort((a, b) => b.n - a.n || a.text.localeCompare(b.text))) {
-    const parent = [...f.parents.values()].sort((a, b) => b.n - a.n || a.prompt.localeCompare(b.prompt))[0];
-    if (!parent || !askable(f.text) || !askable(parent.prompt)) continue;
-    const fit = await bestPageFor(f.text, pages, weak, earned, children, u);
-    if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, f.text, bank, fit.refused);
-    if (fit.verdict === "held") { u.hold(fit.match!.page.url, `${fit.reason} for "${f.text}"`); continue; }
-    const match = fit.match;
-    if (!match || match.missing.length === 0 || match.hits.length < 3) continue;
-    const total = match.hits.length + match.missing.length;
-    const gap = asWritten(f.text, match.missing).slice(0, 4).join(", "), covers = asWritten(f.text, match.hits).join(", ");
-    out.push({
-      page: match.page, slug: "engine_followup", field: "section", query: f.text, asked: parent.prompt,
-      headline: `Add a section on "${f.text}" to ${pathOf(match.page.url)} (engines search it while answering about you)`, before: null,
-      after: `Add a section that answers the search "${f.text}", naming ${gap} in its first paragraph, under a heading a reader would type. The search phrase itself is evidence, not the heading.`,
-      why: `While answering "${parent.prompt}", engines ran their own follow-up search for "${f.text}". ${labelOf(match.page)} at ${pathOf(match.page.url)} covers ${match.hits.length} of the ${total} subjects in that search and its title and headings never mention ${gap}. Add one section that says those words plainly.`,
-      steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${f.text}"`,
-        `Name ${gap} in the first paragraph`, "Mark it done here and the next answers get checked against it"],
-      hints: [`${[...parent.engines].sort().join(", ")} ran the follow-up search "${f.text}" on ${count(parent.n, "stored answer")} to "${parent.prompt}"`,
-        `That search came up on ${count(f.n, "stored answer")} in all`,
-        `${pathOf(match.page.url)} already covers ${covers} and is missing ${asWritten(f.text, match.missing).join(", ")}`],
-      // The stored answers whose own follow-up search this was, plus this page's stored copy.
-      minutes: 30, confidence: "low", refs: f.n + 1,
-      limitation: "The check is against this page's title and headings, which is all that is stored for it, so a paragraph deep in the body may already mention some of these words.",
-    });
-    if (out.length >= MAX_PER_PRODUCER) break;
-  }
-  return out;
-}
-
-/** 3. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
+/** 2. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
 async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding): Promise<{ drafts: Draft[]; complete: boolean }> {
   // A READ THAT THREW IS NOT A SITE WITH NO LINKS. Swallowed, it returned the same empty list as a linkless site, this producer still reported FINISHED, and the sweep then withdrew every internal_link card on file for a database blip. The failure is carried out instead of flattened.
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
@@ -282,7 +239,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   return { drafts: out, complete: true };
 }
 
-/** 4. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
+/** 3. THE THREE DEFECTS WORTH A SWEEP, ONE CARD PER PAGE. A card that fixes one page and then says "repeat on nine more" cannot be done in one sitting, marked done, or measured, so each of the busiest TOP_PAGES_PER_CLASS pages per defect gets its own card and figures and the class total rides along as context. */
 function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, expectedCtrAt: (position: number) => number): Draft[] {
   const impressions = (p: OwnedPageEvidence): number => p.search?.impressions90d ?? 0;
   const rank = (list: OwnedPageEvidence[]): OwnedPageEvidence[] => [...list].sort((a, b) => impressions(b) - impressions(a) || pathOf(a.url).localeCompare(pathOf(b.url)));
@@ -418,7 +375,6 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const bank: { query: string; refusedPages?: string[] }[] = [];
   const links = await linkCards(tenantId, pages, weak, u);
   const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
-    ...(await fanoutCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.
@@ -433,6 +389,8 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
     out.push(card);
   }
   // EACH FAMILY ANSWERS FOR ITS OWN SOURCE. A family whose evidence did not answer is left off this list, so the sweep behind this producer leaves its cards alone instead of retiring work nobody was able to re-read.
+  // `engine_followup` stays in the sweep with NO producer behind it on purpose: it is the one family this pass
+  // still owns and deliberately never emits, so the sweep withdraws every follow-up-search card already on file.
   const families = [...(answersRead ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
   if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
   return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank };

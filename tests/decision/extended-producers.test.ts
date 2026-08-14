@@ -200,7 +200,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([steps[0]!.startsWith("Check /rain-barrels already says everything"), c.after.includes("https://"), c.after.endsWith("The risk is high, because a web address changes.")]).toEqual([true, false, true]);
     // A WINNER OF ONE SEARCH IS NOT A HOME FOR A WHOLE PAGE: the same proven numbers, plus one section the survivor does not carry, is a page told apart and never an address moved.
     const hub = await merge({ comparison: CMP, survivor: PAGE_URL }, new Map([...BODIES, [OTHER_KEY, { ...BODIES.get(OTHER_KEY)!, headings: ["Barrel sizes", "Gallons per storm"] }]]));
-    expect([hub.components.length, hub.refusedAction, hub.refusal!.includes('carries a section /rain-barrels does not: "Gallons per storm"'), /titles and opening lines/.test(hub.refusal!)]).toEqual([0, "consolidate", true, true]);
+    expect([hub.components.length, hub.refusal!.includes('carries a section /rain-barrels does not: "Gallons per storm"'), /titles and opening lines/.test(hub.refusal!)]).toEqual([0, true, true]);
     expect(c.after).not.toMatch(/I am not choosing for you|you pick|stronger position/i);
     // The change the row would carry IS this component: a merge filed as a section change, never a title rewrite.
     expect(envelope(c)).toEqual({ kind: "existing_edit", field: "section", before: null, after: c.after });

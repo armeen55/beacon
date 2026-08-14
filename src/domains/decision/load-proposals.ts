@@ -21,6 +21,7 @@ import { basisTag, getTenant, loadBusinessProfile, type BusinessProfile } from "
 import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
+import { deliverableGaps } from "./completeness";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -139,6 +140,9 @@ export type RankedProposalQueue = {
   /** How many live rows I set aside instead of queueing, because I cannot show
    *  they were drafted under the basis I hold now (surfaces say this out loud). */
   demotedStaleBasis: number;
+  /** Opportunities whose deliverable is not finished. Stored, evidenced, never ranked and never called an edit:
+   *  one status count is all any surface may say about them. */
+  developing: number;
   /** TRUE when the account's current basis could not be read at all. The queue is
    *  empty because I cannot tell what is current, NOT because I raised the bar. */
   basisUnreadable: boolean;
@@ -165,14 +169,21 @@ export async function loadProposalQueue(
   // turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below.
   // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
   // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
-  const all = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
+  const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
+  // THE COMPLETENESS BOUNDARY. A row whose deliverable Beacon has not finished is an opportunity still being developed,
+  // not a change: it keeps its words, its evidence and its history and stays out of the ranked queue, so nothing
+  // instruction-shaped, blank or research-blocked is handed over as work. It is counted instead, and one status line
+  // says how many. A row that cannot be presented may not suppress one that can, so this runs BEFORE the supersession
+  // below, exactly as the basis filter does.
+  const all = standing.filter((p) => deliverableGaps(p).length === 0);
+  const developing = standing.length - all.length;
   // A bundle REPLACES its own shallow rows: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC. READ AFTER the basis filter above, never before it: a bundle from a retired generation can never be shown, and one that censored the current card for its own page took a whole split off the queue rather than the wrong half of it (2026-08-14). A row that cannot be presented may not suppress one that can.
   const bundledPages = new Set(all.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
   const bundledTopics = new Set(all.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
   const current = all.filter((p) => p.bundle
     || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
-  const demotedStaleBasis = live.length - all.length;
+  const demotedStaleBasis = live.length - standing.length;
   // WHY the queue is empty decides what may be said: a raised bar is true of an older or missing basis and a lie when the account simply could not be read, so the surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
   // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
@@ -192,6 +203,7 @@ export async function loadProposalQueue(
     toDo,
     implementedPendingVerification: [...byId.values()].filter((p) => p.status === "implemented_pending_verification").length,
     demotedStaleBasis,
+    developing,
     basisUnreadable,
   };
 }
