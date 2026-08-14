@@ -431,6 +431,9 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
             <p className="min-w-0 flex-1 text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
             {research ? null : <CopyButton text={after} label="Copy" />}
           </div>
+          {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
+              and this page printed the words without it, so the operator read finished copy and still had to guess. */}
+          {c.kind === "existing_edit" && c.where ? <p className="text-[13px] text-muted-foreground">Where it goes: {c.where}</p> : null}
         </div>
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>

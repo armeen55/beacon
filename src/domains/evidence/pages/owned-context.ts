@@ -168,7 +168,10 @@ function bodyOf(row: Row): OwnedPageBody {
   // sentence, stopped at its own paragraph or card cap, or kept fewer words than the page it counted. No word
   // count on file proves nothing, so that is a sample too: an unprovable claim of completeness is exactly what
   // this type exists to prevent.
-  const sampled = held
+  // AN EMPTY 200 IS NOT A PAGE READ WHOLE: body_text present but empty made `held` true and nothing looked cut, so a
+  // crawl that captured no words graded "complete", the one verdict that lets a caller prove a fact ABSENT.
+  const sampled = heldWords === 0 ? true
+    : held
     ? false
     : stored.some((p) => p.length >= CRAWL_PARAGRAPH_CHARS) || stored.length === CRAWL_PARAGRAPHS
       || cardTexts.length >= CRAWL_CARDS || pageWords == null || heldWords < pageWords;
@@ -237,7 +240,10 @@ export async function loadOwnedPageBodies(tenantId: string, urls: string[]): Pro
       if (!key || !wanted.has(key)) continue;
       const body = bodyOf(row);
       const prev = out.get(key);
-      if (prev && (prev.fetchedAt ?? "") >= (body.fetchedAt ?? "")) continue;
+      // NEWEST WINS, BUT WORDS BEAT NO WORDS. One host spelling of a page can hold a newer empty 200 while the other
+      // holds the real body, and taking the newest outright handed the drafter an empty page it had every word of.
+      const worth = (b: OwnedPageBody): string => `${b.passages.length > 0 || (b.vocabulary?.length ?? 0) > 0 ? 1 : 0}${b.fetchedAt ?? ""}`;
+      if (prev && worth(prev) >= worth(body)) continue;
       out.set(key, body);
     }
     return out;

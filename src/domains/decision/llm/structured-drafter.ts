@@ -926,7 +926,9 @@ const ATOMIC_EDIT_SYSTEM =
   '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes.";
+  "Keep a title under ~60 characters and a meta description 120-160. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
+  'ALSO SHOW YOUR HOMEWORK, or the edit is refused: "placementAnchor" (the EXACT existing heading or sentence from the stored page copy below that this edit replaces, lands on, or lands after, copied character for character), "naturalHeading" (a heading a reader would search for, or null when the edit replaces an existing field; NEVER the search or tracked question repeated back), ' +
+  '"claims" (array of {"text","supportedBy"}, one per material statement the copy makes, where supportedBy lists the exact grounding ids given to you that carry it), "implementationMinutes" (how long this takes an operator). Every id in supportedBy must be one handed to you. State no figure the grounding does not already show.';
 
 /** APPENDED ONLY FOR `answer_block`, so the title and meta prompt stays byte for byte what it has always
  *  been and no stored draft is re-read under different wording. An opening answer is a different job from a

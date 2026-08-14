@@ -197,6 +197,8 @@ export type BundleComponent = {
   risk: "safe" | "review" | "dangerous";
   /** WHERE on the page this lands. CMS-independent: a place on the page, never a field in an editor. */
   where?: string;
+  /** WHICH PAGE THIS PIECE IS ON, when the change spans more than one. Differentiating four sibling pages against each other is ONE decision on several addresses, so the bundle carries them rather than the queue growing a second kind of card. Absent = the card's own page. */
+  page?: string;
   /** What applying this one component achieves, in one sentence. */
   objective?: string;
   /** WHY this lever moves the diagnosed cause, in one sentence. */
@@ -382,7 +384,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
     after: z.string().min(1),
     evidenceKeys: z.array(z.string().min(1)).min(1),
     risk: z.enum(["safe", "review", "dangerous"]),
-    where: z.string().min(1).optional(),
+    where: z.string().min(1).optional(), page: z.string().min(1).optional(),
     objective: z.string().min(1).optional(),
     mechanism: z.string().min(1).optional(),
     sourcePack: z.object({ sourceRequirements: z.array(z.string()), factRequirements: z.array(z.string()) }).optional(),

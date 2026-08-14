@@ -18,7 +18,7 @@
  *    longer reads as one liftable answer.
  *  - `missing_source`: a FACTUAL draft with zero authoritative sources overlapping its own claim tokens is
  *    held, copy blocked, and NOT regeneratable, because redrafting cannot invent authority and the honest fix
- *    is "add a source". Formatting and technical kinds are never source-gated. A soft first-mention check runs
+ *    is "add a source". Formatting and technical kinds are never source-gated. A source check runs
  *    only where the account configured one, and a miss downgrades rather than blocks.
  */
 import { checkPassageRules } from "@/domains/evidence/pages/passage-answerability";
@@ -30,7 +30,6 @@ import {
   extractDomain,
   type ClassifiableSource,
 } from "@/domains/decision/drafts/source-authority";
-import { checkFirstMention, type FirstMentionConfig } from "@/domains/decision/drafts/first-mention-check";
 
 export type DraftQualityStatus =
   | "ready"
@@ -270,10 +269,6 @@ type EvaluateDraftInput = {
    *  (BusinessProfile.authoritativeSourceDomains). Omitted = only the
    *  universal .gov/.edu + named encyclopedic/press set applies. */
   authoritativeSourceDomains?: readonly string[];
-  /** W5 (J-70): this tenant's first-mention rule (BusinessProfile.
-   *  firstMention). Null/omitted = the rule contributes nothing, byte-
-   *  identical evaluation to a tenant that never configured one. */
-  firstMentionConfig?: FirstMentionConfig | null;
 };
 
 /** Evaluate a prepared answer block / opening. */
@@ -424,20 +419,10 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     blockedSourceNote = blockedAuthoritativeNote(input.sources, input.authoritativeSourceDomains);
   }
 
-  // 10. J-70 (soft): the tenant's first-mention rule (native script +
-  //     optional transliteration/English gloss). Absent config = no-op. A
-  //     miss never blocks, it downgrades ready to a plain "worth a look".
-  const firstMention = checkFirstMention(answer, input.firstMentionConfig);
-  if (!firstMention.ok) {
-    return {
-      status: "useful_but_needs_review",
-      reasons: [firstMention.reason, ...(blockedSourceNote ? [blockedSourceNote] : [])],
-      copyAllowed: true,
-      canRegenerate: false,
-      confidence: "high",
-      ...(entailmentCorrections ? { corrections: entailmentCorrections } : {}),
-    };
-  }
+  // 10. J-70 (the tenant first-mention rule) IS GONE. It was a soft downgrade driven by a per-account config
+  //     (BusinessProfile.firstMention) that no caller ever threaded into this gate, so it never once ran on a
+  //     real draft. Whether copy names a subject the way a reader needs is what the editor contract's judge
+  //     rules on, over the real page, rather than a character-range test nobody supplied a range to.
 
   return {
     status: "ready",

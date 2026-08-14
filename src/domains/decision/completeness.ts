@@ -12,25 +12,11 @@
 
 import type { ChangeProposal } from "./contracts";
 
-/** AN INSTRUCTION IS A PRODUCTION VERB AND THE THING IT IS ABOUT, IN ONE CLAUSE. UNANCHORED, because the next pass
- *  is a model whose phrasing varies and a two word prefix must never defeat this ("Then write a section that...",
- *  "You should add 800 to 1,200 words...", "Consider adding a description...", "This page needs three more
- *  sections..."); stems carry every inflection. THE CLAUSE is what keeps ordinary imperative page copy whole: a
- *  recipe step and a visa step open on these verbs and name no artifact of Beacon's, so "Cover the pot with a lid
- *  so it steams for ten minutes" is a finished sentence and stays one. */
-/** Passive forms are FINISHED copy about the page ("X is covered in this guide's section"), so a be-verb directly ahead disarms the match. */
-const VERB = String.raw`\b(?:(?<!\b(?:is|are|was|were|been|be)\s)(?:cover|describ|list|nam|show|mention)|add|writ|rewrit|replac|creat|draft|giv|fill|includ|insert|past|link|put|expand|merg|consolidat|mov|redirect|remov|delet|retir|combin|need|requir|consider)(?:e|es|ed|ing|s|n)?\b[^.!?;:\n]{0,70}?`;
-/** BEACON'S OWN DELIVERABLE CLASSES, and an amount of work instead of the words. */
-const OWN = String.raw`(?:\b(?:titles?|descriptions?|headings?|h1s?|sections?|paragraphs?|outlines?|anchor text)\b|\b\d[\d,]*(?:\s*(?:to|and|or|-)\s*[\d,]+)?\s*(?:words|characters)\b)`;
-/** Everything a longer instruction is about: a deliverable class, an address on this site, or the job the copy is
- *  meant to do. Deliberately NOT "so it" or "so they" (ordinary English carrying no artifact at all) and not a
- *  bare "copy", which is a noun a reader owns too ("Include a copy of your passport photo page when you apply"). */
-const INSTRUCTION = new RegExp(`${VERB}(?:${OWN}|\\b(?:sentences?|links?|words|characters|editor)\\b|/[a-z0-9][\\w\\-/]*|\\bthat (?:answers?|names?|says?|covers?|explains?)\\b)`, "i");
-/** A SHORT FIELD CAN ONLY BE UNFINISHED BY SAYING SO. A title, a description and a heading ARE their own final copy,
- *  so they are read against the deliverable classes alone: "Write a description of about 150 characters that..."
- *  declares itself unwritten, and "Link building for a Persian culture site works best through museums and
- *  university pages" is a description and is left exactly as written. */
-const DECLARES_UNWRITTEN = new RegExp(`${VERB}${OWN}`, "i");
+/** NO VERB LIST LIVES HERE ANY MORE. Whether copy is the finished words or a note about producing them is a
+ *  question about meaning, and it was answered by spelling: a production verb near a deliverable noun. It is
+ *  now answered where it is known. A PRODUCER handing over a brief says so in a typed field (`researchOnly`)
+ *  as it mints the card. THE EDITOR's copy is read by decision/drafted-copy's editor contract, against the
+ *  stored page and then by a judge. Only what stays deterministic for any writer is left below. */
 /** A blank somebody is expected to fill in before the copy is usable. */
 const BLANK_TO_FILL = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
 /** Copy that says out loud that the work has not been done. */
@@ -38,10 +24,8 @@ const SAYS_UNFINISHED = /\b(?:not been (?:drafted|read|written)|is not settled|n
 
 const noCopy = (t: string | null | undefined): boolean => !t || t.trim().length === 0;
 const flat = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
-const SHORT_FIELD = new Set(["title", "meta", "h1"]); // fields that REPLACE a line the page already has, so the line itself is the whole deliverable
-/** Is this piece of copy the finished words, or a note about producing them? `short` marks those three fields. */
-const notFinal = (t: string, short = false): boolean =>
-  (short ? DECLARES_UNWRITTEN : INSTRUCTION).test(t) || BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
+/** Copy carrying a blank, or saying out loud that it is not written, is unfinished whoever wrote it. */
+const notFinal = (t: string): boolean => BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
 
 /**
  * WHY THIS IS NOT YET A CHANGE, in plain phrases, or empty when the deliverable is complete BY ITS TYPE.
@@ -54,9 +38,9 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   if (p.researchOnly === true) gaps.push("nothing has been written for it yet");
   const c = p.recommendedChange;
   if (c.kind === "new_page") {
-    for (const [what, text, short] of [["title", c.proposedTitle, true], ["description", c.metaDescription, true], ["opening", c.openingAnswer, false]] as const) {
+    for (const [what, text] of [["title", c.proposedTitle], ["description", c.metaDescription], ["opening", c.openingAnswer]] as const) {
       if (noCopy(text)) gaps.push(`it carries no ${what}`);
-      else if (notFinal(text, short)) gaps.push(`its ${what} describes the work instead of being it`);
+      else if (notFinal(text)) gaps.push(`its ${what} describes the work instead of being it`);
     }
     if (c.outline.length < 3) gaps.push("it names fewer than three sections");
     const written = (p.bundle?.components ?? []).filter((x) => !noCopy(x.after) && !notFinal(x.after))
@@ -66,12 +50,18 @@ export function deliverableGaps(p: ChangeProposal): string[] {
     return [...new Set(gaps)];
   }
   if (noCopy(c.after)) gaps.push("it carries no copy");
-  else if (notFinal(c.after, SHORT_FIELD.has(c.field))) gaps.push("it describes the work instead of being it");
+  else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
   // COPY THAT LANDS SOMEWHERE NEW OWES ITS PLACE. A title, a description or a heading replaces a field the page
   // already has, so its own address is its placement; an opening or a section does not, and a Change is never an
   // instruction to guess where copy goes.
   // A PLACEMENT MUST ITSELF BE FINISHED: a blank-ish or instruction-shaped `where` is no placement at all, whichever writer stamped it.
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
+  // A CHANGE ON SEVERAL PAGES IS FINISHED ONLY WHEN EVERY PAGE IT NAMES IS. Differentiating four siblings is one
+  // decision, and three rewritten pages plus one still owed is not three quarters of a change, it is an unfinished one.
+  const parts = p.bundle?.components ?? [];
+  const owed = [...new Set(parts.map((x) => x.page).filter((x): x is string => !!x))]
+    .filter((pg) => !parts.some((x) => x.page === pg && !noCopy(x.after) && !notFinal(x.after)));
+  if (owed.length > 0) gaps.push(`${owed.length} of the pages it changes have no copy written`);
   if ((c.field === "section" || c.field === "answer_block") && !placed(c.where)
     && !(p.bundle?.components ?? []).some((x) => placed(x.where))) {
     gaps.push("where it goes on the page is not named");

@@ -178,7 +178,6 @@ describe("reading the approved questions", () => {
     expect(pg.queries).toBe(1); // one query, one honest null
   });
 });
-
 describe("reading the answers back", () => {
   /** Who the account is, in the shape the Account kernel derives it. */
   const BRAND = { name: "Acme", forms: ["acme.com", "acme"], host: "acme.com" };
@@ -481,7 +480,6 @@ it("never plans more perplexity than one pass can drain, and fills the freed slo
   const plan = planObservations(DAY, { prompts, observed: [] });
   const perp = plan.filter((d) => d.engine === "perplexity").length;
   expect([plan.length, perp]).toEqual([20, 3]); }); // the old plan carried 5+, the pass drained 3, and the skipped rows re-sorted to the head forever
-
 /** WHEN A PAIR'S DAY IS OVER. A row that only ever said "failed" read as owed on every look, so an engine that
  *  could not answer one question was re-bought on every pass of every day, forever. */
 describe("work that is genuinely finished", () => {
@@ -632,7 +630,6 @@ describe("work that is genuinely finished", () => {
     expect(await dueObservations(T, "2026-08-03", world)).toHaveLength(2);      // and a missed day is not backfilled: it is simply the day I am asked about
   });
 });
-
 /** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so every reading came back "not mentioned" and the AI trend
  * was computed from that. These go through the real production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and the account's own website, and a deterministic second read of the same answer catches what the model missed. */
 describe("every written form that still means this business", () => {
@@ -659,7 +656,6 @@ describe("every written form that still means this business", () => {
     expect(identityFrom("Ritz Builders", "https://ritz-builders.com").forms).toEqual(["ritz-builders.com", "ritz builders"]);
   });
 });
-
 describe("who the answer was read for", () => {
   const ACCOUNT = { id: T, slug: "acct-a", provisional_name: "whatever a stranger typed at signup", domain: "", status: "active" as const,
     signup_date: "", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "", updated_at: "" };

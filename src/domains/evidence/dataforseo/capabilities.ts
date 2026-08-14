@@ -108,11 +108,12 @@ function labsEntry<K extends "labs_keywords_for_site" | "labs_ranked_keywords" |
     parse: parseKeywords,
   };
 }
-function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estCostUsd: number): Entry<K> {
+const SERP_DEPTH = 20; // how far down one results page is read: two full pages, enough to decide an owned position in the teens, still one billed request
+function serpEntry<K extends "serp_organic" | "serp_ai_mode">(base: string, estCostUsd: number, depth?: number): Entry<K> {
   return {
     ttlMs: 1 * DAY, estCostUsd, dims: { device: true, model: false },
     route: () => ({ mode: "task", postPath: `${base}/task_post`, getPath: (id) => `${base}/task_get/advanced/${id}`, tasksReady: `${base}/tasks_ready` }),
-    build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop" }],
+    build: (i) => [{ keyword: i.keyword, location_code: LOCATION_US, language_code: LANG_EN, device: i.device ?? "desktop", ...(depth ? { depth: (i as { depth?: number }).depth ?? depth } : {}) }],
     parse: parseSerp,
   };
 }
@@ -196,7 +197,7 @@ const REGISTRY: Registry = {
     route: () => ({ mode: "live", postPath: "on_page/content_parsing/live", getPath: null, tasksReady: null }),
     build: (i) => [{ url: i.url, enable_javascript: true, accept_language: LANG_EN, ip_pool_for_scan: "us" }], parse: parseContentParsing,
   },
-  serp_organic: serpEntry("serp/google/organic", 0.0021),
+  serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
   llm_chatgpt: llmDynamicEntry("chatgpt", chatGptBuild),
   llm_gemini: llmDynamicEntry("gemini", geminiBuild),

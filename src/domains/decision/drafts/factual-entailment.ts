@@ -165,7 +165,14 @@ function isTitleCase(text: string): boolean {
 export function extractCapitalizedSpans(text: string): string[] {
   const titleCased = isTitleCase(text);
   const scanned = titleCased ? stripTrailingBrandSuffix(text) : text;
-  const spans = scanned.match(/\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*){0,3}\b/g) ?? [];
+  // A CAPITAL THAT ONLY MEANS "A SENTENCE STARTS HERE" IS NOT PART OF A NAME. Glued to the proper noun beside
+  // it, it invented entities no page could ever ground: "No Achaemenid flag has survived" was refused because
+  // the site does not print "No Achaemenid", though it prints Achaemenid on every line. A sentence-initial
+  // span is checked from its SECOND word, so the real name is what has to be found and a genuinely invented
+  // one still is. Nothing is loosened mid-sentence, where a capital does carry a claim.
+  const spans = [...scanned.matchAll(/\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*){0,3}\b/g)].map((m) =>
+    (m.index === 0 || /[.!?]\s+$/.test(scanned.slice(Math.max(0, m.index - 2), m.index))) && m[0].includes(" ")
+      ? m[0].slice(m[0].indexOf(" ") + 1) : m[0]);
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of spans) {

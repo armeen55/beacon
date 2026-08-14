@@ -126,6 +126,11 @@ const AtomicEditDraftSchema = z.object({
    *  (see draft-quality.ts's isFactualClaim); a pure rephrase is never gated. */
   sources: z.array(SourceRefSchema).default([]),
   proofPlan: ProofPlanSchema,
+  /** THE EDITOR CONTRACT (decision/drafted-copy): the homework a finished edit shows, additive with defaults so every draft stored before it still deserializes. `claims` is what the copy asserts and the grounding ids that carry it; the deliverable check, never this schema, decides whether an empty one is finished. */
+  placementAnchor: z.string().max(400).default(""),
+  naturalHeading: z.string().max(160).nullable().default(null),
+  claims: z.array(z.object({ text: z.string().min(1).max(400), supportedBy: z.array(z.string().min(1).max(80)).max(8).default([]) })).max(10).default([]),
+  implementationMinutes: z.number().int().min(0).max(600).default(0),
   ...base,
 });
 export type AtomicEditDraft = z.infer<typeof AtomicEditDraftSchema>;
@@ -392,6 +397,7 @@ export type PageJob = z.infer<typeof PageJobSchema>;
 export type StructuredDraftKind =
   | "answer_block"
   | "atomic_edit"
+  | "editor_judgement"
   | "tool_asset"
   | "commerce_asset"
   | "internal_link"
@@ -403,7 +409,12 @@ export type StructuredDraftKind =
   | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
 
+/** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, and the one sentence that decided it. Every field is owed, so a body missing one is a refusal rather than a pass. */
+const EditorJudgementSchema = z.object({ pageFit: z.boolean(), claimsEntailed: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(),
+  implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300) });
+
 export const SCHEMA_BY_KIND = {
+  editor_judgement: EditorJudgementSchema,
   answer_block: AnswerBlockDraftSchema,
   atomic_edit: AtomicEditDraftSchema,
   tool_asset: ToolAssetSpecSchema,

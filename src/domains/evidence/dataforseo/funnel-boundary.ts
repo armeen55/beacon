@@ -162,7 +162,10 @@ export type CapabilityInputByKey = {
   labs_page_intersection: PageIntersectionAsk;
   /** ONE public page read of a body my own fetch could not get. NEVER used after a robots denial. */
   onpage_content_parsing: { url: string };
-  serp_organic: { keyword: string; device?: "desktop" | "mobile" };
+  /** `depth` IS EMITTED and defaulted by the builder, so it changes the REQUEST without changing the cache
+   *  identity of an ask that never named one. Without it the provider returned its own default page and stored
+   *  results held seven to nine organic rows, so no owned position past about nine was decidable at all. */
+  serp_organic: { keyword: string; device?: "desktop" | "mobile"; depth?: number };
   serp_ai_mode: { keyword: string; device?: "desktop" | "mobile" };
   llm_chatgpt: ChatGptWebInput & ObservationIdentity;
   llm_claude: ClaudeWebInput & ObservationIdentity;
