@@ -13,9 +13,9 @@ export { ensureResearchRunOnVisit, continueResearch } from "./ops/on-visit-refre
 export { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "./research-run";
 export { runDueAccounts, type SchedulerReceipt } from "./ops/scheduler";
 
-// The operator's own off switch for the daily run. Pausing research never suspends the account, and a
-// resume never backfills the days that passed while it was off.
-export { isResearchPaused, setResearchPaused } from "./ops/due-work";
+// The operator's own off switch for the daily run, read in three states because an unreadable switch over
+// paid work is not permission. Pausing never suspends the account, and a resume never backfills.
+export { researchPermission, setResearchPaused } from "./ops/due-work";
 
 // Source refresh recording
 export { recordSourceRefresh } from "./ops/record-source-refresh";

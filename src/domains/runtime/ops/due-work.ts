@@ -86,31 +86,32 @@ export async function accountBasis(tenantId: string): Promise<string | null> {
 /** THE OPERATOR'S OWN OFF SWITCH for daily research, read and written in the one place that answers "is anything owed". It is a column of its own
  * (tenants.research_paused), never an overload of the account status: pausing research must not suspend the account. Both doors honour it, the fleet
  * enumeration in its WHERE clause and the visit path through this read. RESUME NEVER BACKFILLS: the planner only ever asks what TODAY owes, so days that
- * passed while research was paused stay unplanned and unbought, forever. Fail-soft on read (a database I cannot reach is not evidence the operator paused
- * anything, and the claim below is guarded anyway); honest on write, so no surface may claim a pause the database never took. */
-export async function isResearchPaused(tenantId: string): Promise<boolean> {
+ * passed while research was paused stay unplanned and unbought, forever. THREE STATES, because there are three, and the third one used to be spent through:
+ * a switch over PAID work that answered "not paused" whenever the database could not be reached read every outage as permission to buy. Only an explicit,
+ * readable false is permission. An error, a thrown client, a missing account row and a null column are all `unreadable`, which is no work at either door,
+ * a named log line where the money would have been spent, and no claim of either state on any screen. */
+type ResearchPermission = "paused" | "running" | "unreadable";
+export async function researchPermission(tenantId: string): Promise<ResearchPermission> {
   try {
     const { data, error } = await getSupabaseAdmin().from("tenants").select("research_paused").eq("id", tenantId).maybeSingle();
-    if (error != null || data == null) return false;
-    return (data as { research_paused: boolean | null }).research_paused === true;
-  } catch { return false; }
+    if (error != null || data == null) return "unreadable";
+    const flag = (data as { research_paused: boolean | null }).research_paused;
+    return flag === true ? "paused" : flag === false ? "running" : "unreadable";
+  } catch { return "unreadable"; }
 }
 
-/** Turn the daily research run off or on for one account. True = the database holds the new answer, PROVED by the row it handed back. An update that matched
- * nothing answers 204 with no error at all, so a bare "no error" reported success over a database that never heard of this account and the switch flipped on
- * screen for the rest of the day. Row or nothing. */
+/** Turn the daily research run off or on for one account. True = the database holds the new answer, PROVED TWICE. Once by the row the update handed back: an
+ * update that matched nothing answers 204 with no error at all, so a bare "no error" reported success over a database that never heard of this account and the
+ * switch flipped on screen for the rest of the day. Once more by READING THE SWITCH BACK, because a row that matched is not yet a value that stuck. Row and
+ * readback, or nothing. */
 export async function setResearchPaused(tenantId: string, paused: boolean): Promise<boolean> {
   if (!tenantId?.trim()) return false;
   try {
     const { data, error } = await getSupabaseAdmin().from("tenants").update({ research_paused: paused }).eq("id", tenantId).select("id");
-    if (error != null) {
-      log.warn("[due-work] the research pause switch did not land, so nothing changed", { tenantId, error: error.message ?? String(error) });
-      return false;
-    }
-    if (!Array.isArray(data) || data.length === 0) {
-      log.warn("[due-work] the research pause switch matched no account, so nothing changed", { tenantId });
-      return false;
-    }
+    if (error != null) { log.warn("[due-work] the research pause switch did not land, so nothing changed", { tenantId, error: error.message ?? String(error) }); return false; }
+    if (!Array.isArray(data) || data.length === 0) { log.warn("[due-work] the research pause switch matched no account, so nothing changed", { tenantId }); return false; }
+    if (await researchPermission(tenantId) !== (paused ? "paused" : "running")) {
+      log.warn("[due-work] the research pause switch did not read back as asked, so no surface may claim it", { tenantId, paused }); return false; }
     return true;
   } catch (error) {
     log.warn("[due-work] the research pause switch could not be written", { tenantId, error: error instanceof Error ? error.message : String(error) });

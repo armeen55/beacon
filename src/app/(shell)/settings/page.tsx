@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/data/page-header";
 import { requireReadyAccount } from "@/domains/account";
-import { isResearchPaused } from "@/domains/runtime";
+import { researchPermission } from "@/domains/runtime";
 import { currentTenantId } from "@/lib/tenant-context";
 import { SETTINGS_SECTIONS } from "./settings-sections";
 import { SpendLine } from "./spend-line";
@@ -23,9 +23,9 @@ export default async function SettingsPage() {
   const tenantId = await currentTenantId();
   const { access } = await requireReadyAccount(tenantId);
   if (access.kind === "suspended") redirect("/");
-  // isResearchPaused answers false rather than throwing on a bad read; the catch is the last resort, and
-  // a state I genuinely cannot read renders no switch at all rather than a guess.
-  const paused = await isResearchPaused(tenantId).catch(() => null);
+  // The switch answers in three states. A state that could not be read says exactly that on screen and
+  // offers no toggle, because a guess here is a claim about whether money is being spent.
+  const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
   return (
     <div className="max-w-2xl">
       <PageHeader
@@ -47,7 +47,7 @@ export default async function SettingsPage() {
           </li>
         ))}
       </ul>
-      {paused !== null && <ResearchPause paused={paused} />}
+      <ResearchPause permission={permission} />
       <SpendLine />
     </div>
   );

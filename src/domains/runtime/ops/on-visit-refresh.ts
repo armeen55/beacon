@@ -9,7 +9,7 @@ import { runWithTenant } from "@/lib/tenant-context";
 import { NO_BASIS_DETAIL } from "@/domains/evidence/funnel/shared";
 import { runFocus } from "./investigation-queries";
 import { reportingDay } from "@/lib/reporting-day";
-import { dueWork, isResearchPaused, type DueWork, type DuePhase } from "./due-work";
+import { dueWork, researchPermission, type DueWork, type DuePhase } from "./due-work";
 import { defaultSteps, type ResearchCycleSteps } from "./research-steps";
 // The phase bodies live in research-steps; the contract between the two files is this type, so a
 // caller that drives a run keeps importing the runner and gets the shape it must satisfy.
@@ -420,14 +420,15 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
   const deadline = nowFn().getTime() + deadlineMs;
 
-  // Slice 5 pre-activation gate: no research work runs before an account is active, and none runs for an account whose operator paused research. FAIL CLOSED: a
-  // missing/unknown account, or any read error, is a no-op (logged), never a claim. claim_research_run carries NEITHER guard (the fleet enumeration does), so
-  // this is the whole gate on the visit door.
+  // Slice 5 pre-activation gate: no research work runs before an account is active, and none runs unless the pause switch READS as running. FAIL CLOSED: a
+  // missing/unknown account, any read error, and a switch that could not be read at all are each a no-op (logged), never a claim. claim_research_run carries
+  // NEITHER guard (the fleet enumeration does), so this is the whole gate on the visit door, and the money is spent past it.
   const account = await getTenant(tenantId).catch(() => null);
   if (!account || account.status !== "active") {
-    log.debug("[research-run] skipped: account not active (no research before activation)", { tenantId, status: account?.status ?? "unknown" });
-    return; }
-  if (await isResearchPaused(tenantId)) { log.debug("[research-run] skipped: research is paused for this account", { tenantId }); return; }
+    log.debug("[research-run] skipped: account not active (no research before activation)", { tenantId, status: account?.status ?? "unknown" }); return; }
+  const permission = await researchPermission(tenantId);
+  if (permission !== "running") { log.debug(permission === "paused" ? "[research-run] skipped: research is paused for this account"
+    : "[research-run] skipped: permission could not be verified, because the research pause switch could not be read", { tenantId }); return; }
 
   await runWithTenant(tenantId, async () => {
     const ownerToken = newOwnerToken();

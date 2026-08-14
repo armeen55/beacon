@@ -5,8 +5,8 @@ const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], 
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
 vi.mock("@/domains/evidence/topic-investigation", () => ({ reconcileResearchCases: () => REG.next, buildTopicInvestigations: () => { REG.readings += 1; return []; } }));
 vi.mock("@/domains/evidence/funnel/state", async (actual) => ({ ...(await actual<Record<string, unknown>>()), loadFunnelState: async () => ({ state: { cases: REG.onFile }, rowVersion: 3 }), saveFunnelState: async () => { REG.saves += 1; return 4; } }));
-/** The ONE table this file models directly: tenants.research_paused. `missing` is the account the PATCH matches no row for, which PostgREST answers 204 with NO error. Every other table throws exactly as an unconfigured client does, so no other pin moves. */
-const DB = vi.hoisted(() => ({ paused: new Set<string>(), missing: new Set<string>(),
+/** The ONE table this file models directly: tenants.research_paused. `missing` is the account with NO row: the SELECT answers null data and the PATCH matches nothing, which PostgREST answers 204 with NO error. `readThrows` is the client that cannot reach the database at all, and `ignoresWrites` is the row that matched a PATCH whose value did not stick. Every other table throws exactly as an unconfigured client does, so no other pin moves. */
+const DB = vi.hoisted(() => ({ paused: new Set<string>(), missing: new Set<string>(), ignoresWrites: new Set<string>(), readThrows: false,
   /** The FLEET, as the recovery probe's own paged read sees it: every id in id order, plus what each window served. */
   fleet: [] as string[], served: [] as string[][], fleetError: null as { message: string } | null }));
 vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Record<string, unknown>>()),
@@ -14,13 +14,15 @@ vi.mock("@/lib/persistence/supabase", async (actual) => ({ ...(await actual<Reco
     if (table !== "tenants") throw new Error("this test models no other table");
     return {
       select: (_c: string, opts?: { count?: string }) => {
-        if (opts?.count == null) return { eq: (_col: string, id: string) => ({ maybeSingle: async () => ({ data: { research_paused: DB.paused.has(id) }, error: null }) }) };
+        if (opts?.count == null) return { eq: (_col: string, id: string) => ({ maybeSingle: async () => { if (DB.readThrows) throw new Error("the database could not be reached");
+          return DB.missing.has(id) ? { data: null, error: null } : { data: { research_paused: DB.paused.has(id) }, error: null }; } }) };
         const chain = { eq: () => chain, not: () => chain, order: () => chain,
           range: async (from: number, to: number) => { if (DB.fleetError) return { data: null, error: DB.fleetError, count: null };
             const page = DB.fleet.slice(from, to + 1); DB.served.push(page); return { data: page.map((id) => ({ id })), error: null, count: DB.fleet.length }; } };
         return chain; },
       update: (patch: { research_paused: boolean }) => ({ eq: (_c: string, id: string) => ({ select: async () => {
-        if (DB.missing.has(id)) return { data: [], error: null }; if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id);
+        if (DB.missing.has(id)) return { data: [], error: null };
+        if (!DB.ignoresWrites.has(id)) { if (patch.research_paused) DB.paused.add(id); else DB.paused.delete(id); }
         return { data: [{ id }], error: null }; } }) }),
     }; } }) }));
 /** The crawl seam: ONE in-memory frontier, so what is pinned is the ENTRY POINT rather than the fetcher. `state` is what the durable blob holds, and `racer` lets a concurrent instance initialize between the load and the start. */
@@ -41,7 +43,7 @@ const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: 
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
-import { dueWork, isResearchPaused, setResearchPaused, type DueWork } from "@/domains/runtime/ops/due-work";
+import { dueWork, researchPermission, setResearchPaused, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -52,7 +54,7 @@ import { emptyFunnelState } from "@/domains/evidence/funnel/state"; import { rep
 const ACCOUNT_STATUS = new Map<string, AccountStatus>();  // Pre-activation gate: runtime and the RPC model both refuse research work unless the account is active. Every tenant defaults to 'active'; a test opts one into 'pending_onboarding' to exercise the gate.
 const statusOf = (t: string): AccountStatus => ACCOUNT_STATUS.get(t) ?? "active";
 const setAccountStatus = (t: string, s: AccountStatus): void => void ACCOUNT_STATUS.set(t, s);
-/** Accounts whose operator paused research: the SQL reads it on the scheduler door, isResearchPaused on the visit door, the SAME rows. */
+/** Accounts whose operator paused research: the SQL reads it on the scheduler door, researchPermission on the visit door, the SAME rows. */
 const PAUSED = DB.paused;
 function installAccountRepo(): void {
   const byId = async (id: string) => ({ id, slug: id, provisional_name: "", domain: "example.com", status: statusOf(id), signup_date: "", tos_accepted_at: null, daily_budget_usd: 0, growth_goal: null, created_at: "", updated_at: "" });
@@ -131,7 +133,7 @@ const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   // A batch that reads nothing is the site already read whole: one round, then the phase advances.
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
-beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.fleet = []; DB.served = []; DB.fleetError = null; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
+beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
 describe("research-run claim: one open run per account across all dates", () => { it("resumes the account's one unfinished run first: yesterday's paused run is reclaimed by the same id with phase and cursor untouched, a later-day visit reuses it, and no second row is ever created", async () => {
     const rows = freshRepo(); const cursor = { phase: "gsc_backfill_chunk", attemptKey: "k" }; rows.push(mk({ id: "seed", status: "paused", current_phase: "gsc_backfill_chunk", phase_cursor: cursor, cycle_key: ckey(T, NOW - DAY), started_at: iso(NOW - DAY) }));
     const first = await RR.claimRun(T, "o1"); // resumed, not a new run: phase and cursor untouched, paused flips to running
@@ -824,13 +826,24 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
     await dispatch(); expect([rows.length, rows[0]!.status]).toEqual([1, "completed"]); // the one unfinished run is RESUMED, no missed day is invented
     expect(await dispatch(NO_PHASE)).toEqual(R()); });
-  it("reports the pause switch only when the database actually took it, and both doors honour the answer", async () => {
+  it("reports the pause switch only when the database took the row AND read the value back, and both doors honour the answer", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
     DB.missing.add(T);  // A PATCH matching no row answers 204 with NO error, so a bare "no error" reported success over a database that never heard the request, and Settings flipped the switch on screen for the rest of the day.
-    expect(await setResearchPaused(T, true)).toBe(false); expect(await isResearchPaused(T)).toBe(false); // unchanged, and the surface keeps the state it had
-    DB.missing.delete(T); expect(await setResearchPaused(T, true)).toBe(true); expect(await isResearchPaused(T)).toBe(true);
+    expect(await setResearchPaused(T, true)).toBe(false); expect(await researchPermission(T)).toBe("unreadable"); // no row is no answer at all, never "running"
+    DB.missing.delete(T); DB.ignoresWrites.add(T);  // A ROW THAT MATCHED IS NOT A VALUE THAT STUCK. Without the readback this reported success over a column that still holds the old answer.
+    expect(await setResearchPaused(T, true)).toBe(false); expect(await researchPermission(T)).toBe("running");
+    DB.ignoresWrites.clear(); expect(await setResearchPaused(T, true)).toBe(true); expect(await researchPermission(T)).toBe("paused");
     await run({ dueWork: async () => SOMETHING_DUE, ...NO_PHASE }); // the VISIT door reads the same row
     expect([await dispatch(NO_PHASE), rows.length]).toEqual([R(), 0]); });
+  /** AN UNREADABLE OFF SWITCH IS NOT AN ON SWITCH. The read fail-softed to "not paused", so the one gate standing between an outage and a day of bought answers
+   *  treated every unreachable database, every revoked permission and every deleted account row as the operator's permission to spend. Only an explicit,
+   *  readable false opens this door now; the state that could not be read opens nothing and says why. */
+  it("opens the visit door on an explicit readable false only: a thrown read, a missing account row and an explicit true each start zero research work", async () => {
+    const paid: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, ...NO_PHASE };
+    DB.readThrows = true; let rows = freshRepo(); await run(paid); expect(rows).toHaveLength(0); // an exception is never permission
+    DB.readThrows = false; DB.missing.add(T); rows = freshRepo(); await run(paid); expect(rows).toHaveLength(0); // no account row is never permission
+    DB.missing.clear(); PAUSED.add(T); rows = freshRepo(); await run(paid); expect(rows).toHaveLength(0); // the operator said stop
+    PAUSED.delete(T); rows = freshRepo(); await run(paid); expect(rows).toHaveLength(1); }); // and the ONE state that spends: the switch read, and it read false
 });
 /** The rules themselves, on injected persisted state: no network, no clock tricks, no lease. */
 describe("dueWork: what is genuinely owed, computed from persisted state only", () => {
