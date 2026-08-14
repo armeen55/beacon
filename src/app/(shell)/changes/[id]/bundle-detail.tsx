@@ -450,8 +450,11 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           <Bullets items={[...checks]} />
         </div>
       ) : null}
+      {/* A RESEARCH CARD HAS NOTHING TO MARK DONE: no copy has been written for this page, so recording it as
+          applied would start a reading of a change nobody made. Setting it aside stays, because deciding not to
+          chase a question is a real answer. */}
       <div className="flex flex-wrap items-center gap-3">
-        <MarkImplemented proposalId={proposal.id} />
+        {research ? null : <MarkImplemented proposalId={proposal.id} />}
         <SetAsideChange proposalId={proposal.id} />
       </div>
     </div>

@@ -327,10 +327,13 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
             {proposal.whyRankedAboveNext ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
-            {/* EVERY CARD IS AN EDIT HE CAN MAKE, so every card can record that he made it. Hiding this control on the
-                unproven half promised measurement on work that was then refused. */}
-            <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
-              components={piecesOf(bundle)} onRecorded={recordDone} />
+            {/* EVERY CARD THAT IS AN EDIT CAN RECORD THAT HE MADE IT, and hiding this control on the unproven half
+                promised measurement on work that was then refused. RESEARCH IS NOT AN EDIT: nothing has been
+                written for this page yet, so "Mark done" would start a 28 day reading of a change nobody made. */}
+            {research ? null : (
+              <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
+                components={piecesOf(bundle)} onRecorded={recordDone} />
+            )}
           </div>
         ) : null}
 
@@ -341,7 +344,7 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
           </Link>
           {/* THE ONE-PRESS RECORD, on the collapsed card. A new page owes its live address and a merge owes a
               confirmation, so those two keep the full form above rather than being refused after the press. */}
-          {!isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
+          {!isNew && !research && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip

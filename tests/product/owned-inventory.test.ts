@@ -76,7 +76,7 @@ describe("evidence - my own page's actual words, read narrowly", () => {
   it("reads only the asked tenant and the asked URLs, refuses a wider ask, fails closed to no bodies, and never passes headings off as body text", async () => {
     db.snaps = [snapRow(), snapRow({ url: "https://own.com/other" }), snapRow({ tenant_id: OTHER, title: "Not mine" })];
     expect([...(await loadOwnedPageBodies(T, ["https://own.com/actors"])).keys()]).toEqual(["own.com/actors"]); // a page I did not ask about, and an account not mine, are never keyed in
-    expect((await loadOwnedPageBodies(T, ["a", "b", "c", "d"])).size).toBe(0); // four is past the bound: refused, never fanned out
+    expect([(await loadOwnedPageBodies(T, ["a", "b", "c", "d", "e", "f", "g", "h"])).size, [...(await loadOwnedPageBodies(T, ["https://own.com/actors", "own.com/actors", "https://own.com/actors/"])).keys()]]).toEqual([0, ["own.com/actors"]]); // past the bound is refused, never fanned out; one page spelled three ways is ONE slot, never three
     db.fails = true; expect((await loadOwnedPageBodies(T, ["https://own.com/actors"])).size).toBe(0); db.fails = false; // a broken read is never an empty page
     db.snaps = [snapRow({ body_paragraph_sample: undefined, h2_list: ["Famous Actors"], card_texts: ["Golshifteh Farahani"] })];
     expect([(await read()).openingSample, (await read()).cardTexts]).toEqual([null, ["Golshifteh Farahani"]]); }); // no body text on file is said plainly, never filled in from labels

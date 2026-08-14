@@ -89,12 +89,9 @@ type Windows = Map<string, { positionNow: number; positionPrior: number; session
 
 async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> {
   const out: Windows = new Map();
-  const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null),
-    import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
+  const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null), import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
   if (!decay) return out;
-  for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior,
-    sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior,
-    windowEnd: d.windowNowEnd, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
+  for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior, sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior, windowEnd: d.windowNowEnd, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
   return out;
 }
 
@@ -123,8 +120,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const blind = snapshot.sources.find((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed");
   if (blind) {
     log.warn(`[produce-proposals] the ${blind.source === "gsc" ? "search data" : "page inventory"} did not answer, so this pass changes nothing`, { tenantId });
-    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] };
-  }
+    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] }; }
   const profile = await loadBusinessProfile(tenantId).catch(() => null);
   const allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
 
@@ -147,9 +143,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   catch (e) { log.warn("[produce-proposals] investigations failed (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
   // THE ONE CANONICAL COVERAGE PASS, the same one Runtime buys evidence off. $0, deterministic, fail-soft.
   const technical = readTechnicalFindings({ inventory: await readInventory(tenantId, { limit: MAX_INVENTORY }).catch(() => []),
-    pages: snapshot.ownedPages.filter((p) => !!p.content).map((p) => ({ url: p.url, title: p.content!.title, h1: p.content!.h1,
-      internal_links: p.content!.internalLinks.map((l) => l.href), canonical_url: p.content!.canonicalUrl ?? null,
-      has_canonical_mismatch: p.content!.hasCanonicalMismatch ?? null, robots_meta: p.content!.robotsMeta ?? null })) });
+    pages: snapshot.ownedPages.filter((p) => !!p.content).map((p) => ({ url: p.url, title: p.content!.title, h1: p.content!.h1, internal_links: p.content!.internalLinks.map((l) => l.href), canonical_url: p.content!.canonicalUrl ?? null, has_canonical_mismatch: p.content!.hasCanonicalMismatch ?? null, robots_meta: p.content!.robotsMeta ?? null })) });
   let coverage: DecidedTopic | null = null, waitingUntil: string | null = null;
   // Filled once the $0 producers run; the same array rides the result so held work reaches the receipt.
   const extraHeld: { pageUrl: string; reason: string }[] = [];
@@ -240,6 +234,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     demandImpressions90d: byPage.get((p.pageUrl ?? "").trim().toLowerCase()) ?? byPage.get((p.pagePath ?? "").trim().toLowerCase()) ?? null };
   /** WHAT THIS PASS LEARNED ABOUT ONE PAGE, keyed by its address: the door a drafted change came through, and the reads a signal asked for rather than turned into a card. THE RUN RECEIPT SAYS BOTH. */
   const enteredBy = new Map<string, string>();
+  /** WHAT A DEEP READ THAT REACHED A PAGE AND WROTE NOTHING SAID: its one missing read and the levers it weighed. The research card speaks these words, so an arriving results page can never take the card away. */
+  const blocked = new Map<string, { reason: string; considered?: readonly { option: string; reason: string }[]; refusedAction?: CauseFinding["action"] }>();
   const runReceipt = (): QualifiedCandidate[] => enteredBy.size === 0 ? candidates : candidates.map((c) => {
       // Every spelling the setter could have used: the raw address, its lowercase, and its bare path. One note (the page-not-Google divergence) was keyed off a canonicalized search key and never found again.
       const entry = pageKeys(c.pageUrl).map((k) => enteredBy.get(k)).find(Boolean) ?? enteredBy.get(c.pageUrl ?? "");
@@ -336,8 +332,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const heldPage = live.find((p) => p.kind === "new_page" && current(p) && ids.some((k) => p.id.includes(`::${k}::`))) ?? null;
     if (heldPage) { proposals.push(heldPage); reused += 1; }
     else {
-      const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache })
-        .catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
+      const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
       if (built.status === "built") { const page = { ...built.proposal, ...(basis ? { basis } : {}) }; proposals.push(page); await persistIfChanged(page); }
       else log.info("[produce-proposals] no new page this pass", { tenantId, reason: built.reason });
     }
@@ -425,8 +420,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
 
   // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
   const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve };
-  const onThrow = (e: unknown) => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) });
-    return { status: "none" as const, reason: "threw" }; };
+  const onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[]; refusedAction?: CauseFinding["action"] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
 
   for (const d of deep) {
     // What reaches here is a stored bundle that still shows its work, carried forward.
@@ -442,18 +436,18 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       enteredBy.set(d.pageUrl, d.entry);
       continue;
     }
-    // Every page THIS CASE IS ABOUT gets its own words read, through the targeted Evidence reader. Fail-soft.
-    const bodyByUrl = await loadOwnedPageBodies(tenantId, [d.pageUrl, ...d.evidence.competingUrls]).catch(() => null);
+    // Every page THIS CASE IS ABOUT gets its own words read, through the targeted Evidence reader. Fail-soft. AND THE DOOR IS NOT THE ONLY THING THAT NAMES THE OTHER PAGE: where one page's split was diagnosed but the single split door went to a stronger page, this page enters on another door carrying an empty competingUrls, so the merge asked to settle it was handed one side of a two-page decision and refused itself for want of words that were on file all along. THIS PAGE'S OWN diagnosed competitors only, never a wider load.
+    const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
     // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl, door: d,
-      coverage, ...measuring, ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
+      coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
     const path = bundled.status === "bundled" ? (bundled.proposal.pagePath ?? "").trim().toLowerCase() : "";
     if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) {
       log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door,
         reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
       // THE REFUSAL BELONGS ON THE RECEIPT, beside the door the page came through, not only in a log. A REFUSAL IS NOT COPY, though: a split's own card is minted from the diagnosis above, in this file's own words, so an internal refusal string never reaches an operator and never churns a stored row.
-      if (bundled.status !== "bundled") enteredBy.set(d.pageUrl, `${d.entry} ${bundled.reason}`);
+      if (bundled.status !== "bundled") { enteredBy.set(d.pageUrl, `${d.entry} ${bundled.reason}`); for (const k of pageKeys(d.pageUrl)) blocked.set(k, { reason: bundled.reason, ...(bundled.considered?.length ? { considered: bundled.considered } : {}), ...(bundled.refusedAction ? { refusedAction: bundled.refusedAction } : {}) }); }
       continue;
     }
     const page = bundled.proposal.pagePath;
@@ -476,8 +470,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const drafted = await applyDraftedCopy(allowed, { tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache }).catch(() => allowed);
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
+  // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. AND ONE THAT RULES OUT THE VERY ACTION THIS CARD DECIDED ON IS NOT SHOWN AT ALL: a card whose figures settled on a merge may not also carry the sentence saying no merge is available here. Read off the refusal's typed `refusedAction` against the card's own diagnosed action, never off the words either one is written in, or one voice edit puts the contradiction back. That refusal stays on the run receipt, where the reason a producer wrote nothing belongs.
+  for (let i = 0; i < proposals.length; i += 1) {
+    const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : "";
+    if (!block || p.bundle || !(p.limitations ?? []).some((l) => l.includes("this card is research, not an edit")) || (p.operatorSteps ?? []).includes(block.reason) || (p.limitations ?? []).includes(notYet) || (block.refusedAction != null && block.refusedAction === (p.causeFinding?.action ?? null))) continue;
+    proposals[i] = { ...p, limitations: [...(p.limitations ?? []), notYet], evidence: { ...p.evidence, hints: [...p.evidence.hints, block.reason], evidenceRefCount: p.evidence.evidenceRefCount + 1 } };
+    await persistIfChanged(proposals[i]!); }
   // A PROVEN FALL WITH NO DRAFTING EVIDENCE IS STILL WORK: no door reaches it and no producer can write for it, so the loss was invisible. It gets the ONE card naming what is missing, ranked on what it LOST.
-  for (const card of researchingCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey,
+  for (const card of researchingCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey, blocked,
     serpQueryKeys: new Set(snapshot.research.serpEvidence.map((e) => canonicalQueryKey(e.query))),
     skip: new Set(proposals.flatMap((p) => [(p.pagePath ?? "").toLowerCase(), (p.pageUrl ?? "").toLowerCase()])) })) {
     proposals.push(card); await persistIfChanged(card);

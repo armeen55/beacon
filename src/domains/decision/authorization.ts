@@ -234,22 +234,31 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
 /** A fall worth naming as work before its results page is read, and how many of them one pass may name. */
 const MIN_RESEARCHING_CLICKS = 50, MAX_RESEARCHING = 3;
 
+/** WHAT A PRODUCER THAT REACHED THIS PAGE AND WROTE NOTHING SAID: the one read still missing, and the levers it
+ *  weighed on the way there. A blocked page has been reasoned about, so its card says so instead of guessing. */
+type ResearchBlocker = { reason: string; considered?: readonly { option: string; reason: string }[] };
+
 /**
- * EVERY PROVEN FALL THIS PASS COULD NOT DRAFT FOR. A page that lost real clicks on a search whose results page
- * has never been read reaches no door and no producer, so the loss is invisible: not a quiet day, an unseen
- * one. `skip` is the pages this pass already put a card on. Strongest fall first, bounded, deterministic.
+ * EVERY PROVEN FALL THIS PASS COULD NOT DRAFT FOR, whatever stopped it. A page that lost real clicks and got no
+ * card reaches the operator as an unseen day rather than a quiet one, so the gate is EXACTLY that: no card, and
+ * no re-emission means it is minted again. It was once gated on "no results page for that search is on file",
+ * which meant the card VANISHED the moment the results page landed and the producer still had nothing to hand
+ * over, taking the biggest loss on the site off the queue for arriving evidence. `blocked` carries the
+ * producer's own words for the page it refused. Strongest fall first, bounded, deterministic.
  */
 export function researchingCards(w: Wiring & { judged: readonly Judged[]; serpQueryKeys: ReadonlySet<string>;
-  queryKeyOf: (q: string) => string; skip: ReadonlySet<string> }): ChangeProposal[] {
+  queryKeyOf: (q: string) => string; skip: ReadonlySet<string>; blocked?: ReadonlyMap<string, ResearchBlocker> }): ChangeProposal[] {
+  const blockerFor = (url: string): ResearchBlocker | undefined => keysOf(url).map((k) => w.blocked?.get(k)).find(Boolean);
   return w.judged
     .filter((c) => !!c.pageUrl && !!c.query && c.gap === "recent_decline" && c.cause.cause !== "no_problem"
       && c.cause.cause !== "measuring_change" && c.recoverableClicks >= MIN_RESEARCHING_CLICKS
-      && !w.serpQueryKeys.has(w.queryKeyOf(c.query!)) && !keysOf(c.pageUrl).some((k) => w.skip.has(k)))
+      && !keysOf(c.pageUrl).some((k) => w.skip.has(k)))
     .sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))
     .slice(0, MAX_RESEARCHING)
     .map((c) => researchingCard({ tenantId: w.tenantId, now: w.now, basis: w.basis, pageUrl: c.pageUrl!,
       pageLabel: labelOf(pageFor(w, c.pageUrl!), c.pageUrl!), query: c.query!, finding: c.cause,
-      recoverable: c.recoverableClicks, demandImpressions90d: pageFor(w, c.pageUrl!)?.search?.impressions90d ?? null }));
+      recoverable: c.recoverableClicks, demandImpressions90d: pageFor(w, c.pageUrl!)?.search?.impressions90d ?? null,
+      blocker: blockerFor(c.pageUrl!) ?? null, serpRead: w.serpQueryKeys.has(w.queryKeyOf(c.query!)) }));
 }
 
 /**
@@ -262,20 +271,27 @@ export function researchingCards(w: Wiring & { judged: readonly Judged[]; serpQu
  * asserting a fall of a size nobody measured whenever the curve gap was the bigger of the two. The finding
  * already states the true fall in its own words, so this says the number is what is recoverable and no more.
  */
-function researchingCard(b: CardBase & { recoverable: number }): ChangeProposal {
+function researchingCard(b: CardBase & { recoverable: number; blocker: ResearchBlocker | null; serpRead: boolean }): ChangeProposal {
   const path = pathOf(b.pageUrl);
-  const missing = `The results page for "${b.query}" has not been read, and that read is what turns this into exact work: it names what moved ahead of ${path}.`;
+  // THE ONE THING STILL MISSING, IN THE WORDS OF WHOEVER LOOKED. A producer that read this case and refused says
+  // exactly what it needs; only a page nothing reached falls back to the read that has provably not happened.
+  const missing = b.blocker?.reason
+    ?? (b.serpRead
+      ? `The pages that come up above ${path} for "${b.query}" have not been read against it, and that read is what turns this into exact work.`
+      : `The results page for "${b.query}" has not been read, and that read is what turns this into exact work: it names what moved ahead of ${path}.`);
+  // WHAT WAS RULED OUT ON THE WAY HERE, so a research card argues rather than shrugs. Bounded to three. A
+  // REJECTED LEVER IS NOT A STEP: numbered under "Read this twice, then:" it read as an instruction to go and
+  // do the very thing the producer refused, so it stands beside the card as what was already ruled out.
+  const ruled = (b.blocker?.considered ?? []).slice(0, 3).map((c) => `Already ruled out, ${c.option.toLowerCase()}: ${c.reason}`);
   return {
     ...shell(b, RESEARCHING_FAMILY, b.recoverable),
     opportunityType: `Find out what took the clicks from ${path}`,
     recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
     whyItMatters: `${b.finding.explanation} ${missing}`,
-    operatorSteps: [`Run research on "${b.query}" so the results page for it gets read`,
-      `The pages holding those positions get read against ${path}`,
-      "The exact change lands on this card once that read is on file"],
+    operatorSteps: [missing, "The exact change lands on this card once that read is on file"],
     estimatedEffortMinutes: 15, confidence: "low",
-    limitations: [RESEARCH_MARKER,
-      "This is what the gap is worth, not a promise of what comes back: what to change is not known until the results page for that search is read."],
-    evidence: { query: b.query, hints: [`${num(b.recoverable)} clicks are recoverable here`, b.finding.explanation, missing], evidenceRefCount: 3 },
+    limitations: [RESEARCH_MARKER, ...ruled,
+      "This is what the gap is worth, not a promise of what comes back: what to change is not known until the read named above is on file."],
+    evidence: { query: b.query, hints: [`${num(b.recoverable)} clicks are recoverable here`, b.finding.explanation, missing, ...ruled], evidenceRefCount: 3 + ruled.length },
   };
 }

@@ -130,7 +130,10 @@ export function selectDeepCandidates(input: {
   }
 
   // DOOR 5: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
-  const falling = strongest(candidates.filter((c) => !!c.pageUrl && c.gap === "recent_decline"));
+  // A PAGE ALREADY UNDER A READING IS NOT THE PAGE TO SPEND THIS SLOT ON: nothing may be stacked on a change
+  // still being measured, so the deepest read of the pass was bought for a page it could only ever refuse, and
+  // the next fall down the list, which nothing was measuring, never got looked at.
+  const falling = strongest(candidates.filter((c) => !!c.pageUrl && c.gap === "recent_decline" && c.cause.cause !== "measuring_change"));
   // THE SPAN THE FALL WAS MEASURED OVER TRAVELS WITH IT. Stamping a null window here made the producer refuse
   // every page this door picked ("one 90 day total is on file with nothing earlier"), so door 5 burned a slot
   // on every pass and produced nothing. The candidate carries the window now, because the windows were read.

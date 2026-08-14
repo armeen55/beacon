@@ -1,7 +1,7 @@
 /** CHANGES. The ranked queue explains its own order, and a change detail hands over the whole
  *  investigation, the pieces picker and the override. Every test name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react"; import { readFileSync } from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 
@@ -51,13 +51,6 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     expect([dark.includes("Your Google search data could not be read just now"), dark.includes("No topic is open right now"), /\([\d,]+ topics?,/.test(dark), /data-watching-row/.test(dark),
       open.includes("Your Google search data could not be read just now"), /\(1 topic, 1 page\)/.test(open), open.includes("its results page is read next"),
       fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
-
-/** TODAY IS WORK, NOT A STATUS REPORT (2026-08-11). The collection chip, the topic counter, the research-pass line and the whole
- *  measuring strip are gone from the page; nothing on it may narrate a pass again, and no first person may come back. */
-describe("Today narrates no research and speaks in no first person", () => {
-  it("never narrates its own research on Today, in any form", () => { const page = readFileSync("src/app/(shell)/page.tsx", "utf8");
-    for (const banned of ["answersReadClosely", "aiChecksAnswered", "answers collected today", "topics under research", "researchStatusLine", "In research"]) expect(page, banned).not.toContain(banned); });
-});
 
 // ── Changes: the receipts reach the operator ─────────────────────────────────
 

@@ -139,9 +139,14 @@ function bindingFloor(g: QueryGap): string {
   return `that search is worth about ${num(clicks)} ${clicks === 1 ? "click" : "clicks"}, under the ${MIN_RECOVERABLE_CLICKS} clicks that earn a change`;
 }
 
-/** The query with the most recoverable clicks. Deterministic tiebreak. */
+/** The query with the most recoverable clicks, AMONG THE SEARCHES BIG ENOUGH TO TRUST. Where no trusted search
+ *  is losing anything, the arithmetic maximum is rounding noise: a page beating its own curve on every real
+ *  search it serves picked whichever 199 view spelling happened to round up to one click and then spoke about
+ *  THAT, so a page level fall was reported against a search nobody was losing while the results page on file
+ *  for the search it really serves went unread. Then the page's own BIGGEST search is the one it is about. */
 function bestGap(gaps: QueryGap[]): QueryGap | null {
-  return [...gaps].sort((a, b) => b.recoverableClicks - a.recoverableClicks || b.impressions - a.impressions || a.query.localeCompare(b.query))[0] ?? null;
+  const real = gaps.filter((g) => g.impressions >= MIN_QUERY_IMPRESSIONS && g.recoverableClicks > 0);
+  return [...(real.length > 0 ? real : gaps)].sort((a, b) => (real.length > 0 ? b.recoverableClicks - a.recoverableClicks : 0) || b.impressions - a.impressions || a.query.localeCompare(b.query))[0] ?? null;
 }
 
 // ── evidence readiness (a gap opens an investigation, evidence closes it) ─────
@@ -188,8 +193,10 @@ function readinessOf(page: OwnedPageEvidence, gap: QueryGap, index: ResearchInde
     ownedCopy: !!content && !!((content.title ?? "").trim() || (content.metaDescription ?? "").trim()),
     serp: !!key && index.serpByQuery.has(key),
     winners: index.winnersByQuery.get(key) ?? 0,
-    // FALSE until a page-body store exists. An outline is a list of headings, not the page's words: produce-bundle holds PAGE_BODY_TEXT = null and every receipt says
-    // so, and one contract read two ways always inflated in the same direction.
+    // FALSE BECAUSE THIS PASS LOADED NONE, never because none exists. A page's own words live in the snapshot
+    // store and the deep read pulls them for the exact pages one case is about, setting this true off the text
+    // it actually holds. This walk is pure and reads every page, so it claims only what it has: an outline is a
+    // list of headings, not the page's words, and one contract read two ways always inflated the same direction.
     body: false,
   };
 }

@@ -40,8 +40,10 @@ import type { ChangeProposal } from "./contracts";
  *   6 = a new page is proposed again, and ONLY where the page by page comparison proved
  *       the winning pages share searches no page of this account reaches. Every page
  *       brief drafted under any earlier rule is history.
+ *   7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung
+ *       instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry.
  */
-const DECISION_GENERATION = 6;
+const DECISION_GENERATION = 7;
 
 /**
  * The account's CURRENT research basis, or null when it cannot be read. Composes exactly what Runtime and the Evidence funnel compose, so one basis serves every
@@ -171,8 +173,7 @@ export async function loadProposalQueue(
   const current = all.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   const demotedStaleBasis = all.length - current.length;
-  // WHY the queue is empty decides what I may say. "I raised the bar" is true of an
-  // older or missing basis and a lie when I simply could not read the account, so the surfaces get the reason, not just the number.
+  // WHY the queue is empty decides what may be said: a raised bar is true of an older or missing basis and a lie when the account simply could not be read, so the surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;
   // A page whose change the operator already applied IS a page under measurement, for as long as the measurement runs. Ranking a second change onto it would make the first one unreadable, so the ranker
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.

@@ -44,9 +44,11 @@ export type OwnedPageBody = {
   heldNote: string;
 };
 
-/** Three pages is the intended ask (one investigation's own pages). A wider ask is refused outright: this
- *  reader exists BECAUSE the whole-site read is too heavy. */
-const MAX_URLS = 3;
+/** ONE SPLIT'S OWN PAGES, WHOLE, and the page under work. A wider ask is refused outright: this reader exists
+ *  BECAUSE the whole-site read is too heavy. It sat at three while the ladder groups up to six competing pages
+ *  (evidence/snapshot MAX_SPLIT_PAGES), so a three-page split asked four, was refused, and lost even the primary
+ *  page's own words: the merge then refused itself for a missing read of pages that were on file all along. */
+const MAX_URLS = 7;
 /** The byte ceiling on ONE page's held content: roughly four times the largest capture the crawler can
  *  produce, so it truncates nothing real today and still bounds this read if the capture grows. */
 const MAX_PAGE_CHARS = 48_000;
@@ -211,7 +213,11 @@ export function pageContains(page: OwnedPageBody | null | undefined, phrase: str
  *  query itself, never filtered after a wide read. An empty map means "I have no page text for you". */
 export async function loadOwnedPageBodies(tenantId: string, urls: string[]): Promise<Map<string, OwnedPageBody>> {
   const out = new Map<string, OwnedPageBody>();
-  const asked = (urls ?? []).map((u) => (typeof u === "string" ? u.trim() : "")).filter(Boolean);
+  // ONE PAGE IS ONE SLOT. The bound counted STRINGS, so an absolute address and its own canonical key spent two of
+  // three slots on one page and a two-page split could tip a caller over the bound. Deduped on the key this reader
+  // already matches rows by, first spelling kept, so the bound counts the pages actually being asked for.
+  const seen = new Set<string>(), asked: string[] = [];
+  for (const u of urls ?? []) { const s = typeof u === "string" ? u.trim() : "", k = s ? canonicalUrlKey(s) : ""; if (k && !seen.has(k)) { seen.add(k); asked.push(s); } }
   if (!tenantId?.trim() || asked.length === 0) return out;
   if (asked.length > MAX_URLS) {
     log.warn("[owned-context] refused a page-body read wider than its bound", { asked: asked.length, max: MAX_URLS });

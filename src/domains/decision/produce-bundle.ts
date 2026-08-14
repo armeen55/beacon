@@ -22,11 +22,12 @@ import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
-import { anchoredTopicMatch, canonicalQueryKey, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
 
-type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string };
+/** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. `refusedAction` rides one that rules its lever out structurally, so the card that DECIDED on that lever can refuse the sentence without matching on its words. */
+type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[]; refusedAction?: CauseFinding["action"] };
 
 type Research = EvidenceSnapshot["research"];
 type Observation = Research["aiObservations"][number];
@@ -53,7 +54,7 @@ const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = default
 const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 
 function parseUrl(url: string): URL | null { try { return new URL(url.startsWith("http") ? url : `https://${url}`); } catch { return null; } }
-const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`); const MIN_ANCHOR_CORPUS = 10, MAX_INVENTORY = 200;
+const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`); const MIN_ANCHOR_CORPUS = 10, MAX_INVENTORY = 200, MAX_AHEAD = 6;
 
 /** WEAK ANCHORS: the words this account puts on everything fit anything, so alone they attach no evidence. Under MIN_ANCHOR_CORPUS phrases the set is empty. */
 function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
@@ -89,7 +90,8 @@ const classSentence = (r: Receipt): string => `Built from ${receiptComposition(r
 
 const queriesOf = (page: OwnedPageEvidence): OwnedQuerySignal[] => [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions || b.clicks - a.clicks || byText(a.query, b.query)).slice(0, 5);
 
-type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; supportKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null };
+/** `ahead` is WHO IS ABOVE THIS PAGE for its own search, each carrying its words WHEN they are on file: a fall is explained by what moved past it, so an unread page there is a named hole rather than a shrug. */
+type Receipt = ChangeBundle["receipt"] & { prompts: string[]; hasResearch: boolean; contextOnlyKeys: string[]; supportKeys: string[]; links: { anchor: string; to: string }[]; readiness: EvidenceReadiness; diagnosis: ActionDiagnosis; bodyText?: string | null; ahead: NonNullable<ProducerCtx["ahead"]> };
 
 /** A pattern is claimable only across MULTIPLE pages that come up for this exact search, as a count I can show. */
 function winnerPattern(read: Research["winningPages"], c: NonNullable<OwnedPageEvidence["content"]>, primary: string): string | null {
@@ -172,6 +174,11 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     `${w.domain} ${w.appearances.some((a) => a.kind !== "serp_organic") ? "is one of the pages AI keeps citing here" : `comes up on the results page for "${primary}"`}${w.extract ? `, and it runs ${w.extract.wordCount.toLocaleString()} words under ${w.extract.headings.length} headings` : ""}.`,
     [...w.appearances].sort((a, b) => byText(b.observedAt, a.observedAt))[0]?.observedAt ?? null));
   const winners2 = winnerPattern(read, c, primary); if (winners2) add("winpattern", "winning_page", winners2, null);
+  // WHO IS ABOVE THIS PAGE ON THAT RESULTS PAGE, in rank order, each joined to its own read where one exists. A
+  // page with no read carries nulls rather than being dropped, because the hole IS the finding a fall needs.
+  const extracts = new Map(read.map((w) => [canonicalUrlKey(w.url), w.extract!] as const));
+  const ahead: Receipt["ahead"] = [...(serps[0]?.organic ?? [])].sort((a, b) => a.rank - b.rank).filter((o) => owned == null || o.rank < owned.rank).slice(0, MAX_AHEAD)
+    .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)); return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null }; });
 
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor)).sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 
@@ -195,7 +202,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   const readiness: EvidenceReadiness = { gsc: (s.topQueries ?? []).some((q) => isPrimary(q.query)), ownedCopy: !!(c.title || c.metaDescription),
     serp: serps.length > 0, winners: read.length, body: !!bodyText };
   const dates = items.map((it) => it.observedAt).filter((d): d is string => !!d).sort(byText);
-  return { items, missing, readiness, diagnosis, bodyText, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
+  return { items, missing, readiness, diagnosis, bodyText, ahead, freshestObservedAt: dates.length ? dates[dates.length - 1]! : null, prompts: [...new Set(prompts)].sort(byText),
     hasResearch: items.some((it) => it.kind === "keyword" || it.kind === "serp" || it.kind === "ai_observation" || it.kind === "winning_page"),
     contextOnlyKeys: contextOnly, supportKeys, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
 }
@@ -212,6 +219,7 @@ type ProduceBundleOptions = ProposeOptions & {
   coverage?: DecidedTopic | null;
   /** The pages already carrying a change under measurement, so a page still being read is left alone. */
   measuringPagePaths?: readonly (string | null)[];
+  /** THIS PAGE'S OWN TWO 28 DAY WINDOWS. Without them the ladder cannot ask whether the page slipped or the searching stopped, so the deep read re-diagnosed every fallen page as if its fall had never been measured and the door opened on a fall produced nothing. */ decline?: { clicksNow: number; clicksPrior: number; positionNow: number; positionPrior: number; impressionsNow: number; impressionsPrior: number };
   /** WHICH DOOR SELECTED THIS PAGE, off deep-candidates. Absent = the click door, byte for byte as before. */
   door?: DoorContext | null;
   /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED (decision/technical-findings). ABSENT means nobody
@@ -301,8 +309,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const only = (opts.onlyPageUrl ?? "").trim().toLowerCase();
   const eligible = only ? snapshot.ownedPages.filter((p) => canonicalUrlKey(p.url) === canonicalUrlKey(only) || pathOf(p.url).toLowerCase() === only) : snapshot.ownedPages;
   const graded = eligible.filter((p) => hasCurrentCopy(p) && queriesOf(p).length > 0)
-    .map((p) => { const gaps = gapsOf(p, opts.curve?.expectedCtrAt); return { page: p, gaps, gap: totalRecoverable(gaps) }; })
-    .sort((a, b) => b.gap - a.gap || byText(pathOf(a.page.url), pathOf(b.page.url)));
+    .map((p) => { const gaps = gapsOf(p, opts.curve?.expectedCtrAt); return { page: p, gaps, gap: totalRecoverable(gaps) }; }).sort((a, b) => b.gap - a.gap || byText(pathOf(a.page.url), pathOf(b.page.url)));
   // THE CLICK DOOR: only a page whose own positions prove recoverable clicks.
   const scored = graded.filter((r) => r.gap >= MIN_RECOVERABLE_CLICKS);
   const door = opts.door && opts.door.door !== "ctr_gap" ? opts.door : null;
@@ -338,7 +345,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   if (receipt.items.length === 0) return { status: "none", reason: "Nothing about this page is on file to show yet, so no change is asked of it." };
   // NO DRAFT SPEND BEFORE A NAMED CAUSE. ONE ladder, `diagnoseCauses`; nothing here re-derives a cause, so a page said to be losing on X is never handed a change made for Y.
   const diagnosis = receipt.diagnosis;
-  const finding = diagnoseCauses({ snapshot, page, query: primary, serpRead: diagnosis, coverage: mine, body: held,
+  const finding = diagnoseCauses({ snapshot, page, query: primary, serpRead: diagnosis, coverage: mine, body: held, decline: opts.decline,
     ...(technical ? { technical } : {}), ...(opts.measuringPagePaths ? { measuringPagePaths: opts.measuringPagePaths } : {}) });
   // A SPLIT IS SETTLED OR IT IS NOT TOUCHED: rewording one of two competing pages leaves them competing.
   if (door?.door === "cannibalization" && finding.cause !== "cannibalization")
@@ -405,9 +412,9 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const drafters = producerDrafts(tenantId, opts, now);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
-      body: held, ownedPages: inventory, pattern, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies };
+      body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? [])) }; // the last one is what the site prints on everything, read off the whole inventory: furniture is not content to move
     const produced = await slot(ctx);
-    steps = produced.operatorSteps ?? null;
+    steps = produced.operatorSteps ?? null; alternatives.push(...(produced.considered ?? []));
     for (const c of produced.components) {
       const field = fieldForComponent(c.kind);
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
@@ -418,15 +425,12 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
         [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
     }
-    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation };
+    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.considered?.length ? { considered: produced.considered } : {}), ...(produced.refusedAction ? { refusedAction: produced.refusedAction } : {}) };
   }
 
-  if (receipt.links.length > 0) alternatives.push({ option: "Links out to your own pages",
-    reason: `${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} ${receipt.links.length === 1 ? "is" : "are"} worth linking to from here, and this page's body text is not on file, so where the link honestly belongs cannot be named. Supply the page copy and it gets placed.` });
-
-  const runnerUp = scored[1];
-  if (runnerUp) alternatives.push({ option: `Start with ${pathOf(runnerUp.page.url)} instead`,
-    reason: `Its searches come up about ${Math.round(runnerUp.gap).toLocaleString()} clicks short against this page's ${Math.round(pick.gap).toLocaleString()}, so it is the smaller win today.` });
+  // A REASON MUST BE TRUE OF THE CARD IT SITS ON: this said the body text was not on file on a card quoting six headings off that very body, so the smaller lever read as a missing read.
+  if (receipt.links.length > 0 && finding.cause !== "internal_link_weakness") alternatives.push({ option: "Links out to your own pages", reason: `${receipt.links.length} of your own ${receipt.links.length === 1 ? "page" : "pages"} ${receipt.links.length === 1 ? "is" : "are"} worth linking to from here, and ${receipt.bodyText ? `the cause named on this page is ${causeLabel(finding.cause)}, which a link from here does not treat` : "this page's body text is not on file, so where the link honestly belongs cannot be named. Supply the page copy and it gets placed"}.` });
+  const runnerUp = scored[1]; if (runnerUp) alternatives.push({ option: `Start with ${pathOf(runnerUp.page.url)} instead`, reason: `Its searches come up about ${Math.round(runnerUp.gap).toLocaleString()} clicks short against this page's ${Math.round(pick.gap).toLocaleString()}, so it is the smaller win today.` });
 
   // KEEP / CHANGE / ADD / REMOVE, said out loud: a `before` REPLACES and every other component ADDS, and the sections no component names are what this change leaves alone, so the operator sees most of their page is untouched. A rebuild keeps nothing here; its preservation map answers.
   const touched = (h: string): boolean => components.some((c) => c.kind === "full_rewrite" || c.kind === "restructure"

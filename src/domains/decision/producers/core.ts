@@ -16,6 +16,7 @@
 import type { BundleComponent } from "../contracts";
 import { technicalComponents } from "../technical-findings";
 import { pageContains } from "@/domains/evidence/pages/owned-context";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
 import { produceConsolidation, produceInternalLinks, produceSourceExpansion } from "./extended";
 
@@ -197,6 +198,82 @@ const technical: Producer = async (ctx) => {
  *  with no replacement page. Without one of those there is no change to make, only an instruction. */
 const HELD_UNTIL_EXACT: ReadonlySet<string> = new Set(["duplicate_title", "duplicate_h1", "missing_h1", "orphaned_page", "non_200", "broken_internal_link"]);
 
+/** The leading-section rewrite for a page built to do the wrong job. Named once, because two causes reach it. */
+const intentRewrite = shapeMismatch("Lead with what people searching this are actually trying to do.",
+  "The page answers a different question from the one being asked, and the leading section is the only place a reader finds that out in time.");
+
+// ── ranking_loss: the page slipped, and a fall says HOW MUCH was lost, never WHAT TO DO about it ──
+// A fall is a size, not a lever. So every lever is asked here BY NAME against this case's own stored evidence,
+// the rejections travel with the answer, and nothing falls through to "write more copy": a page that lost its
+// place to something better is not fixed by being longer. Where the evidence cannot pick between levers, this
+// picks NOTHING and names the one read that would settle it, which is a research card rather than a guess.
+
+/** What the ladder ALREADY concluded about one other cause on this page: why it lost, or the exact input it
+ *  never had. Read rather than re-derived, so the producer and the diagnosis can never disagree out loud. */
+function ladderSaid(ctx: ProducerCtx, cause: string): { reason: string; fired: boolean } | null {
+  const lost = ctx.finding.competingExplanations.find((c) => c.cause === cause);
+  if (lost) return { reason: lost.reason, fired: lost.fired === true };
+  const unheld = ctx.finding.notConsidered.find((c) => c.cause === cause);
+  return unheld ? { reason: unheld.missing, fired: false } : null;
+}
+
+const rankingLoss: Producer = async (ctx) => {
+  const considered: NonNullable<Produced["considered"]> = [];
+  const failed = (option: string, out: Produced): void => { considered.push({ option, reason: out.refusal ?? "Nothing written for it passed its own checks." }); };
+  const weigh = (option: string, cause: string, fallback: string): boolean => {
+    const said = ladderSaid(ctx, cause);
+    considered.push({ option, reason: said?.reason ?? fallback });
+    return said?.fired === true;
+  };
+  // 1. TWO OF YOUR OWN PAGES ON ONE SEARCH, asked one rung above this one, so its answer is already on file.
+  weigh("Settle which of your pages owns this search", "cannibalization",
+    "Which of your own pages Google serves for that search is not on file, so nothing here says combine anything.");
+  // 2. THE LINE A SEARCHER READS, refused on the fall itself rather than on any reading of the results page.
+  considered.push({ option: "A sharper title or description",
+    reason: "This page slipped down the results rather than losing the click at the place it held, so no wording wins back a position something else now occupies." });
+  // 3. WHAT PEOPLE SEARCHING THIS ARE THERE TO DO. Its own evidence fired, so the leading section is the fix.
+  const wants = "Rebuild this page for what people searching it want";
+  if (weigh(wants, "intent_shift", "What someone searching this is actually trying to do is not on file, so the page is not rebuilt for a want nobody recorded.")) {
+    const out = await intentRewrite(ctx);
+    if (out.components.length > 0) return { ...out, considered };
+    failed(wants, out);
+  }
+  // 4. WHAT THE WINNING PAGES ALL COVER AND THIS ONE DOES NOT, off the side-by-side reading of those pages.
+  const covers = "Cover what the winning pages all cover";
+  const absent = [...(ctx.pattern?.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern?.commonEntities ?? []).map((e) => e.entity)]
+    .filter((s) => pageContains(ctx.body, s) !== "yes");
+  if (absent.length > 0) {
+    const out = await incompleteCoverage({ ...ctx, finding: { ...ctx.finding, payload: { cause: "incomplete_coverage", absentHeadings: absent, absentEntities: [] } } });
+    if (out.components.length > 0) return { ...out, considered };
+    failed(covers, out);
+  } else considered.push({ option: covers, reason: ctx.pattern
+    ? "The pages that win this search were read side by side and this page already carries every subject they agree on."
+    : "The pages that win this search have not been read side by side, so no subject can be named as one this page leaves out." });
+  // 5. HOW THE PAGE IS BUILT, against the pages ABOVE it: they answer the search in their first words and this
+  //    page's own opening never names it. Read off those pages themselves, never off anybody's taste.
+  const first = "Answer the search in this page's first lines";
+  const above = (ctx.ahead ?? []).filter((a) => !!a.openingSample);
+  const want = topicTokens(ctx.primary);
+  const names = (text: string): boolean => { const held = new Set(topicTokens(text)); return want.some((w) => held.has(w)); };
+  const answered = above.filter((a) => names(a.openingSample!)).length;
+  const mineNames = ctx.body?.openingSample ? names(ctx.body.openingSample) : null;
+  if (above.length >= 2 && answered === above.length && mineNames === false) {
+    const out = await weakOpening({ ...ctx, finding: { ...ctx.finding, payload: { cause: "weak_opening", want } } });
+    if (out.components.length > 0) return { ...out, considered };
+    failed(first, out);
+  } else considered.push({ option: first, reason: above.length < 2 ? "Too few of the pages above this one have been read to say how they open."
+    : mineNames == null ? "This page's own opening words are not on file, so what a reader sees first cannot be judged."
+      : mineNames ? "This page already names the search in its opening words, exactly as the pages above it do."
+        : "The pages above this one do not agree on opening by answering the search, so its opening is not what cost it the position." });
+  // 6. NOTHING THE EVIDENCE CAN PICK BETWEEN. Name the ONE read that settles it and hand over nothing else.
+  const unread = (ctx.ahead ?? []).find((a) => !a.wordCount);
+  return { components: [], considered, refusal: unread
+    ? `${unread.domain} sits at position ${unread.rank} for "${ctx.primary}", above this page, and none of its words are on file, so what it does that this page does not cannot be named. Read ${unread.url} and the exact change lands here.`
+    : (ctx.ahead ?? []).length === 0
+      ? `No results page for "${ctx.primary}" is on file, so which pages moved ahead of this one is not readable. Read the results page for that search and the exact change lands here.`
+      : `Every page above this one on "${ctx.primary}" has been read and none of them carries a subject, a shape or an opening this page is missing, so there is nothing exact to hand over. Read them side by side and the change follows.` };
+};
+
 /**
  * THE REGISTRY. Total over every cause the ladder can name: a producer, or the honest reason there is nothing to produce. A reason here is not an apology, it is the fact that this cause's fix is not copy.
  */
@@ -207,9 +284,7 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   serp_shape_shift: shapeMismatch(
     "Make this page's leading section do the job the pages winning this search all do.",
     "The results have settled on one kind of page and this one is a different kind, so the leading section is where that distance is closed or not at all."),
-  intent_shift: shapeMismatch(
-    "Lead with what people searching this are actually trying to do.",
-    "The page answers a different question from the one being asked, and the leading section is the only place a reader finds that out in time."),
+  intent_shift: intentRewrite,
   // The wording of the line Google displays is the ONE cause this kernel has always been able to write, and
   // it keeps its own path in produce-bundle unchanged: routing it through here would be a second title path.
   ctr_snippet: { reason: "The title path owns this cause and writes it directly." },
@@ -223,9 +298,9 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   ai_citation_gap: produceSourceExpansion,
   // A change of yours is still being measured: the whole point is to add nothing on top of it.
   measuring_change: { reason: "A change here is still being measured, and stacking another one on top would make the first unreadable." },
-  // The two the ladder itself says it cannot test yet. Their evidence does not exist in this product, so there is nothing to produce from and saying so is the honest answer.
+  // Fewer people searching is not a page defect, so nothing on the page is written for it and saying so is the honest answer. A FALL IS DIFFERENT: it is a size, and rankingLoss asks every lever by name.
   demand_decline: { reason: "One 90 day total for that search is on file and nothing earlier, so there is nothing here to act on." },
-  ranking_loss: { reason: "One average position for that search is on file and nothing earlier, so there is nothing here to act on." },
+  ranking_loss: rankingLoss,
   // The inventory and the capture answer this one now: one fault, one address, one exact fix.
   technical_indexability: technical,
   no_problem: { reason: "Nothing accuses this page, so there is nothing to change on it." },

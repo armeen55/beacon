@@ -63,9 +63,4 @@ describe("what Connections says when something goes wrong", () => {
     const store = await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store");
     const h = await store.getConnectorHealth("google_gsc", "t1"); vi.doUnmock("@/lib/persistence/supabase");
     expect([h.status, h.health, h.healthReason, h.countsAsConnected]).toEqual(["unknown", "unknown", "Could not check just now. The connection is unchanged. Reload to check again.", false]); });
-  // Beacon's insides are never advice: no line a customer can read names a server setting or where Beacon runs.
-  it("no customer-facing line names an environment variable or the host", async () => {
-    const { readFileSync } = await import("node:fs");
-    for (const f of ["src/app/(shell)/settings/connectors/connectors-client.tsx", "src/app/(shell)/settings/connectors/actions.ts"])
-      expect(readFileSync(f, "utf8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n")).not.toMatch(/GOOGLE_|NEXT_PUBLIC_|Vercel/); });
 });

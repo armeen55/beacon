@@ -66,7 +66,15 @@ export type ProducerCtx = {
   /** THE PAGES WHOSE CURRENT WORDS I HOLD, by canonical address. A change that moves content off another page
    *  of this account may name only what it can read there; absent means I hold none but the page under work. */
   heldBodies?: ReadonlyMap<string, OwnedPageBody>;
+  /** THE HEADINGS THIS SITE PRINTS ON NEARLY EVERY PAGE: a menu rail, a shop strip, a footer brand line. Furniture
+   *  is not content, so a change that moves sections off another page may never name one. Computed by the caller
+   *  off the whole inventory (evidence/relevance-gate), because only the whole site can say what is repeated. */
+  templateHeadings?: ReadonlySet<string>;
   pattern: WinningPattern | null;
+  /** WHO IS ABOVE THIS PAGE on the results page for its own search, in rank order, each carrying its words when
+   *  they are on file and nulls when they are not. A fall is explained by what moved past it, so a page nobody
+   *  has read is a NAMED, buyable hole rather than a shrug. Empty means no results page for that exact search. */
+  ahead?: readonly { url: string; domain: string; rank: number; wordCount: number | null; headings: string[]; openingSample: string | null }[];
   /** The receipt facts, in plain English, as the drafter's grounding. */
   receiptFacts: string[];
   readiness: EvidenceReadiness;
@@ -79,6 +87,14 @@ export type Produced = { components: BundleComponent[]; refusal: string | null;
   /** WHAT TO DO, IN ORDER, when the change is a job rather than a paste. A component's `after` is the thing an
    *  operator copies, so instructions inside it become copied text; a change that cannot be pasted puts its
    *  instructions here instead and the surface renders them as steps with no copy button. */
-  operatorSteps?: string[] };
+  operatorSteps?: string[];
+  /** EVERY LEVER THIS PRODUCER WEIGHED AND DID NOT PICK, in its own words. A producer that can reach for more
+   *  than one fix owes the rejections as loudly as the pick, or "add a section" reads as the only thing it
+   *  ever considered. They join the change's alternatives, and a refusal carries them to the research card. */
+  considered?: { option: string; reason: string }[];
+  /** THE ACTION THIS REFUSAL RULES OUT, typed off the ladder's own vocabulary, for a structural refusal that says
+   *  the lever is not available here at all rather than not yet. A card that DECIDED on this action may not then
+   *  carry the sentence refusing it, and a phrase match on authored copy is one voice edit from letting it back. */
+  refusedAction?: CauseFinding["action"] };
 
 export type Producer = (ctx: ProducerCtx) => Promise<Produced>;
