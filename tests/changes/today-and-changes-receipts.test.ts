@@ -114,10 +114,12 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
-    const html = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "Copy new title · 6 min", "High risk",
-      "Proven", "it wins back more of what you are losing", "Skip"]) expect(html, s).toContain(s);
-    expect(await renderList(viewOf([atomic()]))).toContain("One edit"); // one component is one edit, never a bundle
+    const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
+    for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
+    // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
+    const held = await renderList(viewOf([proposal()]));
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "waiting on a look", "Awaiting validation", "nothing below can be marked done"]) expect(held, s).toContain(s);
+    for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
@@ -155,13 +157,11 @@ describe("a change detail hands over the whole investigation and the controls to
     // Every piece starts ticked: applying all of them is the normal case.
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
-    // TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped
-    // the other.
+    // TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other.
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
     const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]); });
-  // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it,
-  // and confirming it has to be a real act.
+  // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
     const b = proposal().bundle!;
     const html = await renderDetail(proposal({ bundle: { ...b, risks: ["The old address stops answering the moment you publish this."],

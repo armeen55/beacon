@@ -20,8 +20,14 @@ type Sort = "rank" | "gap" | "quick";
 
 /** THE PROVEN / EARLY / BEST GUESSES FILTER IS GONE. It sorted the queue by how finished the work LOOKED, over a
  *  list that mixed finished changes with instructions to go and write one, so "Best guesses" read as a tray of
- *  things to do. Readiness is settled before a row is here at all; evidence strength stays on the card, where it
- *  is a fact about the argument and not a claim about whether the work exists. */
+ *  things to do. Evidence strength stays on the card, where it is a fact about the argument.
+ *
+ *  BUT ONE FLAT LIST WAS THE WRONG LESSON. The two lanes were merged into one ranked list and the card offered
+ *  Copy and Mark done on every row in it, so a change still waiting on a human look ("needs_review", the stage
+ *  Product Truth puts BEFORE ready) presented as a paste-ready deliverable: three of the five cards on this
+ *  screen were work nobody had validated, wearing the same buttons as work that had cleared every gate. Ready
+ *  work is one list. Everything still waiting on a look sits below it, plainly labelled, with nothing on it to
+ *  press: reading it is the whole of what an operator can do with it, and that is said rather than implied. */
 const SORTS: [Sort, string][] = [["rank", "Rank"], ["gap", "Biggest gap"], ["quick", "Quickest"]];
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
@@ -51,25 +57,28 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // rather than stacked under the new ones, which is the only way "each change once" survives.
   const laneRows = useMemo(() => (l: Lane): ChangeProposal[] =>
     moved?.lane === l ? more[l] : [...(l === "ready" ? view.ready : view.toDo), ...more[l]], [moved, more, view]);
-  // PROVEN FIRST, THEN THE REST. One list, one order, and the chip on each card says which kind it is.
+  // THE ONE DIVIDING LINE ON THIS SCREEN: the row's own stage. Nothing about how it looks, how strong its
+  // evidence is or which lane it was paged out of decides it, so a card can never present above its stage.
   const raw = useMemo(() => [...laneRows("ready"), ...laneRows("todo")], [laneRows]);
-  const readyIds = useMemo(() => new Set(laneRows("ready").map((p) => p.id)), [laneRows]);
+  const readyIds = useMemo(() => new Set(raw.filter((p) => p.status === "ready").map((p) => p.id)), [raw]);
   const tierOf = useMemo(() => (p: ChangeProposal) => evidenceTier(p, readyIds.has(p.id)), [readyIds]);
-  const rows = useMemo(() => {
-    const kept = raw.filter((p) => !hidden.includes(p.id));
+  const order = useMemo(() => (kept: ChangeProposal[]) => {
     // QUICKEST TIES BREAK ON EVIDENCE: two one-minute changes are not equal work, and the proven one is the one
     // to do first.
     if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || tierOf(a) - tierOf(b));
     if (sort === "gap") return [...kept].sort((a, b) => (b.upsidePerMonth ?? b.impactScore ?? 0) - (a.upsidePerMonth ?? a.impactScore ?? 0));
     return kept;
-  }, [raw, hidden, sort, tierOf]);
+  }, [sort, tierOf]);
+  const shown = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
+  const rows = useMemo(() => order(shown.filter((p) => p.status === "ready")), [order, shown]);
+  const review = useMemo(() => order(shown.filter((p) => p.status !== "ready")), [order, shown]);
   // THE COUNT ON THE SCREEN IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts its lane (the old
   // total said 35 above a list holding 12), `lost` takes off what a DEEPER page refused, and a change the
   // operator just put aside comes off it too, so it only ever falls.
-  const closed = new Set([...hidden, ...finished]);
-  const gone = raw.filter((p) => closed.has(p.id)).length;
   const countOf = (l: Lane) => (moved?.lane === l ? moved.total : l === "ready" ? view.summary.ready : view.summary.todo) - lost[l];
-  const openTotal = Math.max(0, countOf("ready") + countOf("todo") - gone);
+  // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE. It used to add both lanes together, so the number
+  // above the list counted cards nobody had validated as "finished changes ready to make".
+  const openTotal = Math.max(0, rows.filter((p) => !finished.includes(p.id)).length + Math.max(0, countOf("ready") - laneRows("ready").length));
   const leftIn = (l: Lane) => Math.max(0, countOf(l) - laneRows(l).length);
   const remaining = leftIn("ready") + leftIn("todo");
   // ONE BUTTON, TWO LANES BEHIND IT: finish the proven ones, then keep going into the rest.
@@ -121,6 +130,28 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
         ))}
       </ul>
+
+      {/* WAITING ON A LOOK. Separated, labelled, and carrying no control that would record work as done: what
+          is here is not finished, and a screen that offers Copy and Mark done on it says otherwise. */}
+      {review.length > 0 ? (
+        <section className="space-y-3 rounded-2xl border border-dashed border-border bg-surface-inset p-4" data-review-area="true">
+          <div className="space-y-1">
+            <p className="text-[14px] font-semibold tabular-nums text-foreground">
+              {review.length.toLocaleString("en-US")} more {review.length === 1 ? "is" : "are"} waiting on a look
+            </p>
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
+              These have the evidence but not the validation. Read one and it moves up here as a change once its
+              exact words pass every check. Nothing below is ready to paste and nothing below can be marked done.
+            </p>
+          </div>
+          <ul className="list-none space-y-3">
+            {review.map((p, i) => (
+              <ChangeCard key={p.id} proposal={p} rank={rows.length + i + 1} proven={false} review onAside={putAside}
+                onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {canMore[nextLane] && remaining > 0 ? (
         <button type="button" disabled={loadingMore} data-show-more="true"

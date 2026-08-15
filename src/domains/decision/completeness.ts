@@ -60,9 +60,17 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   // A CHANGE ON SEVERAL PAGES IS FINISHED ONLY WHEN EVERY PAGE IT NAMES IS. Differentiating four siblings is one
   // decision, and three rewritten pages plus one still owed is not three quarters of a change, it is an unfinished one.
   const parts = p.bundle?.components ?? [];
-  const owed = [...new Set(parts.map((x) => x.page).filter((x): x is string => !!x))]
-    .filter((pg) => !parts.some((x) => x.page === pg && !noCopy(x.after) && !notFinal(x.after)));
+  // EVERY PAGE THE DIAGNOSIS NAMED, NOT EVERY PAGE THAT SURVIVED IT. Reading the component list alone asked only
+  // about the addresses still in the change, so a three-page split that lost two pages on the way through the
+  // drafter answered "complete" about the one page left. The producer's own verdict ledger is the roll call: a
+  // page it says it is differentiating owes written copy, and a page it decided to leave alone owes its reason.
+  const said = p.bundle?.dispositions ?? [];
+  const written = (pg: string): boolean => parts.some((x) => x.page === pg && !noCopy(x.after) && !notFinal(x.after));
+  const owed = [...new Set([...parts.map((x) => x.page), ...said.filter((d) => d.verdict === "differentiate").map((d) => d.page)])]
+    .filter((x): x is string => !!x).filter((pg) => !written(pg));
   if (owed.length > 0) gaps.push(`${owed.length} of the pages it changes have no copy written`);
+  const unsaid = said.filter((d) => d.verdict !== "differentiate" && d.because.trim().length < 12).map((d) => d.page);
+  if (unsaid.length > 0) gaps.push(`${unsaid.length} of the pages it names give no reason for being left alone`);
   if ((c.field === "section" || c.field === "answer_block") && !placed(c.where)
     && !(p.bundle?.components ?? []).some((x) => placed(x.where))) {
     gaps.push("where it goes on the page is not named");
@@ -77,11 +85,33 @@ export function deliverableGaps(p: ChangeProposal): string[] {
  * biggest description on the site (18,317 views in 90 days) with it. A stored deliverable is replaced by a NEW
  * finished one or by an explicit withdrawal carrying a reason, never by silence.
  *
- * THE BASIS STILL DECIDES, so this can never preserve stale copy: words banked under a different basis are a
- * different reading of the account and the incoming card wins outright, exactly as before. PURE.
+ * WHAT THE COPY WAS WRITTEN FOR IS WHAT KEEPS IT ALIVE. The basis alone decided, and a basis is a reading of the
+ * ACCOUNT, not of this page: it does not move when the page is re-crawled, when the diagnosis changes its mind,
+ * when the evidence behind the argument is replaced, when the piece is aimed at a different place or a different
+ * set of addresses, when the lever changes, or when the line the copy says it replaces is no longer the line the
+ * page carries. Every one of those makes banked words answer a question nobody is asking any more. So the words
+ * survive only while the identity BELOW them is byte for byte what it was, and that identity is exactly the
+ * material fields the stored fingerprint already treats as identity, minus the copy itself. `copyStamp` is the
+ * caller's reading of the TARGET PAGE at the moment each card was minted (title, heading, description, outline),
+ * banked on the row beside the words, so a page re-crawled into a different shape retires copy written for the
+ * old one. A row carrying no stamp compares as null on both sides and is decided by everything else. PURE.
  */
+export function copyIdentity(p: ChangeProposal): string {
+  const parts = p.bundle?.components ?? [];
+  // THE LINE BEING REPLACED IS NOT COMPARED DIRECTLY. A producer re-minting a brief hands back `before: null`
+  // because it has not read the field yet, and reading that as "the line changed" would throw away the copy on
+  // every single pass, which is the exact destruction this function exists to stop. What the page carries is
+  // carried by `copyStamp` instead, which is read off the stored page and says so honestly for every field.
+  return JSON.stringify([p.basis ?? null, p.copyStamp ?? null, p.changeFamily, p.diagnosisCause ?? null, p.causeFinding?.explanation ?? null,
+    p.recommendedChange.kind === "existing_edit" ? [p.recommendedChange.field] : ["new_page"],
+    [...new Set(parts.map((c) => c.page ?? p.pagePath ?? ""))].sort(),
+    parts.map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before]),
+    (p.bundle?.dispositions ?? []).map((d) => [d.page, d.verdict]),
+    (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.observationId ?? null, [...(i.observationIds ?? [])].sort()]).sort()]);
+}
+
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
-  if (!prior || (prior.basis ?? null) !== (incoming.basis ?? null)) return incoming;
+  if (!prior || copyIdentity(prior) !== copyIdentity(incoming)) return incoming;
   if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return incoming;
   // The words, where they land, what they cost and what was said about them stay as banked; THIS pass's
   // evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.

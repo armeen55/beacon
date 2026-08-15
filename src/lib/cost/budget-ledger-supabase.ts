@@ -127,99 +127,21 @@ export async function recordSpendSupabase(
   }
 
   try {
-    const supabase = getSupabaseAdmin();
-    const date = todayUtcDate();
-    const nowIso = new Date().toISOString();
-
-    // SELECT the current row, if there is one.
-    const { data: existing, error: selErr } = await supabase
-      .from("llm_budget_ledger")
-      .select("spent_usd, call_count, prompt_count, chunk_count")
-      .eq("tenant_id", input.tenantId)
-      .eq("date_utc", date)
-      .eq("platform", input.platform)
-      .maybeSingle();
-
-    if (selErr) {
-      console.warn(
-        `[budget-ledger] read failed (non-fatal) tenantId=${input.tenantId} ` +
-          `platform=${input.platform}: ${selErr.message}`,
-      );
-      return false;
-    }
-
-    if (existing) {
-      const { error: updErr } = await supabase
-        .from("llm_budget_ledger")
-        .update({
-          spent_usd: Math.max(0, Number(existing.spent_usd) + input.costUsd),
-          call_count: Number(existing.call_count) + 1,
-          prompt_count: Number(existing.prompt_count) + promptCount,
-          chunk_count: Number(existing.chunk_count) + chunkCount,
-          last_run_id: input.runId ?? null,
-          updated_at: nowIso,
-          ...(input.metadata !== undefined ? { metadata: input.metadata } : {}),
-        })
-        .eq("tenant_id", input.tenantId)
-        .eq("date_utc", date)
-        .eq("platform", input.platform);
-      if (updErr) {
-        console.warn(
-          `[budget-ledger] update failed (non-fatal) tenantId=${input.tenantId} ` +
-            `platform=${input.platform}: ${updErr.message}`,
-        );
-        return false;
-      }
-      return true;
-    }
-
-    const { error: insErr } = await supabase.from("llm_budget_ledger").insert({
-      tenant_id: input.tenantId,
-      date_utc: date,
-      platform: input.platform,
-      spent_usd: Math.max(0, input.costUsd),
-      call_count: 1,
-      prompt_count: promptCount,
-      chunk_count: chunkCount,
-      last_run_id: input.runId ?? null,
-      metadata: input.metadata ?? null,
+    // ONE ATOMIC INCREMENT, NOT A READ AND A WRITE. Every charge used to SELECT today's row, add the cost in
+    // JavaScript and UPDATE the absolute total back, so two concurrent charges both read the same total and one
+    // of them simply disappeared: the fail-closed cap was then reading a number smaller than what was spent.
+    // The database adds the delta under an advisory lock for this (tenant, platform), which is the same shape
+    // the provider ledger has always used, so nothing depends on what this process last read.
+    const { data, error } = await getSupabaseAdmin().rpc("increment_llm_spend", {
+      p_tenant_id: input.tenantId, p_platform: input.platform, p_delta: input.costUsd,
+      p_prompts: promptCount, p_chunks: chunkCount, p_run_id: input.runId ?? null,
+      p_metadata: (input.metadata ?? null) as never,
     });
-    if (insErr) {
-      // Duplicate key = a PARALLEL writer created the day-row between our SELECT and INSERT
-      // (e.g. the nightly team verdicts fire concurrently). The loser must fold its spend into
-      // the existing row, not drop it - dropped spend under-counts the fail-closed cap.
-      if ((insErr as { code?: string }).code === "23505") {
-        const { data: row } = await supabase
-          .from("llm_budget_ledger")
-          .select("spent_usd, call_count, prompt_count, chunk_count")
-          .eq("tenant_id", input.tenantId)
-          .eq("date_utc", date)
-          .eq("platform", input.platform)
-          .maybeSingle();
-        if (row) {
-          const { error: retryErr } = await supabase
-            .from("llm_budget_ledger")
-            .update({
-              spent_usd: Math.max(0, Number(row.spent_usd) + input.costUsd),
-              call_count: Number(row.call_count) + 1,
-              prompt_count: Number(row.prompt_count) + promptCount,
-              chunk_count: Number(row.chunk_count) + chunkCount,
-              last_run_id: input.runId ?? null,
-              updated_at: nowIso,
-            })
-            .eq("tenant_id", input.tenantId)
-            .eq("date_utc", date)
-            .eq("platform", input.platform);
-          if (!retryErr) return true;
-        }
-      }
-      console.warn(
-        `[budget-ledger] insert failed (non-fatal) tenantId=${input.tenantId} ` +
-          `platform=${input.platform}: ${insErr.message}`,
-      );
+    if (error) {
+      console.warn(`[budget-ledger] increment failed (non-fatal) tenantId=${input.tenantId} platform=${input.platform}: ${error.message}`);
       return false;
     }
-    return true;
+    return data === true;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn(`[budget-ledger] write threw (non-fatal): ${msg}`);

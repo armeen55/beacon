@@ -1,15 +1,10 @@
-/**
- * decision/diagnosis: THE CAUSE LADDER. One page loses clicks for exactly one reason that can be named. Every cause is asked in one fixed order and answers for
- * itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name, with the exact thing missing. (2) does the evidence FIRE it?
- * Yes, and it carries the receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing explanation. Order is evidence
- * strength: two of your own pages on one search beats a page that fell beats a wording read beats a shared subject beats a shape beats an engine that never cites
- * you beats how the page is served. EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`). NOTHING DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for
- * every cause whose fix is not an edit this kernel can write. PURE + deterministic. */
+/** decision/diagnosis: THE CAUSE LADDER. One page loses clicks for exactly one reason that can be named. Every cause is asked in one fixed order and answers for itself: (1) does it HOLD what the cause is decided from? No, and it is NOT CONSIDERED, by name, with the exact thing missing. (2) does the evidence FIRE it? Yes, and it carries the receipt ids it was read off; no, and the deterministic reason it lost rides on the winner as a competing explanation. Order is evidence
+ *  strength: two of your own pages on one search beats a page that fell beats a wording read beats a shared subject beats a shape beats an engine that never cites you beats how the page is served. EVERY DIAGNOSIS NAMES WHAT WOULD KILL IT (`falsifier`). NOTHING DRAFTS WITHOUT A NAMED CAUSE, and `action` stays null for every cause whose fix is not an edit this kernel can write. PURE + deterministic. */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { classifyResult, publisherHost } from "@/domains/evidence/serp-shape";
-import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { classifyResult } from "@/domains/evidence/serp-shape";
+import { citesOwnSite, retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url"; import { pageContains, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
@@ -129,12 +124,14 @@ const quote = (s: string): string => `"${s}"`;
 const list = (t: readonly string[]): string => t.slice(0, 3).map(quote).join(", ");
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 
-/** Sites that ARE this account, rolled up one way: a page on my own subdomain is still mine. */
-function ownHosts(snapshot: EvidenceSnapshot): Set<string> {
-  const hosts = snapshot.ownedPages.map((p) => publisherHost(p.url)).filter((h) => h.includes("."));
-  const site = publisherHost(snapshot.scope.site ?? "");
-  return new Set([...hosts, ...(site ? [site] : [])]);
-}
+/** WHETHER AN ANSWER CREDITED THIS ACCOUNT is not a question this file gets to answer its own way. It rolled
+ *  the account's own pages up to registrable domains and compared those; Visibility compared the host against
+ *  the account's root and its subdomains; a producer compared with a bare `endsWith` on one field. Three
+ *  readings of one fact is how a card came to say a page was never cited on a day the same rows said it was
+ *  cited 31 times out of 47. The ONE predicate lives with the citations (evidence/ai-visibility) and every
+ *  reading of "did they credit us" in this kernel is this call. */
+const creditsMe = (o: { citations?: readonly { domain: string; url: string }[] | null }, snapshot: EvidenceSnapshot): boolean =>
+  citesOwnSite(o.citations, snapshot.scope.site);
 
 /** Why the wording read did not name the title, in the operator's words. One sentence per conclusion that
  *  reading can reach, so "the results page did not accuse the wording" is never a shrug. */
@@ -326,10 +323,9 @@ const RULES: Rule[] = [
     held: (c) => (aiAnswers(c).some((o) => (o.retrievedResults ?? null) != null)
       ? null : "What the engines cited is on file, and none of these observations recorded what was read before answering."),
     read: (c) => {
-      const hosts = ownHosts(c.snapshot);
       // THIS PAGE, not this domain, and the citations are subtracted from the retrieval list first, by canonical url, or a page that WAS cited reads as read and passed over.
       const seen = aiAnswers(c).find((o) => retrievedNotCitedLinks(o.retrievedResults, o.citations).some((r) => canonicalUrlKey(r.url) === c.urlKey)
-        && (o.citations ?? []).length > 0 && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
+        && (o.citations ?? []).length > 0 && !creditsMe(o, c.snapshot));
       if (!seen) return { fired: false, reason: "no engine read this page and then cited only other sites" };
       const cited = (seen.citations ?? []).length;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
@@ -343,10 +339,12 @@ const RULES: Rule[] = [
     cause: "ai_citation_gap",
     held: (c) => (aiAnswers(c).length > 0 ? null : "No AI answer about that search carries its sources on file."),
     read: (c) => {
-      const hosts = ownHosts(c.snapshot);
-      const rival = aiAnswers(c).find((o) => (o.citations ?? []).length > 0
-        && (o.citations ?? []).every((x) => !hosts.has(publisherHost(x.url))));
-      if (!rival || c.page.aiCitations.count > 0) return { fired: false, reason: "AI answers about that search already cite this page" };
+      // AND THE SUPPRESSOR READS THE SAME ROWS THE ACCUSATION READS. It asked a per-PAGE count computed
+      // somewhere else, over a different slice, so answers crediting this account on a different page, on a
+      // subdomain, or outside that slice all left the count at zero and the accusation stood.
+      const answers = aiAnswers(c), credited = answers.filter((o) => creditsMe(o, c.snapshot)).length;
+      const rival = answers.find((o) => (o.citations ?? []).length > 0 && !creditsMe(o, c.snapshot));
+      if (!rival || credited > 0 || c.page.aiCitations.count > 0) return { fired: false, reason: credited > 0 ? `AI answers about that search credit this site on ${num(credited)} of the ${num(answers.length)} on file` : "AI answers about that search already cite this page" };
       const named = (rival.citations ?? []).length;
       return { fired: true, action: null, evidenceKeys: [RECEIPT.ai],
         payload: { cause: "ai_citation_gap", engine: rival.engine, promptText: rival.promptText },

@@ -134,21 +134,6 @@ export async function loadGa4SessionSplitForTenant(
   return out;
 }
 
-/**
- * Bounded page-value multiplier (1.0, 1.5), log-damped per the fusion research (PIE Importance + the log-damping convention so one
- * converting page doesn't monopolize the queue):
- *
- *   weight = min(1.5, 1 + 0.25 · log10(1 + conversions + 0.1·engaged))
- *
- * Conversions dominate (they are the business value); engaged sessions contribute at a 10:1 discount. Neutral (1.0) when the
- * page has no GA4 value data.
- */
-export function ga4ValueWeight(v: Ga4PageValue | undefined): number {
-  if (v == null) return 1.0;
-  const mass = v.conversions28d + 0.1 * v.engaged28d;
-  if (mass <= 0) return 1.0;
-  return Math.min(1.5, 1 + 0.25 * Math.log10(1 + mass));
-}
 
 // ─────────────────────────────────────────────────────────────────────
 // 2026-06-26, GA4 REVENUE page values (revenue migration). SEPARATE, ISOLATED read so a pre-migration "column does not exist" error fails ONLY

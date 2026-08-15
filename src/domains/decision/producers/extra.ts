@@ -4,6 +4,7 @@ import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
+import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
@@ -140,22 +141,29 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string): Promise<Draft[]> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return [];
-  type Group = { prompt: string; answers: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
+  // "NEVER YOU" IS A CLAIM ABOUT EVERY ANSWER, SO IT IS COUNTED OVER EVERY ANSWER. Answers that DID credit this
+  // site were dropped on the way in, and the sentence then said "across 47 stored answers and never name this
+  // site" using a total built only from the answers that had already failed the test: a card told an operator a
+  // page was never cited on a day the same stored rows credited the site in 31 of 47. Every answer that reported
+  // its sources is counted here, the ones crediting this site are counted SEPARATELY through the one canonical
+  // predicate every reading of this fact now uses, and one of those is enough to retire the whole claim.
+  type Group = { prompt: string; answers: number; credited: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
   const byPrompt = new Map<string, Group>();
   for (const o of snapshot.research.aiObservations) {
     const cites = o.citations ?? [];
-    if (cites.length === 0 || cites.some((c) => c.domain.replace(/^www\./, "").toLowerCase().endsWith(site))) continue;
-    const key = canonicalQueryKey(o.promptText), g = byPrompt.get(key) ?? { prompt: plain(o.promptText), answers: 0, engines: new Set<string>(), domains: new Map() };
+    if (cites.length === 0) continue;
+    const key = canonicalQueryKey(o.promptText), g = byPrompt.get(key) ?? { prompt: plain(o.promptText), answers: 0, credited: 0, engines: new Set<string>(), domains: new Map() };
     g.answers += 1; g.engines.add(o.engine);
+    byPrompt.set(key, g);
+    if (citesOwnSite(cites, site)) { g.credited += 1; continue; }
     for (const c of new Map(cites.map((c) => [c.domain, c])).values()) {
       const d = g.domains.get(c.domain) ?? { n: 0, url: c.url.split("?")[0] ?? c.url, title: plain(c.title) || c.domain, engine: o.engine };
       d.n += 1; g.domains.set(c.domain, d);
     }
-    byPrompt.set(key, g);
   }
   const out: Draft[] = [];
   for (const g of [...byPrompt.values()].sort((a, b) => b.answers - a.answers || b.engines.size - a.engines.size || a.prompt.localeCompare(b.prompt))) {
-    if (!askable(g.prompt)) continue;
+    if (!askable(g.prompt) || g.credited > 0) continue;
     const fit = await bestPageFor(g.prompt, pages, weak, earned, children, u);
     if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, g.prompt, bank, fit.refused);
     if (fit.verdict === "held") { u.hold(fit.match!.page.url, `${fit.reason} for "${g.prompt}"`); continue; }
@@ -268,7 +276,8 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     page: p, slug: "missing_description", field: "meta", query: labelOf(p), brief: true,
     headline: `Write the missing description on ${pathOf(p.url)} (Google is writing its own)`, before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends with a reason to click.",
-    why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It earns ${count(impressions(p), "impression")} and ${count(clicksOf(p), "click")} in 90 days, so that line is read a lot.`,
+    // A COUNT IS NOT AN ARGUMENT UNTIL IT IS BIG ENOUGH TO BE ONE. "3 views in 90 days, so that line is read a lot" was printed on a live card: the sentence was welded to the figure and stayed true only while the figure was large. It says what the figure actually shows now, and a small one says it is small.
+    why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It was shown ${count(impressions(p), "time")} and earned ${count(clicksOf(p), "click")} in 90 days, ${impressions(p) >= 1000 ? "so that line is read a lot" : "so it is a small page today and this is a small fix"}.`,
     steps: [`Open the site editor on ${pathOf(p.url)}`, "Paste a description of about 150 characters",
       "Mark it done here and the click rate gets read again"],
     hints: [`${pathOf(p.url)} holds no description of its own`,

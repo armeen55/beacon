@@ -1,14 +1,6 @@
-/**
- * decision/produce-bundle. The ONE producer of a deep, copy-ready change for a page a door selected. Order is
- * deliberate: SELECT, BUILD the receipt FIRST for the EXACT candidate search, DIAGNOSE off that receipt, and only
- * then draft the ONE field the diagnosis named. Confidence follows the EVIDENCE HELD, never how it reads.
- *
- * EVERY DOOR IS SERVED ON ITS OWN TERMS. The click door keeps its exact selection: the biggest proven shortfall
- * against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence, and
- * concludes only what it measured: a door that never read the line a searcher reads never concludes its wording.
- *
- * No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any order produces a byte-identical result. server-only.
- */
+/** decision/produce-bundle. The ONE producer of a deep, copy-ready change for a page a door selected. Order is deliberate: SELECT, BUILD the receipt FIRST for the EXACT candidate search, DIAGNOSE off that receipt, and only then draft the ONE field the diagnosis named. Confidence follows the EVIDENCE HELD, never how it reads.
+ *  EVERY DOOR IS SERVED ON ITS OWN TERMS. The click door keeps its exact selection: the biggest proven shortfall against a page's own positions. Every other door selects the page IT named, answers for ITS OWN evidence, and concludes only what it measured: a door that never read the line a searcher reads never concludes its wording.
+ *  No evidence means no change, and every input list is re-sorted before it is read, so the same evidence in any order produces a byte-identical result. server-only. */
 
 import "server-only";
 
@@ -222,6 +214,7 @@ type ProduceBundleOptions = ProposeOptions & {
    *  looked, so the cause says so rather than clearing the page. Filtered here to the page under work. */
   technical?: readonly TechnicalFinding[];
   /** The account's own banned vocabulary, read once by the caller: no editor here writes a word this account does not publish. */ bannedTerms?: readonly string[];
+  /** THE PASS'S SHARED ATTEMPT BUDGET (decision/drafted-copy). Every charged call any editor here makes comes off it, failures included. Absent = a bundle produced outside a pass, which spends against the money caps alone. */ attempts?: { left: number };
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
@@ -280,7 +273,7 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
   const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
-    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
+    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
     section: async (i) => {
       const r = await draftSectionStructured({ ...i, tenantId }, wire);
       return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
@@ -370,7 +363,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const components: BundleComponent[] = []; let heldForReview = false;
   /** WHAT TO DO WHEN THE CHANGE IS A JOB: a producer whose work cannot be pasted hands its instructions over
    *  here instead of writing them into the copy an operator clicks Copy on. Null means the copy IS the work. */
-  let steps: string[] | null = null;
+  let steps: string[] | null = null; let dispositions: ChangeBundle["dispositions"] | null = null;
   const receiptKeys = new Set(receipt.items.map((i) => i.key));
   // THE SECTIONS THIS PAGE CARRIES, held once: the plan keeps them and the validator holds a rebuild to them.
   const heldHeadings = (held?.headings ?? content.outline).map((h) => h.trim()).filter((h) => h.length > 0);
@@ -413,7 +406,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? [])) }; // the last one is what the site prints on everything, read off the whole inventory: furniture is not content to move
     const produced = await slot(ctx);
-    steps = produced.operatorSteps ?? null; alternatives.push(...(produced.considered ?? []));
+    steps = produced.operatorSteps ?? null; alternatives.push(...(produced.considered ?? [])); dispositions = produced.dispositions ?? null;
     for (const c of produced.components) {
       const field = fieldForComponent(c.kind);
       keep(c, { kind: "existing_edit", field, before: c.before, after: c.after });
@@ -455,7 +448,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       : doorGoal(finding.cause === "cannibalization" ? "cannibalization" : door!.door, primary),
     metric: `Clicks from search for "${primary}" over the next 28 days.`,
     scope: { queries: queries.map((q) => q.query), prompts: receipt.prompts },
-    components, plan,
+    components, plan, ...(dispositions ? { dispositions } : {}),
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
     risks: [

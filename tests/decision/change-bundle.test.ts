@@ -73,10 +73,8 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     const was = out.proposal.bundle!.receipt, kept = (l: readonly string[]) => l.filter((m) => !m.startsWith("I withheld")); // a row exactly as it was FILED BEFORE any of this: no answer ids on its lines, no disclosure line under them
     const bare: ChangeProposal = { ...out.proposal, limitations: kept(out.proposal.limitations), bundle: { ...out.proposal.bundle!, receipt: { ...was, missing: kept(was.missing), items: items.map(({ observationId: _drop, observationIds: _also, ...rest }) => rest) } } };
     // THE STORED-ROW COMPATIBILITY CONTRACT, as a literal: a receipt item carrying NO answer id must hash to exactly what it hashed to before ids existed, or every proposal already on file is rewritten once to say the identical thing. Appending the id unconditionally (`?? null`) moves this string, which is the whole point of pinning it.
-    // MOVED ONCE, ON PURPOSE (the two-window repair): demand_decline and ranking_loss stopped being permanent silences and became a rule read off this page's own two
-    // four week windows, so every finding's `notConsidered` says something different and truer. Every stored row is rewritten once to say it. Still pinned as a literal:
-    // the contract is that nothing moves this string by accident, never that it can never move.
-    expect(proposalFingerprint(bare)).toBe("719353190984af90"); expect(new Set([out.proposal, swap(["obs_p1_chatgpt", "obs_somebody_else"]), bare].map(proposalFingerprint)).size).toBe(3); expect(proposalFingerprint(swap(["obs_p2_gemini", "obs_p1_chatgpt"]))).toBe(proposalFingerprint(out.proposal)); // the same support in another order is the same support
+    // MOVED TWICE, ON PURPOSE: the two-window repair, then identity (2026-08-15), because a piece's PAGE, its placement, what it is for and why it works sat outside the hash, so a change spanning four addresses could drop one, move a piece to another page or be re-aimed entirely and compute "unchanged". Still pinned as a literal: the contract is that nothing moves this string by accident, never that it cannot move.
+    expect(proposalFingerprint(bare)).toBe("da72f70f7fec0b25"); expect(new Set([out.proposal, swap(["obs_p1_chatgpt", "obs_somebody_else"]), bare].map(proposalFingerprint)).size).toBe(3); expect(proposalFingerprint(swap(["obs_p2_gemini", "obs_p1_chatgpt"]))).toBe(proposalFingerprint(out.proposal)); // the same support in another order is the same support
     expect(deserializeChangeProposal(serializeChangeProposal(out.proposal))!.bundle!.receipt.items.find((i) => i.key === "named1")!.observationIds).toEqual(["obs_p1_chatgpt", "obs_p2_gemini"]); }); // and the WHOLE set survives being stored and read back
   it("lets an omission the answers keep leaving ADD support to a piece that stands on its own, and never rescue one that stands on nothing", async () => {
     const both = { competitors: [], materialOmissions: ["what a first flush diverter costs"], contentTypesRecommended: [] };
@@ -216,7 +214,7 @@ describe("what a receipt will and will not accept", () => { it("takes the result
   it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => { env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
     const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "ready", basis: "basis_today", limitations: [], ...over });
     put("ready", {}); put("review", { status: "needs_review" }); put("owing", { limitations: ["Add one before this is paste-ready."] }); put("older", { basis: "basis_last_week", kind: "new_page" }); put("historical", { basis: undefined });
-    const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null }); expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["owing", "review"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "owing", "review"]); expect(q.demotedStaleBasis).toBe(2); expect([blind.ranked, blind.ready, blind.toDo].map((l) => l.length)).toEqual([0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
+    const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null }); expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["review", "owing"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "review", "owing"]); expect(q.demotedStaleBasis).toBe(2); expect([blind.ranked, blind.ready, blind.toDo].map((l) => l.length)).toEqual([0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
     expect([blind.demotedStaleBasis, store.rows.size]).toEqual([5, rows]); }); // every set-aside row is still counted, and not one stored row is rewritten
 }); // ── the release: a fresh timestamp may never sit on top of a failed production run ──
 const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); const published: { computedAt: string }[] = [];
@@ -485,9 +483,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
     expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
     expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(80); });
-  // IF BEACON HAS NOT FINISHED THE DELIVERABLE, IT IS NOT A CHANGE. One boundary, read off the deliverable itself
-  // and never off the sentence an operator reads. NO VERB LIST: a producer that hands over a brief says so in a
-  // typed field as it mints the card, so ordinary imperative page copy ("Cover the pot with a lid") is finished
+  // IF BEACON HAS NOT FINISHED THE DELIVERABLE, IT IS NOT A CHANGE. One boundary, read off the deliverable itself and never off the sentence an operator reads. NO VERB LIST: a producer that hands over a brief says so in a typed field as it mints the card, so ordinary imperative page copy ("Cover the pot with a lid") is finished
   // copy and stays one, and a brief is held by the fact rather than by its spelling.
   it("calls a deliverable finished only when it is the work, by type", () => { const gaps = (after: string, field: "title" | "meta" | "h1" | "section" = "title", over: Partial<ChangeProposal> = {}) => deliverableGaps(prop({ recommendedChange: { kind: "existing_edit", field, before: null, after }, ...over }))[0];
     const WORDS = "Rain barrels for a 1,200 square foot roof hold 50 gallons.", SAYS = "it describes the work instead of being it", OUT = ["Roof area", "Rainfall", "Overflow"];
@@ -496,9 +492,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const owed = prop({ status: "needs_review", researchOnly: true });
     expect([deliverableGaps(owed)[0], gaps("Write a description of about 150 characters.", "meta", { researchOnly: true }), gaps("Rain barrels hold [NUMBER] gallons."), gaps("The exact copy has not been drafted."), gaps(TITLE_AFTER), gaps(WORDS, "section"),
       gaps(WORDS, "section", { bundle: bundleOf([comp({ kind: "section_add", where: "under the sizing heading" })]) }), page([]), page(OUT.map((h) => comp({ kind: "section_add", label: h, after: `${h}: a roof sheds 750 gallons in an inch of rain.` }))),
-      rankProposals([owed])[0]!.rankingReceipt!.factors.find((f) => f.name === "actionability")!.input, deserializeChangeProposal(serializeChangeProposal(owed))!.researchOnly])
+      rankProposals([owed])[0]!.rankingReceipt!.factors.find((f) => f.name === "readiness")!.input, deserializeChangeProposal(serializeChangeProposal(owed))!.researchOnly])
       .toEqual(["nothing has been written for it yet", "nothing has been written for it yet", SAYS, SAYS, undefined, "where it goes on the page is not named", undefined, "3 of its 3 sections have no copy written", undefined,
         "this is research still owed, not an edit waiting on you", true]);
+    // EVERY PAGE THE DIAGNOSIS NAMED, NOT EVERY PAGE THAT SURVIVED IT. A split across three addresses that came back with copy on one used to answer "complete", because the component list is the only record a page was ever named and a page whose drafting refused simply vanished from it. The producer's own verdict ledger is the roll call now: a page it says it is differentiating owes written copy, and a page it decided to leave alone owes the reason.
+    const spanning = (dispositions: { page: string; verdict: "differentiate" | "keep_as_is"; because: string }[]) => deliverableGaps(prop({ bundle: { ...bundleOf([comp({ kind: "title", page: "/a", after: "A line only /a could carry." })]), dispositions } }))[0];
+    expect([spanning([{ page: "/a", verdict: "differentiate", because: "it has to say what it alone covers" }, { page: "/b", verdict: "differentiate", because: "it has to say what it alone covers" }]),
+      spanning([{ page: "/a", verdict: "differentiate", because: "it has to say what it alone covers" }, { page: "/b", verdict: "keep_as_is", because: "nothing came back for it that would not narrow it off its own subject" }]), spanning([{ page: "/a", verdict: "differentiate", because: "x" }, { page: "/b", verdict: "keep_as_is", because: "no" }])])
+      .toEqual(["1 of the pages it changes have no copy written", undefined, "1 of the pages it names give no reason for being left alone"]);
     // ORDINARY IMPERATIVE PAGE COPY IS FINISHED COPY. A recipe step, a visa step and a description opening on a production verb were all refused by the verb list this boundary no longer carries.
     const g = (after: string, field: "title" | "meta" | "h1" | "section" = "section") => gaps(after, field, { bundle: bundleOf([comp({ kind: "section_add", where: "under the sizing heading" })]) }); expect([g("Cover the pot with a lid so it steams for ten minutes, then fluff the rice with a fork."), g("Fill in the form online, then pay the fee at a designated bank branch."), g("Include a copy of your passport photo page when you apply."), g("Link building for a Persian culture site works best through museums and university pages.", "meta"), g("Add Saffron to Your Rice: A Persian Cook's Guide", "title")])
       .toEqual(Array(5).fill(undefined)); });
@@ -508,14 +509,15 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Learn about the History of Iran Flags and the Achaemenid Empire Flag (550-330 BCE).", after: "Achaemenid Empire Flag (550 - 330 BCE) in Persian Flags History: symbolism, role, changes and origins. Explore more." } });
     const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { query: "achaemenid flag", hints: ["fresh"], evidenceRefCount: 9 },
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that says what only this page answers." } });
+    // AND THE PAGE THE WORDS WERE WRITTEN FOR KEEPS THEM ALIVE. The basis alone decided, and a basis is a reading of the ACCOUNT: it does not move when the page is re-crawled, so copy written for a page that has since changed shape outlived it.
     const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked);
+    const recrawled = preferFinished({ ...brief, copyStamp: "a page that reads differently now" }, { ...banked, copyStamp: "the page as it read when this line was written" });
+    expect((recrawled.recommendedChange as { after: string }).after.slice(0, 5)).toBe("Write");
     const fresher = preferFinished(prop({ ...banked, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "A newer finished line about the Achaemenid flag and what it meant." } }), banked);
     expect([deliverableGaps(kept), kept.recommendedChange, kept.researchOnly, kept.estimatedEffortMinutes, kept.limitations, kept.evidence.evidenceRefCount,
       moved.researchOnly, (moved.recommendedChange as { after: string }).after.slice(0, 5), (fresher.recommendedChange as { after: string }).after.slice(0, 7), preferFinished(brief, null).researchOnly])
       .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, true, "Write", "A newer", true]); });
-  // THE MATERIALLY FALSE CARD THAT REACHED THE LIVE QUEUE ON 2026-08-15: every digit was lifted from the page and the sentence was still a lie. The stored body says INTERNATIONAL delivery takes 7-21 days
-  // DEPENDING on location while the page offers free USA shipping, and the copy sold that window as the shipping time. It evaded the gate twice on punctuation alone: the body writes an en dash and the
-  // drafter wrote a hyphen, then spaced hyphens. Both spellings of the same figure are pinned here, with the real stored sentence.
+  // THE MATERIALLY FALSE CARD THAT REACHED THE LIVE QUEUE ON 2026-08-15: every digit was lifted from the page and the sentence was still a lie. The stored body says INTERNATIONAL delivery takes 7-21 days DEPENDING on location while the page offers free USA shipping, and the copy sold that window as the shipping time. It evaded the gate twice on punctuation alone: the body writes an en dash and the drafter wrote a hyphen, then spaced hyphens. Both spellings of the same figure are pinned here, with the real stored sentence.
   it("refuses a figure that walked away from the qualifier its own sentence carried", () => { const body = "Free USA shipping on all orders, with delivery in 2-6 business days. International shipping is available worldwide, with delivery usually between 7\u201321 business days depending on location.";
     const pk = { targetUrl: "https://www.iranopedia.com/p", title: "T", h1: "H", metaDescription: null, bodyText: body, headings: [], evidence: { "page-copy-1": body }, trackedQuestion: "Q", ownedPaths: ["/p"], bannedTerms: [] };
     const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/p", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
@@ -530,11 +532,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const chrome = "top of pagePopular Persian(Farsi) Insults, Funny Phrases, and SlangPersian is a lively language full of humorous expressions.";
     const learn = "Persian Greetings and Basic PhrasesSay hello, goodbye, thank you, and much more with confidence. This guide covers the most common Persian greetings and everyday phrases, along with cultural notes and pronunciation tips, so you know when and how to use them naturally.";
     const blob = "Visual Timeline of Persia/IranA comprehensive visual timeline of Iran's history, capturing pivotal events from ancient Persia to to modern Iran. Explore significant milestones, cultural developments, political changes, and influential figures that have shaped Iran's rich and diverse heritage.";
-    // 1: self-points, uses a word this account bans, and anchors on the crawl's own marker. 2: says the page LISTS phrases it only mentions in passing, which containment cannot see and the self-pointer rule can. 3: hands over a paragraph where a place on the page belongs.
+    // 1: names slang terms the stored page never carries (caught by reading the COPY, since it declared none of them as claims), self-points, uses a word this account bans, and anchors on the crawl's own marker. 2: says the page LISTS phrases it only mentions in passing, which the self-pointer rule can see. 3: hands over a paragraph where a place on the page belongs.
     expect([d({ P: pk(chrome, ["Farsi"]), placementAnchor: chrome, finalCopy: "Funny Persian phrases and idioms are common Farsi insults and playful slang such as Pedar Sag, Topoli, Gooz, Bikhial, and Chert-o-Pert. This page lists those expressions, gives brief meanings and typical contexts. See the headings below for each example and its short meaning." }),
       d({ P: pk(learn), placementAnchor: "Persian Greetings and Basic Phrases", finalCopy: "Basic Persian phrases for beginners include common greetings, simple everyday sentences, and numbers shown in Finglish so you can speak before learning the script. This page lists hello, goodbye, thank you, pronunciation tips and cultural notes, and recommends gamified lessons to practice these phrases aloud." }),
       d({ P: pk(blob), placementAnchor: blob, finalCopy: "Famous Iranian people in history and today include Cyrus the Great and the poet Ferdowsi, who founded an empire and wrote the epic that carried the Persian language across many centuries of recorded history, verse and memory, and who are named on this timeline among the milestones that shaped Iran." })])
-      .toEqual([["it points at the page instead of answering", "it says the page contains things it does not: those expressions, gives brief meanings, typical contexts", "it uses words this account does not publish: Farsi", "where it goes is taken from the crawl's own markers, not from the page"],
+      .toEqual([["it tells a reader this page offers \"Topoli\", \"Gooz\", \"Bikhial\", and this page's own evidence shows no such thing", "it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is taken from the crawl's own markers, not from the page"],
         ["it points at the page instead of answering"], ["where it goes is a paragraph rather than a place on the page"]]); });
   // THE EDITOR'S HOMEWORK IS CHECKED AGAINST THE STORED PAGE, NEVER AGAINST ITS SPELLING: a faithful paraphrase whose claims name real stored evidence is FINISHED, the exact case the old word list refused (not one of "survived", "point to", "carrying" is printed here). AND A FIELD IS ITS OWN PLACE, which is where fixtures once agreed with the code's mistake: every case passed `beforeText: null`, so nobody noticed a title, an H1 or a description checked against the page BODY can never match and every real field edit was refused forever. Each now replaces its OWN stored line.
   it("an editor's deliverable is finished only when the stored page carries it", () => {
@@ -544,9 +546,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
       deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
   it("keeps homework behind finished work however big its page is, and names a lever for a page losing ground", () => {
-    // THE OWED CARD ON THE BIGGEST PAGE ON THE SITE still waits: while the copy is owed its visibility counts only
-    // as far as an audience does (40), which the flat 45 always outweighs, so no page is big enough to promote work
-    // nobody has written. Uncapped it scored 80 here and led a card that is actually finished.
+    // THE OWED CARD ON THE BIGGEST PAGE ON THE SITE still waits: while the copy is owed its visibility counts only as far as an audience does (40), which the flat 45 always outweighs, so no page is big enough to promote work nobody has written. Uncapped it scored 80 here and led a card that is actually finished.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
@@ -564,13 +564,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       bundle: bundleOf([comp({ kind: "consolidation", risk: "dangerous", after: "Fold this page into the sizing guide." })]) });
     const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) });
     const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
-    expect(ranked.map((p) => p.id)).toEqual(["safe", "busy", "risky"]);
+    // A DANGEROUS CHANGE IS DISCOUNTED, NOT SUNK, and being held for a look is no longer a score at all: what separates these three is what each costs (a risky lever, -18) and what each would ruin (-30, a second change on a page being read). Whether the risky one may be pasted is settled off this file.
+    expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
     const held = ranked.find((p) => p.id === "risky")!;
     expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
     expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
     expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
     expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
-    expect(ranked[0]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
+    expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
     // every factor stays inside its own ceiling, so no single input can quietly decide the order
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); });
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
@@ -578,7 +579,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
     expect(factorOf(floored!, "evidence")).toBe(0);
     expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
-    expect(proposalValueScore(floored!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 })));
+    // WORTH DECIDES, AND ONLY WORTH: 9,999 clicks proven recoverable outranks none, and the stage a row is at contributes nothing either way. Being safe to paste was worth 250, more than every other factor together.
+    expect(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))).toBeGreaterThan(proposalValueScore(floored!));
     // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
     const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]);
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
@@ -596,6 +598,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal));
     expect(back).not.toBeNull();
     const [ranked] = rankProposals([back!]);
-    expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["actionability", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
+    expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["readiness", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
-    expect(proposalValueScore(back!)).toBeGreaterThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });
+    // A ROW WITH NO DIAGNOSIS AND NO RECEIPT STILL RANKS ON WHAT IS RIDING ON IT, and below a change with thirty three times its proven recovery, whatever stage either is at: worth what its own figures say, never less for its age.
+    expect(proposalValueScore(back!)).toBeLessThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });

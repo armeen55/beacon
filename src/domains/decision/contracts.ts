@@ -1,7 +1,4 @@
-/** decision/contracts: the ONE input and the ONE output of the decision kernel. It turns exactly one
- * normalized `EvidenceInput` into a ranked, exact, safe `ChangeProposal`: the page, the opportunity, the
- * frozen evidence, the exact change, why it matters, effort/risk/confidence/limitations, the ranking receipt and the status. PUBLISHING AUTHORITY IS MANUAL. PURE: types, Zod schema, derivations, no I/O.
- */
+/** decision/contracts: the ONE input and the ONE output of the decision kernel. It turns exactly one normalized `EvidenceInput` into a ranked, exact, safe `ChangeProposal`: the page, the opportunity, the frozen evidence, the exact change, why it matters, effort/risk/confidence/limitations, the ranking receipt and the status. PUBLISHING AUTHORITY IS MANUAL. PURE: types, Zod schema, derivations, no I/O. */
 
 import { z } from "zod";
 import type { AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
@@ -43,16 +40,13 @@ export interface EvidenceInput {
     /** THE diagnosis that earned this action. No diagnosis, no drafter call. */
     diagnosis?: ActionDiagnosis;
   };
-  /** Honest value sizing for the ranker: recoverable clicks and the honest monthly opportunity midpoint
-   *  (never a raw impressions sum). A missing figure makes the ranking directional rather than inventing one. */
+  /** Honest value sizing for the ranker: recoverable clicks and the honest monthly opportunity midpoint (never a raw impressions sum). A missing figure makes the ranking directional rather than inventing one. */
   sizing?: { impactScore?: number | null; upsidePerMonth?: number | null };
 }
 
 // ── Candidate diagnosis (decision truth replacement, 2026-07-27) ──────────────
 
-/** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing
- *  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become
- *  a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
+/** What the evidence actually justifies for one page or topic, decided BEFORE any draft is written. Doing  nothing is the default: a page is not a problem because it is big. Only the two `act_` outcomes may become a ChangeProposal; the rest are the honest answer and live in the run receipt, never manufactured work.  Internal to Decision: NOT persisted as its own record and never a public type. */
 // No `act_new_page`: a page this account does not own is decided by the coverage ladder over researched TOPICS, never by this per-page diagnosis over pages it already has.
 type CandidateAction = "act_existing_page" | "consolidate" | "watch" | "research_needed" | "do_nothing";
 
@@ -75,14 +69,10 @@ export type DecisionCandidate = {
 /** Action floors. A gap under ANY of these is not worth the operator's attention, so the honest answer is watch/do_nothing. Tuned against real data: a healthy page whose best gap was 23 clicks must not act. */
 export const MIN_QUERY_IMPRESSIONS = 500;
 export const MIN_RECOVERABLE_CLICKS = 50;
-/** HOW FAR UNDER ITS OWN CURVE A SEARCH HAS TO SIT, as a share of what that position earns ON THIS ACCOUNT. A flat 0.02 of click rate is a floor only an account near the industry table can
- *  clear: fitted to a site whose best position pays 0.9 percent, a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and a page that never earns a
- *  click is reported as a page with nothing wrong. A share asks the one question that survives both worlds: is this search missing most of what its own position pays? */
+/** HOW FAR UNDER ITS OWN CURVE A SEARCH HAS TO SIT, as a share of what that position earns ON THIS ACCOUNT. A flat 0.02 of click rate is a floor only an account near the industry table can  clear: fitted to a site whose best position pays 0.9 percent, a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and a page that never earns a click is reported as a page with nothing wrong. A share asks the one question that survives both worlds: is this search missing most of what its own position pays? */
 export const CTR_DEFICIT_SHARE = 0.4;
 
-/** EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It
- *  never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click,
- *  the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only  the exact evidence below can close it into an action. */
+/** EVIDENCE READINESS (evidence-qualified changes, 2026-07-27). A click gap proves something is WRONG. It  never proves WHAT TO CHANGE: the same gap is explained by a weak title, a search feature eating the click, the wrong page ranking, an ambiguous query, or nothing at all. So a gap opens an INVESTIGATION, and only  the exact evidence below can close it into an action. */
 export type EvidenceReadiness = {
   /** Exact GSC rows for this query on this page. */
   gsc: boolean;
@@ -92,14 +82,11 @@ export type EvidenceReadiness = {
   serp: boolean;
   /** Inspectable extracts of pages that actually rank or are cited FOR that query. */
   winners: number;
-  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body  store exists yet, so this is false everywhere today and High confidence on an edit
-   *  is currently unreachable. That is the truth, not a gap to paper over. */
+  /** The page's own WORDS beyond its title, so a claim about it can be checked. No body  store exists yet, so this is false everywhere today and High confidence on an edit is currently unreachable. That is the truth, not a gap to paper over. */
   body: boolean;
 };
 
-/** EVIDENCE COMPLETENESS ONLY: do I hold the things a diagnosis would need to read? A precondition, NEVER a
- *  permission to act. Holding a results page is not knowing what it says (a live counterexample: Google
- *  already displayed this page's title with the searcher's exact words). ActionDiagnosis decides Ready. */
+/** EVIDENCE COMPLETENESS ONLY: do I hold the things a diagnosis would need to read? A precondition, NEVER a  permission to act. Holding a results page is not knowing what it says (a live counterexample: Google already displayed this page's title with the searcher's exact words). ActionDiagnosis decides Ready. */
 export function evidenceComplete(r: EvidenceReadiness): boolean { return r.gsc && r.ownedCopy && r.serp; }
 
 /** WHY this page underperforms, in the vocabulary a diagnosis may conclude in. One cause  per candidate, chosen by reading the evidence, never by token containment. */
@@ -111,9 +98,7 @@ type DiagnosisCause =
 /** The single edit a diagnosed cause supports. `watch` and null are real answers. */
 export type DiagnosedAction = "title" | "meta" | "opening_answer" | "section" | "full_page" | "new_page" | "consolidate" | "watch";
 
-/** THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate
- *  and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing
- *  explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is  `inconclusive`: still under investigation, no draft spend. */
+/** THE reasoning step between "this page underperforms" and "change this", held inside the existing candidate  and receipt path. `diagnosed` means the evidence NAMES a cause, the action follows from it, a competing explanation is ruled out with its own evidence, and every claim cites receipt keys. Anything else is  `inconclusive`: still under investigation, no draft spend. */
 export type ActionDiagnosis = {
   status: "diagnosed" | "inconclusive";
   cause: DiagnosisCause;
@@ -140,9 +125,7 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 export type ProposalKind = "existing_edit" | "new_page";
 
-/** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a
- *  dangerous component routes through. `ready` = validated safe, exact copy, act now.
- *  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet.
+/** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a  dangerous component routes through. `ready` = validated safe, exact copy, act now.  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet.
  *  `measuring` and `result` are DERIVED from the shipment ledger. A refused draft is withdrawn, never stored. */
 export type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
 
@@ -154,15 +137,12 @@ export type RecommendedChange =
   | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string; /** EXACTLY WHERE new copy lands, when it replaces no existing field. */ where?: string | null }
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
-/** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to
- *  see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
+/** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
 export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
 
-// ── ChangeBundle: the atomic components implemented together on one page ────── A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked,
-// validated record and the bundle is its deep, copy-ready form. Never a second pipeline, never a second status vocabulary.
+// ── ChangeBundle: the atomic components implemented together on one page ────── A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked, validated record and the bundle is its deep, copy-ready form. Never a second pipeline, never a second status vocabulary.
 
-/** THE COMPLETE CHANGE UNIVERSE (Phase 4): every lever Beacon may recommend on one page, named once. ADDITIVE
- *  ONLY, so every stored bundle still decodes, and never CMS-specific: WHAT to change and WHERE, not which editor. */
+/** THE COMPLETE CHANGE UNIVERSE (Phase 4): every lever Beacon may recommend on one page, named once. ADDITIVE ONLY, so every stored bundle still decodes, and never CMS-specific: WHAT to change and WHERE, not which editor. */
 export type BundleComponentKind =
   | "title" | "meta" | "h1" | "opening_answer" | "section" | "internal_links" | "source_pack"
   | "paragraph_correction" | "section_add" | "section_remove" | "section_rewrite" | "restructure"
@@ -181,10 +161,7 @@ const HIGH_STAKES_CLAIM = /\b(law|legal|lawyer|attorney|court|statute|regulation
 const FACTUAL_KINDS: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(
   ["factual_correction", "paragraph_correction", "source_update", "entity_expansion", "table_or_list_add"]);
 
-/** One exact, copy-ready component citing the receipt items that justify it. `before` is THE CURRENT STATE as
- * it stands and null means it was never captured. `after` is THE PROPOSAL. The fields after `risk` are
- * optional in the TYPE so every persisted row decodes, and REQUIRED by validate-proposal for the newer kinds.
- */
+/** One exact, copy-ready component citing the receipt items that justify it. `before` is THE CURRENT STATE as it stands and null means it was never captured. `after` is THE PROPOSAL. The fields after `risk` are optional in the TYPE so every persisted row decodes, and REQUIRED by validate-proposal for the newer kinds. */
 export type BundleComponent = {
   kind: BundleComponentKind;
   /** Operator-facing label ("Page title", "Opening answer", ...). */
@@ -267,6 +244,13 @@ export type ChangeBundle = {
   scope: { queries: string[]; prompts: string[] };
   /** >= 1 evidence-justified components with exact copy. */
   components: BundleComponent[];
+  /** WHAT IS BEING DONE ABOUT EVERY PAGE THE DIAGNOSIS NAMED, including the pages nothing is being done about.
+   *  A three-page split that came back with work on one page silently DROPPED the other two: the component list
+   *  is the only record of a named page, so a page whose drafting refused simply vanished and completeness only
+   *  ever checked the survivors. The producer stamps one entry per named address BEFORE it drafts, so an address
+   *  can only leave with a stated verdict, and `deliverableGaps` refuses a bundle that owes work on one and
+   *  wrote none. Absent on a change that names a single page: there is nothing to drop. */
+  dispositions?: readonly { page: string; verdict: "differentiate" | "keep_as_is" | "merge" | "redirect" | "no_change"; because: string }[];
   /** What this change keeps, changes, adds and removes on the page. Absent on a new page and on every
    *  pre-plan persisted row, which is honest: no plan is not an empty plan. */
   plan?: ComponentPlan;
@@ -351,6 +335,16 @@ export type ChangeProposal = {
    *  results page for this exact search, whose top titles agreed on the shape this one is written in. Absent
    *  means nothing was imitated, which is the normal answer, and a surface must not chip what is absent. */
   modeledOn?: string;
+  /** THE TARGET PAGE AS IT READ WHEN THIS ROW'S COPY WAS WRITTEN: its stored title, heading, description and
+   *  outline, banked beside the words. Finished copy is expensive and survives passes that never reach it, so
+   *  something has to say when it stopped describing its page; this is that something (decision/completeness's
+   *  `copyIdentity`). Absent on a row minted before the stamp existed, which is decided on everything else. */
+  copyStamp?: string;
+  /** WHAT THE COPY ASSERTS AND WHAT CARRIES EACH ASSERTION, banked with the words. Every claim was checked
+   *  against this page's own evidence before the copy was accepted, and then thrown away, so nothing on the
+   *  stored row could answer "what supports this line" afterwards. Ids point into the same page evidence the
+   *  editor read. Absent on a row whose copy no editor wrote. */
+  claims?: readonly { text: string; supportedBy: readonly string[] }[];
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -391,6 +385,8 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
     measurementPlan: z.string().min(1).optional(), redirectTo: z.string().min(1).optional(), anchorAfter: z.string().min(1).optional(),
     preserves: z.object({ keeps: z.array(z.string()), losses: NAMED_SCHEMA }).optional(),
   })).min(1),
+  dispositions: z.array(z.object({ page: z.string().min(1), because: z.string().min(1),
+    verdict: z.enum(["differentiate", "keep_as_is", "merge", "redirect", "no_change"]) })).optional(),
   plan: z.object({ keeps: z.array(z.string()), removes: NAMED_SCHEMA,
     entries: z.array(z.object({ kind: KIND_SCHEMA, label: z.string().min(1), disposition: z.enum(["change", "add"]) })) }).optional(),
   receipt: z.object({
@@ -449,6 +445,8 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
     factors: z.array(z.object({ name: z.string().min(1), input: z.string().min(1), contribution: z.number(), max: z.number() })) }).optional(),
   whyRankedAboveNext: z.string().min(1).optional(),
   modeledOn: z.string().min(1).optional(),
+  copyStamp: z.string().min(1).optional(),
+  claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;

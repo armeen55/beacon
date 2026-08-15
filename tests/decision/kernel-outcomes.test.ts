@@ -134,10 +134,11 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(d.alternativesRuledOut.map((a) => a.alternative)).toEqual(["Google is already showing the words people search for", "A different page of yours is the one ranking"]);
     expect(d.explanation).toContain('Google shows this page as "Persian Screen | Iranopedia", and the other sites that come up share wording that line does not carry: "iranian", "actor".');
     expect(d.explanation).not.toMatch(/result \d/); }); // rank_absolute counts ads and packs, so it is never printed as a search position
-  it("ranks a small page with a real gap above a huge page with none, and sinks a rejected row", () => {
+  it("ranks a small page with a real gap above a huge page with none, and ranks every row on worth alone", () => {
     expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked([["nowruz traditions", GAP_URL]]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
-    const rejected = baseProposal({ id: "rej", status: "needs_review", impactScore: 9999 }); // a row still waiting on review never outranks a ready one on clicks alone
-    expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), rejected, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["small-real-gap", "huge-no-gap", "rej"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(rejected)); });
+    // WHETHER A ROW MAY BE SHOWN IS NOT A SCORE. A row waiting on a look used to be sunk 250 points here, more than every other factor put together, so nothing riding on a change could outweigh it and a description on a page shown three times ranked beside a page bleeding 152 clicks. Settled where it belongs instead: the queue admits only finished work and the surface keeps the two apart.
+    const waiting = baseProposal({ id: "waiting", status: "needs_review", impactScore: 9999 });
+    expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), waiting, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["waiting", "small-real-gap", "huge-no-gap"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(baseProposal({ impactScore: 0 }))); });
   it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns an action, so nothing is drafted
     expect([res.outcome, res.actionable, res.proposals.length, res.candidates.length]).toEqual(["no_actionable_candidate", 0, 0, 1]); expect(called).toBe(0); expect(env.saved).toEqual([]); }); // no paid call, no persisted row
@@ -171,8 +172,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
-    // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree,
-    // and the bundle's answer stands. A proposal with NO cause takes this pass's.
+    // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree, and the bundle's answer stands. A proposal with NO cause takes this pass's.
     reset(SEEN()); const plain = await run(counting().complete);
     const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
     expect(plain.proposals[0]!.diagnosisCause).toBe(here);     expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
@@ -306,8 +306,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     // THE OPERATOR PASTES COPY, NOT A PLAN: every planned section in the planned order, written out.
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after; for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
-    // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so
-    // it keeps the caveat and the page is held for review.
+    // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so it keeps the caveat and the page is held for review.
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after;
     expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on 2026-07-25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
@@ -621,9 +620,7 @@ describe("the click curve is fitted to the account it judges", () => {
   it("learns this account's own rate, holds the curve decreasing, and keeps the industry table for the bands it never saw", () => {
     const curve = fitTenantCtrCurve(rows({ 1: 0.014, 2: 0.02, 3: 0.008 })); // band 2 out-earns band 1: real data, and never a curve that pays MORE for a worse position
     expect(curve.source).toBe("tenant");
-    // POOLED, NOT CLAMPED. A running ceiling made the FIRST band the ceiling for every band under it, so a thin, noisy position 1 dragged positions 2 to 7 down to
-    // its own number (live: 0.898 percent imposed on bands measuring 2.34, 2.46 and 3.18) and every gap under them vanished. Bands that disagree pool to their
-    // weighted mean instead, so band 1 sits where its evidence and its neighbours' put it, ABOVE what it alone measured.
+    // POOLED, NOT CLAMPED. A running ceiling made the FIRST band the ceiling for every band under it, so a thin, noisy position 1 dragged positions 2 to 7 down to its own number (live: 0.898 percent imposed on bands measuring 2.34, 2.46 and 3.18) and every gap under them vanished. Bands that disagree pool to their weighted mean instead, so band 1 sits where its evidence and its neighbours' put it, ABOVE what it alone measured.
     expect([curve.expectedCtrAt(1), curve.expectedCtrAt(2)]).toEqual([0.017, 0.017]);
     expect(curve.expectedCtrAt(1)).toBeGreaterThan(0.014); // never dictated by band 1 alone, and the better position is never worth less
     for (const p of [2, 3, 4, 5, 10, 15, 20, 30]) expect(curve.expectedCtrAt(p), `position ${p}`).toBeLessThanOrEqual(curve.expectedCtrAt(p - 1));

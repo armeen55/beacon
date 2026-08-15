@@ -186,26 +186,4 @@ export function scoreTopicMatch(a: string | null | undefined, b: string | null |
   return { relevant: true, score, reason: "relevant", sharedTerms: shared };
 }
 
-/** Gate a competitor / "what wins" / SERP-winner evidence atom against a Move topic. */
-export function competitorRelevance(
-  moveTopic: string,
-  candidate: { url?: string | null; title?: string | null },
-  opts: { allowNoiseDomain?: boolean } = {},
-): RelevanceVerdict {
-  const url = candidate.url ?? "";
-  if (url && isNoiseDomain(url) && !opts.allowNoiseDomain) {
-    return { relevant: false, score: 0, reason: "social_noise", sharedTerms: [] };
-  }
-  // Match the topic against the URL slug + the title (whichever carries the subject).
-  const haystack = [candidate.title ?? "", url].filter(Boolean).join(" ");
-  const v = scoreTopicMatch(moveTopic, haystack);
-  if (!v.relevant) return { ...v, reason: "competitor_topic_mismatch" };
-  return v;
-}
 
-/** Gate an AI prompt against a Move topic (the prompt must be about the same subject). */
-export function promptRelevance(moveTopic: string, prompt: string): RelevanceVerdict {
-  const v = scoreTopicMatch(moveTopic, prompt);
-  if (!v.relevant && v.reason === "weak_topic_fit") return { ...v, reason: "generic_only_overlap" };
-  return v;
-}

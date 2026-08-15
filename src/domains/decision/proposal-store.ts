@@ -1,9 +1,5 @@
-/** decision/proposal-store: the ONE durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.
- *  A hypothesis is (tenant, site, case, page, action family) and exactly one row for it is CURRENT
- *  (`terminal_disposition is null`), held by a partial unique index; a new draft SUPERSEDES the row that held
- *  it in ONE database operation (supersede_change_proposal) and an identical re-draft writes NOTHING. STATUS
- *  IS THE STAGE, DISPOSITION IS WHETHER ANYONE IS STILL BEING ASKED: needs_review / ready /
- *  implemented_pending_verification are the stages, and dismissed / withdrawn / superseded retire the row.
+/** decision/proposal-store: the ONE durable home of a ChangeProposal, and ONE CURRENT ROW PER HYPOTHESIS.  A hypothesis is (tenant, site, case, page, action family) and exactly one row for it is CURRENT  (`terminal_disposition is null`), held by a partial unique index; a new draft SUPERSEDES the row that held
+ *  it in ONE database operation (supersede_change_proposal) and an identical re-draft writes NOTHING. STATUS  IS THE STAGE, DISPOSITION IS WHETHER ANYONE IS STILL BEING ASKED: needs_review / ready /  implemented_pending_verification are the stages, and dismissed / withdrawn / superseded retire the row.
  *  THE LIVE RANKING IS STORED HERE TOO (queue_lane + queue_rank), so the queue pages in the database. HISTORY  IS READABLE, NEVER RESURRECTED. FAIL CLOSED, LOUDLY. server-only. */
 
 import "server-only";
@@ -117,7 +113,15 @@ export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
     change: p.recommendedChange, limitations: p.limitations, cause: p.causeFinding ?? null,
-    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.before, c.after, c.evidenceKeys, c.risk]),
+    // EVERY MATERIAL FIELD OF A PIECE, so a piece cannot change what it MEANS without a new identity. Kind,
+    // words, evidence and risk alone left the page it lands on, the place on that page, what it is for and why
+    // it works out of the hash: a four-address differentiation could drop an address, move a component from one
+    // page to another, or re-aim the whole change, and compute "unchanged" against the row it replaced.
+    components: (p.bundle?.components ?? []).map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before, c.after,
+      c.evidenceKeys, c.risk, c.objective ?? null, c.mechanism ?? null, c.anchorAfter ?? null, c.redirectTo ?? null]),
+    dispositions: p.bundle?.dispositions ?? null,
+    // THE PAGE THE WORDS WERE WRITTEN FOR. Conditional, like the ids below: a row minted before the stamp existed hashes byte for byte what it always did and is never churned to say the identical thing.
+    ...(p.copyStamp ? { stamp: p.copyStamp } : {}),
     // THE WORDS ARE WHAT THE OPERATOR ACTS ON. A pass that sharpened the headline, the reason or the steps and
     // nothing else computed "unchanged" and wrote nothing, so every rewrite of the queue's language died inside
     // the producer and the stored row kept serving the sentence it was meant to replace.

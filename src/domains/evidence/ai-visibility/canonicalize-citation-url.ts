@@ -158,3 +158,25 @@ export function retrievedNotCitedLinks<T extends { url: string }>(
   const creditedSites = new Set(cited.map((c) => siteAndPage(c.url)).filter((c) => c.host && !c.path).map((c) => c.host));
   return retrieved.filter((r) => !credited.has(comparisonKey(r.url)) && !creditedSites.has(siteAndPage(r.url).host));
 }
+
+/**
+ * THE ONE ANSWER TO "DID THIS ANSWER CREDIT THE ACCOUNT'S OWN SITE", and the only one anything may ask.
+ *
+ * There were three, and they disagreed. Visibility read a citation as the account's when the host was the
+ * account's root or a subdomain of it, and told the operator 31 of 47 answers credited a page of theirs.
+ * The decision kernel asked the same question of the same stored rows with a bare `endsWith`, on the
+ * provider-reported domain field alone, ignoring the url a citation actually carries: it matched a lookalike
+ * host, missed a citation reported as a url with no domain field, and then counted its denominator only over
+ * the answers that had ALREADY failed the test, so "across 47 stored answers and never you" was arithmetic
+ * about the 16 answers that did not cite the site, printed as a fact about all 47. A card went out telling an
+ * operator a page was never cited while the same evidence, on the same day, said it was cited 31 times.
+ *
+ * One predicate, read off BOTH fields, with a real label boundary so `notiranopedia.com` is somebody else.
+ */
+export function citesOwnSite(links: readonly { domain?: string | null; url?: string | null }[] | null | undefined,
+  site: string | null | undefined): boolean {
+  const root = (site ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
+  if (!root || !links) return false;
+  return links.some((l) => [l.domain, l.url].some((raw) => { const h = siteAndPage(String(raw ?? "")).host;
+    return !!h && (h === root || h.endsWith(`.${root}`)); }));
+}

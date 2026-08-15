@@ -15,7 +15,7 @@ import "server-only";
 import { isAnalysisSettled, readAiObservations, type AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 import { reportingDay } from "@/lib/reporting-day";
 import { addDays, daysBetween, mergeRanges, overlaps, readPartitioned, type DayRange } from "./outcome-windows";
-import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
+import { citesOwnSite, retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 
 const FIRST_READING_SLOT = 0; // slot 0: the ONE canonical reading of a question on a day
@@ -111,11 +111,10 @@ const dayOfStamp = (raw: string | null): string | null => {
 
 const hostOf = (raw: string): string =>
   (raw ?? "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ?? "";
-const isOwned = (link: ObservedLink, root: string): boolean => {
-  if (!root) return false;
-  const h = hostOf(link.domain || link.url);
-  return h === root || h.endsWith(`.${root}`);
-};
+/** ONE PREDICATE, SHARED WITH THE DECISION KERNEL (evidence/ai-visibility). This surface said 31 of 47 answers
+ *  credited a page of theirs while a card said the site was never cited, because each side had written its own
+ *  version of this test. There is one now, and both sides call it. */
+const isOwned = (link: ObservedLink, root: string): boolean => citesOwnSite([link], root);
 
 /** Was this account named in the answer? Null = nobody has read the WHOLE answer yet: a reading
  *  still missing pieces is real work, not a finished check, so it never enters a denominator. */

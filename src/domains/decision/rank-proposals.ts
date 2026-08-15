@@ -1,8 +1,12 @@
 /**
  * decision/rank-proposals: THE ONE ranking, across every kind of change this kernel can propose. ONE inspectable score built from bounded factors, each naming the input it read:
  *
- *   actionability  the proposal lifecycle. The band is wider than every other factor put together, so no
- *                  amount of size can lift a refused draft over a safe one.
+ *   CORRECTNESS IS THE ADMISSION TICKET AND NEVER A SCORE. A 250-wide lifecycle band used to sit on top of
+ *   every other factor put together, so being safe to paste outweighed everything riding on the change and a
+ *   description on a page shown three times ranked beside a page bleeding 152 clicks. Whether a change may be
+ *   shown at all is settled BEFORE this file (completeness's deliverable gaps and the authorization verdict);
+ *   what is left here is worth, and worth is what the order is built from.
+ *
  *   visibility     the clicks the diagnosis proved are recoverable, or the page's own 90-day views at a THIRD
  *                  of the ceiling when those are bigger, named as an audience and never as a recovery: a
  *                  defect card carries no click figure at all, and without this the order collapsed onto
@@ -22,7 +26,7 @@
  * `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order).
  */
 
-import type { ChangeProposal, ProposalStatus } from "./contracts";
+import type { ChangeProposal } from "./contracts";
 import { dangerousComponents } from "./contracts";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import type { CauseFinding } from "./diagnosis";
@@ -40,12 +44,6 @@ type Cause = CauseFinding["cause"];
 type Receipt = NonNullable<ChangeProposal["rankingReceipt"]>;
 type Factor = Receipt["factors"][number];
 
-/** The lifecycle band, 250 wide. Content swings +186 at most and -140 at worst, a 326 spread, so the honest
- *  guarantee is NOT that the tiers can never cross: it is that no single factor and no ordinary card can cross
- *  them. Crossing takes a card at both extremes at once, a needs_review row scoring its full +186 against a
- *  ready row taking every discount there is, and that pair is one this ranking is content to order on worth. */
-const TIER: Record<ProposalStatus, number> = { ready: 500, implemented_pending_verification: 500, needs_review: 250 };
-
 /**
  * Bounded ceilings, one per factor. A factor may never contribute more than its max.
  *
@@ -53,8 +51,10 @@ const TIER: Record<ProposalStatus, number> = { ready: 500, implemented_pending_v
  * put the whole queue inside a 51 point band and let a one minute errand on a page shown twice cancel the
  * audience of a page shown thirty thousand times. Visibility now reaches 120 and effort 4: how long the
  * work takes is a tiebreak between two changes worth the same, never a reason to do the smaller one first.
+ * NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number
+ * on the screen is always the change with the most riding on it.
  */
-const MAX = { actionability: 500, visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
@@ -91,14 +91,9 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const add = (name: string, input: string, contribution: number, max: number): void =>
     void f.push({ name, input, contribution: round2(contribution), max });
 
-  const tier = TIER[p.status] ?? 0;
-  // A CARD THE PASS STILL OWES ITS OWN WORK ON IS NOT A DRAFT WAITING ON ANYBODY. It keeps its tier, because
-  // what is riding on it is real, but the receipt may not call it reviewable or safe to paste: there is nothing
-  // to review and nothing to paste. Read off the typed fact, so no wording change moves a card up this scale.
+  // A CARD THE PASS STILL OWES ITS OWN WORK ON IS NOT A DRAFT WAITING ON ANYBODY. Read off the typed fact, so
+  // no wording change moves a card on this scale. It costs nothing here: what it is worth is what is below.
   const research = p.researchOnly === true;
-  add("actionability", research ? "this is research still owed, not an edit waiting on you"
-    : p.status === "needs_review" ? "this draft is waiting on your review"
-      : "this draft passed every safety check", tier, MAX.actionability);
 
   // A CARD STILL OWED ITS EXACT COPY CANNOT LEAD. "Write a description" is an errand, not an edit: while
   // the drafted words are owed (the marker drafted-copy leaves on the card), the card waits behind every
@@ -111,10 +106,12 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const after = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after ?? "" : "";
   const owed = (p.limitations ?? []).some((l) => l.includes("is still owed, and this card is what is owed"));
   const blanks = /\b(NAME|SOUND|NUMBER|YEAR)\b/.test(after);
-  if (owed || blanks) {
-    add("readiness", owed ? "the exact copy is still owed, so finished work goes first"
-      : "the copy carries blanks nobody has filled, so finished work goes first", -45, 45);
-  }
+  // ALWAYS ON THE RECEIPT, so the sentence explaining an order can name it: a factor only one of two cards
+  // carries can never be what separated them, and finished words beating unfinished ones is worth saying.
+  add("readiness", research ? "this is research still owed, not an edit waiting on you"
+    : owed ? "the exact copy is still owed, so finished work goes first"
+      : blanks ? "the copy carries blanks nobody has filled, so finished work goes first"
+        : "its exact words are written", research || owed || blanks ? -45 : 0, 45);
 
   // THE RECOVERY BELONGS TO THE CAUSE, NOT TO THE PAGE. Two changes on one page carry the same recoverable
   // click figure, and only the one that works on the cause the evidence NAMED can actually collect it. A
@@ -150,7 +147,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // finished work while visibility topped out at 40; at 120 a page big enough simply bought its way past a
   // card that is actually written. Until the copy exists, what is riding on it counts only as far as an
   // AUDIENCE does, so 45 always outweighs it and no page is ever big enough to promote unfinished work.
-  const owedCap = owed || blanks;
+  const owedCap = owed || blanks || research;
   const shown = owedCap && rode && rode.value > MAX.visibility / 3
     ? { input: `${rode.input}, counted only as far as an audience while the copy is owed`, value: MAX.visibility / 3 }
     : rode;
@@ -209,12 +206,8 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   return { score, factors, directional, basis };
 }
 
-/** The scalar the order is built from, for ONE proposal read on its own (no batch, so
- *  nothing overlaps and nothing confounds). Exposed so a caller can inspect exactly why
- *  the order came out as it did. */
-export function proposalValueScore(p: ChangeProposal): number {
-  return receiptFor(p, 0, false).score;
-}
+/** The scalar the order is built from, for ONE proposal read on its own (no batch, so nothing overlaps and nothing confounds). Exposed so a caller can inspect exactly why the order came out as it did. */
+export function proposalValueScore(p: ChangeProposal): number { return receiptFor(p, 0, false).score; }
 
 /** The factor that actually separated two neighbours: the biggest contribution gap. */
 function separator(a: Receipt, b: Receipt): { name: string; a: Factor; b: Factor } | null {
@@ -235,14 +228,16 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
   if (!sep) return `Ranked level with ${other}, so start with whichever suits your day.`;
   const lead = `Ranked ahead of ${other} because`;
   switch (sep.name) {
-    case "actionability":
-      return `${lead} it passed every safety check and that one still needs your eyes first.`;
+    case "readiness":
+      return `${lead} its exact words are written and that one's are not.`;
     case "visibility":
       return `${lead} more is riding on it: ${sep.a.input}, against ${sep.b.input}.`;
     case "evidence":
       return `${lead} there is more to show for it: ${sep.a.input} against ${sep.b.input}.`;
     case "causeFit":
-      return `${lead} ${sep.a.input}, and ${other} does not.`;
+      // A CARD WITH NO CAUSE NAMED still separates from one whose lever misses its cause, and reading the winner's own input aloud printed "because no cause named for this change yet, and X does not" on the top card.
+      return sep.a.contribution > 0 ? `${lead} ${sep.a.input}, and ${other} does not.`
+        : `${lead} ${other} works on something other than the cause its own evidence names.`;
     case "strategic":
       return `${lead} it covers more of what people ask you: ${sep.a.input} against ${sep.b.input}.`;
     case "effort":

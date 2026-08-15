@@ -57,14 +57,7 @@ export { loadEvidenceSnapshot } from "./snapshot-loader";
 
 // Relevance gate (evidence-join suppression)
 export type { RelevanceReason, RelevanceVerdict } from "./relevance-gate";
-export {
-  topicTokens,
-  domainOf,
-  isNoiseDomain,
-  scoreTopicMatch,
-  competitorRelevance,
-  promptRelevance,
-} from "./relevance-gate";
+export { topicTokens, domainOf, isNoiseDomain, scoreTopicMatch } from "./relevance-gate";
 
 // The six connector readers (public entry points + result types)
 export type { GscPageSignal, GscQuerySignal, GscSiteTotals, GscDecaySignal } from "./readers/gsc-page-signals";
@@ -74,9 +67,9 @@ export {
   loadGscDecaySignalsForTenant,
 } from "./readers/gsc-page-signals";
 export type { Ga4PageValue } from "./readers/ga4-page-values";
-export { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant, ga4ValueWeight } from "./readers/ga4-page-values";
+export { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant } from "./readers/ga4-page-values";
 export type { PageRevenueValue, RevenueConfidence } from "./readers/ga4-revenue";
-export { normalizePageRevenue, revenueScoreMultiplier, revenueStateLabel } from "./readers/ga4-revenue";
+export { normalizePageRevenue } from "./readers/ga4-revenue";
 export type { ClarityPageSignal } from "./readers/clarity-page-signals";
 export { loadClarityPageSignalsForTenant } from "./readers/clarity-page-signals";
 
@@ -99,7 +92,6 @@ export { loadGscIngestionGapReport } from "./gsc/load-ingestion-gaps";
 export { ingestionGapLine } from "./gsc/ingestion-gaps";
 
 // Scanning surfaces
-export { getPendingFindings } from "./scanning/findings-store";
 export { CONTENT_CHANGE_TYPES } from "./scanning/content-change-types";
 export { runInProcessColdStartScan } from "./scanning/in-process-scan";
 export { loadCrawlFrontier, runCrawlBatch } from "./scanning/crawl-frontier";
@@ -115,7 +107,7 @@ export { maybeRefreshUrlWatcher } from "./product/url-watcher";
 export { fetchPageHtml } from "./competitor-intel/polite-fetch";
 
 // AI-visibility citation canonicalization
-export { canonicalizeCitationUrl } from "./ai-visibility/canonicalize-citation-url";
+export { canonicalizeCitationUrl, citesOwnSite } from "./ai-visibility/canonicalize-citation-url";
 
 // Full-fidelity AI observations: the canonical stored answer + its journey, and the
 // zero-cost re-analysis path over text that was already bought once.

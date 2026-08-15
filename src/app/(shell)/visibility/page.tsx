@@ -9,7 +9,7 @@ import { requireReadyAccount, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { visibilitySeries } from "@/domains/measurement";
 import { researchPermission, researchRunStatus } from "@/domains/runtime";
-import { answerIntelOf, canonicalPairOf, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
+import { answerIntelOf, canonicalPairOf, citesOwnSite, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
 import { GoogleWorkspace } from "./google-view";
@@ -101,7 +101,8 @@ function answerRow(r: AiObservationRecord): AnswerRow {
   const mention = a?.ownedBrandMention ?? null;
   const named = settled && mention != null ? mention.mentioned === true : null;
   const cites = r.journey?.cited_sources ?? null, got = r.journey?.retrieved_results ?? null;
-  const mine = (h: string) => !!owned && (h === owned || h.endsWith(`.${owned}`));
+  // THE ONE OWNERSHIP PREDICATE (evidence/ai-visibility), not a third copy of it living on a page component.
+  const mine = (h: string) => citesOwnSite([{ domain: h }], owned);
   const creditedUrls = new Set((cites ?? []).map((c) => c.url));
   return {
     id: r.id, day: r.reporting_day, promptId: r.prompt_id, promptText: r.prompt_text, engine: r.engine, slot: r.sample_slot,

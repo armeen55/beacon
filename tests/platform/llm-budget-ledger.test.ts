@@ -4,24 +4,23 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
 
-const db = vi.hoisted(() => ({ row: null as Record<string, unknown> | null, readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[] }));
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ from(table: string) {
-  db.tables.push(table);
-  const chain = { eq: () => chain, maybeSingle: async () => ({ data: db.row, error: db.readError }),
-    then: (r: (v: unknown) => unknown) => Promise.resolve({ data: db.row ? [db.row] : [], error: db.readError }).then(r) };
-  const wrote = (patch: Record<string, unknown>) => { db.wrote.push(patch); const w = { eq: () => w, then: (r: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(r) }; return w; };
-  return { select: () => chain, insert: wrote, update: wrote }; } }) }));
+const db = vi.hoisted(() => ({ readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[] }));
+// THE WRITE IS ONE ATOMIC INCREMENT IN THE DATABASE, never a total this process computed. Reading the row, adding the cost here and writing the absolute value back lost one of any two concurrent charges outright, and the
+// cap that fails closed then read a total lower than what was spent. The mock is the RPC, and what it is handed is a DELTA: two charges send two deltas and neither one depends on what the other read.
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => {
+  db.tables.push(fn);
+  if (db.readError) return { data: null, error: db.readError };
+  db.wrote.push(args); return { data: true, error: null }; } }) }));
 
-beforeEach(() => { db.row = null; db.readError = null; db.wrote = []; db.tables = []; vi.spyOn(console, "warn").mockImplementation(() => {}); });
+beforeEach(() => { db.readError = null; db.wrote = []; db.tables = []; vi.spyOn(console, "warn").mockImplementation(() => {}); });
 
 describe("the durable per-account LLM spend writer", () => {
   it("adds what was just spent to that account's own running total, opening it when the account has spent nothing yet", async () => {
     await recordSpendSupabase({ tenantId: "acct-a", platform: "perplexity", costUsd: 0.0917, promptCount: 100, chunkCount: 1, runId: "run-x" });
-    expect([db.wrote[0]!.tenant_id, db.wrote[0]!.spent_usd, db.wrote[0]!.call_count]).toEqual(["acct-a", 0.0917, 1]);
-    db.row = { spent_usd: "0.1", call_count: 2, prompt_count: 50, chunk_count: 1 }; db.wrote = [];
+    expect([db.tables[0], db.wrote[0]!.p_tenant_id, db.wrote[0]!.p_platform, db.wrote[0]!.p_delta, db.wrote[0]!.p_prompts]).toEqual(["increment_llm_spend", "acct-a", "perplexity", 0.0917, 100]);
     await recordSpendSupabase({ tenantId: "acct-a", platform: "openai", costUsd: 2.88, promptCount: 100, chunkCount: 1 });
-    expect([Number(db.wrote[0]!.spent_usd).toFixed(2), db.wrote[0]!.call_count, db.wrote[0]!.prompt_count]).toEqual(["2.98", 3, 150]); });
-  it("answers false and writes nothing when the ledger cannot be read, so the paid call it is recording is never broken by it", async () => {
+    expect([db.wrote[1]!.p_delta, db.wrote[1]!.p_platform, db.wrote.length]).toEqual([2.88, "openai", 2]); });
+  it("answers false and writes nothing when the ledger cannot be written, so the paid call it is recording is never broken by it", async () => {
     db.readError = { message: "boom" };
     await expect(recordSpendSupabase({ tenantId: "acct-a", platform: "perplexity", costUsd: 0.05 })).resolves.toBe(false);
     expect(db.wrote).toEqual([]); });

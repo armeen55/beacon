@@ -130,8 +130,12 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }: {
+export function ChangeCard({ proposal, rank, proven, review = false, onAside, onDone, onToast }: {
   proposal: ChangeProposal; rank: number; proven: boolean;
+  /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would
+   *  record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander.
+   *  A control is a claim that the work is finished, and this stage is the stage where it is not. */
+  review?: boolean;
   onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -233,8 +237,9 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
               <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
                 <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
               </p>
-              <CopyButton text={after} onToast={onToast}
-                label={`Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
+              {review ? <span className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] text-muted-foreground" data-awaiting-validation="true">Awaiting validation</span>
+                : <CopyButton text={after} onToast={onToast}
+                  label={`Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />}
             </div>
           </div>
         )}
@@ -299,10 +304,18 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
             {proposal.whyRankedAboveNext ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-why-ranked="true">{proposal.whyRankedAboveNext}</p>
             ) : null}
-            {/* EVERY CARD HERE IS FINISHED WORK, so every one of them can record that it was made. Nothing
-                unfinished reaches this list, which is what makes this control safe on all of them. */}
-            <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
-              components={piecesOf(bundle)} onRecorded={recordDone} />
+            {/* A CARD THAT CLEARED EVERY CHECK CAN RECORD THAT IT WAS MADE. One that is still waiting on a look
+                says what it is waiting for instead, because offering to record it done is offering to measure
+                work whose exact words nobody has validated. */}
+            {review ? (
+              <p className="rounded-md border border-border px-3 py-2 text-[12px] leading-relaxed text-muted-foreground" data-awaiting-note="true">
+                Waiting on a look. The evidence is here and the exact words are not validated yet, so there is
+                nothing to paste and nothing to mark done. It moves up to the ranked list when they pass.
+              </p>
+            ) : (
+              <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
+                components={piecesOf(bundle)} onRecorded={recordDone} />
+            )}
           </div>
         ) : null}
 
@@ -313,7 +326,7 @@ export function ChangeCard({ proposal, rank, proven, onAside, onDone, onToast }:
           </Link>
           {/* THE ONE-PRESS RECORD, on the collapsed card. A new page owes its live address and a merge owes a
               confirmation, so those two keep the full form above rather than being refused after the press. */}
-          {!isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
+          {!review && !isNew && held.length === 0 ? <MarkDoneNow proposalId={proposal.id} onRecorded={recordDone} onToast={onToast} /> : null}
           <button type="button" data-set-aside="true" onClick={() => onAside(proposal.id)}
             className="text-[12px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
             Skip

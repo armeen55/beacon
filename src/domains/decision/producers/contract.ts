@@ -8,7 +8,7 @@
  * PURE CONTRACT: types only. No I/O, no imports of a store, no model call. Both the core producers and the extended ones speak this and nothing else, so the dispatcher never learns a second vocabulary.
  */
 
-import type { BundleComponent, BundleComponentKind, EvidenceReadiness } from "../contracts";
+import type { BundleComponent, BundleComponentKind, ChangeBundle, EvidenceReadiness } from "../contracts";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 // The cause ladder OWNS the cause vocabulary and its finding shape (contracts.ts carries it the same way, by type import), so this file holds no second copy that could drift.
 import type { CauseFinding } from "../diagnosis";
@@ -89,6 +89,9 @@ export type ProducerCtx = {
 /** What one producer hands back: components that survive the caller's own gates, or one honest sentence
  *  saying why it wrote nothing. Both empty is impossible by construction: no components means a refusal. */
 export type Produced = { components: BundleComponent[]; refusal: string | null;
+  /** ONE VERDICT PER PAGE THE FINDING NAMED, stamped before any drafting so an address cannot leave the change
+   *  by simply failing to appear in `components`. Carried onto the bundle, where completeness reads it. */
+  dispositions?: ChangeBundle["dispositions"];
   /** WHAT TO DO, IN ORDER, when the change is a job rather than a paste. A component's `after` is the thing an
    *  operator copies, so instructions inside it become copied text; a change that cannot be pasted puts its
    *  instructions here instead and the surface renders them as steps with no copy button. */

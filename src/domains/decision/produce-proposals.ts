@@ -22,7 +22,7 @@ import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evi
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
-import { applyDraftedCopy, staleBundleReasons } from "./drafted-copy";
+import { applyDraftedCopy, staleBundleReasons, MAX_PAID_CALLS } from "./drafted-copy";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
@@ -249,10 +249,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
   const persistIfChanged = async (raw: ChangeProposal): Promise<void> => {
     if (!persist) return;
-    // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted under the same basis.
-    const prior = existing.get(raw.id), carried = preferFinished(sized(raw), prior);
-    const p: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt
-      ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
+    // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted on the same page, the same diagnosis, the same evidence and the same lever. THE PAGE AS THIS PASS READ IT rides on the row (its four stored fields, off the snapshot the pass already holds, so this costs no read), so words written for a page since re-crawled into a different shape are retired rather than served, and a page nothing is held for stamps nothing and is decided on everything else.
+    const held = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(raw.pageUrl ?? raw.pagePath).includes(k)))?.content ?? null;
+    const prior = existing.get(raw.id), carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
+    const p: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;
     else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing
@@ -415,15 +415,15 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
 
   // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
-  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms };
+  /** ONE HARD ATTEMPT BUDGET FOR THE WHOLE PASS, shared by every editor it runs: the deep bundles, the sibling  pages a differentiation writes on, and the drafted descriptions and answers below. Every charged call comes  off it whether it succeeded, refused or threw, so the pass has one ceiling instead of one cap per producer that only ever counted the successes. Deliberately mutable and deliberately shared. */
+  const attempts = { left: MAX_PAID_CALLS };
+  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms, attempts };
   const onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
 
   for (const d of deep) {
     // Every page THIS CASE IS ABOUT gets its own words read FIRST, because a stored bundle is re-read against them before it is served again.
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
-    // A STORED BUNDLE IS RE-READ BEFORE IT IS SERVED AGAIN. Reuse skipped the drafter AND every gate, so a piece
-    // written before a gate existed outlived the gate that would have refused it. A piece a current gate refuses
-    // sends the whole bundle back through the producer THIS pass instead of being handed over one more time.
+    // A STORED BUNDLE IS RE-READ BEFORE IT IS SERVED AGAIN. Reuse skipped the drafter AND every gate, so a piece written before a gate existed outlived the gate that would have refused it. A piece a current gate refuses sends the whole bundle back through the producer THIS pass instead of being handed over one more time.
     const heldBundle = heldDeep.get(d.pageUrl) ?? null;
     const stale = heldBundle ? staleBundleReasons(heldBundle, bodyByUrl ?? new Map(), bannedTerms) : [];
     if (heldBundle && stale.length > 0) log.info("[produce-proposals] a stored bundle no longer passes its own gates, so it is drafted again", { tenantId, id: heldBundle.id, reasons: stale.slice(0, 3) });

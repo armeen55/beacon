@@ -8,9 +8,14 @@
  * Google shows, the heading a reader sees and the opening that says which search that page answers, every one
  * drafted against THAT page's own stored words through the same editor, the same deterministic checks and the
  * same judge as any other change. NOTHING IS HARDCODED: the pages, the search and the words all come from the
- * finding and the held bodies. An address the editor refuses, or one whose only available rewrite would narrow it
- * off a subject its siblings do not cover, is DROPPED from the change rather than padded, so what ships is the
- * work that is honestly right on the addresses it names. PURE apart from the drafting calls handed in.
+ * finding and the held bodies. PURE apart from the drafting calls handed in.
+ *
+ * EVERY NAMED ADDRESS LEAVES WITH A STATED VERDICT. An address the editor refuses, or one whose only available
+ * rewrite would narrow it off a subject its siblings do not cover, used to be DROPPED: it disappeared from the
+ * component list, which is the only record a page was ever named, and completeness then read a one-page change
+ * as complete because it only ever checked the survivors. One `dispositions` entry is stamped for every page in
+ * the finding, so leaving an address alone is a decision the operator can read and argue with, and a bundle that
+ * owes work on a page and wrote none is incomplete by construction.
  */
 
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -27,9 +32,14 @@ const MAX_DIFFERENTIATED = 4;
 export async function produceDifferentiation(ctx: ProducerCtx, named: readonly string[], keep: string,
   bodyFor: (p: string) => OwnedPageBody | null, why: string): Promise<Produced | null> {
   if (!ctx.draft.pageField) return null;
-  const pages = named.slice(0, MAX_DIFFERENTIATED).map((path) => ({ path, body: bodyFor(path) }))
+  const inScope = named.slice(0, MAX_DIFFERENTIATED);
+  const pages = inScope.map((path) => ({ path, body: bodyFor(path) }))
     .filter((p): p is { path: string; body: OwnedPageBody } => p.body?.completeness === "complete");
-  if (pages.length !== Math.min(named.length, MAX_DIFFERENTIATED) || pages.length < 2) return null;
+  if (pages.length !== inScope.length || pages.length < 2) return null;
+  // THE VERDICT LEDGER. Every named address starts here owing differentiation; a page the editor cannot honestly
+  // improve is REWRITTEN to keep_as_is with the reason, never removed. The list is what completeness reads.
+  const verdicts = new Map<string, { page: string; verdict: "differentiate" | "keep_as_is"; because: string }>(
+    inScope.map((p) => [p, { page: p, verdict: "differentiate" as const, because: `Google serves ${count(inScope.length)} of this site's pages for "${ctx.primary}", and this one has to say what it alone covers.` }]));
   const others = (path: string): string => pages.filter((p) => p.path !== path)
     .map((p) => `${p.path} (${(p.body.title ?? p.body.h1 ?? "").trim()})`).join("; ");
   const components: BundleComponent[] = [];
@@ -78,15 +88,20 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       });
     }
   }
-  // AN ADDRESS WITH NOTHING SAFE TO SAY IS DROPPED, NOT PADDED. Holding the whole change hostage to a page whose
-  // line is already right, or whose only available rewrite would narrow it off its own subject, threw away the
-  // work that WAS good on the other addresses. The change still names the whole cluster; it only asks for the
-  // pages it can honestly improve, and one page with real work beats four with filler.
+  // AN ADDRESS WITH NOTHING SAFE TO SAY IS LEFT ALONE ON THE RECORD, NOT PADDED AND NOT DROPPED. Holding the
+  // whole change hostage to a page whose line is already right, or whose only available rewrite would narrow it
+  // off its own subject, threw away the work that WAS good on the other addresses; dropping it silently sold a
+  // one-page answer as a settled split. It is stated instead, and the operator reads both halves of the decision.
   const covered = [...new Set(components.map((c) => c.page!))];
-  if (covered.length === 0) return { components: [],
+  for (const p of inScope) if (!covered.includes(p)) verdicts.set(p, { page: p, verdict: "keep_as_is",
+    because: `${p} is left as it is: no wording came back that tells it apart from ${others(p)} without narrowing it off a subject its siblings do not cover.` });
+  if (covered.length === 0) return { components: [], dispositions: [...verdicts.values()],
     refusal: `Neither ${pages.map((x) => x.path).join(" nor ")} could be given wording that tells it apart from the others without narrowing it off its own subject, so nothing is handed over. Ask again and anything already written costs nothing a second time.` };
-  return { components, refusal: null, considered: [{ option: "Merge them into one page", reason: why }],
+  return { components, refusal: null, dispositions: [...verdicts.values()], considered: [{ option: "Merge them into one page", reason: why }],
     operatorSteps: [...covered.map((path) => `On ${path}, apply the ${count(components.filter((c) => c.page === path).length)} ${components.filter((c) => c.page === path).length === 1 ? "piece" : "pieces"} above marked for it`),
+      // THE PAGES THIS CHANGE DELIBERATELY LEAVES ALONE, said out loud, because a split settled on two of four
+      // addresses is a different decision from a split settled on all four and the operator has to see which.
+      ...[...verdicts.values()].filter((v) => v.verdict === "keep_as_is").map((v) => `Leave ${v.page} exactly as it is: nothing came back for it that would not narrow it off a subject its siblings do not cover`),
       `Come back here and mark it done, and clicks and average position for "${ctx.primary}" get read across all ${count(pages.length)} addresses`] };
 }
 

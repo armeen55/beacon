@@ -38,7 +38,8 @@ function chain(): any {
 }
 vi.mock("@/lib/persistence/supabase", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
-  getSupabaseAdmin: () => ({ from: () => chain() }),
+  // THE SPEND WRITE IS ONE ATOMIC INCREMENT: the ledger is handed a DELTA and adds it, never a total this process computed and could lose a concurrent charge from.
+  getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
   isSupabaseConfigured: () => true,
 }));
 // ── in-memory world ─────────────────────────────────────────────────────────
@@ -370,9 +371,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     w.tenants.get(A)!.status = "active"; w.tenants.get(A)!.tos = "2026-07-24T00:00:00.000Z"; // setup finished, the account is live
     expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
-    // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product
-    // works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the
-    // research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are the real floor.
+    // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are the real floor.
     expect([await live({ growth_goal: null }), await live({ domain: "" }), await live({ tos_accepted_at: null })]).toEqual([null, { step: 1 }, { step: 7 }]);
     for (const r of w.prompts) if (r.is_active) r.tags = [...r.tags.filter((t) => !t.startsWith("basis_")), "basis_longgone"];
     // A basis nobody re-approved is still 35 questions I am really asking; a PENDING account still owes every activation input, goal included.
