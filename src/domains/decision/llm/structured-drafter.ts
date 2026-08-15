@@ -904,7 +904,9 @@ type AtomicEditStructuredInput = {
   /** V1 Closure: `answer_block` joins the two field edits this drafter has always written. The cause ladder
    *  can name a page whose OPENING never says what the search is about, and that fix is one field's worth of
    *  copy exactly like a title is; the schema already allowed the value and nothing ever passed it. */
-  field: "title" | "meta" | "answer_block";
+  /** `h1` joined them when one decision started writing on FOUR addresses at once: telling sibling pages apart
+   *  replaces the heading a reader sees as well as the line Google shows, and the schema already allowed it. */
+  field: "title" | "meta" | "h1" | "answer_block";
   currentValue: string | null;
   outline: string[];
   evidenceHints?: string[];
@@ -978,7 +980,7 @@ export async function draftAtomicEditStructured(
 
   // BEACON_500 item 30/74: additive-only - the pattern-aware builder only fires when a pageFamily is known, and both
   // paths return '' (or the unchanged fragment) when the tenant has no measured winners yet for this exact field, leaving the prompt byte-identical to today.
-  const lever = input.field === "title" ? "title" : input.field === "answer_block" ? "answer" : "meta";
+  const lever = input.field === "title" || input.field === "h1" ? "title" : input.field === "answer_block" ? "answer" : "meta";
   let fewShots = "";
   let fewShotProvenance: FewShotProvenance | undefined;
   if (input.tenantId && input.pageFamily) {

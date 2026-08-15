@@ -14,16 +14,12 @@ import { classifyResult } from "@/domains/evidence/serp-shape"; import type { Ow
 import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
+import { produceDifferentiation } from "./differentiate";
 
 /** Two links is the whole budget, and a rebuild is earned by causes agreeing, never by one loud one. */
-const MAX_LINKS = 2;
-const MAX_REQUIREMENTS = 4;
-const MAX_HEADINGS = 6;
-const MIN_STRUCTURAL_CAUSES = 2;
-/** A rebuild that names more losses than this is not a rebuild, it is a different page. */
-const MAX_LOSSES = 8;
-/** A merge that lists more than this is not a merge, it is a rebuild of the page that survives. */
-const MAX_MOVED = 6;
+const MAX_LINKS = 2, MAX_REQUIREMENTS = 4, MAX_HEADINGS = 6, MIN_STRUCTURAL_CAUSES = 2;
+/** A rebuild that names more losses than this is not a rebuild, it is a different page; a merge that lists more than MAX_MOVED is a rebuild of the page that survives. */
+const MAX_LOSSES = 8, MAX_MOVED = 6;
 /** Pages under one prefix past which they are a SET, and a set's member is never folded into its hub. */
 const MIN_SIBLINGS = 5;
 
@@ -344,6 +340,8 @@ export const produceConsolidation: Producer = async (ctx) => {
   // THE PAGE I AM KEEPING MUST HAVE FIGURES OF ITS OWN; one I hold none for is named as one I cannot measure.
   if (!keep || !named.includes(keep) || (earns.get(keep)?.clicks ?? null) == null) return refuse(UNPROVEN);
   const losers = named.filter((p) => p !== keep);
+  // THE WORDS EACH PAGE CARRIES TODAY, read once because BOTH answers need them: a merge may name only what it can read, and telling the pages apart may only rewrite pages whose own copy is whole and on file.
+  const bodies = ctx.heldBodies ?? new Map(), bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
   // A MEMBER OF A SET IS NOT A DUPLICATE OF THE SET. Where the page being folded away is one of many built to
   // one shape under one prefix, the two addresses answer two different searches, and the merge would retire
   // one of a series while every sibling stands. Structural, so it reads the same on any site: the count of
@@ -353,9 +351,9 @@ export const produceConsolidation: Producer = async (ctx) => {
     return at > 0 ? ctx.ownedPages.filter((o) => short(o.url).startsWith(p.slice(0, at + 1))).length : 0; };
   const crowded = losers.find((p) => under(p) >= MIN_SIBLINGS);
   // STRUCTURAL, SO IT IS TYPED: this rules the merge out here for good, not until more evidence lands, and the card that decided on a merge reads that off the field rather than off these words.
-  if (crowded) return refuse(`${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing. Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`);
-  // THE WORDS EACH PAGE CARRIES TODAY, or nothing may be said about what moves: a merge that cannot name what it preserves is research, not a change.
-  const bodies = ctx.heldBodies ?? new Map(), bodyFor = (p: string): OwnedPageBody | null => [...bodies.values()].find((b) => short(b.url) === p) ?? null;
+  if (crowded) { const why = `${crowded} is one of ${count(under(crowded))} pages of yours built to the same shape under ${crowded.slice(0, crowded.lastIndexOf("/") + 1)}, so folding it into ${keep} would retire one of a set and leave every other one standing.`;
+    return await produceDifferentiation(ctx, named, keep, bodyFor, why) ?? refuse(`${why} Give ${crowded} and ${keep} titles and opening lines that say which search each one answers, and nothing here moves an address.`); }
+  // A merge may name only what it can read: one that cannot say what it preserves is research, not a change.
   const held = named.map((p) => ({ path: p, body: bodyFor(p) })); if (held.some((h) => !h.body)) return refuse(`${held.filter((h) => !h.body).map((h) => h.path).join(" and ")} has not been read closely enough to say what would be lost by folding ${losers.length === 1 ? "it" : "them"} into ${keep}, so nothing here says combine anything yet. ${losers.length === 1 ? "That page needs" : "Those pages need"} reading, and then exactly what moves can be named.`);
   // A SAMPLE PROVES PRESENCE, NEVER ABSENCE. The gate below reads "the survivor already carries every section this page carries" off the headings on file, so a partly captured page whose few captured headings happen to be covered would authorize a permanent redirect on what was never read. Only a whole capture can say nothing is missing.
   const short_read = held.filter((h) => h.body!.completeness !== "complete").map((h) => h.path); if (short_read.length > 0) return refuse(`${short_read.join(" and ")} ${short_read.length === 1 ? "is" : "are"} only partly on file, so what ${short_read.length === 1 ? "it carries" : "they carry"} that ${keep} does not cannot be told from what was never read, and a redirect is permanent. ${short_read.length === 1 ? "That page needs" : "Those pages need"} reading in full first.`);
@@ -376,7 +374,8 @@ export const produceConsolidation: Producer = async (ctx) => {
   // it. What survives this is a true duplicate, where the redirect costs no subject. 2026-08-14: /persian-names
   // carried boy names and last names, and this card told an operator to fold it into a girl-names page. Typed,
   // so the card that decided on a merge reads the refusal off the field and never off these words.
-  if (moves.length > 0) return refuse(`${losers.join(" and ")} ${losers.length === 1 ? "carries a section" : "carry sections"} ${keep} does not: ${moves.map((m) => `"${m}"`).join(", ")}. ${keep} wins "${ctx.primary}", and that settles one search, not every search ${losers.join(" and ")} ${losers.length === 1 ? "answers" : "answer"}: folding ${losers.length === 1 ? "it" : "them"} in would either turn ${keep} into a different page or drop those sections and whoever comes looking for them. Give ${named.join(" and ")} titles and opening lines that say which search each one answers, and no address moves.`);
+  if (moves.length > 0) { const why = `${losers.join(" and ")} ${losers.length === 1 ? "carries a section" : "carry sections"} ${keep} does not: ${moves.map((m) => `"${m}"`).join(", ")}. ${keep} wins "${ctx.primary}", and that settles one search, not every search ${losers.join(" and ")} ${losers.length === 1 ? "answers" : "answer"}: folding ${losers.length === 1 ? "it" : "them"} in would either turn ${keep} into a different page or drop those sections and whoever comes looking for them.`;
+    return await produceDifferentiation(ctx, named, keep, bodyFor, why) ?? refuse(`${why} Give ${named.join(" and ")} titles and opening lines that say which search each one answers, and no address moves.`); }
   const win = earns.get(keep)!;
   const rest = losers.map((p) => { const c = earns.get(p)?.clicks ?? null; return c == null ? `nothing measurable on ${p}` : `${count(c)} on ${p}`; }).join(" and ");
   // A MERGE IS A JOB, NOT A PASTE. The component carries the DECISION and its numbers, which is all an operator

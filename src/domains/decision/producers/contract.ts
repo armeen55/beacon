@@ -41,6 +41,11 @@ export type ProducerDraft = {
   /** The page's first lines, written through the atomic-edit drafter under its `answer_block` field. OPTIONAL
    *  so a caller that cannot buy one is a refusal rather than a compile error. */
   openingAnswer?: (input: { query: string; pageLabel: string; currentValue: string | null; outline: string[]; evidenceHints: string[] }) => Promise<string | null>;
+  /** THE EDITOR, ASKED FOR ONE FIELD ON ONE NAMED PAGE OF THIS ACCOUNT. A change that tells sibling pages apart
+   *  writes on every one of their addresses, so each is drafted against ITS OWN stored body and read back by the
+   *  same deterministic checks and the same judge. OPTIONAL, so a caller that cannot wire it refuses. */
+  pageField?: (input: { field: "title" | "h1" | "answer_block"; body: OwnedPageBody; query: string; brief: string;
+    evidenceHints: string[]; minutes: number }) => Promise<{ before: string | null; after: string; anchor: string; heading: string | null; minutes: number } | null>;
 };
 
 /** EVERY cause the ladder can name. A producer registry keyed by this is total by construction, so a new

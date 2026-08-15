@@ -15,14 +15,14 @@ import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdr
 import { actionableProposalFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
 import { ownershipCards, researchingCards, withholdReason } from "./authorization";
-import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts";
+import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { preferFinished } from "./completeness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
-import { applyDraftedCopy } from "./drafted-copy";
+import { applyDraftedCopy, staleBundleReasons } from "./drafted-copy";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
@@ -39,17 +39,11 @@ export type ProduceProposalsOptions = ProposeOptions & {
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
 
 export type ProduceProposalsResult = {
-  /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[];
-  candidates: QualifiedCandidate[];
-  /** Which of the honest endings this pass reached. */ outcome: ProducerOutcome;
+  /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[]; candidates: QualifiedCandidate[]; /** Which of the honest endings this pass reached. */ outcome: ProducerOutcome;
   /** Candidates that earned an action: a page to edit, plus every consolidation this kernel cannot draft yet. */ actionable: number;
-  /** Proven gaps whose cause is not identified yet: real work, not silence. */ investigating: number;
-  noDraft: number; persisted: number;
-  /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number;
-  /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number;
-  /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[];
-  coverage: DecidedTopic | null;
-  waitingUntil: string | null; // the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking"
+  /** Proven gaps whose cause is not identified yet: real work, not silence. */ investigating: number; noDraft: number; persisted: number; /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number;
+  /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number; /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[];
+  coverage: DecidedTopic | null; waitingUntil: string | null; // the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking"
   /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[];
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
@@ -122,6 +116,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] }; }
   const profile = await loadBusinessProfile(tenantId).catch(() => null);
   const allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
+  const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
 
   // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   const basis = await resolveCurrentBasis(tenantId, profile);
@@ -254,7 +249,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
   const persistIfChanged = async (raw: ChangeProposal): Promise<void> => {
     if (!persist) return;
-    const prior = existing.get(raw.id), carried = sized(raw);
+    // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted under the same basis.
+    const prior = existing.get(raw.id), carried = preferFinished(sized(raw), prior);
     const p: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt
       ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     const result = await saveChangeProposal(p);
@@ -282,7 +278,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   };
   /** RANK, THEN WRITE THE ORDER BACK. Every card was written before the pass had ranked it, so the stored rows carried a null ranking receipt and nothing on file could say why a card sat where it sat. Written back ONLY where the order actually moved, so a settled queue still writes nothing, and never at all on a pass whose writes were already failing: a store that would not take the row will not take its order either. */
   const rankAndStamp = async (rows: readonly ChangeProposal[]): Promise<ChangeProposal[]> => {
-    const ranked = rankProposals(rows.map(recovered).map(sized), { ...measuring, familyHistory });
+    // WHAT WAS PERSISTED IS WHAT GETS RANKED, or a card whose banked copy was kept above would rank as a brief the store no longer holds.
+    const ranked = rankProposals(rows.map((p) => existing.get(p.id) ?? p).map(recovered).map(sized), { ...measuring, familyHistory });
     if (!persist || writeFailures > 0) return ranked;
     for (const p of ranked) {
       const stored = existing.get(p.id);
@@ -418,13 +415,19 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
 
   // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
-  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve };
+  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms };
   const onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
 
   for (const d of deep) {
-    // What reaches here is a stored bundle that still shows its work, carried forward.
+    // Every page THIS CASE IS ABOUT gets its own words read FIRST, because a stored bundle is re-read against them before it is served again.
+    const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
+    // A STORED BUNDLE IS RE-READ BEFORE IT IS SERVED AGAIN. Reuse skipped the drafter AND every gate, so a piece
+    // written before a gate existed outlived the gate that would have refused it. A piece a current gate refuses
+    // sends the whole bundle back through the producer THIS pass instead of being handed over one more time.
     const heldBundle = heldDeep.get(d.pageUrl) ?? null;
-    if (heldBundle) {
+    const stale = heldBundle ? staleBundleReasons(heldBundle, bodyByUrl ?? new Map(), bannedTerms) : [];
+    if (heldBundle && stale.length > 0) log.info("[produce-proposals] a stored bundle no longer passes its own gates, so it is drafted again", { tenantId, id: heldBundle.id, reasons: stale.slice(0, 3) });
+    if (heldBundle && stale.length === 0) {
       // A held bundle reaches the queue here, re-stamped.
       if (!proposals.some((p) => p.id === heldBundle.id)) {
         const proposal = stamp(heldBundle);
@@ -435,8 +438,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       enteredBy.set(d.pageUrl, d.entry);
       continue;
     }
-    // Every page THIS CASE IS ABOUT gets its own words read, through the targeted Evidence reader. Fail-soft. AND THE DOOR IS NOT THE ONLY THING THAT NAMES THE OTHER PAGE: where one page's split was diagnosed but the single split door went to a stronger page, this page enters on another door carrying an empty competingUrls, so the merge asked to settle it was handed one side of a two-page decision and refused itself for want of words that were on file all along. THIS PAGE'S OWN diagnosed competitors only, never a wider load.
-    const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
     // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
@@ -466,8 +467,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
   // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize is not worth paying to write.
   const allowed: ChangeProposal[] = []; for (const c of extra.cards) if (await admit(c)) allowed.push(c);
-  const bannedTerms = await loadBusinessProfile(tenantId).then((p) => p.constraints.value.bannedTerms).catch(() => [] as string[]);
-  const drafted = await applyDraftedCopy(allowed, { tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms }).catch(() => allowed); // the account's own vocabulary reaches the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms }).catch(() => allowed); // the account's own vocabulary reaches the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).

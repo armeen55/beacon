@@ -24,7 +24,7 @@ import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRe
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
-import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store";
+import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[] };
@@ -35,8 +35,7 @@ type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-/** The page's OWN WORDS, whole, read by the caller through the targeted Evidence reader. Absent means absent. */
-export type OwnedBody = { openingSample: string | null; fetchedAt: string | null;
+export type OwnedBody = { openingSample: string | null; fetchedAt: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
@@ -213,18 +212,16 @@ const gateShape = (tenantId: string, query: string, change: RecommendedChange): 
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
 type ProduceBundleOptions = ProposeOptions & {
-  /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table, which is right only for a caller running outside a pass. */
-  curve?: { expectedCtrAt: (position: number) => number };
-  /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */
-  coverage?: DecidedTopic | null;
-  /** The pages already carrying a change under measurement, so a page still being read is left alone. */
-  measuringPagePaths?: readonly (string | null)[];
+  /** THE ACCOUNT'S OWN CLICK CURVE, the same one the diagnosis measured with. Absent = the industry table, which is right only for a caller running outside a pass. */ curve?: { expectedCtrAt: (position: number) => number };
+  /** The ONE topic the coverage pass decided: the settled kind of page, what searchers want, and what the winners share. Absent, those causes are not considered. */ coverage?: DecidedTopic | null;
+  /** The pages already carrying a change under measurement, so a page still being read is left alone. */ measuringPagePaths?: readonly (string | null)[];
   /** THIS PAGE'S OWN TWO 28 DAY WINDOWS. Without them the ladder cannot ask whether the page slipped or the searching stopped, so the deep read re-diagnosed every fallen page as if its fall had never been measured and the door opened on a fall produced nothing. */ decline?: { clicksNow: number; clicksPrior: number; positionNow: number; positionPrior: number; impressionsNow: number; impressionsPrior: number };
   /** WHICH DOOR SELECTED THIS PAGE, off deep-candidates. Absent = the click door, byte for byte as before. */
   door?: DoorContext | null;
   /** WHAT IS WRONG WITH HOW THIS ACCOUNT'S PAGES ARE SERVED (decision/technical-findings). ABSENT means nobody
    *  looked, so the cause says so rather than clearing the page. Filtered here to the page under work. */
   technical?: readonly TechnicalFinding[];
+  /** The account's own banned vocabulary, read once by the caller: no editor here writes a word this account does not publish. */ bannedTerms?: readonly string[];
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
@@ -279,9 +276,11 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
   alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "gate" });
 
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. */
-function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date): ProducerDraft {
+function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[]): ProducerDraft {
   const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
   return {
+    // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
+    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
     section: async (i) => {
       const r = await draftSectionStructured({ ...i, tenantId }, wire);
       return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
@@ -409,7 +408,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   } else {
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
-    const drafters = producerDrafts(tenantId, opts, now);
+    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)));
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? [])) }; // the last one is what the site prints on everything, read off the whole inventory: furniture is not content to move
@@ -452,7 +451,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const bundle: ChangeBundle = { // objective: Today renders it verbatim, so it is the MODELED shortfall, never a promise
     objective: lead
       ? `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`
-      : doorGoal(door!.door, primary),
+      // THE GOAL FOLLOWS THE CAUSE THAT WAS SERVED, NOT THE DOOR THAT KNOCKED: a page can enter on a fall and be diagnosed with a split, and the objective then promised to win back lost clicks over components that settle which page owns the search, so one card argued two different changes.
+      : doorGoal(finding.cause === "cannibalization" ? "cannibalization" : door!.door, primary),
     metric: `Clicks from search for "${primary}" over the next 28 days.`,
     scope: { queries: queries.map((q) => q.query), prompts: receipt.prompts },
     components, plan,

@@ -17,8 +17,9 @@ import type { ChangeProposal } from "./contracts";
  *  now answered where it is known. A PRODUCER handing over a brief says so in a typed field (`researchOnly`)
  *  as it mints the card. THE EDITOR's copy is read by decision/drafted-copy's editor contract, against the
  *  stored page and then by a judge. Only what stays deterministic for any writer is left below. */
-/** A blank somebody is expected to fill in before the copy is usable. */
-const BLANK_TO_FILL = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
+/** A blank somebody is expected to fill in before the copy is usable, or MARKUP WHERE A WORD BELONGS: a title
+ *  reading "Colors &amp; History" is not final copy, because what an operator pastes is not what a reader sees. */
+const BLANK_TO_FILL = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b|&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
 /** Copy that says out loud that the work has not been done. */
 const SAYS_UNFINISHED = /\b(?:not been (?:drafted|read|written)|is not settled|not on this card|still owed|nothing here is)\b/i;
 
@@ -67,4 +68,24 @@ export function deliverableGaps(p: ChangeProposal): string[] {
     gaps.push("where it goes on the page is not named");
   }
   return [...new Set(gaps)];
+}
+
+/**
+ * FINISHED WORK IS NOT UNDONE BY A PASS THAT DID NOT REACH IT. Drafting is capped per pass, so a card past the
+ * cap comes back from its producer as the BRIEF it started as, and writing that over copy an earlier pass
+ * already paid for DESTROYED it: 6 then 4 then 3 finished cards across three consecutive passes, taking the
+ * biggest description on the site (18,317 views in 90 days) with it. A stored deliverable is replaced by a NEW
+ * finished one or by an explicit withdrawal carrying a reason, never by silence.
+ *
+ * THE BASIS STILL DECIDES, so this can never preserve stale copy: words banked under a different basis are a
+ * different reading of the account and the incoming card wins outright, exactly as before. PURE.
+ */
+export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
+  if (!prior || (prior.basis ?? null) !== (incoming.basis ?? null)) return incoming;
+  if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return incoming;
+  // The words, where they land, what they cost and what was said about them stay as banked; THIS pass's
+  // evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.
+  return { ...incoming, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
+    limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes,
+    ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}) };
 }

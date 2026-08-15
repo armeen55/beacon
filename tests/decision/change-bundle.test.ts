@@ -3,9 +3,7 @@
  *  determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a
  *  round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-import { receiptComposition } from "@/domains/decision/contracts";
-import { deliverableGaps } from "@/domains/decision/completeness";
-import { deliverableFailures } from "@/domains/decision/drafted-copy";
+import { receiptComposition } from "@/domains/decision/contracts"; import { deliverableGaps, preferFinished } from "@/domains/decision/completeness"; import { deliverableFailures } from "@/domains/decision/drafted-copy";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -98,8 +96,7 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     expect(out.status).toBe("none"); if (out.status !== "none") return; expect(called).toBe(0); expect(out.reason).toBe("The results page for that search has not been read yet, so what to change cannot be named. It is first in line on the next research pass."); });
   it("refuses a page with no proven gap and no current copy, and round-trips through persistence", async () => { const opt = { complete: seam, ...OPTS }; const healthy = page({ url: "fixture-content.example/rain-barrels", search: { ...page({ url: "x" }).search!, topQueries: [{ query: "rain barrel sizing", impressions: 6000, clicks: 700, position: 3 }] } }); const noGap = await produceBundleForSnapshot(snapshot({ ownedPages: [healthy] }), opt); const noCopy = await produceBundleForSnapshot(snapshot({ ownedPages: [page({ url: "fixture-content.example/rain-barrels", content: null })] }), opt); expect(noGap.status).toBe("none"); expect(noCopy.status).toBe("none"); if (noCopy.status !== "none") return; // a big page earning its rank is not work
     expect(noCopy.reason).toContain("nothing honest to rewrite"); const out = await produceBundleForSnapshot(snapshot(), opt); if (out.status !== "bundled") throw new Error("expected a change"); const back = deserializeChangeProposal(serializeChangeProposal(out.proposal)); expect(back).toEqual(out.proposal); expect(back!.bundle!.components).toHaveLength(1); const { bundle: _dropped, ...preBundleRow } = out.proposal; void _dropped; const legacy = deserializeChangeProposal(serializeChangeProposal(preBundleRow as typeof out.proposal)); expect(legacy).not.toBeNull(); expect(legacy!.bundle).toBeUndefined(); });
-  it("says what the change keeps, what it replaces, and what it adds", async () => {
-    const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
+  it("says what the change keeps, what it replaces, and what it adds", async () => {     const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
     const plan = out.proposal.bundle!.plan!; // the operator reads that most of their page is not being touched
     expect([plan.entries, plan.keeps]).toEqual([[{ kind: "title", label: "Page title", disposition: "change" }], ["Rain barrel sizing", "Roof area and gallons", "Chaining a second barrel"]]); expect(plan.removes).toEqual([{ what: "Rain Barrels", why: "Page title takes its place." }]); // a REMOVE row only where something is genuinely replaced
     expect(deserializeChangeProposal(serializeChangeProposal(out.proposal))!.bundle!.plan).toEqual(plan); });
@@ -209,19 +206,14 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const out = await produceBundleForSnapshot(snapshot({ research }), { complete: seam, ...OPTS });
     if (out.status !== "bundled") throw new Error("expected a change"); expect([out.proposal.bundle!.scope.prompts, out.proposal.bundle!.receipt.items.filter((i) => i.kind === "ai_observation").length]).toEqual([["how much rain does a roof catch"], 1]); }); // the keyword carries the FULL identity of ONE stored answer, and the receipt stands on that answer alone
   /** A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION. This used to DEMOTE the row to needs_review, which is "look at this first" and still fully actionable, so an unsupported change kept its place on the operator's list under a quieter name. It is taken back now, and a page that still earns an action is untouched. */
-  it("takes back the change whose page it read and can no longer prove anything about, and leaves the one it still can", async () => {
-    env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
-    const held = [...store.rows.values()].find((p) => !!p.bundle)!;
+  it("takes back the change whose page it read and can no longer prove anything about, and leaves the one it still can", async () => { env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const held = [...store.rows.values()].find((p) => !!p.bundle)!;
     store.rows.set("orphan", { ...held, id: "orphan", pagePath: "/compost", status: "needs_review" }); // a page I DID read, that no door proves
     const after = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect([after.proposals.some((p) => p.id === "orphan"), store.rows.has("orphan"), store.rows.has(held.id)]).toEqual([false, false, true]); });
   /** P0. THE SNAPSHOT IS FAIL-SOFT BY DESIGN: every leg catches to empty, so one database blip reads as an account with no pages. The retire loop then proved nothing about anything, took back EVERY live change, and the refusal kept them shut afterwards. A pass may only speak about a page it actually read. */
-  it("takes nothing back about a page this pass never read, however healthy the rest of the pass looks", async () => {
-    env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
-    const held = [...store.rows.values()].find((p) => !!p.bundle)!;
+  it("takes nothing back about a page this pass never read, however healthy the rest of the pass looks", async () => { env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const held = [...store.rows.values()].find((p) => !!p.bundle)!;
     store.rows.set("unread", { ...held, id: "unread", pagePath: "/nothing-reached-this-page" }); // its page is not in the read at all
     await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect([store.rows.has("unread"), store.rows.has(held.id)]).toEqual([true, true]); });
-  it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => {
-    env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
+  it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => { env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
     const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "ready", basis: "basis_today", limitations: [], ...over });
     put("ready", {}); put("review", { status: "needs_review" }); put("owing", { limitations: ["Add one before this is paste-ready."] }); put("older", { basis: "basis_last_week", kind: "new_page" }); put("historical", { basis: undefined });
     const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null }); expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["owing", "review"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "owing", "review"]); expect(q.demotedStaleBasis).toBe(2); expect([blind.ranked, blind.ready, blind.toDo].map((l) => l.length)).toEqual([0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
@@ -249,27 +241,17 @@ describe("a release publishes only on a real production result", () => { it("let
   it("a pass that ran BLIND never publishes over a richer release", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], opportunities: 0, noDraft: 0, outcome: "evidence_unreadable" })); await expect(refreshCustomerSurface(TENANT)).rejects.toThrow("your last release was kept"); expect(published).toEqual([]); }); // absence of a source is never deletion of the queue
   it("publishes cleanly when a healthy run finds nothing worth doing", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], opportunities: 0, noDraft: 0 }));
     const surface = await refreshCustomerSurface(TENANT); expect(surface.tenantId).toBe(TENANT); expect(published).toHaveLength(1); }); // nothing to do is an answer, not an outage
-  it("keeps the last loadable release when every write of the pass failed", async () => {
-    const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], outcome: "persistence_failed", candidates: [] }));
-    await expect(refreshCustomerSurface(TENANT)).rejects.toThrow(/could not save a single one/); expect(published).toEqual([]); });
-  it("carries the kernel's own verdict for judged-but-declined pages, biggest gap first", async () => {
-    const judged = [{ action: "watch", pageUrl: "https://s.example/a/", recoverableClicks: 12, reason: "small gap" },
-      { action: "research_needed", pageUrl: "https://s.example/b", recoverableClicks: 400, reason: "big gap" },
-      { action: "act_existing_page", pageUrl: "https://s.example/c", recoverableClicks: 900, reason: "acted" }];
-    const { refreshCustomerSurface, signals } = await release(async () => ({ proposals: [], outcome: "proposals_persisted", candidates: judged }));
-    await refreshCustomerSurface(TENANT); expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); // an acted page is work, not a verdict
+  it("keeps the last loadable release when every write of the pass failed", async () => { const { refreshCustomerSurface, published } = await release(async () => ({ proposals: [], outcome: "persistence_failed", candidates: [] })); await expect(refreshCustomerSurface(TENANT)).rejects.toThrow(/could not save a single one/); expect(published).toEqual([]); });
+  it("carries the kernel's own verdict for judged-but-declined pages, biggest gap first", async () => { const judged = [{ action: "watch", pageUrl: "https://s.example/a/", recoverableClicks: 12, reason: "small gap" }, { action: "research_needed", pageUrl: "https://s.example/b", recoverableClicks: 400, reason: "big gap" }, { action: "act_existing_page", pageUrl: "https://s.example/c", recoverableClicks: 900, reason: "acted" }];
+    const { refreshCustomerSurface, signals } = await release(async () => ({ proposals: [], outcome: "proposals_persisted", candidates: judged })); await refreshCustomerSurface(TENANT); expect(signals[0]?.declineNotes).toEqual([{ page: "/b", note: "big gap" }, { page: "/a", note: "small gap" }]); }); // an acted page is work, not a verdict
   // THE TRIPWIRE RUNS ON EVERY BUILD, on the ledger's own list of what is genuinely being measured, and a ledger that would not read reverts nothing: a list nobody
   // could read is not proof a change has no record.
-  it("hands the tripwire what the ledger really holds, and sweeps nothing at all when that ledger will not read", async () => {
-    const pass = async () => ({ proposals: [], outcome: "proposals_persisted", candidates: [] });
-    ledger.read = async () => [{ proposalId: "fixture-tenant::/a::existing_edit::title" }, { proposalId: null }];
-    const seen = await release(pass); await seen.refreshCustomerSurface(TENANT);
+  it("hands the tripwire what the ledger really holds, and sweeps nothing at all when that ledger will not read", async () => { const pass = async () => ({ proposals: [], outcome: "proposals_persisted", candidates: [] });
+    ledger.read = async () => [{ proposalId: "fixture-tenant::/a::existing_edit::title" }, { proposalId: null }]; const seen = await release(pass); await seen.refreshCustomerSurface(TENANT);
     expect(seen.swept).toEqual([{ shipped: ["fixture-tenant::/a::existing_edit::title"] }]);
-    ledger.read = async () => { throw new Error("the ledger did not read"); };
-    const blind = await release(pass); await blind.refreshCustomerSurface(TENANT);
+    ledger.read = async () => { throw new Error("the ledger did not read"); }; const blind = await release(pass); await blind.refreshCustomerSurface(TENANT);
     expect([blind.swept.length, blind.published.length]).toEqual([0, 1]); // the release still publishes; nothing was reverted on a blind read
-    ledger.read = async () => []; // an EMPTY ledger sweeps nothing either: a schema-cache blip reads as empty without throwing
-    const empty = await release(pass); await empty.refreshCustomerSurface(TENANT);
+    ledger.read = async () => []; const empty = await release(pass); await empty.refreshCustomerSurface(TENANT); // an EMPTY ledger sweeps nothing either: a schema-cache blip reads as empty without throwing
     expect([empty.swept.length, empty.published.length]).toEqual([0, 1]); }); });
 // ── the coverage verdict: has this account already got the right page? ────────
 const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [{ kind: "serp_organic" as const, query: "rain barrel sizing", promptId: null, promptText: null, engine: null, observationMode: null, rank: 1, observedAt: "2026-07-24T00:00:00.000Z", viaUrl: null }], readOutcome: null }));
@@ -331,8 +313,7 @@ describe("the coverage verdict never invents a page this account already owns", 
 describe("a new page is earned by read evidence, and never by a guess about pages of your own", () => {
   it("buys nothing for an investigation short of any cheaper check, and names the exact pages for the one that earned it", async () => {
     for (const [, over, owned] of GATES.filter((g) => g[3] !== "page_intersection")) expect(intersectionComparison(await adjudicateCoverage(INV(over), owned, TENANT, {}), INV(over), owned)).toBeNull();
-    const earned = await adjudicateCoverage(INV(), [ONE], TENANT, {});
-    expect(intersectionComparison(earned, INV(), [ONE])).toEqual({ pages: [...WIN.map((w) => w.url), ONE_URL], intersection_mode: "union" });
+    const earned = await adjudicateCoverage(INV(), [ONE], TENANT, {});     expect(intersectionComparison(earned, INV(), [ONE])).toEqual({ pages: [...WIN.map((w) => w.url), ONE_URL], intersection_mode: "union" });
     expect(intersectionComparison(earned, INV({ key: "inv_other" }), [ONE])).toBeNull(); const mine0 = await adjudicateCoverage(INV(), [OWNED("fixture-content.example/blog", { strongSignals: 0 })], TENANT, {}); expect([mine0.verdict, mine0.missing, earnedNewPage(mine0), mine0.explanation.includes('"rain barrel sizing" gets about 4,400 searches a month'), mine0.explanation.includes("3 of them were read")]).toEqual(["create_new", [], true, true, true]); // no page of mine is at risk, so the comparison is evidence rather than the door
     // A BODY I COULD NOT FETCH IS NOT A REASON TO WITHHOLD A COMPARISON OF ADDRESSES: three ranked publishers still earn it, and a page only ever CITED never counts as one of them.
     const blind = INV({ winners: WIN.map((w) => ({ ...w, extractState: "unreadable" as const, wordCount: null, fetchedAt: null })) });
@@ -440,8 +421,7 @@ const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tena
   whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [],
   evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null, publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", ...over });
 const factorOf = (p: ChangeProposal, name: string): number => p.rankingReceipt!.factors.find((f) => f.name === name)!.contribution;
-describe("the complete change universe answers for itself", () => { it("round-trips every kind through the validator, and refuses one that cannot show its work", () => {
-    for (const kind of ALL_KINDS) { const dangerous = DANGEROUS_COMPONENT_KINDS.has(kind);
+describe("the complete change universe answers for itself", () => { it("round-trips every kind through the validator, and refuses one that cannot show its work", () => { for (const kind of ALL_KINDS) { const dangerous = DANGEROUS_COMPONENT_KINDS.has(kind);
       const c = comp({ kind, risk: dangerous ? "dangerous" : "safe", ...(needsSourcePack(comp({ kind })) ? { sourcePack: { sourceRequirements: ["Cite the county rule page."], factRequirements: ["Check the 2026 limit."] } } : {}) });
       const v = validateProposal(prop({ ...(dangerous ? { riskLevel: "high" as const, status: "needs_review" as const } : {}), bundle: bundleOf([c]) }));
       expect(v.verdict).not.toBe("rejected"); // every kind in the union is a shape this validator understands
@@ -509,8 +489,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   // and never off the sentence an operator reads. NO VERB LIST: a producer that hands over a brief says so in a
   // typed field as it mints the card, so ordinary imperative page copy ("Cover the pot with a lid") is finished
   // copy and stays one, and a brief is held by the fact rather than by its spelling.
-  it("calls a deliverable finished only when it is the work, by type", () => {
-    const gaps = (after: string, field: "title" | "meta" | "h1" | "section" = "title", over: Partial<ChangeProposal> = {}) => deliverableGaps(prop({ recommendedChange: { kind: "existing_edit", field, before: null, after }, ...over }))[0];
+  it("calls a deliverable finished only when it is the work, by type", () => { const gaps = (after: string, field: "title" | "meta" | "h1" | "section" = "title", over: Partial<ChangeProposal> = {}) => deliverableGaps(prop({ recommendedChange: { kind: "existing_edit", field, before: null, after }, ...over }))[0];
     const WORDS = "Rain barrels for a 1,200 square foot roof hold 50 gallons.", SAYS = "it describes the work instead of being it", OUT = ["Roof area", "Rainfall", "Overflow"];
     const page = (cs: BundleComponent[]) => deliverableGaps(prop({ kind: "new_page", pagePath: null, ...(cs.length ? { bundle: bundleOf(cs) } : {}), recommendedChange: { kind: "new_page", proposedTitle: "Rain barrel sizing", metaDescription: "How to size a rain barrel for your roof.", openingAnswer: WORDS, outline: OUT, faqQuestions: [], schemaTypes: [] } }))[0];
     // A TYPED BRIEF, A BLANK and copy that says it is unwritten are unfinished; a real title is a Change. New copy owes the place it lands, and a NEW PAGE IS NEVER TITLE ONLY. The typed fact round trips.
@@ -523,9 +502,30 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // ORDINARY IMPERATIVE PAGE COPY IS FINISHED COPY. A recipe step, a visa step and a description opening on a production verb were all refused by the verb list this boundary no longer carries.
     const g = (after: string, field: "title" | "meta" | "h1" | "section" = "section") => gaps(after, field, { bundle: bundleOf([comp({ kind: "section_add", where: "under the sizing heading" })]) }); expect([g("Cover the pot with a lid so it steams for ten minutes, then fluff the rice with a fork."), g("Fill in the form online, then pay the fee at a designated bank branch."), g("Include a copy of your passport photo page when you apply."), g("Link building for a Persian culture site works best through museums and university pages.", "meta"), g("Add Saffron to Your Rice: A Persian Cook's Guide", "title")])
       .toEqual(Array(5).fill(undefined)); });
+  // FINISHED WORK SURVIVES A PASS THAT DID NOT REACH IT. Drafting is capped per pass, so a card past the cap comes back as the BRIEF it started as; writing that over banked copy took the live queue from 6 finished
+  // cards to 4 to 3 across three consecutive passes on 2026-08-15, destroying the biggest description on the site. Real stored shapes: the brief the producer re-mints, and the description an earlier pass banked.
+  it("a pass that did not re-draft a card never undoes it", () => { const banked = prop({ id: "t::/iran-flags/achaemenid-empire-flag::existing_edit::missing_description", basis: "b8", status: "needs_review", estimatedEffortMinutes: 3, limitations: ["Read off the last stored copy of each page."], operatorSteps: ["Paste the description above, exactly as written"],
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "Learn about the History of Iran Flags and the Achaemenid Empire Flag (550-330 BCE).", after: "Achaemenid Empire Flag (550 - 330 BCE) in Persian Flags History: symbolism, role, changes and origins. Explore more." } });
+    const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { query: "achaemenid flag", hints: ["fresh"], evidenceRefCount: 9 },
+      recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that says what only this page answers." } });
+    const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked);
+    const fresher = preferFinished(prop({ ...banked, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "A newer finished line about the Achaemenid flag and what it meant." } }), banked);
+    expect([deliverableGaps(kept), kept.recommendedChange, kept.researchOnly, kept.estimatedEffortMinutes, kept.limitations, kept.evidence.evidenceRefCount,
+      moved.researchOnly, (moved.recommendedChange as { after: string }).after.slice(0, 5), (fresher.recommendedChange as { after: string }).after.slice(0, 7), preferFinished(brief, null).researchOnly])
+      .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, true, "Write", "A newer", true]); });
+  // THE MATERIALLY FALSE CARD THAT REACHED THE LIVE QUEUE ON 2026-08-15: every digit was lifted from the page and the sentence was still a lie. The stored body says INTERNATIONAL delivery takes 7-21 days
+  // DEPENDING on location while the page offers free USA shipping, and the copy sold that window as the shipping time. It evaded the gate twice on punctuation alone: the body writes an en dash and the
+  // drafter wrote a hyphen, then spaced hyphens. Both spellings of the same figure are pinned here, with the real stored sentence.
+  it("refuses a figure that walked away from the qualifier its own sentence carried", () => { const body = "Free USA shipping on all orders, with delivery in 2-6 business days. International shipping is available worldwide, with delivery usually between 7\u201321 business days depending on location.";
+    const pk = { targetUrl: "https://www.iranopedia.com/p", title: "T", h1: "H", metaDescription: null, bodyText: body, headings: [], evidence: { "page-copy-1": body }, trackedQuestion: "Q", ownedPaths: ["/p"], bannedTerms: [] };
+    const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/p", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
+    const SAYS = "the figure's own sentence says international, and the copy drops it";
+    expect([meta("Iran Shir o Khorshid Vertical Stripe Shirt - lightweight polyester jersey with Lion & Sun emblem; ships in 7-21 business days. Free USA shipping.").includes(SAYS),
+      meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
+      meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
+      .toEqual([true, true, false]); });
   // THE THREE CARDS WITHDRAWN FROM A PAYING OPERATOR'S LIVE QUEUE ON 2026-08-14, as fixtures. Each was written by the model, passed every gate INCLUDING the live judge on all seven of its criteria, and reached the customer surface. Each is now refused DETERMINISTICALLY, by name, before any model is consulted. The judge is defence in depth behind these, never the thing they rest on.
-  it("the cards that reached a customer are refused before a model is asked", () => {
-    const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms });
+  it("the cards that reached a customer are refused before a model is asked", () => { const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms });
     const d = (o: Record<string, unknown>) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "answer_block", naturalHeading: "A human heading", beforeText: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 30, measurementTarget: "citations", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], ...o } as never, (o.P as never) ?? pk(""));
     const chrome = "top of pagePopular Persian(Farsi) Insults, Funny Phrases, and SlangPersian is a lively language full of humorous expressions.";
     const learn = "Persian Greetings and Basic PhrasesSay hello, goodbye, thank you, and much more with confidence. This guide covers the most common Persian greetings and everyday phrases, along with cultural notes and pronunciation tips, so you know when and how to use them naturally.";

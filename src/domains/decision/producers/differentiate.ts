@@ -1,0 +1,92 @@
+/**
+ * decision/producers/differentiate: TELLING THEM APART IS THE OTHER ANSWER TO A SPLIT.
+ *
+ * Both merge gates in producers/extended refuse for the same structural reason: the competing pages are NOT
+ * duplicates, so no address may move. That refusal is true, and it is not work: it left the strongest split in
+ * an account with a correct sentence and nothing to do. Where every competing page is held WHOLE, this writes
+ * the change that refusal already names. ONE bundle, one component per address, each carrying the exact line
+ * Google shows, the heading a reader sees and the opening that says which search that page answers, every one
+ * drafted against THAT page's own stored words through the same editor, the same deterministic checks and the
+ * same judge as any other change. NOTHING IS HARDCODED: the pages, the search and the words all come from the
+ * finding and the held bodies. An address the editor refuses, or one whose only available rewrite would narrow it
+ * off a subject its siblings do not cover, is DROPPED from the change rather than padded, so what ships is the
+ * work that is honestly right on the addresses it names. PURE apart from the drafting calls handed in.
+ */
+
+import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import type { BundleComponent } from "../contracts";
+import { log } from "@/lib/logger";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { effortMinutesFor } from "./contract"; import type { Produced, ProducerCtx } from "./contract";
+
+const count = (n: number): string => Math.round(n).toLocaleString("en-US");
+
+/** How many addresses one differentiation writes on: past this it is a site rebuild, not a change. */
+const MAX_DIFFERENTIATED = 4;
+
+export async function produceDifferentiation(ctx: ProducerCtx, named: readonly string[], keep: string,
+  bodyFor: (p: string) => OwnedPageBody | null, why: string): Promise<Produced | null> {
+  if (!ctx.draft.pageField) return null;
+  const pages = named.slice(0, MAX_DIFFERENTIATED).map((path) => ({ path, body: bodyFor(path) }))
+    .filter((p): p is { path: string; body: OwnedPageBody } => p.body?.completeness === "complete");
+  if (pages.length !== Math.min(named.length, MAX_DIFFERENTIATED) || pages.length < 2) return null;
+  const others = (path: string): string => pages.filter((p) => p.path !== path)
+    .map((p) => `${p.path} (${(p.body.title ?? p.body.h1 ?? "").trim()})`).join("; ");
+  const components: BundleComponent[] = [];
+  for (const { path, body } of pages) {
+    // THE SUBJECT THE DRAFTER IS WRITING FOR IS THIS PAGE'S OWN, NEVER THE SHARED SEARCH. Handed the shared
+    // search, the drafter did its job and merged it into the line, making the page that should stop competing
+    // for it compete harder: it rewrote a page about one flag as "Iran Flag (1979-Present)". The page's own
+    // heading is what the page says it is about, so that is the topic, and the shared search is the thing the
+    // brief says to stop taking. Read off the stored page, so nothing here is written for one site.
+    const subject = (body.h1 ?? body.title ?? ctx.primary).replace(/\s+/g, " ").trim();
+    for (const field of ["title", "h1", "answer_block"] as const) {
+      const done = await ctx.draft.pageField({
+        field, body, query: subject, minutes: effortMinutesFor(field === "answer_block" ? "opening_answer" : field),
+        // THE PROVEN OWNER OF THE SEARCH IS NEVER STEERED OFF IT. Told to write every page "narrower than" the
+        // shared search, the drafter took "Girl Names" out of the title of the page whose own strongest search is
+        // "persian girl names": the card would have cost the operator the very clicks it was measured on. The
+        // page the account's own figures prove ahead KEEPS the search and says what else it covers; only the
+        // pages behind it move aside, which is the whole point of settling a split without moving an address.
+        brief: `Google serves ${count(pages.length)} pages of this site for "${ctx.primary}" and they are not duplicates, so each one has to say what it alone covers. THIS page covers ${subject}. The others are: ${others(path)}. ${field === "answer_block" ? `Write the opening block for the top of this page, under a short heading a reader would look for, saying exactly what this page covers` : `Write the one line that names exactly what this page covers`}, in a reader's words, so somebody who wanted one of the other pages can tell immediately. ${path === keep ? `This page is the one your own figures show winning "${ctx.primary}", so KEEP those words in it and add what only this page has.` : `Keep this page clearly narrower than "${ctx.primary}", which ${keep} owns, but never drop a word this page's own subject needs.`} Say only what this page's own stored words above already show.`,
+        // NEVER MY OWN FIGURES. A receipt fact is a number ABOUT the page (clicks, views), and handing them over
+        // put "41 clicks from 31,346 views" among the claims of a line somebody publishes. Only the structural
+        // reason the addresses may not move goes in; everything else the drafter sees is the page's own words.
+        evidenceHints: [why],
+      });
+      // A PAGE WHOSE LINE ALREADY SAYS EXACTLY WHAT IT COVERS NEEDS NO NEW LINE. Demanding all three fields on
+      // every address threw away two accepted pieces because the third had nothing to improve, which is the
+      // editor being right. A page that ends up with nothing is DROPPED from the change, checked below.
+      if (!done) continue;
+      // A PIECE THAT MAKES ITS PAGE LESS DISTINCT IS NOT A DIFFERENTIATION, IT IS THE OPPOSITE. The words this
+      // page's own line carries that NO sibling in the cluster carries are the reason this address exists, so a
+      // rewrite that drops one narrows the page off its own subject and makes the overlap worse. /persian-names
+      // lost "Last Names", the single thing it covered and its siblings did not, on a card sold as settling a split.
+      const siblings = new Set(pages.filter((x) => x.path !== path)
+        .flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...x.body.headings.slice(0, 40)].join(" "))));
+      const lost = topicTokens(done.before ?? "").filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
+      if (lost.length > 0) { log.info("[differentiate] a piece would have made its page less distinct", { page: path, field, dropped: lost.slice(0, 3), after: done.after.slice(0, 90) }); continue; }
+      const label = field === "title" ? "Page title" : field === "h1" ? "Page heading" : "Opening lines";
+      components.push({
+        kind: field === "title" ? "title" : field === "h1" ? "h1" : "opening_answer",
+        label: `${label} on ${path}`, page: path, before: done.before, after: done.after,
+        evidenceKeys: [...ctx.finding.evidenceKeys], risk: "safe",
+        where: field === "answer_block" ? `the top of ${path}, ${done.anchor ? `just before "${done.anchor}"` : "before its first section"}` : `the ${label.toLowerCase()} of ${path}`,
+        objective: `Say on ${path} which search it answers, so it stops competing with ${others(path)}.`,
+        mechanism: `Google is choosing between ${count(pages.length)} pages of this site for "${ctx.primary}" every time somebody runs it, and no address may move because each of these pages answers a search the others do not, so the only thing left is to say so on every one of them.`,
+        measurementPlan: `Clicks and average position for "${ctx.primary}" across all ${count(pages.length)} addresses, read at 7, 14 and 28 days after you publish them.`,
+      });
+    }
+  }
+  // AN ADDRESS WITH NOTHING SAFE TO SAY IS DROPPED, NOT PADDED. Holding the whole change hostage to a page whose
+  // line is already right, or whose only available rewrite would narrow it off its own subject, threw away the
+  // work that WAS good on the other addresses. The change still names the whole cluster; it only asks for the
+  // pages it can honestly improve, and one page with real work beats four with filler.
+  const covered = [...new Set(components.map((c) => c.page!))];
+  if (covered.length === 0) return { components: [],
+    refusal: `Neither ${pages.map((x) => x.path).join(" nor ")} could be given wording that tells it apart from the others without narrowing it off its own subject, so nothing is handed over. Ask again and anything already written costs nothing a second time.` };
+  return { components, refusal: null, considered: [{ option: "Merge them into one page", reason: why }],
+    operatorSteps: [...covered.map((path) => `On ${path}, apply the ${count(components.filter((c) => c.page === path).length)} ${components.filter((c) => c.page === path).length === 1 ? "piece" : "pieces"} above marked for it`),
+      `Come back here and mark it done, and clicks and average position for "${ctx.primary}" get read across all ${count(pages.length)} addresses`] };
+}
+
