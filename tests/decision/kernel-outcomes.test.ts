@@ -1,5 +1,4 @@
-/** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate -> validate -> rank -> persist -> REUSE, and fail-closed rejections.
- *  Each test name states its promise. */
+/** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate -> validate -> rank -> persist -> REUSE, and fail-closed rejections. Each test name states its promise. */
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -99,8 +98,7 @@ const looked = (pairs: [string, string][], observedAt: string | null = null): Fu
   { query: "trail shoes for women", impressions: 2110, clicks: 209, position: 2.66 }, { query: "trail shoe reviews", impressions: 1331, clicks: 40, position: 3.7 }]);
 /** A far smaller page with a REAL gap: 3.0 percent against the 8.0 percent that position usually earns. */ const GAP_URL = "fixture-outdoors.example/nowruz-guide"; const GAP = ownedPage(GAP_URL, "Nowruz", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const SEEN = () => snap([GAP], looked([["nowruz traditions", GAP_URL]]));
-/** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing the searcher's own word, and a results
- *  page where Google already displays that word back to them. */
+/** THE LIVE PRODUCTION CASE, verified 2026-07-27: 2,451 views and 15 clicks at position 6.1 on one search, a stored title missing the searcher's own word, and a results page where Google already displays that word back to them. */
 const ACTORS_URL = "iranopedia.example/iranian-actors-actresses"; const DISPLAYED = "Famous Iranian & Persian Actors, Actresses & Celebrities";
 const ACTORS = ownedPage(ACTORS_URL, "Top 20 Famous Persian Actresses and Actors | Iranopedia", { impressions: 2451, clicks: 15 }, [{ query: "iranian actors", impressions: 2451, clicks: 15, position: 6.1 }]);
 const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "iranian actors", aiOverview: [], aiMode: [], paa: [], related: [],
@@ -230,8 +228,7 @@ describe("the pass says what it is investigating without turning any of it into 
     expect([(await comparisonForFocus("fixture-tenant", mixed, "basis_today"))?.topicKey, // the earned one, picked out of a plan holding a stranger
       await comparisonForFocus("fixture-tenant", { basis: "basis_today", topics: mixed.topics.slice(0, 1) }, "basis_today"), // a plan this run froze that never earned this comparison
       await comparisonForFocus("fixture-tenant", mixed, "basis_moved_on")]).toEqual([key, null, null]); }); }); // and one frozen under a basis the account has left
-/** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand, results I have read, and a page of my own that could already
- *  be the answer whose words I have never held. */
+/** A SECOND topic that outranks the one holding the comparison and that no purchase can move: bigger demand, results I have read, and a page of my own that could already be the answer whose words I have never held. */
 const PARKED = "nowruz table settings"; const PARK_RIVAL = (n: number) => `https://p${n}.example/a`; const UNREAD_URL = "fixture-outdoors.example/nowruz-table";
 const UNREAD: OwnedPageEvidence = { ...ownedPage(UNREAD_URL, "T", { impressions: 10, clicks: 1 }, []), content: null };
 const PARKED_DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: PARKED, searchVolume: 2000, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }];
@@ -437,8 +434,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
     // AND IT CAN SHOW THE ANSWER IT WAS MADE FROM: the cause cites the receipt id the receipt actually writes.
     expect([deep.bundle!.components[0]!.evidenceKeys, deep.bundle!.receipt.items.find((i) => i.key === "ai-citations")!.fact.includes(`what goes on a ${HAFT}`)]).toEqual([["ai-citations"], true]);
   });
-  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN
-   *  BACK rather than quietly kept on their list. */
+  /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */
   it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {
     const owed = "I could write 1 of the 3 sections this rebuild needs and 2 are still owed, so I am not handing you half a page.";
     reset(doorWorld()); env.bundle = { status: "none", reason: owed };
@@ -475,8 +471,7 @@ const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings
   questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
 /** The five causes nothing in this generation can test, which must therefore never be guessed at. */
-/** Causes NOT CONSIDERED when this caller holds none of their evidence. demand_decline and ranking_loss are a RULE now (the two four week windows), so they are named
- *  here for the same honest reason as the rest: nobody handed this pass the windows. retrieved_not_cited went live when the projection began carrying the retrieval list. */
+/** Causes NOT CONSIDERED when this caller holds none of their evidence. demand_decline and ranking_loss are a RULE now (the two four week windows), so they are named here for the same honest reason as the rest: nobody handed this pass the windows. retrieved_not_cited went live when the projection began carrying the retrieval list. */
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
 /** An engine answering this page's own search and naming everybody except this page. */
 const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
@@ -579,8 +574,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
     expect([fresh.contribution, stale.contribution, stale.input]).toEqual([-30, 0, "nothing is being measured on this page"]); });
-  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when
-   *  nothing re-selects that page for a deep read. */
+  /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
     // a merge whose only component cites a comparison its receipt never carried: the live defect, stored
     const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",
@@ -592,8 +586,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
     await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
     expect(env.withdrawn).toEqual([bad("b").id]); });
-  /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in its own slot forever: an identical redraft answers
-   *  "unchanged", so nothing fresh can replace it. */
+  /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in its own slot forever: an identical redraft answers "unchanged", so nothing fresh can replace it. */
   it("takes back a change whose readings went cold, so a redraft off fresh evidence can take its slot", async () => {
     const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready",
       bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
@@ -612,8 +605,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
         expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));
         expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
         expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });
-/** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an
- *  industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
+/** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
 describe("the click curve is fitted to the account it judges", () => {
   const rows = (ctrByBand: Record<number, number>, per = 40) => Object.entries(ctrByBand).flatMap(([band, ctr]) =>
     Array.from({ length: per }, (_, i) => ({ query: `q${band}x${i}`, position: Number(band), impressions: 500, clicks: Math.round(500 * ctr) })));
@@ -631,8 +623,7 @@ describe("the click curve is fitted to the account it judges", () => {
     expect([one.source, one.expectedCtrAt(1)]).toEqual(["default", defaultExpectedCtrAt(1)]);
     const brandy = [...rows({ 1: 0.01 }), ...Array.from({ length: 40 }, (_, i) => ({ query: `iranopedia ${i}`, position: 1, impressions: 500, clicks: 450 }))];
     expect(fitTenantCtrCurve(brandy, { brandTokens: ["iranopedia"] }).expectedCtrAt(1)).toBeCloseTo(0.01, 3); });
-  /** THE FITTED CURVE MUST NOT LOCK THE PASS SHUT. A flat 0.02 deficit floor is unclearable once the curve says the best position on this account pays 0.9 percent:
-   *  a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and the kernel calls a page that never earns a click healthy. */
+  /** THE FITTED CURVE MUST NOT LOCK THE PASS SHUT. A flat 0.02 deficit floor is unclearable once the curve says the best position on this account pays 0.9 percent: a search earning ZERO clicks on 60,000 views sits 0.0035 under its curve, fails a 0.02 bar, and the kernel calls a page that never earns a click healthy. */
   it("a search earning nothing at all still earns work, and the refusal names the floor that actually bound it", () => {
     const curve = fitTenantCtrCurve(Array.from({ length: 40 }, (_, i) => ({ query: `q${i}`, position: 1, impressions: 5_000, clicks: 45 })));
     expect(curve.expectedCtrAt(1)).toBeCloseTo(0.009, 4); // the whole account tops out under 1 percent

@@ -4,9 +4,7 @@ import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
 import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
-/** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises:
- *  a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added
- *  up rather than the wins alone, the next step fits the work that was done, "similar" is only said where a receipt backs it. */
+/** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises: a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added up rather than the wins alone, the next step fits the work that was done, "similar" is only said where a receipt backs it. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
@@ -120,8 +118,7 @@ describe("opening a change says what happened, against what, and what to do next
     expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No Google traffic on file.", null]);
   });
 });
-/** THREE SENTENCES TOLD EVERY OPERATOR TO PUT THE OLD WORDING BACK, including the ones whose change was a redirect or an
- *  internal link, where there was no wording to restore. One step per family of work, in win/loss/flat order. */
+/** THREE SENTENCES TOLD EVERY OPERATOR TO PUT THE OLD WORDING BACK, including the ones whose change was a redirect or an internal link, where there was no wording to restore. One step per family of work, in win/loss/flat order. */
 describe("the next step belongs to the kind of work that was done", () => {
   const dir = (v: number) => ({ adjustedClicksLift: 40 * v, adjustedCtrLift: 0.02 * v, adjustedPosLift: v });
   const step = (actionType: string, v: number) =>
@@ -142,9 +139,7 @@ describe("the next step belongs to the kind of work that was done", () => {
     expect(dud.happened).toMatch(/^Recorded, and not judged/);
   });
 });
-/** THE SAME TWO VOCABULARIES REACH THE SCREEN. A row's action word is a KIND ("title") or the FAMILY the bundle producer
- *  stamps ("title-family"). Only the kinds were mapped, so every bundle this account shipped read as the shrug "this
- *  change" while a real label existed. And a change nothing can compare says which. */
+/** THE SAME TWO VOCABULARIES REACH THE SCREEN. A row's action word is a KIND ("title") or the FAMILY the bundle producer stamps ("title-family"). Only the kinds were mapped, so every bundle this account shipped read as the shrug "this change" while a real label existed. And a change nothing can compare says which. */
 describe("what the screen calls the work, and what it will not promise", () => {
   it("names a family spelling in the operator's words, never as a shrug and never as its slug", () => {
     for (const [action, work] of [["title-family", "the title and headline"], ["section-family", "the content on the page"],

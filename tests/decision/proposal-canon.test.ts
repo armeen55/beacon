@@ -1,14 +1,9 @@
-/** CANONICAL PROPOSAL PERSISTENCE (V1 Truth Convergence Phase 5): one current row per hypothesis (account, case, page, action family), a re-draft supersedes with a
- *  pointer and a version, an identical draft writes nothing, a dismissed change is not resurrected under the same evidence, history stays readable and is never revived,
- *  and a write that lands nothing is a failure. Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
+/** CANONICAL PROPOSAL PERSISTENCE (V1 Truth Convergence Phase 5): one current row per hypothesis (account, case, page, action family), a re-draft supersedes with a pointer and a version, an identical draft writes nothing, a dismissed change is not resurrected under the same evidence, history stays readable and is never revived, and a write that lands nothing is a failure. Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION is not. They are separate flags because they are
-  // separate deploy accidents, and one flag could only ever test the first: the table read failed before the function was ever called. `raceForeign` is a concurrent
-  // insert of the SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole
-  // handover must unwind rather than report saved.
-  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "" };
+  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION is not. They are separate flags because they are separate deploy accidents, and one flag could only ever test the first: the table read failed before the function was ever called. `raceForeign` is a concurrent insert of the SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole handover must unwind rather than report saved. `race` is a write by SOMEBODY ELSE, fired once at the next read: the interleaving a confirmation lives inside, where the row moves between the reading that validated it and the write that lands it.
+  const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "", race: null as null | (() => void) };
   const client: Record<string, unknown> = {
     // The atomic handover: guard, step-aside, and landing commit together or not at all, exactly like the supersede_change_proposal function in production.
     rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) { state.rpcCalls += 1;
@@ -26,8 +21,7 @@ const db = vi.hoisted(() => {
           && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
         if (clash) return { data: "failed", error: null };
         if (state.raceForeign) state.rows.push({ id: row.id, tenant_id: state.raceForeign, status: "ready", created_at: "2026-07-01T00:00:00.000Z" });
-        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the successor never landed, so it raises and BOTH writes unwind
-        // with the predecessor still in place.
+        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the successor never landed, so it raises and BOTH writes unwind with the predecessor still in place.
         const at = state.rows.findIndex((r) => r.id === row.id);
         if (at >= 0 && state.rows[at]!.tenant_id !== args.p_tenant_id) return { data: "failed", error: null };
         Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
@@ -41,17 +35,18 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 /** What the store SAID, so a distinct failure can be pinned as distinct rather than as one more "failed". */
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
-import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, saveChangeProposal,
+import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, promoteConfirmedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
+import { confirmedVersion } from "@/domains/decision/completeness";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
-// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours order + limit; `clash` is the partial unique index: one
-// current row per (tenant, case, page, family).
+// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours order + limit; `clash` is the partial unique index: one current row per (tenant, case, page, family).
 Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
   landsNothing: () => db.state.breakWrite, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }),
+  onSelect: () => { const r = db.state.race; db.state.race = null; r?.(); },
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]))
     ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),
@@ -77,9 +72,8 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAGE}::existing_edit::title-family`, bundle: bundle("title"), ...over });
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
-beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; });
-/** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three lifecycle words and the bridge decoder is deleted with it: the
- *  same reads answer identically without one, and no historical proposal disappears. */
+beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; db.state.race = null; });
+/** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three lifecycle words and the bridge decoder is deleted with it: the same reads answer identically without one, and no historical proposal disappears. */
 describe("rows written after the lifecycle contract", () => {
   const row = (id: string, word: string): Row => ({
     tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
@@ -172,17 +166,14 @@ describe("canonical proposal persistence", () => {
     expect((await loadChangeProposals(T)).size).toBe(2);
     expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("failed"); });
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
-    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads anything, and the row handed to the function is asserted
-    // against the caller's own account on the way in (the same check every other write in this product passes through, which going straight to .rpc() had given up), so a
-    // row that cannot prove its scope is never written by it.
+    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads anything, and the row handed to the function is asserted against the caller's own account on the way in (the same check every other write in this product passes through, which going straight to .rpc() had given up), so a row that cannot prove its scope is never written by it.
     db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
       action_family: "title-family", status: "ready", terminal_disposition: null, proposal_version: 1,
       payload: JSON.parse(serializeChangeProposal(proposal({ id: "held" }))) as unknown });
     expect(await saveChangeProposal(proposal({ tenantId: "" }))).toBe("failed");
     expect(db.state.rpcCalls).toBe(0);
     expect(db.state.rows[0]!.terminal_disposition).toBeNull(); // nothing moved
-    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it used to read exactly like one. The table is fine here; only
-    // the routine is missing.
+    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it used to read exactly like one. The table is fine here; only the routine is missing.
     db.state.rows = [];
     expect(await saveChangeProposal(proposal())).toBe("saved");
     db.state.rpcMissing = true;
@@ -204,8 +195,7 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { status: "needs_review", terminal_disposition: "withdrawn", basis: "basis_today::d6",
       payload: JSON.parse(JSON.stringify({ v: 1, proposal: deep() })) });
     expect(await saveChangeProposal(deep())).toBe("refused");
-    // AND IT STOPS BEING HISTORY THE MOMENT THE EVIDENCE MOVES. The basis fingerprints the ACCOUNT, so on basis alone this stayed shut for a
-    // whole generation while the readings under it changed completely, and the redraft those readings had earned was refused forever.
+    // AND IT STOPS BEING HISTORY THE MOMENT THE EVIDENCE MOVES. The basis fingerprints the ACCOUNT, so on basis alone this stayed shut for a whole generation while the readings under it changed completely, and the redraft those readings had earned was refused forever.
     const moved = deep(); moved.bundle!.receipt.items[0]!.observedAt = "2026-08-04T00:00:00.000Z";
     expect(await saveChangeProposal(moved)).toBe("saved");
     // A REORDERED RECEIPT IS THE SAME EVIDENCE. Hashing the items in producer order would have let a shuffle alone lift a refusal the operator meant to stand.
@@ -215,8 +205,7 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { payload: JSON.parse(JSON.stringify({ v: 1, proposal: twoWay })) });
     const shuffled = two(deep()); shuffled.bundle!.receipt.items[0]!.observedAt = "2026-08-04T00:00:00.000Z"; shuffled.bundle!.receipt.items.reverse();
     expect(await saveChangeProposal(shuffled)).toBe("refused"); });
-  /** AN ATOMIC CHANGE CARRIES NO RECEIPT, so hashing the receipt hashed the empty list for every one of them: they matched each other unconditionally and stayed shut
-   *  forever on an unchanged basis. What such a change stands on is the frozen evidence summary and the exact edit it argues for. */
+  /** AN ATOMIC CHANGE CARRIES NO RECEIPT, so hashing the receipt hashed the empty list for every one of them: they matched each other unconditionally and stayed shut forever on an unchanged basis. What such a change stands on is the frozen evidence summary and the exact edit it argues for. */
   it("reopens an atomic change whose own evidence moved, and keeps the refusal while it has not", async () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "withdrawn" });
@@ -247,8 +236,7 @@ describe("canonical proposal persistence", () => {
       db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
     seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
     expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
-  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced in under another account after the guard read. Either way
-  // the predecessor keeps its place and its queue.
+  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced in under another account after the guard read. Either way the predecessor keeps its place and its queue.
   it.each([["a write that landed no row", () => { db.state.breakWrite = true; }],
     ["a successor id racing in under another account", () => { db.state.raceForeign = "acct-b"; }],
   ] as const)("%s is a FAILURE, and the predecessor keeps its place", async (_name, arrange) => {
@@ -259,8 +247,7 @@ describe("canonical proposal persistence", () => {
       .toEqual([[proposal().id, null, null]]);
     expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
   });
-  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the
-  // check out wordless and it grades nothing.
+  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
   it("anchorAfter and redirectTo survive the persistence round trip", () => {
     const b = bundle("anchor_text");
     b.components[0] = { ...b.components[0]!, anchorAfter: "Read the Haft-Seen guide", redirectTo: "https://own.com/haft-seen" };
@@ -268,8 +255,7 @@ describe("canonical proposal persistence", () => {
     expect(back?.bundle?.components.map((c) => [c.anchorAfter, c.redirectTo]))
       .toEqual([["Read the Haft-Seen guide", "https://own.com/haft-seen"]]); }); });
 
-/** THE ONE DOOR TO "DONE", AND THE TRIPWIRE UNDER IT. A change reads done only because a Shipment was written for it first, so the flip demands that record's id and a
- *  row marked done that no record points at is a state this product cannot legitimately produce: it is never left silently done, and no record is ever invented for it. */
+/** THE ONE DOOR TO "DONE", AND THE TRIPWIRE UNDER IT. A change reads done only because a Shipment was written for it first, so the flip demands that record's id and a row marked done that no record points at is a state this product cannot legitimately produce: it is never left silently done, and no record is ever invented for it. */
 describe("done is only ever reached with a record behind it", () => {
   const DONE_ID = `${T}::${PAGE}::existing_edit::title`, SENTENCE = "A change marked done on August 12 lost its record; mark it done again when you confirm it is live.";
   const seed = (over: Partial<ChangeProposal> = {}) => { const p = proposal(over);
@@ -298,4 +284,41 @@ describe("done is only ever reached with a record behind it", () => {
     const stale = done({ limitations: ["A change marked done on August 1 lost its record; mark it done again when you confirm it is live."] });
     await reconcileImplementedWithoutShipment(T, new Set<string>());
     expect(storedNow(stale)?.limitations).toHaveLength(1); });
+});
+
+/** STEP TWO OF THE TWO-STEP HOLD IS A COMPARE-AND-SET, NEVER A READ AND A SAVE. The confirmation used to read the row, check the version on the screen against it, and then hand the promoted copy to the ordinary save path, whose own read happens afterwards: a rewrite landing in between was overwritten by the version the operator had been looking at, and that version became ready. Here is that exact interleaving, both ways round. */
+describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
+  const mover = () => deep({ status: "needs_review", riskLevel: "high",
+    bundle: { ...bundle("consolidation"), risks: ["The old address stops answering."], components: [{ kind: "consolidation", label: "Merge the two pages", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"], risk: "dangerous", redirectTo: "https://www.fixture-outdoors.example/nowruz" }] } });
+  const REWRITE = "A rewrite nobody has read yet";
+  const rewriting = (p: ChangeProposal) => () => { const at = db.state.rows.findIndex((r) => r.id === p.id);
+    db.state.rows[at] = { ...db.state.rows[at]!, proposal_version: 9, payload: JSON.parse(serializeChangeProposal({ ...p, recommendedChange: { ...p.recommendedChange, after: REWRITE } } as ChangeProposal)) as Row }; };
+  const landed = (p: ChangeProposal) => { const r = db.state.rows.find((x) => x.id === p.id)!;
+    return [r.status, r.proposal_version, (deserializeChangeProposal(JSON.stringify(r.payload))!.recommendedChange as { after: string }).after]; };
+  it("refuses a confirmation whose row was rewritten between the read that validated it and the write that lands it", async () => {
+    const held = mover();
+    // THE DEFECT, kept as the reason this exists: read, check, unconditional write, and the rewrite that landed underneath is gone.
+    expect(await saveChangeProposal(held)).toBe("saved");
+    db.state.race = rewriting(held);
+    await saveChangeProposal({ ...held, status: "ready", confirmedVersion: confirmedVersion(held) });
+    expect(landed(held)).toEqual(["ready", 2, "Nowruz Traditions and the Haft-Seen Table"]);
+    // THE SAME INTERLEAVING through the one door a confirmation walks now: nothing is written, the rewrite stands, and the change stays behind the hold.
+    db.state.rows = [];
+    expect(await saveChangeProposal(held)).toBe("saved");
+    db.state.race = rewriting(held);
+    const raced = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    expect([raced.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]);
+    // AND THE UNRACED PRESS DOES LAND, once, on the version it named: the yes is written onto the row and the row is at the next version.
+    const ok = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    expect([ok.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]); // the row is a rewrite now, so the version they read is not this one
+    db.state.rows = [];
+    expect(await saveChangeProposal(held)).toBe("saved");
+    const yes = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    const stored = deserializeChangeProposal(JSON.stringify(db.state.rows.find((r) => r.id === held.id)!.payload))!;
+    expect([yes.status, ...landed(held), stored.confirmedVersion === confirmedVersion(held)]).toEqual(["promoted", "ready", 2, "Nowruz Traditions and the Haft-Seen Table", true]);
+    // A version nobody is looking at, a row already promoted out of review, and a bar that has moved are all stale, and none of them writes anything.
+    const after = landed(held);
+    expect([(await promoteConfirmedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null)).status,
+      (await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null)).status,
+      (await promoteConfirmedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9")).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
 });

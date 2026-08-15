@@ -1,5 +1,4 @@
-/** WINNING-PAGE PATTERN (V1 Truth Convergence Phase 3): what the pages that already win a search have in common, learned without copying one of them. Each pin states
- *  what the reading may say about those pages and what it may never say. Fixtures only, zero network: the gateway is seamed as case-synthesis seams it. */
+/** WINNING-PAGE PATTERN (V1 Truth Convergence Phase 3): what the pages that already win a search have in common, learned without copying one of them. Each pin states what the reading may say about those pages and what it may never say. Fixtures only, zero network: the gateway is seamed as case-synthesis seams it. */
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -46,8 +45,7 @@ describe("the facts I read off the winning pages myself", () => {
     const [first] = facts();
     expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities]).toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
     expect([first!.wordCount, first!.faqCount, first!.hasList, first!.hasTable, first!.hasSchema]).toEqual([1400, 3, true, false, true]);
-    // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing downstream can read "no sections, no words, no structured
-    // data" off a page nobody ever fetched.
+    // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing downstream can read "no sections, no words, no structured data" off a page nobody ever fetched.
     const unread = extractPageFacts([{ url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }])[0]!;
     expect(unread).toEqual({ domain: "blocked.example", titleTokens: [], headings: [], questionHeadings: [], entities: [],
       wordCount: null, faqCount: null, hasList: null, hasTable: null, hasSchema: null, opening: null });
@@ -71,8 +69,7 @@ describe("the one reading a case may buy", () => {
     const second = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool, cacheImpl: memoryCache() });
     expect([first?.winners, Math.max(0, pool.left), second, s.calls()]).toEqual([4, 0, null, 1]); });
   it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
-    // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never
-    // used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
+    // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
     const RUN = "a hand knotted floor covering woven in Iran";
     const swapped = MADE.replace("villages", "towns"); // one word swapped is still their line, and 65 chars
     expect(swapped.length).toBe(65); // under the old sixty-character bar this walked through untouched

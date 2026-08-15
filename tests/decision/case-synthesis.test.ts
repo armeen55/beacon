@@ -1,5 +1,4 @@
-/** SEMANTIC CASE SYNTHESIS (V1 Truth Convergence Phase 2): the ADVISORY reading over a grouping that is already decided. Each pin states what the reading may change
- *  about my case registry and what it may never change. Fixtures only, zero network: the gateway is seamed exactly as kernel-outcomes seams it. */
+/** SEMANTIC CASE SYNTHESIS (V1 Truth Convergence Phase 2): the ADVISORY reading over a grouping that is already decided. Each pin states what the reading may change about my case registry and what it may never change. Fixtures only, zero network: the gateway is seamed exactly as kernel-outcomes seams it. */
 import { describe, it, expect, vi } from "vitest";
 // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -69,9 +68,7 @@ describe("what the semantic reading may change about my case registry", () => {
   it("splits one case into exactly one new branch, and refuses a split that would empty it", () => {
     const out = apply(reading({ splits: [{ fromId: RUGS.id, moveQueries: ["persian rug cleaning"], reason: "Cleaning a rug is a job to book, not the history to read." }] }));
     const branch = live(out).find((c) => !ALL.some((f) => f.id === c.id))!; // ONE new id, minted for the branch that left
-    // THE CASE THAT STAYS SHEDS THE SEARCH IT MOVED. The row it leaves behind is what the next pass unions its groups against, so a parent that kept the moved anchor
-    // would say, in the one place that now outranks every grouping rule, that the two of them are one subject, and the branch it just minted would be folded straight
-    // back into it on the very next reconcile.
+    // THE CASE THAT STAYS SHEDS THE SEARCH IT MOVED. The row it leaves behind is what the next pass unions its groups against, so a parent that kept the moved anchor would say, in the one place that now outranks every grouping rule, that the two of them are one subject, and the branch it just minted would be folded straight back into it on the very next reconcile.
     const gone = canonicalQueryKey("persian rug cleaning");
     expect([held(out, RUGS.id)!.anchors, branch.anchors, out.cases.some((c) => c.aliasOf)]).toEqual([RUGS.anchors.filter((a) => a !== gone), [gone], false]);
     const byId = (rows: typeof out.cases) => [...rows].sort((a, b) => a.id.localeCompare(b.id));

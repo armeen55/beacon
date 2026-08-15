@@ -10,8 +10,7 @@ import { applyPinnedRead, pinFor, withCorrection } from "@/domains/measurement/p
 import { contaminationFor, selectMatchedControls } from "@/domains/measurement/proof-gsc/contamination";
 import type { ShippedChangeRecord } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import type { ProofWindowDay, ProofWindowResult } from "@/domains/measurement/proof-gsc/types";
-/** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing
- *  disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no operator string claims cause. */
+/** Outcome-level contract tests for the measurement kernel. These pin CUSTOMER TRUTH, not implementation: every historical shipment maps to exactly one read (nothing disappears); the 7/14/28 windows respect Google's reporting lag; overlapping changes on one page read as confounded; only cleanly-settled reads feed ranking; no operator string claims cause. */
 const NOW = new Date("2026-06-01T00:00:00Z");
 function win(day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) {
   return {
@@ -116,8 +115,7 @@ describe("ranking outcome signal", () => {
     expect(rankingPriors([{ actionType: "meta", read: { rankingSignal: 0.6 } }]).has("meta")).toBe(false);
   });
 });
-/** PHASE 7: the windows count from the stamp, a later change on the same page closes the earlier one's clean window instead of being silently measured as if it were
- *  clean, the day-56 read runs only when the day-28 read did not settle, and every settled read carries the learning shape. Fixtures only. */
+/** PHASE 7: the windows count from the stamp, a later change on the same page closes the earlier one's clean window instead of being silently measured as if it were clean, the day-56 read runs only when the day-28 read did not settle, and every settled read carries the learning shape. Fixtures only. */
 const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
   id: "a", page: "https://site.com/x", path: "/x", actionType: "content", shippedAt: "2026-05-01",
   baseline: { impressions: 5000, clicks: 400 },
@@ -173,8 +171,7 @@ describe("overlap honesty: a later change closes the earlier one's clean window"
     expect(reads[0].verdict).toBe("directional_improvement");
   });
 });
-/** A reading that RAN is a reading the operator has already been shown. Moving the clock under it (a stamp that lands after the ship date, a second press that moves the
- *  ship date) may never un-decide it, and the promised dates on Today move with the stamp, never with the press. */
+/** A reading that RAN is a reading the operator has already been shown. Moving the clock under it (a stamp that lands after the ship date, a second press that moves the ship date) may never un-decide it, and the promised dates on Today move with the stamp, never with the press. */
 describe("a settled reading survives the clock moving under it", () => {
   const SETTLED = new Date("2026-06-10T00:00:00Z"), WATERMARK = "2026-06-05";
   // Shipped 2026-05-01 and read at 28 days on 2026-05-29. The stamp arrives 19 days after the ship date, so a recomputed 28-day window would not close until 2026-06-17.
@@ -354,8 +351,7 @@ describe("no causal overclaim on any read", () => {
     expect(learningVerdictOf(first)).toBe("measuring");
   });
 });
-/** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle
- *  producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
+/** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
 describe("metric selection and vocabulary", () => {
   it("answers for every canonical KIND and FAMILY spelling, and fails closed on one it does not hold", () => {
     const table: Array<[string, string]> = [["edit_title", "ctr"], ["title-family", "ctr"], ["description-family", "ctr"],
@@ -383,8 +379,7 @@ describe("metric selection and vocabulary", () => {
     }
   });
 });
-/** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against
- *  fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
+/** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
   const STAMP = "2026-04-01T00:00:00.000Z";
   const pinWin = (day: ProofWindowDay, lift: number): ProofWindowResult => ({
@@ -438,9 +433,7 @@ describe("a settled reading is held still", () => {
     expect(served.confidenceReasons.join(" ")).toMatch(/changed again afterwards/);
   });
 });
-/** PHASE 2: ONE COMPARISON POLICY. Exclusion is scoped to the window being read, so a page that was
- *  changed months ago is comparable again instead of being lost forever; the receipt lists only facts  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen
- *  reading the operator was shown is the same one ranking learns from. */
+/** PHASE 2: ONE COMPARISON POLICY. Exclusion is scoped to the window being read, so a page that was changed months ago is comparable again instead of being lost forever; the receipt lists only facts  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen reading the operator was shown is the same one ranking learns from. */
 describe("one comparison policy, one durable result", () => {
   const NOW_C = new Date("2026-06-01T00:00:00Z");
   const change = (path: string, at: string, verdict: string): ShippedChangeRecord =>

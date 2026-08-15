@@ -142,6 +142,16 @@ const corpusOf = (p: SourcePacket): string =>
   flat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? "", p.metaDescription ?? "", Object.values(p.evidence).join(" ")].join(" ")).replace(/[^a-z0-9]+/g, " ");
 /** Every content word of a phrase that the canonical page evidence does not carry. Singularized and stripped of  universal words by the ONE tokenizer this codebase already uses, so a faithful paraphrase passes and an invented member does not. Substring containment on purpose: it errs toward letting real copy through. */
 const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase).filter((w) => !corpus.includes(w));
+/** SUPPORT ENTAILMENT, and it used to be nobody's question: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself ("These shoes are waterproof", declared word for word against a page title silent about waterproofing). A CLAIM IS NEVER PART OF ITS OWN SUPPORT: each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, because a claim word the copy never prints cannot make the copy false and an editor's bookkeeping ("the page subject is") is not a page claim. EXACT NORMALIZED TOKEN MEMBERSHIP, never substring: `held.includes(w)` let a claim word ride inside a longer evidence word, so a page whose evidence said "credit" was held to support copy saying "red". A WHOLE WORD, matched whole, after both sides go through the ONE tokenizer and lose a trailing plural or silent e, because "showcases" and "showcase" are one word and the tokenizer's own plural rule spells them differently. THIS IS SPELLING AND NOTHING MORE: meaning stays the judge's. PURE, so a stored row is re-read exactly as a fresh draft is checked. */
+const fold = (w: string): string => w.replace(/e$/, "").replace(/s$/, "");
+/** A CAPITAL LETTER RUNNING OUT OF A LOWERCASE ONE IS TWO WORDS. The capture glues a heading to the sentence under it ("Persian AccessoriesShowcase your heritage"), and matching whole words against that string calls the page's own word missing. Both sides are split the same way, so this can only ever restore a boundary a crawl removed. */
+const words2 = (t: string): string[] => topicTokens(t.replace(/([a-z])([A-Z])/g, "$1 $2"));
+function ungroundedClaimWords(claims: EditorDeliverable["claims"], evidence: Readonly<Record<string, string>>, copy: string): string[] {
+  const inCopy = new Set(words2(copy).map(fold));
+  return [...new Set(claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => evidence[id] ?? "").join(" ").replace(/([a-z])([A-Z])/g, "$1 $2")).replace(/[^a-z0-9]+/g, " ");
+    const held = new Set([...q.split(" ").filter(Boolean), ...topicTokens(q)].map(fold));
+    return words2(c.text).filter((w) => inCopy.has(fold(w)) && !held.has(fold(w))); }))];
+}
 
 /** WHY THIS DELIVERABLE IS NOT FINISHED, or empty. PURE, and no line here is an opinion about whether the copy is any good. */
 export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): string[] {
@@ -194,9 +204,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (undeclared.length > 0) out.push(`it tells a reader this page offers ${undeclared.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and no claim on this card carries it`);
   const uncovered = unheld(graph, d.finalCopy);
   if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
-  // SUPPORT ENTAILMENT is the other question, and it used to be nobody's: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself: "These shoes are waterproof", declared word for word as a claim against a page title silent about waterproofing, cleared coverage because the word was in the claim. A CLAIM IS NEVER PART OF ITS OWN SUPPORT. Each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, which is exactly where a claim can vouch for a lie: a claim word the copy never prints cannot make the copy false, and holding an editor's bookkeeping ("the page subject is") against a page excerpt refuses provenance for its grammar. Singular and plural are one word here, so a stemmer's quirk is not a hallucination.
-  const inCopy = new Set(topicTokens(d.finalCopy));
-  const ungrounded = [...new Set(d.claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " "), held = `${q} ${topicTokens(q).join(" ")}`; return topicTokens(c.text).filter((w) => inCopy.has(w) && !held.includes(w)); }))];
+  const ungrounded = ungroundedClaimWords(d.claims, p.evidence, d.finalCopy);
   if (ungrounded.length > 0) out.push(`its copy says ${ungrounded.slice(0, 3).map((t) => `"${t}"`).join(", ")} on a claim of its own, and the evidence that claim names does not carry it`);
   return [...new Set(out)];
 }
@@ -424,11 +432,38 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
 
 /** THE FIELD a stored component replaces, where it replaces one at all. */
 const FIELD_OF_KIND: Partial<Record<string, EditorField>> = { title: "title", h1: "h1", meta: "meta", opening_answer: "answer_block" };
+/** The target page as the pass already holds it, never a fresh read: its four stored fields. */
+type HeldPage = { title: string | null; h1: string | null; metaDescription: string | null; outline?: readonly string[] | null };
 
-/** WHY A STORED BUNDLE MAY NOT BE SERVED AGAIN AS IT STANDS, or empty. A deep bundle is REUSED without being redrafted, so every gate added after it was written simply never ran on it: the pieces that narrowed a page off its own subject sat in a live queue through three passes because nothing ever re-read them. This is the re-read. It runs ONLY the gates that need no model and no fresh evidence, plus the one structural question a cluster can answer about itself, so a re-read can never invent a failure the producer would not have made. A page whose words are not in hand is SKIPPED, never failed: I cannot re-read what I am not holding. */
-export function staleBundleReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[]): string[] {
+/** WHY BANKED ATOMIC COPY MAY NOT BE PRESERVED, or empty. Banking skips the drafter AND every gate, so copy accepted under an older boundary was served on for ever while the boundary moved under it: identity alone decided, and identity says nothing about whether the words still stand. The packet is rebuilt from what the ROW ITSELF banked (its claims and the exact words behind each id) plus the page as this pass holds it, and every deterministic rule is asked again on the evidence the copy actually leans on. No provider, no fresh read, and NO RE-JUDGING: the prior reading of sense stands while the material identity does. A row that banked no copy or no provenance answers empty, because there is nothing here to re-read; whether such a row may be preserved at all is preferFinished's question. */
+function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null): string[] {
+  const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? [];
+  if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return [];
+  const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
+  const out: string[] = [], field = c.field as EditorDeliverable["actionType"];
+  const unknown = [...new Set(claims.flatMap((x) => [...x.supportedBy]))].filter((id) => !evidence[id]);
+  if (unknown.length > 0) out.push(`the evidence its claims name is not banked beside them: ${unknown.slice(0, 3).join(", ")}`);
+  const packet: SourcePacket = { targetUrl: p.pageUrl ?? p.pagePath ?? "", title: held?.title ?? null, h1: held?.h1 ?? null, metaDescription: held?.metaDescription ?? null,
+    bodyText: facts.map((f) => f.fact).join(" "), headings: [...(held?.outline ?? [])], evidence, trackedQuestion: p.primaryQuery, ownedPaths: [], bannedTerms };
+  out.push(...rereadableRefusals(c.after, packet));
+  // WHAT THE COPY LEANS ON HAS TO STILL CARRY IT. Support reworded, re-pointed or dropped leaves banked words arguing from something nobody banked, and a stored claim cannot say that about itself.
+  const ungrounded = ungroundedClaimWords(claims, evidence, c.after), uncovered = unheld(`${flat(claims.map((x) => x.text).join(" "))} ${flat(facts.map((f) => f.fact).join(" "))}`.replace(/[^a-z0-9]+/g, " "), c.after);
+  if (ungrounded.length > 0) out.push(`its copy says ${ungrounded.slice(0, 3).map((t) => `"${t}"`).join(", ")} on a claim of its own, and the evidence that claim names does not carry it`);
+  if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
+  const [lo, hi, unit] = BAND[field], n = unit === "c" ? c.after.trim().length : words(c.after);
+  if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
+  if ((field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering");
+  if (withoutCta(c.after, field) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
+  // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
+  const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription };
+  if (held && field in line && c.before != null && flat(c.before) !== flat(line[field] ?? " ")) out.push("the line it says it replaces is not the one this page carries");
+  return [...new Set(out)];
+}
+
+/** WHY A STORED CHANGE MAY NOT BE SERVED AGAIN AS IT STANDS, or empty. Stored work is REUSED without being redrafted, so every gate added after it was written simply never ran on it: a bundle's pieces that narrowed a page off its own subject sat in a live queue through three passes, and a banked description kept a figure that had walked away from the qualifier its own sentence carried. This is the ONE re-read, for both shapes. It runs ONLY the gates that need no model and no fresh evidence, so a re-read can never invent a failure the producer would not have made, and it is $0 by construction. What it cannot hold it SKIPS rather than fails: a page whose words are not in hand, and a row that banked no provenance, are withheld from this question, never destroyed by it. Whether the change still treats its own diagnosed cause is asked once, by the caller, on every row on its way to the store. PURE. */
+export function staleCopyReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[], page?: HeldPage | null): string[] {
   const parts = p.bundle?.components ?? [];
-  if (parts.length === 0) return [];
+  if (parts.length === 0) return bankedCopyReasons(p, bannedTerms, page ?? null);
   const held = [...bodies.values()], owned = held.map((b) => pathOf(b.url)), out: string[] = [];
   const bodyFor = (page: string): OwnedPageBody | null => held.find((b) => pathOf(b.url).toLowerCase() === page.toLowerCase() || canonicalUrlKey(b.url) === canonicalUrlKey(page)) ?? null;
   for (const c of parts) {

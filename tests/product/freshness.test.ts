@@ -1,8 +1,4 @@
-/** PRODUCT - the acquisition policy: WHAT COUNTS AS CURRENT, and WHAT A RUN MAY SPEND. One freshness matrix
- *  replaces the single seven-day constant, so a search a frozen case is stuck on is re-bought after a DAY
- *  while an unfocused one keeps the week, a page of the account's own is re-read the moment something
- *  changed it underneath me, and the recurring-domains capability parses exactly what the provider
- *  documents. Plus the raised monthly ceilings. No network, no Supabase, no spend. */
+/** PRODUCT - the acquisition policy: WHAT COUNTS AS CURRENT, and WHAT A RUN MAY SPEND. One freshness matrix replaces the single seven-day constant, so a search a frozen case is stuck on is re-bought after a DAY while an unfocused one keeps the week, a page of the account's own is re-read the moment something changed it underneath me, and the recurring-domains capability parses exactly what the provider documents. Plus the raised monthly ceilings. No network, no Supabase, no spend. */
 import { describe, it, expect } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, ParsedSerp, ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -49,8 +45,7 @@ describe("the freshness matrix", () => {
 });
 
 describe("what the matrix actually buys", () => {
-  /** HALF THE MATRIX WAS DECORATIVE: the windows above said a month while the row holding the evidence expired in a week, so a page every side of the
-   *  product still called current was thrown away and bought back. The cache lifetime IS the matrix now, on the ask and on the banked body alike. */
+  /** HALF THE MATRIX WAS DECORATIVE: the windows above said a month while the row holding the evidence expired in a week, so a page every side of the product still called current was thrown away and bought back. The cache lifetime IS the matrix now, on the ask and on the banked body alike. */
   const written: Record<string, unknown>[] = [];
   const deps = { env: { DATAFORSEO_AUTH_B64: "abc" } as unknown as NodeJS.ProcessEnv, now: () => new Date(NOW),
     fetchImpl: (async () => new Response(JSON.stringify(labsKeywordsForSiteLive), { status: 200 })) as unknown as typeof fetch,
@@ -99,9 +94,7 @@ describe("the ONE page of the account's own, and what makes it due", () => {
 });
 
 describe("the recurring winning domains capability (dataforseo_labs/google/serp_competitors/live)", () => {
-  /** The DOCUMENTED response shape, verified against docs.dataforseo.com on 2026-07-31: result[0] carries
-   *  se_type, seed_keywords, location_code, language_code, total_count, items_count and items; each item
-   *  carries its metrics as FLAT fields, never a nested metrics object. */
+  /** The DOCUMENTED response shape, verified against docs.dataforseo.com on 2026-07-31: result[0] carries se_type, seed_keywords, location_code, language_code, total_count, items_count and items; each item carries its metrics as FLAT fields, never a nested metrics object. */
   const envelope: ProviderEnvelope = { status_code: 20000, cost: 0.0105, tasks: [{ status_code: 20000, result: [{
     se_type: "google", seed_keywords: ["phone"], location_code: 2840, language_code: "en", total_count: 86, items_count: 3,
     items: [

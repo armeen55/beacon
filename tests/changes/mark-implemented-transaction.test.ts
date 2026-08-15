@@ -1,6 +1,4 @@
-/** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that
- *  record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is
- *  measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. */
+/** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
 
@@ -16,8 +14,7 @@ vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof im
   loadChangeProposal: async () => stored.proposal, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
-  // THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable
-  // the moment it lands, which is exactly what a retry after a crash finds.
+  // THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds.
   recordShipment: async (f: { proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }) => {
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
     const held = led.records.find((r) => r.proposalVersion === f.proposalVersion);

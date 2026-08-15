@@ -17,12 +17,12 @@ import { rankProposals } from "./rank-proposals";
 import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { preferFinished } from "./completeness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
-import { applyDraftedCopy, staleBundleReasons, withoutCta, MAX_PAID_CALLS } from "./drafted-copy";
+import { applyDraftedCopy, staleCopyReasons, withoutCta, MAX_PAID_CALLS } from "./drafted-copy";
 import { MAX_NEW_READS_PER_PASS } from "./producers/page-job";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
@@ -49,6 +49,7 @@ export type ProduceProposalsResult = {
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; // one bounded page of this account's own inventory, never the whole site
+const NO_BODIES = new Map<string, OwnedPageBody>(); // no page words in hand: "I am not holding this page" is a skip, never a failure
 /** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
 const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const;
 const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
@@ -248,10 +249,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (!persist) return;
     // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted on the same page, the same diagnosis, the same evidence and the same lever. THE PAGE AS THIS PASS READ IT rides on the row (its four stored fields, off the snapshot the pass already holds, so this costs no read), so words written for a page since re-crawled into a different shape are retired rather than served, and a page nothing is held for stamps nothing and is decided on everything else.
     const held = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(raw.pageUrl ?? raw.pagePath).includes(k)))?.content ?? null;
-    // BANKED COPY IS RE-READ AGAINST THE CONTRACT THAT STANDS TODAY, because banking skips every gate: a closing line telling the reader to read the page outlived the rule that refuses one. Trimmed where the field still fills without it, and NOT BANKED AT ALL where it does not, so a stale call to action can never be served on while the drafter keeps missing. $0 and deterministic.
+    // BANKED COPY IS RE-READ AGAINST EVERY DETERMINISTIC RULE THAT STANDS TODAY, because banking skips the drafter and every gate: a closing line telling the reader to read the page, a figure that walked away from its own qualifier, and support that was reworded underneath the words all outlived the rules that refuse them. The closing line is TRIMMED where the field still fills without it, and then the ONE re-read decides: any reason at all and the copy is not preserved, so the card goes back through the normal drafting path rather than being served on. $0, no fresh read, no re-judging.
     const held0 = existing.get(raw.id), copy0 = held0 && !held0.bundle && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
-    const clean = copy0 ? withoutCta(copy0.after, copy0.field === "meta" ? "meta" : copy0.field === "title" ? "title" : copy0.field === "h1" ? "h1" : "answer_block") : null;
-    const prior = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
+    const clean = copy0 ? withoutCta(copy0.after, copy0.field) : null, trimmed = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
+    const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const prior = why.length === 0 ? trimmed : null;
     const carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
     const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
@@ -422,7 +423,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
     // A STORED BUNDLE IS RE-READ BEFORE IT IS SERVED AGAIN. Reuse skipped the drafter AND every gate, so a piece written before a gate existed outlived the gate that would have refused it. A piece a current gate refuses sends the whole bundle back through the producer THIS pass instead of being handed over one more time.
     const heldBundle = heldDeep.get(d.pageUrl) ?? null;
-    const stale = heldBundle ? staleBundleReasons(heldBundle, bodyByUrl ?? new Map(), bannedTerms) : [];
+    const stale = heldBundle ? staleCopyReasons(heldBundle, bodyByUrl ?? NO_BODIES, bannedTerms) : [];
     if (heldBundle && stale.length > 0) log.info("[produce-proposals] a stored bundle no longer passes its own gates, so it is drafted again", { tenantId, id: heldBundle.id, reasons: stale.slice(0, 3) });
     if (heldBundle && stale.length === 0) {
       // A held bundle reaches the queue here, re-stamped.

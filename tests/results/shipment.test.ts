@@ -1,10 +1,8 @@
-/** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a
- *  partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
+/** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are
-   *  not. `file` is the per-tenant ledger file both fallbacks write to. */
+  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
   const state = {
     rows: [] as Row[], file: [] as Row[], offline: false,
     upsertError: null as Row | null, updateError: null as Row | null,
@@ -112,9 +110,7 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
-  // The baseline used to be read off the newest 60 rows, so a 140 answer day was compared against a sample of itself for 28 days, and it
-  // counted mentions over every answer that came back, so an answer nobody had read yet was an implicit miss while the after side divides
-  // by the answers actually read. The day is found off a small probe, READ BY NAME, and the denominator is written down.
+  // The baseline used to be read off the newest 60 rows, so a 140 answer day was compared against a sample of itself for 28 days, and it counted mentions over every answer that came back, so an answer nobody had read yet was an implicit miss while the after side divides by the answers actually read. The day is found off a small probe, READ BY NAME, and the denominator is written down.
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
     const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
@@ -174,12 +170,10 @@ describe("the canonical Shipment", () => {
       .toEqual([null, null, null, null]);
   });
 });
-/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it
- *  untouched. */
+/** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
-  // The record ships as "title-family", which is judged on CLICK RATE, so the reading that has to survive
-  // carries its lift on the metric this change is actually graded on.
+  // The record ships as "title-family", which is judged on CLICK RATE, so the reading that has to survive carries its lift on the metric this change is actually graded on.
   const ranWindow = (day: number, adjustedLift: number) => ({
     day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
     treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0,
@@ -210,8 +204,7 @@ describe("recording what the live check found", () => {
       .toEqual(["verified", NOW.toISOString(), 9]);
   });
 });
-/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will
- *  ever read back. */
+/** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
@@ -239,8 +232,7 @@ describe("when the Shipment columns are not there yet", () => {
     expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
   });
 });
-/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a change I never found there would credit search movement to work
- *  that may never have landed. */
+/** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a change I never found there would credit search movement to work that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
@@ -278,8 +270,7 @@ describe("what is still under measurement", () => {
   });
 });
 
-/** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody
- *  opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
+/** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
 describe("the measurement pass settles itself, all the way to the screen", () => {
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, failed: 0, outcomes: [], ...over });
   beforeEach(() => { settle.rebuilt.length = 0; settle.harvested.length = 0; settle.pass.mockReset(); });
@@ -295,9 +286,7 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
   });
 });
 
-/** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it
- *  can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to
- *  refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
+/** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide",
     actionType: "title-family", before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], now: NOW, ...over });

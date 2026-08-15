@@ -1,5 +1,4 @@
-/** THE PAGE JOB: one DURABLE sentence saying what a page is for, why a missing one is missing, how the whole site gets reached
- *  over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
+/** THE PAGE JOB: one DURABLE sentence saying what a page is for, why a missing one is missing, how the whole site gets reached over passes, and the fit checks that read it. Each pin states what a job may change about a decision and what a MISSING one  may never change: nothing a caller cannot name a reason for. Fixtures only, zero network, zero database. */
 import { describe, it, expect, vi } from "vitest";
 const budget = vi.hoisted(() => ({ allowed: true }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ recordSpend: async () => {},
@@ -65,14 +64,12 @@ describe("what a job changes, and what a missing one may never change", () => {
       .toEqual(["fits", "fits", "off_topic", "off_topic", "wrong_type", "off_topic", "off_topic", "unknown", "unknown", "wrong_type", "fits", "off_topic"]); });
   it("lets what was asked for decide which shape of page can answer it, and never fires a roster on a bare word", () => {
     const RUGW = ["persian", "rug", "carpet"];
-    // A REQUEST TO BUY, LANDING ON THE PAGE THAT SELLS IT, FITS: the rail rule ran before the request was read at
-    // all, so the one shape a shopping ask can be answered by was unreachable. Asked nothing, the rail rule stands.
+    // A REQUEST TO BUY, LANDING ON THE PAGE THAT SELLS IT, FITS: the rail rule ran before the request was read at all, so the one shape a shopping ask can be answered by was unreachable. Asked nothing, the rail rule stands.
     expect([sectionFit(RUGS, RUGW, CORPUS, "where can I buy a persian rug"), sectionFit(RUGS, RUGW, CORPUS)]).toEqual(["fits", "wrong_type"]);
     // A DIRECTORY ASK STILL NEEDS A HUB OR A LIST, and a guide is still not one however well its subjects match.
     expect([sectionFit(POETS, ["persian", "poet"], CORPUS, "list of persian poets"),
       sectionFit(PAINTERS, ["persian", "painter"], CORPUS, "reliable sources for learning about persian painters")]).toEqual(["fits", "wrong_type"]);
-    // AND AN ORDINARY QUESTION IS NOT A ROSTER for carrying "all" or "every": those sent plain guide questions to
-    // the hub-and-list gate, which refused them everywhere.
+    // AND AN ORDINARY QUESTION IS NOT A ROSTER for carrying "all" or "every": those sent plain guide questions to the hub-and-list gate, which refused them everywhere.
     expect([sectionFit(SCIENCE, ["iranian", "science"], CORPUS, "all I want to know about iranian science"),
       sectionFit(SCIENCE, ["iranian", "science"], CORPUS, "should I read about iranian science every day")]).toEqual(["fits", "fits"]); });
   it("keeps a body link off a page the words do not belong to, and off a dictionary page from a stranger", () => {

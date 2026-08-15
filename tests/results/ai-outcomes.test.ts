@@ -1,6 +1,4 @@
-/** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first reading of a question feeds a trend; a rate with nothing behind it is
- *  null and never zero; a model or mode change splits the series and is named; a Shipment is judged before against after on the same rule with its coverage visible; thin
- *  coverage is "unclear", not a verdict; a missed day stays missed; and one account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
+/** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first reading of a question feeds a trend; a rate with nothing behind it is null and never zero; a model or mode change splits the series and is named; a Shipment is judged before against after on the same rule with its coverage visible; thin coverage is "unclear", not a verdict; a missed day stays missed; and one account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
 import { describe, it, expect, vi } from "vitest";
 
 import { aiOutcomeForShipment, aiOutcomes, aiOutcomesForShipments, visibilitySeries } from "@/domains/measurement/ai-outcomes";
@@ -29,8 +27,7 @@ function row(over: RowOver = {}): AiObservationRecord {
 }
 
 const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
-/** A store that answers like the real one: only the slot and the day range that were ASKED for, a named range read whole, and a fixed count never exceeded. A module that
- *  asks for the newest N rows and narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
+/** A store that answers like the real one: only the slot and the day range that were ASKED for, a named range read whole, and a fixed count never exceeded. A module that asks for the newest N rows and narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
 const reader = (rows: AiObservationRecord[]) =>
   vi.fn(async (_t: string, o: { limit?: number; slot?: number; fromDay?: string; toDay?: string }) =>
     rows.filter((r) => (o.slot === undefined || r.sample_slot === o.slot)
@@ -208,8 +205,7 @@ describe("what the AI answers did around one shipped change", () => {
     }
     return out;
   };
-  /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account
-   *  was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
+  /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
     // 140 answers, 100 read closely, 60 naming the account: the rate before is 0.6. Counted the old way it was 0.43, which is BELOW the 0.5 the answers since have run at, so the same day's data read as a rise.
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
@@ -304,8 +300,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.before).toMatchObject({ from: "nothing", rate: null });
     expect(outcome?.line).toContain("nothing from before the change");
   });
-  /** ONE CHANGE, ITS OWN SEARCHES. This read used to take EVERY answer the account bought in the window, so a page nobody asked about inherited another page's rise and a
-   *  Result implied a lesson those answers cannot carry. Membership is the searches the change was aimed at: the question asked, or a search the engine itself reported running to answer it. */
+  /** ONE CHANGE, ITS OWN SEARCHES. This read used to take EVERY answer the account bought in the window, so a page nobody asked about inherited another page's rise and a Result implied a lesson those answers cannot carry. Membership is the searches the change was aimed at: the question asked, or a search the engine itself reported running to answer it. */
   it("judges a change on its own searches only, and calls an unscopable one unavailable rather than account wide", async () => {
     const elsewhere = (r: AiObservationRecord) => ({ ...r, prompt_id: `x${r.prompt_id}`, prompt_text: "best rugs to buy" });
     const readObservations = reader([...stretch("2026-07-21", "2026-07-31", 0), ...stretch("2026-07-21", "2026-07-31", 4).map(elsewhere)]);
@@ -350,8 +345,7 @@ describe("what the AI answers did around one shipped change", () => {
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
     }
   });
-  /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest shipment to the newest, and an account asking 35 questions of
-   *  4 engines writes 140 first readings a day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past 40,000. Every change then showed no AI outcome at all, including the ones whose own answers read fine. */
+  /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest shipment to the newest, and an account asking 35 questions of 4 engines writes 140 first readings a day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past 40,000. Every change then showed no AI outcome at all, including the ones whose own answers read fine. */
   it("reads overlapping windows once and fails only the changes whose own days could not be read", async () => {
     const rows = [...stretch("2026-01-04", "2026-02-28", 3), ...stretch("2026-06-01", "2026-07-31", 3)];
     const asked: Array<{ fromDay?: string; toDay?: string }> = [];
@@ -381,8 +375,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
     expect(batch[3]?.line).toBe("I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
   });
-  /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting day; deriving the shipped day in UTC put every evening stamp on
-   *  tomorrow, so that same evening's answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
+  /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
   it("stamps the shipped day in the operator's own zone, so an evening change counts that evening after it", async () => {
     const evening = "2026-08-05T02:00:00.000Z"; // 7 PM on the 4th where the operator is
     const readObservations = reader([

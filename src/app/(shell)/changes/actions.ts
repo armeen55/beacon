@@ -8,28 +8,20 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
 import { actionableProposalFailures, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, unsettledCause,
-  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, saveChangeProposal, transitionProposalToImplemented,
+  loadChangeProposal, markRecommendedEditsAsShipped, promoteConfirmedProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShipment, type MeasurementState } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
-/** changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced: the kernel never writes a
- *  live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes a Shipment FIRST and flips the proposal SECOND, never
- *  the other way, because a crash between the two leaves a Shipment nobody flipped (which the next press heals) where the reverse leaves a
- *  change marked done that nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment. `note`
- *  says what is still theirs to do after a PARTIAL apply, in their own words. */
+/** changes/actions: the manual "Mark implemented" action. Publishing authority is MANUAL and server-enforced: the kernel never writes a live page and never flips this itself. THE SHIPMENT TRANSACTION: the press writes a Shipment FIRST and flips the proposal SECOND, never the other way, because a crash between the two leaves a Shipment nobody flipped (which the next press heals) where the reverse leaves a change marked done that nothing on earth is measuring. And nothing lands at all unless the ONE verdict passes at this moment. `note` says what is still theirs to do after a PARTIAL apply, in their own words. */
 type MarkProposalImplementedResponse = { success: boolean; error?: string; note?: string };
 
-/** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the
- *  remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The
- *  flip that follows will not run without that id, so a press can never close a change no record stands behind. */
+/** What one press landed: whether every piece is now on file, how many this press wrote, how many are genuinely still theirs to do (the remainder came off THIS press before, so press two of three said "the other 2" with one left), AND THE RECORD THAT IS MEASURING IT. The flip that follows will not run without that id, so a press can never close a change no record stands behind. */
 type Shipped = { ok: true; complete: boolean; recorded: number; remaining: number; shipmentId: string; measurement: MeasurementState };
 
-/** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED.
- *  Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different
- *  subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
+/** The exact version applied: its copy, its components, the basis it was drafted under AND THE PIECES THIS PRESS ACTUALLY APPLIED. Deliberately EXCLUDES status, so the flip that follows cannot change the id and a retry lands on the same record. Applying a different subset later is a DIFFERENT thing to measure, so it gets its own record instead of being silently swallowed by the first one. */
 function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): string {
   const material = {
     change: p.recommendedChange,
@@ -40,9 +32,7 @@ function shippedVersionOf(p: ChangeProposal, appliedIds: readonly string[]): str
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
 }
 
-/** WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address until the operator publishes it, so a new-page change marked
- *  done with no address left verification fetching the page LABEL as if it were a website. The address is owed, and it has to be one I can
- *  keep reading: on their own site, secure, and one plain page address with no query, because a tracking link is not the page. */
+/** WHERE THE NEW PAGE ACTUALLY LIVES. A page that did not exist has no address until the operator publishes it, so a new-page change marked done with no address left verification fetching the page LABEL as if it were a website. The address is owed, and it has to be one I can keep reading: on their own site, secure, and one plain page address with no query, because a tracking link is not the page. */
 function liveUrlFor(raw: string, domain: string): { url: string } | { error: string } {
   const site = domain.trim().toLowerCase().replace(/^www\./, "");
   const owed = `Add the address the new page is live at, on ${site}, so it can be read.`;
@@ -58,23 +48,15 @@ function liveUrlFor(raw: string, domain: string): { url: string } | { error: str
   return { url: `${parsed.origin}${parsed.pathname}` };
 }
 
-/** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp
- *  and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL:
- *  rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window
- *  that now included days AFTER the change, so pressing twice quietly flattered its own result. */
+/** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string },
 ): Promise<Shipped | { ok: false; error: string }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   try {
-    // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live
-    // check and moves the ship date, the exact bug this lookup exists to stop.
+    // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop.
     const ledger = await loadShippedChanges();
-    // WHAT IS ALREADY ON FILE COMES OUT OF THIS PRESS: the picker offers every piece by default, so a partial press followed by the obvious
-    // next one wrote a SECOND record measuring the same component twice, and no screen can cause that now whatever it sends. The same id
-    // twice in one press is one piece too, so a repeated pick cannot mint a second version of one record.
-    // NAMES ARE COMPARED ACROSS ERAS. A piece recorded before its exact copy was part of its name can only ever be compared at the precision
-    // it was written with; two names of today's era compare whole, so a redrafted piece is genuinely new work and is measured.
+    // WHAT IS ALREADY ON FILE COMES OUT OF THIS PRESS: the picker offers every piece by default, so a partial press followed by the obvious next one wrote a SECOND record measuring the same component twice, and no screen can cause that now whatever it sends. The same id twice in one press is one piece too, so a repeated pick cannot mint a second version of one record. NAMES ARE COMPARED ACROSS ERAS. A piece recorded before its exact copy was part of its name can only ever be compared at the precision it was written with; two names of today's era compare whole, so a redrafted piece is genuinely new work and is measured.
     const already = new Set<string>();
     const mine = ledger.filter((r) => r.proposalId === proposal.id);
     for (const r of mine) for (const c of r.componentsApplied ?? []) if (c.id) already.add(c.id);
@@ -92,28 +74,22 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
     // Nothing new to measure, so nothing is written and the record already on file keeps whatever it can be compared against.
     if (bundleIds.length > 0 && fresh.length === 0) return state(0, mine[0]?.id ?? null, mine[0]?.measurementState ?? "measuring");
     const version = shippedVersionOf(proposal, fresh);
-    // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one
-    // component. THE EXACT COPY TRAVELS, because verifying is comparing what was proposed against what is on the page. THE RISK GRADE
-    // TRAVELS TOO: measurement saw only the kind, so a dangerous grade on an ordinary kind lost its day-56 follow up.
+    // Every component unless the operator named the ones they applied; an atomic change has no bundle, so the change itself is its one component. THE EXACT COPY TRAVELS, because verifying is comparing what was proposed against what is on the page. THE RISK GRADE TRAVELS TOO: measurement saw only the kind, so a dangerous grade on an ordinary kind lost its day-56 follow up.
     const all = proposal.bundle?.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label, after: c.after ?? null, risk: c.risk ?? null,
       // A renamed link is verified against the words that should now be ON it, so those words ride along.
       ...(c.anchorAfter ? { anchorAfter: c.anchorAfter } : {}),
-      // AND A FORWARD RIDES WITH ITS DESTINATION. Without it the live check read the first address out of the sentence, which is the one
-      // being MOVED, and graded a correct forward as a wrong one.
+      // AND A FORWARD RIDES WITH ITS DESTINATION. Without it the live check read the first address out of the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
       ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
       ?? [{ id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
     const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
 
-    // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S
-    // OWN ADDRESS WINS for a new page: it is the only one that exists.
+    // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.
     const pageRef = (opts.liveUrl ?? proposal.pageUrl ?? proposal.pagePath ?? "").trim();
     const meta = pageRef ? await captureChangeMeta(tenantId, pageRef).catch(() => null) : null;
     const change = proposal.recommendedChange;
 
-    // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id, so an implementation the operator really
-    // made is recorded whatever the search data can support; whether it can be fairly compared comes back beside it and is said out loud
-    // rather than used to refuse the record. Idempotent on (proposal, version): a retry lands on the row already on file.
+    // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id, so an implementation the operator really made is recorded whatever the search data can support; whether it can be fairly compared comes back beside it and is said out loud rather than used to refuse the record. Idempotent on (proposal, version): a retry lands on the row already on file.
     const landed = await recordShipment({
       tenantId, proposalId: proposal.id, proposalVersion: version,
       page: opts.liveUrl ?? meta?.canonPage ?? proposal.pageUrl ?? proposal.pageLabel,
@@ -121,8 +97,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       actionType: proposal.changeFamily,
       before: change.kind === "existing_edit" ? change.before : null,
       after: change.kind === "existing_edit" ? change.after : change.proposedTitle,
-      // THE AI QUESTIONS RIDE TOO: the shipment's AI outcome joins observations on the tracked question texts, and dropping scope.prompts
-      // here left every future Result's AI half permanently dark.
+      // THE AI QUESTIONS RIDE TOO: the shipment's AI outcome joins observations on the tracked question texts, and dropping scope.prompts here left every future Result's AI half permanently dark.
       targetQueries: [proposal.primaryQuery, ...(proposal.bundle?.scope.queries ?? []), ...(proposal.bundle?.scope.prompts ?? [])]
         .filter((q, i, xs) => q && xs.indexOf(q) === i).slice(0, 10),
       basis: proposal.basis ?? null,
@@ -131,8 +106,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
       componentsApplied,
       preChangeContentHash: meta?.contentHash ?? null,
-      // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and
-      // looks at the page itself before it says anything.
+      // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.
       operatorNote: opts.operatorNote ?? null,
     });
     return state(fresh.length, landed.shipmentId, landed.measurement);
@@ -152,21 +126,16 @@ function measurementNote(state: MeasurementState): string | undefined {
   return undefined;
 }
 
-/** Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment is written
- *  with no verification on it, so Beacon still reads the live page itself. */
+/** Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment is written with no verification on it, so Beacon still reads the live page itself. */
 export async function markProposalImplementedAction(args: {
   proposalId: string;
-  /** WHICH PIECES THEY ACTUALLY APPLIED, by the stable id each piece carries inside its stored bundle. ABSENT means all of them; anything
-   *  else is intersected against the bundle on file and refused when it selects nothing, so a hand-made list can no longer conjure an empty
-   *  selection past the confirmation. */
+  /** WHICH PIECES THEY ACTUALLY APPLIED, by the stable id each piece carries inside its stored bundle. ABSENT means all of them; anything else is intersected against the bundle on file and refused when it selects nothing, so a hand-made list can no longer conjure an empty selection past the confirmation. */
   componentIds?: string[];
   /** What they actually put on the page, in their own words. A note beside the reading, never instead of it. */
   operatorNote?: string;
-  /** RETIRED, and accepted only so an old page still open in a browser is not an error. It used to suppress the live check; it does nothing
-   *  now, and the check runs either way. */
+  /** RETIRED, and accepted only so an old page still open in a browser is not an error. It used to suppress the live check; it does nothing now, and the check runs either way. */
   operatorConfirmed?: boolean;
-  /** THE ONE CONFIRMATION THAT IS REAL. Set only by an operator who ticked the box beside a piece that moves or hides a page. Enforced
-   *  HERE, on the server: a stale screen or a hand-made request cannot merge or redirect a page merely because it reached this action. */
+  /** THE ONE CONFIRMATION THAT IS REAL. Set only by an operator who ticked the box beside a piece that moves or hides a page. Enforced HERE, on the server: a stale screen or a hand-made request cannot merge or redirect a page merely because it reached this action. */
   destructiveConfirmed?: boolean;
   /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
   liveUrl?: string;
@@ -175,8 +144,7 @@ export async function markProposalImplementedAction(args: {
   const t0 = Date.now();
   log.info("Action started", { action, params: { proposalId: args.proposalId } });
 
-  // Same server-side publish authority the push path carries: a stale or hand-crafted client request cannot mark work live merely because
-  // it reached the server action.
+  // Same server-side publish authority the push path carries: a stale or hand-crafted client request cannot mark work live merely because it reached the server action.
   if (!(await canPublishForCurrentTenant())) {
     return { success: false, error: "You do not have permission to mark this change implemented." };
   }
@@ -189,33 +157,22 @@ export async function markProposalImplementedAction(args: {
     if (stored == null) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
-    // THE VERDICT IS ASKED AT THE MOMENT OF THE MUTATION, not only where the screen was drawn. The button lives on a page that could have
-    // been open since before the bar moved or before this change's own receipt stopped resolving, and recording it would push a change I no
-    // longer stand behind into the proof ledger, where it would be measured and counted for weeks. No shipment lands unless this passes.
+    // THE VERDICT IS ASKED AT THE MOMENT OF THE MUTATION, not only where the screen was drawn. The button lives on a page that could have been open since before the bar moved or before this change's own receipt stopped resolving, and recording it would push a change I no longer stand behind into the proof ledger, where it would be measured and counted for weeks. No shipment lands unless this passes.
     if (stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
       return { success: false, error: "This change was skipped, so it is not being recorded. Open Changes for the work that stands today." };
     }
-    // AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The ONE completeness boundary decides, so the
-    // typed research fact, an instruction where the copy should be, a blank left to fill and a page whose
-    // sections were never written are all refused by the same rule the queue and the card ask. A stale tab or a
-    // hand-made request cannot start a 28 day reading of work Beacon never wrote, and a generic instruction can
-    // never reach measurement because it can never be recorded here.
+    // AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The ONE completeness boundary decides, so the typed research fact, an instruction where the copy should be, a blank left to fill and a page whose sections were never written are all refused by the same rule the queue and the card ask. A stale tab or a hand-made request cannot start a 28 day reading of work Beacon never wrote, and a generic instruction can never reach measurement because it can never be recorded here.
     const gaps = deliverableGaps(stored);
     if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
     // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
     const unfit = unsettledCause(stored);
     if (unfit) return { success: false, error: unfit };
-    // AND THE LANE ITSELF IS THE RULE, not two of the reasons a row lands in it. Completeness and the unsettled cause are why MOST review cards
-    // are held, and this action asked only those two: a complete card that never earned `ready` (no producer promoted it, or a gate this pass
-    // could not run) was recordable through a direct link and would have started a 28 day reading of work nobody stood behind. Only `ready` is
-    // work somebody can have done; an already recorded row still replays idempotently below, so a double press is never an error.
+    // AND THE LANE ITSELF IS THE RULE, not two of the reasons a row lands in it. Completeness and the unsettled cause are why MOST review cards are held, and this action asked only those two: a complete card that never earned `ready` (no producer promoted it, or a gate this pass could not run) was recordable through a direct link and would have started a 28 day reading of work nobody stood behind. Only `ready` is work somebody can have done; an already recorded row still replays idempotently below, so a double press is never an error.
     if (stored.status !== "ready" && stored.status !== "implemented_pending_verification") {
       return { success: false, error: "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today." };
     }
-    // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a
-    // hand-built list nobody could have ticked selected nothing, walked past the confirmation below and closed the whole change. Ids are
-    // derived from the stored bundle HERE.
+    // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a hand-built list nobody could have ticked selected nothing, walked past the confirmation below and closed the whole change. Ids are derived from the stored bundle HERE.
     const components = stored.bundle?.components ?? [];
     const ids = components.map(componentIdOf);
     let applied = components;
@@ -227,14 +184,11 @@ export async function markProposalImplementedAction(args: {
         return { success: false, error: "The pieces you ticked are not recognized, so nothing was recorded. Open the change again and tick what you applied." };
       }
     }
-    // A CHANGE THAT MOVES OR HIDES A PAGE OWES A DELIBERATE YES, and so does one graded dangerous on its own terms. The canonical rule is
-    // the grade OR the kind OR a correction to a high-stakes fact; the four hardcoded kinds this used to check let every one of the others
-    // through without a tick.
+    // A CHANGE THAT MOVES OR HIDES A PAGE OWES A DELIBERATE YES, and so does one graded dangerous on its own terms. The canonical rule is the grade OR the kind OR a correction to a high-stakes fact; the four hardcoded kinds this used to check let every one of the others through without a tick.
     if (dangerousComponents(applied).length > 0 && args.destructiveConfirmed !== true) {
       return { success: false, error: "This one moves or hides a page, so it needs your confirmation before it is recorded. Open the change, tick the confirmation, and press it again." };
     }
-    // THE ADDRESS GATE RUNS BEFORE ANYTHING IS WRITTEN, because the shipment is written first and a shipment pointing at a page label is a
-    // reading I can never take.
+    // THE ADDRESS GATE RUNS BEFORE ANYTHING IS WRITTEN, because the shipment is written first and a shipment pointing at a page label is a reading I can never take.
     let liveUrl: string | undefined;
     if (stored.kind === "new_page") {
       const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
@@ -247,8 +201,7 @@ export async function markProposalImplementedAction(args: {
     const appliedIds = args.componentIds !== undefined ? args.componentIds : ids;
     const shipment = await recordImplementation(tenantId, stored, { appliedIds, operatorNote: args.operatorNote, liveUrl });
     if (!shipment.ok) return { success: false, error: shipment.error };
-    // A PARTIAL APPLY CLOSES NOTHING: applying one piece of five used to mark the whole change done, so the four they never touched
-    // vanished. The change stays open carrying the rest, each subset measured alone, and the count is the TRUE remainder.
+    // A PARTIAL APPLY CLOSES NOTHING: applying one piece of five used to mark the whole change done, so the four they never touched vanished. The change stays open carrying the rest, each subset measured alone, and the count is the TRUE remainder.
     const n = shipment.recorded, left = shipment.remaining;
     const one = (a: string, b: string) => (left === 1 ? a : b);
     if (!shipment.complete) {
@@ -270,8 +223,7 @@ export async function markProposalImplementedAction(args: {
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };
-    // AND A RECORD THAT CANNOT BE READ FAIRLY YET SAYS SO ON THE PRESS. The work is recorded either way, because what the operator applied is
-    // a fact and whether Search data can compare it is a different fact; being quiet about the second one promises a reading nobody can take.
+    // AND A RECORD THAT CANNOT BE READ FAIRLY YET SAYS SO ON THE PRESS. The work is recorded either way, because what the operator applied is a fact and whether Search data can compare it is a different fact; being quiet about the second one promises a reading nobody can take.
     return { success: true, note: measurementNote(shipment.measurement) };
   } catch (err) {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a table name is not an answer to a customer.
@@ -280,9 +232,7 @@ export async function markProposalImplementedAction(args: {
   }
 }
 
-/** STEP TWO OF THE TWO-STEP HOLD, AND THE ONLY WAY A CHANGE THAT MOVES OR HIDES A PAGE BECOMES WORK. Step one has always existed: a redirect, a merge, a canonical or a de-index
- *  is minted `needs_review` and the queue says so. Step two did not, so every one of them was held for a confirmation nobody could give and none could ever be pasted. The
- *  operator reads the pieces, the addresses, the destination, the copy, the risks and the evidence on the change's own detail page and confirms THAT version. NOTHING IS TRUSTED FROM THE SCREEN: the row is re-read here and every gate is asked again at the moment of the mutation, because the page could have been open since before the copy was redrafted, before the cause was re-judged or before the bar moved. Never automatic: this runs on a press and on nothing else. */
+/** STEP TWO OF THE TWO-STEP HOLD, AND THE ONLY WAY A CHANGE THAT MOVES OR HIDES A PAGE BECOMES WORK. Step one has always existed: a redirect, a merge, a canonical or a de-index is minted `needs_review` and the queue says so. Step two did not, so every one of them was held for a confirmation nobody could give and none could ever be pasted. The operator reads the pieces, the addresses, the destination, the copy, the risks and the evidence on the change's own detail page and confirms THAT version. NOTHING IS TRUSTED FROM THE SCREEN: the row is re-read here and every gate is asked again at the moment of the mutation, because the page could have been open since before the copy was redrafted, before the cause was re-judged or before the bar moved. Never automatic: this runs on a press and on nothing else. */
 export async function confirmDangerousChangeAction(args: { proposalId: string; version: string }): Promise<MarkProposalImplementedResponse> {
   if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to confirm this change." };
   if (!args.proposalId || !args.version) return { success: false, error: "No change was specified." };
@@ -297,13 +247,13 @@ export async function confirmDangerousChangeAction(args: { proposalId: string; v
     const gaps = deliverableGaps(stored), unfit = unsettledCause(stored);
     if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to confirm: ${gaps[0]}.` };
     if (unfit) return { success: false, error: unfit };
-    // THE YES BINDS TO ONE EXACT VERSION: the copy, the pieces, the destination, the risk grade, the evidence and the basis it was given for. Anything moved since makes it stale. AND THE ROW'S OWN INTEGRITY IS ASKED OF THE PROMOTED VERSION rather than the held one: whose change this is, the bar it was drafted under, whether its readings still stand, and whether the stamp it now carries really names it. Nothing is written unless the change would be servable the moment it lands.
-    if (confirmedVersion(stored) !== args.version) return { success: false, error: "This change has been rewritten since that screen was drawn, so your confirmation is not being applied to it. Open it again, read the new version, and confirm that one." };
-    const promoted: ChangeProposal = { ...stored, status: "ready", confirmedVersion: args.version };
-    const failures = actionableProposalFailures(promoted, { tenantId, currentBasis: basis });
-    if (failures.length > 0) return { success: false, error: failures[0]! };
-    const saved = await saveChangeProposal(promoted);
-    if (saved === "failed" || saved === "blocked" || saved === "refused") { log.error("confirmDangerousChange: the confirmation did not land", { proposalId: args.proposalId, saved }); return { success: false, error: "That could not be confirmed just now. Press it again in a moment." }; }
+    // THE YES BINDS TO ONE EXACT VERSION: the copy, where it lands, the pieces, the destination, the risk grades, the risks, the caveats, the steps, the claims and the words behind them, the readings and the basis it was given for. Anything moved since makes it stale, and the SCREEN is answered here so a stale tab reads the plain sentence rather than a race it never ran into. THE PROMOTION ITSELF IS ONE COMPARE-AND-SET IN THE STORE: it re-reads the row, asks the row's own integrity of the PROMOTED version (whose change this is, the bar it was drafted under, whether its readings still stand), and writes only while the row is still the exact version that was confirmed. A rewrite landing in between changes nothing and is never overwritten.
+    const stale = "This change has been rewritten since that screen was drawn, so your confirmation is not being applied to it. Open it again, read the new version, and confirm that one.";
+    if (confirmedVersion(stored) !== args.version) return { success: false, error: stale };
+    const done = await promoteConfirmedProposal(tenantId, args.proposalId, args.version, basis);
+    if (done.status === "stale") return { success: false, error: stale };
+    if (done.status === "refused") return { success: false, error: done.refusal! };
+    if (done.status !== "promoted") { log.error("confirmDangerousChange: the confirmation did not land", { proposalId: args.proposalId }); return { success: false, error: "That could not be confirmed just now. Press it again in a moment." }; }
     await invalidateCoreSurfaces().catch(() => {});
     revalidatePath("/changes"); revalidatePath("/", "layout");
     return { success: true, note: "Confirmed. This change is ready to make, and the copy is on the card." };
@@ -313,18 +263,14 @@ export async function confirmDangerousChangeAction(args: { proposalId: string; v
   }
 }
 
-/** THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the caller names. A release replaced
- *  since is answered with the fresh first page and the sentence saying so. */
+/** THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the caller names. A release replaced since is answered with the fresh first page and the sentence saying so. */
 export async function loadMoreChangesAction(args: {
   lane: "ready" | "todo"; cursor: number; releaseId?: string | null;
 }): Promise<ChangesPage> {
   return readChangesPage(await currentTenantId(), args.lane, args.cursor, args.releaseId ?? null);
 }
 
-/** THE operator's "put this aside": the one terminal disposition that means exactly that, dismissed. Not a rejection by Beacon and not a
- *  lifecycle stage, so the change keeps its status, stops being the current answer, and the store refuses to re-draft that hypothesis until
- *  the evidence moves. ONLY WORK STILL WAITING ON THEM: a change already marked implemented is being measured, and is refused in their own
- *  words. */
+/** THE operator's "put this aside": the one terminal disposition that means exactly that, dismissed. Not a rejection by Beacon and not a lifecycle stage, so the change keeps its status, stops being the current answer, and the store refuses to re-draft that hypothesis until the evidence moves. ONLY WORK STILL WAITING ON THEM: a change already marked implemented is being measured, and is refused in their own words. */
 export async function dismissProposalAction(args: {
   proposalId: string;
 }): Promise<MarkProposalImplementedResponse> {
@@ -354,9 +300,7 @@ export async function dismissProposalAction(args: {
   }
 }
 
-/** Results-timeline "Mark shipped" confirms a previously-accepted recommended edit is live on the page, flipping its lifecycle to
- *  verified-live. Server-side publish authority is enforced (a stale UI cannot skip Accept). Distinct from the Changes-queue "Mark
- *  implemented" above: this operates on the persisted recommended_edits row linked to a changelog entry that Results renders. */
+/** Results-timeline "Mark shipped" confirms a previously-accepted recommended edit is live on the page, flipping its lifecycle to verified-live. Server-side publish authority is enforced (a stale UI cannot skip Accept). Distinct from the Changes-queue "Mark implemented" above: this operates on the persisted recommended_edits row linked to a changelog entry that Results renders. */
 function changelogJoinKey(entry: {
   source_rec_id?: string | null;
   action_type?: string | null;

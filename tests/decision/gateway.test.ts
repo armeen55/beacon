@@ -1,5 +1,4 @@
-/** Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget, unsupported schema, missing tenant), exact request contract (Responses fields present,
- *  Chat-Completions fields absent), and every envelope outcome. */
+/** Strict OpenAI Responses gateway: fail-closed-before-network (breaker, budget, unsupported schema, missing tenant), exact request contract (Responses fields present, Chat-Completions fields absent), and every envelope outcome. */
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
 import {
@@ -38,8 +37,7 @@ function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   };
 }
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
-/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object additionalProperties:false with every property required, recursively,
- *  through anyOf branches and array items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
+/** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object additionalProperties:false with every property required, recursively, through anyOf branches and array items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
 function assertFullyStrict(n: Record<string, unknown>, at: string): void {
   if (Array.isArray(n.anyOf)) return void (n.anyOf as Record<string, unknown>[]).forEach((v, i) => assertFullyStrict(v, `${at}|${i}`));
   if (n.type === "array" && n.items && typeof n.items === "object") return assertFullyStrict(n.items as Record<string, unknown>, `${at}[]`);
@@ -128,8 +126,7 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
     expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]); });
 });
-/** A REFUSED CALL IS NOT A PURCHASE, AND AN EMPTY ACCOUNT STOPS ITSELF. The transport threw the provider's error body away and handed back a bare status, so a
- *  throttle and an exhausted balance were one event to every caller, and the drafter then billed an ESTIMATE for a call that had bought nothing. */
+/** A REFUSED CALL IS NOT A PURCHASE, AND AN EMPTY ACCOUNT STOPS ITSELF. The transport threw the provider's error body away and handed back a bare status, so a throttle and an exhausted balance were one event to every caller, and the drafter then billed an ESTIMATE for a call that had bought nothing. */
 describe("openAIStructuredResponse: what a failed call says, and what it stops", () => {
   const credit = (active = false) => { const seen: string[] = []; return { seen, impl: { active: async () => active, trip: async () => { seen.push("trip"); }, clear: async () => { seen.push("clear"); } } }; };
   const body = (over: Record<string, unknown>) => ({ error: { message: "You are rate limited. Email sales@example.com and quote org-9 to raise it.", ...over } });

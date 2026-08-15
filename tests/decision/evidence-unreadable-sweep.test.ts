@@ -1,8 +1,4 @@
-/** THE NIGHT THE SEARCH READ TIMED OUT. One statement timeout on the 90-day page-signal aggregate was served
- *  to every surface as an account with no search data at all: every page then judged clean, every $0 producer
- *  emitted nothing, and the sweep behind them read that silence as "the generator no longer stands behind
- *  these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the
- *  cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
+/** THE NIGHT THE SEARCH READ TIMED OUT. One statement timeout on the 90-day page-signal aggregate was served to every surface as an account with no search data at all: every page then judged clean, every $0 producer emitted nothing, and the sweep behind them read that silence as "the generator no longer stands behind these cards" and withdrew the operator's open queue mid-edit. Withdrawal is permanent in practice, so the cards were gone. Each test below pins one link of that chain. Fixture level: no live replay. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcAnswer = { data?: unknown; error?: { message: string; code?: string } | null };
 const env = vi.hoisted(() => ({

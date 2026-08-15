@@ -1,6 +1,4 @@
-/** PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected CAPABILITY fakes over an
- *  in-memory basis-scoped state repo. Pins CURRENT-SET truth, OBSERVATION-MODE truth, weekly freshness, the DISPOSITION ladder, the SERP agenda in
- *  the customer's own words with an open investigation bought first, the ONE paid page-by-page comparison, history identity, the receipt. No network. */
+/** PRODUCT - the research funnel: the four executors, the pure projector and the canonical snapshot, driven by injected CAPABILITY fakes over an in-memory basis-scoped state repo. Pins CURRENT-SET truth, OBSERVATION-MODE truth, weekly freshness, the DISPOSITION ladder, the SERP agenda in the customer's own words with an open investigation bought first, the ONE paid page-by-page comparison, history identity, the receipt. No network. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { canonicalUrlKey } from "@/domains/evidence/snapshot"; import { emptyBusinessProfile, type Account, type BusinessProfile, type ProfileSection } from "@/domains/account";
 import type { CachedCallResult, CapabilityKey, FailureDisposition, ParsedAiAnswer, ParsedKeywordItem, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -230,8 +228,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`, DAY = 86_400_000, at = (ms: number) => new Date(ms).toISOString();
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 }; const seeded = (ownedReads: FunnelState["ownedReads"]) => { const s = emptyFunnelState("to", BASIS); s.ownedReads = ownedReads; return memStore(s); };
   const hold = (url: string, state: "robots_blocked" | "temporarily_unavailable", ms: number) => ({ url, state, attemptedAt: at(NOW), retryAfter: at(NOW + ms) });
-  /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. `bodies` IS the canonical page_snapshots row: the
-   *  snapshot write lands in it and the read-before-fetch reads it back, so a body I persisted a moment ago is a body I hold, not a page I have to fetch again. */
+  /** ONE stage-one pass with no winners at all, so the only page work it can do is the owned read under test. `bodies` IS the canonical page_snapshots row: the snapshot write lands in it and the read-before-fetch reads it back, so a body I persisted a moment ago is a body I hold, not a page I have to fetch again. */
   const run = async (store: ReturnType<typeof memStore>, now: number, answer: unknown, ownedUrl: string | null = U, tenant = "to", over: Partial<FunnelDeps> = {}, bodies = new Map<string, { fetchedAt: string }>()) => { const tried: string[] = [], saved: string[][] = [], paid: string[] = [];
     const out = await winningPagesUnit({ ...store.deps, loadProfile: async () => emptyBusinessProfile(tenant), getAccount: async () => ({ domain: "own.com" } as Account), now: () => now, parse, readPageExtract: async () => null, callProvider: (async (cap: CapabilityKey) => { paid.push(cap); return ok(serp([])); }) as FunnelDeps["callProvider"],
       fetchPage: (async (url: string) => { tried.push(url); return answer; }) as unknown as FunnelDeps["fetchPage"], readOwnedBodies: (async () => bodies) as unknown as FunnelDeps["readOwnedBodies"], writeOwnedPage: async (snap, t) => { saved.push([snap.id, snap.url, t]); bodies.set(canonicalUrlKey(snap.url), { fetchedAt: at(now) }); }, ...over }, [], null, ownedUrl)(tenant, cur(), 60_000);
@@ -315,8 +312,7 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
 describe("research funnel - the CASE-SCOPED keyword universe", () => {
   const CASE = "inv_canon", ABSORBED = "inv_old", at = new Date(NOW).toISOString();
   const ranked = (rows: [string, string, number][]): ParsedKeywordItem[] => rows.map(([keyword, rankedUrl, rankedRank]) => ({ ...parsedKw([{ keyword }])[0]!, rankedUrl, rankedRank }));
-  /** A tenant that has already looked at one results page and asked one question: every candidate below is
-   *  evidence the account paid for once and used to throw away. */
+  /** A tenant that has already looked at one results page and asked one question: every candidate below is evidence the account paid for once and used to throw away. */
   const observed = (): FunnelState => { const s = emptyFunnelState("tc", BASIS);
     s.cases = [{ id: CASE, anchors: [canonicalQueryKey("price saffron")] }, { id: ABSORBED, anchors: [], aliasOf: CASE }];
     s.serps.queries = [{ query: "price saffron", cacheKey: "ck-serp", status: "done", observedAt: at, paa: [{ question: "How much does saffron cost per gram", answeringDomain: null }], related: ["saffron grades"] }];
@@ -370,8 +366,7 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     await run(); expect(calls).toBe(1); // inside the week the answer on file is the answer: zero further spend
     await run({ now: () => NOW + 8 * 24 * 3600 * 1000 }); expect(calls).toBe(2); }); // past it, exactly one fresh look
 });
-/** THE JOURNEY, not just the first step: a fan-out has to be traceable back to the approved question, the engine, the reporting day and the stored answer it came out of,
- * or Beacon cannot say why it belongs to a page. Route alone was all that survived discovery before this. */
+/** THE JOURNEY, not just the first step: a fan-out has to be traceable back to the approved question, the engine, the reporting day and the stored answer it came out of, or Beacon cannot say why it belongs to a page. Route alone was all that survived discovery before this. */
 describe("research funnel - the journey behind a keyword", () => {
   const JCASE = "inv_j", jAt = new Date(NOW).toISOString(); const FAN = "best saffron brands";
   const ask = (over: Partial<CanonicalPairObservation> = {}) => canon({ observedAt: jAt, fanOutQueries: [FAN], ...over });

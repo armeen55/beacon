@@ -1,6 +1,4 @@
-/** PRODUCT - the onboarding + 50-core-prompt approval contract (Slice 5). One behavioral contract over the Runtime onboarding facade, driven by injected seams (fake
- *  durable store + profile repo, an injected CompleteFn for all LLM kinds, injected crawl/probe) with NO network. The one real seam is the durable budget ledger, mocked
- *  as a tiny accumulating row so the $2 reserve-then-reconcile cap is exercised. Each scenario states the customer stake it protects. */
+/** PRODUCT - the onboarding + 50-core-prompt approval contract (Slice 5). One behavioral contract over the Runtime onboarding facade, driven by injected seams (fake durable store + profile repo, an injected CompleteFn for all LLM kinds, injected crawl/probe) with NO network. The one real seam is the durable budget ledger, mocked as a tiny accumulating row so the $2 reserve-then-reconcile cap is exercised. Each scenario states the customer stake it protects. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { emptyBusinessProfile, type Account, type BusinessProfile } from "@/domains/account";
 import type { OnboardingDeps, OnboardingStore, TrackedPromptRow } from "@/domains/runtime";
@@ -325,10 +323,8 @@ describe("onboarding contract (Slice 5)", () => {
   });
 });
 
-/** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred
- *  and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on  its own account. */
-/** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as
- *  a group below. */
+/** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on  its own account. */
+/** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as a group below. */
 const TOPICS = [
   ...INTENTS.map((intent) => ({ slug: `${intent}first`, half: "first", intent, size: 5 })),
   ...INTENTS.slice(0, 5).map((intent) => ({ slug: `${intent}second`, half: "second", intent, size: 7 })),
@@ -360,8 +356,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
   });
-  /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read
-   *  that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
+  /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
     const w = makeWorld();
     const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
@@ -388,15 +383,13 @@ describe("setup and settings surfaces (Phase 8)", () => {
     w.tenants.get(A)!.growth_goal = null;
     expect((await saveGoal(A, "balanced", w.deps)).ok && w.tenants.get(A)!.growth_goal).toBe("balanced");
     for (const r of w.prompts) r.is_active = true;
-    // A profile with real content that nobody confirmed IS a gap and names the confirm step; an EMPTY one is exactly what a failed read hands back, so it is unreadable,
-    // never a gap.
+    // A profile with real content that nobody confirmed IS a gap and names the confirm step; an EMPTY one is exactly what a failed read hands back, so it is unreadable, never a gap.
     const unconfirmed = confirmedProfile(A); (unconfirmed as any).offerings = { value: ["rug cleaning"], origin: "inferred", confidence: 0.7, sourceUrls: [] };
     w.profiles.set(A, unconfirmed); expect(await live()).toEqual({ step: 3 });
     w.profiles.set(A, emptyBusinessProfile(A)); await expect(live()).rejects.toThrow();
     w.profiles.set(A, confirmedProfile(A));
     await expect(setupGap(A, acct() as any, { ...w.deps, store: { ...w.deps.store!, readPrompts: async () => { throw new Error("prompts unreadable"); } } })).rejects.toThrow(); });
-  /** P0-5. The product guard sent an ACTIVE account with a real setup gap to /onboard, /onboard rendered it, and every mutation there refused it and redirected home,
-   *  which sent it straight back: a loop with no way out. */
+  /** P0-5. The product guard sent an ACTIVE account with a real setup gap to /onboard, /onboard rendered it, and every mutation there refused it and redirected home, which sent it straight back: a loop with no way out. */
   it("lets an ACTIVE account finish the step it is actually missing, and never activates it a second time", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
@@ -408,8 +401,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     seedCore(w, A, 5); // five strays under a basis nobody holds: enough to be swept, not enough to answer anything
     expect(await gap()).toEqual({ step: 5 });
     expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(true);
-    // THE SWEEP RUNS FOR A RUNNING ACCOUNT TOO. Skipping it stacked the strays under the new set, and the funnel counts basis-agnostically, so 5 + 35 would have become
-    // 40 questions I pay for every day and nobody chose. The gap then closes, and nothing started a second research run.
+    // THE SWEEP RUNS FOR A RUNNING ACCOUNT TOO. Skipping it stacked the strays under the new set, and the funnel counts basis-agnostically, so 5 + 35 would have become 40 questions I pay for every day and nobody chose. The gap then closes, and nothing started a second research run.
     expect([activeCore(w, A).length, await gap(), w.scheduled.length]).toEqual([35, null, 1]);
     // A running account with nothing missing is still locked out of setup.
     expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(false);
@@ -419,8 +411,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
     expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);
   });
-  /** PHASE 6E.3, corrected. Confirm once stamped ALL eleven sections including eight never rendered; the repair then swung too far and stamped THREE while six more facts
-   *  that decide what gets researched sat on screen still labelled as my guess. A confirmation now speaks for exactly what the step renders. */
+  /** PHASE 6E.3, corrected. Confirm once stamped ALL eleven sections including eight never rendered; the repair then swung too far and stamped THREE while six more facts that decide what gets researched sat on screen still labelled as my guess. A confirmation now speaks for exactly what the step renders. */
   it("confirms every research-driving field it puts on screen, claims nothing it holds nothing for, and never locks out the account that confirmed three", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" });
     const inferred = emptyBusinessProfile(A);

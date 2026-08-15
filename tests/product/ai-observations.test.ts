@@ -1,17 +1,7 @@
-/**
- * PRODUCT - FULL-FIDELITY AI OBSERVATION CAPTURE. Three tracked questions across four engines are driven
- * through the REAL prompt-observation unit, the REAL registry parsers over the REAL provider envelope
- * fixtures, and the REAL fail-closed writer, with only Postgres itself faked. Pins the canonical identity,
- * slot semantics, the whole answer and the whole journey, honest statuses, tenant isolation, and the
- * prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend.
- */
+/** PRODUCT - FULL-FIDELITY AI OBSERVATION CAPTURE. Three tracked questions across four engines are driven through the REAL prompt-observation unit, the REAL registry parsers over the REAL provider envelope fixtures, and the REAL fail-closed writer, with only Postgres itself faked. Pins the canonical identity, slot semantics, the whole answer and the whole journey, honest statuses, tenant isolation, and the prompt_answer_observations row as a DERIVED projection. Zero network, zero provider spend. /*/
 import { describe, it, expect, vi, beforeEach } from "vitest";
 const db = vi.hoisted(() => ({ written: [] as { table: string; row: Record<string, unknown> }[], read: [] as Record<string, unknown>[], updated: null as Record<string, unknown> | null, matched: [] as { id: string }[], error: null as { message: string } | null, filters: {} as Record<string, unknown>, selected: [] as string[], pages: [] as string[], onPage: null as ((n: number) => void) | null }));
-/** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It
- *  answers a KEYSET page the way the real client does: the rows strictly past the cursor, IN THE ORDER THE
- *  CALLER ASKED FOR, cut to the asked limit. A reader that asks for one page and calls it the whole history
- *  is caught here, so is one that re-numbers its window by offset while rows are being inserted underneath
- *  it, and so is one that pages a table without a unique tiebreaker in its own ORDER BY. */
+/** The ONE fake: Postgres. Every writer, every guard and every projection above it is the real one. It answers a KEYSET page the way the real client does: the rows strictly past the cursor, IN THE ORDER THE CALLER ASKED FOR, cut to the asked limit. A reader that asks for one page and calls it the whole history is caught here, so is one that re-numbers its window by offset while rows are being inserted underneath it, and so is one that pages a table without a unique tiebreaker in its own ORDER BY. */
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...((await orig()) as object), getSupabaseAdmin: () => ({ from: (table: string) => fakeTable(table) }) }));
 function fakeTable(table: string) {
   let max: number | null = null, after: { at: string; id: string } | null = null;
@@ -45,8 +35,7 @@ function fakeTable(table: string) {
   };
   return q;
 }
-/** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the
- *  default itself is the thing under test; nothing else in this file reaches them. */
+/** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
   // The snapshot reads the FULL result, so a failed read travels as a failed source and a partial one does too.
@@ -70,13 +59,10 @@ const OTHER = "rival-tenant";
 const NOW = Date.parse("2026-07-21T09:00:00.000Z"), DAY = "2026-07-21";
 const QUESTIONS = [{ id: "q1", text: "where can I see a kite festival" }, { id: "q2", text: "what do people eat at a kite festival" }, { id: "q3", text: "when do kite festivals start" }];
 const ENGINES = ["chatgpt", "claude", "gemini", "perplexity"] as const;
-/** The planner's output: every tracked question on every engine, at one deliberate sample slot, all on the
- *  reporting day the PLAN names (never a clock, so a run resumed past midnight still lands on one day). */
+/** The planner's output: every tracked question on every engine, at one deliberate sample slot, all on the reporting day the PLAN names (never a clock, so a run resumed past midnight still lands on one day). */
 const duePlan = (slot: 0 | 1 | 2 = 0, version = 1, day = DAY): DueObservation[] =>
   QUESTIONS.flatMap((p) => ENGINES.map((engine) => ({ promptId: p.id, version, text: p.text, engine, slot, day })));
-/** A provider that charges ONCE per cache identity and hands back the same envelope for free after that.
- *  The identity is THE WHOLE ASK, exactly as the registry keys it, so what the executor actually hands the
- *  boundary decides whether a reading is a new question or a free replay. */
+/** A provider that charges ONCE per cache identity and hands back the same envelope for free after that. The identity is THE WHOLE ASK, exactly as the registry keys it, so what the executor actually hands the boundary decides whether a reading is a new question or a free replay. */
 function provider(fail: CachedCallResult | null = null) {
   const bought = new Set<string>(); let paid = 0;
   const call: NonNullable<FunnelDeps["callProvider"]> = async (cap: CapabilityKey, input) => {
@@ -220,16 +206,11 @@ describe("re-analysis reads what was already bought", () => {
     db.matched = [];
     await expect(persistAnswerAnalysis(TENANT, "obs_missing", { mentioned: false }, "hash-2")).rejects.toThrow(/matched no row/); // a lost verdict never reads as a saved one
   });
-  /** One stored row per index, each with its own ask stamp, newest last so the ids and the stamps disagree
-   *  about order exactly as they do in production. */
+  /** One stored row per index, each with its own ask stamp, newest last so the ids and the stamps disagree about order exactly as they do in production. */
   const stored = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `obs_${String(from + i).padStart(5, "0")}`,
     tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed",
     requested_at: new Date(Date.parse(`${DAY}T00:00:00.000Z`) + (from + i) * 1000).toISOString() }));
-  /** A NAMED RANGE COMES BACK WHOLE, ONCE EACH, AND WITHOUT THE ANSWERS RIDING ALONG. 35 questions x 4 engines x 28 days is 3,920 rows:
-   *  one capped query returned the newest 2,000, so a report that claimed 28 days was built from about 14 and every total under it was
-   *  short. Two rows stamped the same millisecond on a page edge come back either way round without a unique tiebreaker in the ORDER BY,
-   *  and the cursor then walks straight past one. And `answer_text` plus `journey` over a 56 day window is megabytes an account a visit,
-   *  the exact shape that has timed a statement out on this table before. */
+  /** A NAMED RANGE COMES BACK WHOLE, ONCE EACH, AND WITHOUT THE ANSWERS RIDING ALONG. 35 questions x 4 engines x 28 days is 3,920 rows: one capped query returned the newest 2,000, so a report that claimed 28 days was built from about 14 and every total under it was short. Two rows stamped the same millisecond on a page edge come back either way round without a unique tiebreaker in the ORDER BY, and the cursor then walks straight past one. And `answer_text` plus `journey` over a 56 day window is megabytes an account a visit, the exact shape that has timed a statement out on this table before. */
   it("walks a whole range by cursor, reads every stored row exactly once across a same-instant page edge, and asks for only the columns it reads", async () => {
     db.read = stored(3920);
     const rows = await readAiObservations(TENANT, { fromDay: "2026-07-01", toDay: "2026-07-28", slot: 0 });
@@ -266,8 +247,7 @@ describe("re-analysis reads what was already bought", () => {
     expect(views.find((v) => v.id === "o4")!.citationUrls).toBeNull();    // and a row with no journey claims nothing
   });
   it("settles a failed reading only while it is still failed, and says which honest state it moved to", async () => {
-    // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a
-    // decision taken a moment earlier from demoting an answer that is now in hand.
+    // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a decision taken a moment earlier from demoting an answer that is now in hand.
     await settleFailedObservation(TENANT, "obs_1", "unavailable");
     expect(db.updated).toEqual({ status: "unavailable" });
     expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_1", status: "failed" });
@@ -277,12 +257,10 @@ describe("re-analysis reads what was already bought", () => {
     await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);
   });
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
-    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end:
-    // it used to default to 500 rows and call the newest page of a 600 row day the whole day.
+    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
     db.read = stored(600);
     expect((await readAiObservations(TENANT, { day: DAY })).length).toBe(600);
-    // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking;
-    // an offset window re-numbers itself around them, so one row came back twice and another never at all.
+    // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking; an offset window re-numbers itself around them, so one row came back twice and another never at all.
     db.pages = []; db.read = stored(2500);
     db.onPage = (n) => { if (n === 1) db.read = [...stored(30, 9000), ...db.read]; }; // 30 newer rows land mid-read
     const walked = await readAiObservations(TENANT, { day: DAY });
@@ -291,8 +269,7 @@ describe("re-analysis reads what was already bought", () => {
   });
 });
 describe("the funnel's own default reader carries provenance, not just payload", () => {
-  /** Provenance is invisible from the outside: a keyword harvested downstream names the page it came from only
-   *  because these fields ride along. Run for real over the fakes. */
+  /** Provenance is invisible from the outside: a keyword harvested downstream names the page it came from only because these fields ride along. Run for real over the fakes. */
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
     gsc.pages = new Map([
       ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
@@ -316,9 +293,7 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(retrievedNotCitedLinks(retrieved, [])).toEqual(retrieved); // an observed zero IS a claim
   });
   it("credits the whole site when the citation names only a site, and only that page when it names a page", () => {
-    // The reader falls back to the bare domain whenever an engine reports no address for what it credited,
-    // and comparing whole urls alone matched none of those: a page that WAS credited came back as read and
-    // passed over, which is the harshest verdict this product can reach about a page.
+    // The reader falls back to the bare domain whenever an engine reports no address for what it credited, and comparing whole urls alone matched none of those: a page that WAS credited came back as read and passed over, which is the harshest verdict this product can reach about a page.
     const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")];
     expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url))
       .toEqual(["https://rival.example/a"]);
@@ -338,9 +313,7 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(retrievedNotCitedLinks(once, pair.citations)).toEqual(once); // deriving again takes nothing more away
   });
 });
-/** THE SNAPSHOT'S AI EVIDENCE IS THE WHOLE CANONICAL RECORD. The funnel's working state carries ONE 20 pair window, so projecting it told every decision that an
- *  account holding 35 questions across 4 engines had a single answer, and the legacy projection read beside it carried no fan-outs and no readings at all. Everything
- *  below runs the REAL loader and the REAL pure assembler over the faked Postgres above; no provider is reachable from any of it. */
+/** THE SNAPSHOT'S AI EVIDENCE IS THE WHOLE CANONICAL RECORD. The funnel's working state carries ONE 20 pair window, so projecting it told every decision that an account holding 35 questions across 4 engines had a single answer, and the legacy projection read beside it carried no fan-outs and no readings at all. Everything below runs the REAL loader and the REAL pure assembler over the faked Postgres above; no provider is reachable from any of it. */
 describe("the snapshot reads the canonical answer set, never the working window", () => {
   const PROMPTS = Array.from({ length: 35 }, (_, i) => ({ id: `p${i}`, version: 2 })), DAY2 = "2026-07-22";
   const stored = (promptId: string, engine: string, over: Record<string, unknown> = {}) => ({
@@ -348,8 +321,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
     observation_mode: engine === "chatgpt" ? "consumer_search" : "standardized_response", reporting_day: DAY, sample_slot: 0, requested_at: `${DAY}T09:00:00.000Z`,
     completed_at: `${DAY}T09:05:00.000Z`, status: "observed", answer_hash: "h1", analysis: null, analysis_hash: null,
     journey: { fan_outs: [`${promptId} fan`], cited_sources: null, retrieved_results: null, brand_mentions: null, web_search_reported: true }, ...over });
-  /** One whole day (35 questions x 4 engines) landed across the several 20 pair windows a day's run walks, beside all
-   *  the funnel state keeps by the end of it: the last pair of the last window. */
+  /** One whole day (35 questions x 4 engines) landed across the several 20 pair windows a day's run walks, beside all the funnel state keeps by the end of it: the last pair of the last window. */
   const wholeDay = () => PROMPTS.flatMap((p, i) => ENGINES.map((e) => stored(p.id, e, { requested_at: `${DAY}T0${Math.floor(i / 12)}:00:00.000Z` })));
   const lastWindow = (): FunnelState => { const s = emptyFunnelState(TENANT, BASIS); s.prompts.pairs = [{ promptId: "p34", promptText: "question p34",
     engine: "perplexity", mode: "standardized_response", cacheKey: null, status: "done", observedAt: `${DAY}T09:05:00.000Z` } as FunnelPair]; return s; };
@@ -398,15 +370,13 @@ describe("the snapshot reads the canonical answer set, never the working window"
     expect([snap.competitors.length, snap.competitors[0]!.domain, snap.sources.find((s) => s.source === "native_ai")!.status, snap.questionDemand.length]).toEqual([15, "rival.example", "fresh", 30]); // 41 credited addresses and 40 questions both come back bounded, most cited first, and a fragment too short to be a question never enters
     expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });
   });
-  /** ONE PAGE IS NOT A HISTORY. 1,000 rows is under three days at 140 readings a day, so a pair whose newest useful
-   *  answer is any older sat past the edge of that one page and left every decision silently, as if it never existed. */
+  /** ONE PAGE IS NOT A HISTORY. 1,000 rows is under three days at 140 readings a day, so a pair whose newest useful answer is any older sat past the edge of that one page and left every decision silently, as if it never existed. */
   const older = (n: number, promptId = "p0") => Array.from({ length: n }, (_, i) => stored(promptId, "chatgpt", { id: `obs_f${String(i).padStart(4, "0")}`, requested_at: new Date(Date.parse(`${DAY}T01:00:00.000Z`) + (i + 1) * 1000).toISOString() }));
   it("pages past the newest 1,000 rows to reach a pair whose latest answer is older, and stops the moment every pair is resolved", async () => {
     db.read = [...older(1000), stored("p1", "chatgpt", { id: "obs_deep", requested_at: `${DAY}T00:00:00.000Z` })]; // p1's only answer sits on page two
     expect((await snapshotOf()).research.aiObservations.map((o) => o.observationId).sort()).toEqual(["obs_deep", "obs_f0999"]);
     expect(db.pages.length).toBe(2);
-    // AND THE FINGERPRINT RUNS THAT SAME WALK. A hand-rolled one-page read beside an eight-page loader gave two
-    // windows that could never agree, so the debt between them was owed on every call and each one opened a PAID phase.
+    // AND THE FINGERPRINT RUNS THAT SAME WALK. A hand-rolled one-page read beside an eight-page loader gave two windows that could never agree, so the debt between them was owed on every call and each one opened a PAID phase.
     db.pages = []; db.selected = [];
     expect((await readCanonicalAnalysisStamps(TENANT)).map((s) => s.id).sort()).toEqual(["obs_deep", "obs_f0999"]);
     expect([db.pages.length, [...new Set(db.selected)]]).toEqual([2, ["id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash"]]); // same pages, and never the answer, the journey or the reading itself

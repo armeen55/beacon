@@ -1,9 +1,4 @@
-/**
- * PRODUCT - THE DETERMINISTIC REPLAY HARNESS. Fixture provider ENVELOPES are driven through the REAL
- * registry parsers, the REAL funnel executors, the REAL snapshot assembler and the REAL decision pass,
- * with only the persistence and drafting seams faked. Nothing here mocks a parser, reads a source string,
- * pins operator copy, or opens a socket: the last test proves the whole path made ZERO network calls.
- */
+/** PRODUCT - THE DETERMINISTIC REPLAY HARNESS. Fixture provider ENVELOPES are driven through the REAL registry parsers, the REAL funnel executors, the REAL snapshot assembler and the REAL decision pass, with only the persistence and drafting seams faked. Nothing here mocks a parser, reads a source string, pins operator copy, or opens a socket: the last test proves the whole path made ZERO network calls. /*/
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>() }));

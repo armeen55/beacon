@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-/** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live
- *  page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
+/** Live implementation verification (V1 Truth Convergence Phase 6). These pin CUSTOMER TRUTH, not the implementation: what Beacon says it saw on the operator's live page, and what it refuses to say. Fixtures only, zero network: the polite fetch is seamed exactly the way the owned-page read seams it. */
 const ROWS: Array<Record<string, unknown>> = [];
 const WRITES: Array<[string, string, { status: string }]> = [];
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
@@ -250,8 +249,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
     expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
   });
-  /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for the 5th came due at 5 PM Pacific on the 4th, so the one retry
-   *  a silent site earns was spent a day early and its answer, which is final either way, stood. */
+  /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day early and its answer, which is final either way, stood. */
   it("owes the retry on the promised day where the operator lives, not from 5 PM the evening before", async () => {
     const blocked = { status: "blocked", checkedAt: "2026-08-01T09:00:00Z", components: [], recheckAfter: "2026-08-05" };
     ROWS.push(row({ id: "waiting", verification: blocked }));

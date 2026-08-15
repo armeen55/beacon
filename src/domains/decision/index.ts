@@ -43,6 +43,7 @@ export { loadProposalQueue } from "./load-proposals";
 // somehow reads done with no record behind it.
 export {
   saveChangeProposal,
+  promoteConfirmedProposal,
   loadChangeProposal,
   loadChangeProposals,
   transitionProposalToImplemented,

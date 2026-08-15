@@ -1,7 +1,4 @@
-/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as the store's own rows and stamped by the real ranking writer;
- *  the list then hands over every one exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking replaced underneath the
- *  operator restarts honestly, a retired or already-implemented row never reaches a pre-ship lane, the canonical current read is no longer capped at 500, and Today still
- *  takes only three. */
+/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as the store's own rows and stamped by the real ranking writer; the list then hands over every one exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking replaced underneath the operator restarts honestly, a retired or already-implemented row never reaches a pre-ship lane, the canonical current read is no longer capped at 500, and Today still takes only three. */
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 
@@ -81,9 +78,7 @@ describe("Today and Changes answer one question once", () => {
     const after = await loadTodayView(), changes = await loadChangesView();
     expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
     expect(changes.summary.ready).toBe(N - 1); });
-  // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one
-  // claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit:
-  // the number the operator reads may only FALL as I learn, never climb back.
+  // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit: the number the operator reads may only FALL as I learn, never climb back.
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view);
@@ -102,10 +97,7 @@ describe("Today and Changes answer one question once", () => {
     for (const i of [1, 2, 30]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i)));
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
     expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
-  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY, and once this process has read one it is not an outage either: the
-  // release read is retried on its own short deadline and then falls back to the last one that landed, so neither screen paints "putting your
-  // ranked changes together for the first time", "nothing needs a decision today", or an outage over a list it is holding. The genuinely
-  // memory-free case (nothing to fall back to) is pinned in tests/changes/read-resilience.
+  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY, and once this process has read one it is not an outage either: the release read is retried on its own short deadline and then falls back to the last one that landed, so neither screen paints "putting your ranked changes together for the first time", "nothing needs a decision today", or an outage over a list it is holding. The genuinely memory-free case (nothing to fall back to) is pinned in tests/changes/read-resilience.
   it("falls back to the last release that landed rather than claiming a cold start or an outage, on Changes and on Today", async () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
@@ -166,8 +158,7 @@ describe("the ranked queue pages in the database", () => {
     expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]);
     expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); }); });
 
-/** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW
- *  ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
+/** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
 describe("a publish that half landed", () => {
   it("rolls the order back onto the release still serving when the blob does not land", async () => {
     const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release");

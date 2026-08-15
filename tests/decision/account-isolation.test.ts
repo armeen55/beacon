@@ -1,5 +1,4 @@
-/** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and
- *  fail-closed on a missing account. */
+/** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 // Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) }));
