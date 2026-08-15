@@ -141,15 +141,16 @@ function carriedProducerSignal(view: TodayView): TodayProducerSignal {
 const retryDay = (iso: string): string =>
   new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "America/Los_Angeles" });
 
-/** PURE: build the Today slice from a ChangesView. ONE FLAT QUEUE, exactly as Changes now renders it: the validated exact-copy changes
- *  first, then the ones still waiting on a review, best first. The COUNT is the whole queue counted in the database, never the page. */
+/** PURE: build the Today slice from a ChangesView. ONE LANE REACHES TODAY: the validated exact-copy changes, best first. A card still waiting
+ *  on a review is COUNTED in its own clause and never offered as work. The COUNT is the whole lane counted in the database, never the page. */
 export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProducerSignal = {}): TodayView {
   // THE COUNT IS THE COUNT, NEVER THE PAGE. `view.ready` is one page of the ranking now, so counting it would under-report the queue Today
   // is drawing from; `summary` carries the total counted in the database.
   const readyTotal = view.summary?.ready ?? view.ready.length;
-  const flat = [...view.ready, ...view.toDo];
-  const ready = flat.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
-  const topEdit = flat[0] ? topEditOf(flat[0]) : undefined;
+  // ONLY WHAT IS READY IS OFFERED. Today used to draw its preview and its "Do this first" edit off ready AND review together, so on a day
+  // with nothing finished the top of the homepage handed over a card the queue itself holds back, with a Copy press on it.
+  const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
   const unread = view.countsUnavailable === true;
   const measuring = unread ? 0 : view.measuringCountCanonical;
@@ -167,15 +168,16 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     toDoTotal: view.summary?.todo ?? view.toDo.length,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
-  // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK. The queue Today reads holds complete deliverables
-  // only, so this number is changes that can actually be made today. An unfinished opportunity is never counted
-  // here and never called an edit: it rides its own clause, as a count and a next step, and nothing else.
-  // "16 ideas to review" over a card pointing at research was one screen contradicting itself twice.
-  const openTotal = readyTotal + (view.summary?.todo ?? view.toDo.length);
+  // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane whose
+  // words are written, checked and pasteable today. A card in review is not finished work and is never added into
+  // this number: it rides its own clause below, as a count, exactly as work still being developed does. Production
+  // held 3 ready and 1 in review and this sentence said "4 finished changes ready to make".
+  const openTotal = readyTotal;
   const developing = view.developing ?? 0;
-  const stillComing = developing > 0
-    ? ` ${developing} ${developing === 1 ? "opportunity is" : "opportunities are"} still being developed.`
-    : "";
+  const inReview = view.summary?.todo ?? view.toDo.length;
+  const stillComing = (developing > 0
+    ? ` ${developing} ${developing === 1 ? "opportunity is" : "opportunities are"} still being developed.` : "")
+    + (inReview > 0 ? ` ${inReview} ${inReview === 1 ? "idea is" : "ideas are"} waiting on a review in Changes.` : "");
   const headerSentence = openTotal > 0
     ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.${stillComing}`
     : waiting

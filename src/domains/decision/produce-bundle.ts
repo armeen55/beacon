@@ -271,18 +271,23 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
 /** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. */
 function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[]): ProducerDraft {
   const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
+  // EVERY CHARGED CALL COMES OFF THE PASS'S POOL, not only the ones an editor makes. The section, link and opening drafters below bought calls the budget never saw, so the pass's own count of what it spent was short by every piece a bundle wrote. Spent BEFORE the call, so a refusal costs what it cost.
+  const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
     pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
     section: async (i) => {
+      if (spent()) return null;
       const r = await draftSectionStructured({ ...i, tenantId }, wire);
       return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
     },
     internalLink: async (i) => {
+      if (spent()) return null;
       const r = await draftInternalLinkStructured({ ...i, tenantId }, wire);
       return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
     },
     openingAnswer: async (i) => {
+      if (spent()) return null;
       const r = await draftAtomicEditStructured({ query: i.query, pageLabel: i.pageLabel, field: "answer_block",
         currentValue: i.currentValue, outline: i.outline, evidenceHints: i.evidenceHints, tenantId }, wire);
       return r.status === "drafted" ? r.value.after : null;
@@ -391,6 +396,8 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     if (door) return { status: "none", reason: `This page was picked because ${DOOR_MEASURED[door.door]}, and what its line in the results earns was never measured, so what it gets here is coverage of what it is missing, not a new headline. It is read against the pages winning that search on the next pass, and the addition follows.` };
     if (!readyForAction(diagnosis) || diagnosis.action !== "title") return { status: "none", reason: diagnosis.explanation };
     const before = content.title;
+    // THE TITLE DRAFT IS A CHARGED CALL TOO, and it is the only one this file makes outside `producerDrafts`.
+    if (opts.attempts && (opts.attempts.left -= 1) < 0) return { status: "none", reason: "This pass has spent its whole attempt budget, so no new headline was bought for this page." };
     const draft = await draftAtomicEditStructured(
       { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
       { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },

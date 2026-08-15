@@ -125,8 +125,7 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
 export type ProposalKind = "existing_edit" | "new_page";
 
-/** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a  dangerous component routes through. `ready` = validated safe, exact copy, act now.  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet.
- *  `measuring` and `result` are DERIVED from the shipment ledger. A refused draft is withdrawn, never stored. */
+/** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a  dangerous component routes through. `ready` = validated safe, exact copy, act now.  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet. `measuring` and `result` are DERIVED from the shipment ledger. A refused draft is withdrawn, never stored. */
 export type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
 
 export type ProposalRisk = "low" | "medium" | "high";
@@ -186,18 +185,11 @@ export type BundleComponent = {
   anchorAfter?: string; redirectTo?: string;
   /** One sentence naming the metric and the window Beacon will read afterwards. */
   measurementPlan?: string;
-  /** THE PRESERVATION MAP, owed by any component that REPLACES a page rather than adding to it (`full_rewrite`
-   *  today). `keeps` are the held sections, facts and links that survive into the draft; `losses` are the
-   *  named things it drops, each with the one sentence why. A rebuild that drops a held section and cannot
-   *  name it is REJECTED by validate-proposal: no ranking section leaves without being named out loud. */
+  /** THE PRESERVATION MAP, owed by any component that REPLACES a page rather than adding to it (`full_rewrite` today). `keeps` are the held sections, facts and links that survive into the draft; `losses` are the named things it drops, each with the one sentence why. A rebuild that drops a held section and cannot name it is REJECTED by validate-proposal: no ranking section leaves without being named out loud. */
   preserves?: { keeps: string[]; losses: Array<{ what: string; why: string }> };
 };
 
-/** KEEP / CHANGE / ADD / REMOVE, for one existing page, in one place. A bundle used to hand over components
- *  and leave the operator to work out what the change LEFT ALONE, which is most of their page. Every planned
- *  component says whether it changes something that is there or adds something that is not; `keeps` names the
- *  held sections this change deliberately does not touch; `removes` exists only where a component genuinely
- *  replaces something. A new page has no plan: there is nothing yet to keep. */
+/** KEEP / CHANGE / ADD / REMOVE, for one existing page, in one place. A bundle used to hand over components and leave the operator to work out what the change LEFT ALONE, which is most of their page. Every planned component says whether it changes something that is there or adds something that is not; `keeps` names the held sections this change deliberately does not touch; `removes` exists only where a component genuinely replaces something. A new page has no plan: there is nothing yet to keep. */
 export type ComponentPlan = {
   entries: Array<{ kind: BundleComponentKind; label: string; disposition: "change" | "add" }>;
   keeps: string[];
@@ -209,18 +201,13 @@ export function needsSourcePack(c: BundleComponent): boolean { return FACTUAL_KI
 
 /** A tiny stable fingerprint of one piece's exact copy (FNV-1a, base 36), written out rather than imported so a card in the browser computes byte for byte what the server does and no node module reaches the bundle. */
 const contentFingerprint = (text: string): string => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i += 1) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(36); };
-/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position, kind AND THE EXACT COPY IT CARRIES, derived from the stored bundle and nothing else, so no schema moves.
- *  Two pieces of one kind are ticked apart instead of sharing one state, and the server intersects what the operator says they applied against what it holds, never a list of kinds a hand-made request could invent.
- *  THE COPY IS PART OF THE NAME because position and kind alone were not identity: a redraft that rewrote the title in place kept the same name, so brand new wording read as already applied and was never measured, and reordering a bundle handed one piece another piece's history. */
+/** THE STABLE NAME OF ONE PIECE INSIDE ITS BUNDLE: position, kind AND THE EXACT COPY IT CARRIES, derived from the stored bundle and nothing else, so no schema moves. Two pieces of one kind are ticked apart instead of sharing one state, and the server intersects what the operator says they applied against what it holds, never a list of kinds a hand-made request could invent. THE COPY IS PART OF THE NAME because position and kind alone were not identity: a redraft that rewrote the title in place kept the same name, so brand new wording read as already applied and was never measured, and reordering a bundle handed one piece another piece's history. */
 export const componentIdOf = (component: { kind: string; after?: string | null }, index: number): string => `${index}:${component.kind}:${contentFingerprint(component.after ?? "")}`;
-/** Do two names mean the same recorded piece? A name written before the copy was part of it carries position and kind alone and can only ever be compared at that
- *  precision, so history keeps matching itself; two of the same era compare whole, so a redraft is never mistaken for work already done and pressing the SAME version
- *  twice is still one piece, which is what keeps a retry idempotent. */
+/** Do two names mean the same recorded piece? A name written before the copy was part of it carries position and kind alone and can only ever be compared at that precision, so history keeps matching itself; two of the same era compare whole, so a redraft is never mistaken for work already done and pressing the SAME version twice is still one piece, which is what keeps a retry idempotent. */
 export const sameComponentId = (a: string, b: string): boolean => { const [ai, ak, af] = a.split(":"), [bi, bk, bf] = b.split(":");
   return a === b || (ai === bi && ak === bk && (af === undefined || bf === undefined)); };
 
-/** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon
- *  will not present the change as ready and the operator has to look and then act. */
+/** THE TWO-STEP HOLD. There is no parallel confirmation flag in this product: `needs_review` means Beacon will not present the change as ready and the operator has to look and then act. */
 export function dangerousComponents(components: readonly BundleComponent[]): BundleComponent[] {
   return components.filter((c) => c.risk === "dangerous" || DANGEROUS_COMPONENT_KINDS.has(c.kind)
     || (c.kind === "factual_correction" && HIGH_STAKES_CLAIM.test(`${c.before ?? ""} ${c.after}`))); }
@@ -244,15 +231,9 @@ export type ChangeBundle = {
   scope: { queries: string[]; prompts: string[] };
   /** >= 1 evidence-justified components with exact copy. */
   components: BundleComponent[];
-  /** WHAT IS BEING DONE ABOUT EVERY PAGE THE DIAGNOSIS NAMED, including the pages nothing is being done about.
-   *  A three-page split that came back with work on one page silently DROPPED the other two: the component list
-   *  is the only record of a named page, so a page whose drafting refused simply vanished and completeness only
-   *  ever checked the survivors. The producer stamps one entry per named address BEFORE it drafts, so an address
-   *  can only leave with a stated verdict, and `deliverableGaps` refuses a bundle that owes work on one and
-   *  wrote none. Absent on a change that names a single page: there is nothing to drop. */
+  /** WHAT IS BEING DONE ABOUT EVERY PAGE THE DIAGNOSIS NAMED, including the pages nothing is being done about. A three-page split that came back with work on one page silently DROPPED the other two: the component list is the only record of a named page, so a page whose drafting refused simply vanished and completeness only ever checked the survivors. The producer stamps one entry per named address BEFORE it drafts, so an address can only leave with a stated verdict, and `deliverableGaps` refuses a bundle that owes work on one and wrote none. Absent on a change that names a single page: there is nothing to drop. */
   dispositions?: readonly { page: string; verdict: "differentiate" | "keep_as_is" | "merge" | "redirect" | "no_change"; because: string }[];
-  /** What this change keeps, changes, adds and removes on the page. Absent on a new page and on every
-   *  pre-plan persisted row, which is honest: no plan is not an empty plan. */
+  /** What this change keeps, changes, adds and removes on the page. Absent on a new page and on every pre-plan persisted row, which is honest: no plan is not an empty plan. */
   plan?: ComponentPlan;
   /** `missing` is evidence Beacon looked for and honestly does NOT have. */
   receipt: { items: BundleEvidenceItem[]; missing: string[]; freshestObservedAt: string | null };
@@ -285,66 +266,46 @@ export type ChangeProposal = {
   recommendedChange: RecommendedChange;
   /** One plain-English sentence: why this matters. */
   whyItMatters: string;
-  /** WHERE THIS HAPPENS AND WHAT TO DO, in order, so a copy-ready line is not a puzzle. Absent on a row nobody
-   *  wrote steps for, which reads exactly as it always did: no steps is not an empty list of steps. */
+  /** WHERE THIS HAPPENS AND WHAT TO DO, in order, so a copy-ready line is not a puzzle. Absent on a row nobody wrote steps for, which reads exactly as it always did: no steps is not an empty list of steps. */
   operatorSteps?: string[];
   estimatedEffortMinutes: number;
   riskLevel: ProposalRisk;
   confidence: ProposalConfidence;
-  /** Honest caveats carried WITH the proposal: the draft's own risks, any validator caution, the "no baseline
-   *  yet" note. */
+  /** Honest caveats carried WITH the proposal: the draft's own risks, any validator caution, the "no baseline yet" note. */
   limitations: string[];
   evidence: ProposalEvidence;
   /** Honest value sizing for the ranker (may be null, never fabricated). */
   impactScore: number | null;
   upsidePerMonth: number | null;
-  /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the
-   *  account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both
-   *  proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
+  /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
   demandImpressions90d?: number | null;
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
   bundle?: ChangeBundle;
-  /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the
-   *  account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
+  /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
   basis?: string;
-  /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server
-   *  refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a
-   *  substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a
-   *  Mark done. Absent on a pre-field row, which reads as an edit. */
+  /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a Mark done. Absent on a pre-field row, which reads as an edit. */
   researchOnly?: boolean;
-  /** THE CAUSE the ladder named, so the ranker can ask whether this change's levers address it. Absent when
-   *  nothing was diagnosed; an unrecognised value on a hand-edited row matches no lever and is discounted nothing. */
+  /** THE CAUSE the ladder named, so the ranker can ask whether this change's levers address it. Absent when nothing was diagnosed; an unrecognised value on a hand-edited row matches no lever and is discounted nothing. */
   diagnosisCause?: CauseFinding["cause"];
-  /** THE WHOLE REASONING STEP, carried so the operator can read it: the explanation, what it beat, what would
-   *  disprove it, and every cause whose evidence is not on file. Absent on an unjudged row. */
+  /** THE WHOLE REASONING STEP, carried so the operator can read it: the explanation, what it beat, what would disprove it, and every cause whose evidence is not on file. Absent on an unjudged row. */
   causeFinding?: CauseFinding;
-  /** WHY THIS SITS WHERE IT SITS. Stamped by the ONE ranker at ranking time, never by a producer, and absent
-   *  on a row nobody has ranked yet. Each factor names the input it read and contributes a bounded amount, so
-   *  the order is inspectable and no factor can quietly dominate. `directional` is true when no proven click
-   *  figure backed the value factor, and `basis` then says so out loud. */
+  /** WHY THIS SITS WHERE IT SITS. Stamped by the ONE ranker at ranking time, never by a producer, and absent on a row nobody has ranked yet. Each factor names the input it read and contributes a bounded amount, so the order is inspectable and no factor can quietly dominate. `directional` is true when no proven click figure backed the value factor, and `basis` then says so out loud. */
   rankingReceipt?: {
     score: number;
     factors: Array<{ name: string; input: string; contribution: number; max: number }>;
     directional: boolean;
     basis: string;
   };
-  /** One plain sentence comparing this proposal to the one ranked directly below it,
-   *  naming the factor that actually separated them. Absent on the last row. */
+  /** One plain sentence comparing this proposal to the one ranked directly below it, naming the factor that actually separated them. Absent on the last row. */
   whyRankedAboveNext?: string;
-  /** WHERE THE SHAPE OF THIS COPY CAME FROM, when it came from somewhere better than a guess: the stored
-   *  results page for this exact search, whose top titles agreed on the shape this one is written in. Absent
-   *  means nothing was imitated, which is the normal answer, and a surface must not chip what is absent. */
+  /** WHERE THE SHAPE OF THIS COPY CAME FROM, when it came from somewhere better than a guess: the stored results page for this exact search, whose top titles agreed on the shape this one is written in. Absent means nothing was imitated, which is the normal answer, and a surface must not chip what is absent. */
   modeledOn?: string;
-  /** THE TARGET PAGE AS IT READ WHEN THIS ROW'S COPY WAS WRITTEN: its stored title, heading, description and
-   *  outline, banked beside the words. Finished copy is expensive and survives passes that never reach it, so
-   *  something has to say when it stopped describing its page; this is that something (decision/completeness's
-   *  `copyIdentity`). Absent on a row minted before the stamp existed, which is decided on everything else. */
+  /** THE TARGET PAGE AS IT READ WHEN THIS ROW'S COPY WAS WRITTEN: its stored title, heading, description and outline, banked beside the words. Finished copy is expensive and survives passes that never reach it, so something has to say when it stopped describing its page; this is that something (decision/completeness's `copyIdentity`). Absent on a row minted before the stamp existed, which is decided on everything else. */
   copyStamp?: string;
-  /** WHAT THE COPY ASSERTS AND WHAT CARRIES EACH ASSERTION, banked with the words. Every claim was checked
-   *  against this page's own evidence before the copy was accepted, and then thrown away, so nothing on the
-   *  stored row could answer "what supports this line" afterwards. Ids point into the same page evidence the
-   *  editor read. Absent on a row whose copy no editor wrote. */
+  /** WHAT THE COPY ASSERTS AND WHAT CARRIES EACH ASSERTION, banked with the words. Every claim was checked against this page's own evidence before the copy was accepted, and then thrown away, so nothing on the stored row could answer "what supports this line" afterwards. Ids point into the same page evidence the editor read. Absent on a row whose copy no editor wrote. */
   claims?: readonly { text: string; supportedBy: readonly string[] }[];
+  /** THE EXACT WORDS EACH SUPPORT ID CARRIES, banked with the claims that name it. A claim pointing at "page-copy-1" is a symbol, not a fact: the operator, and any later re-check, could not read what page-copy-1 says, so provenance was unreadable on the one screen where the copy gets pasted. These are the editor's own evidence map values, bounded per fact. Absent on a row banked before this existed. */
+  supportFacts?: readonly { id: string; fact: string }[];
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -447,6 +408,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   modeledOn: z.string().min(1).optional(),
   copyStamp: z.string().min(1).optional(),
   claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })).optional(),
+  supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1) })).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;
@@ -456,8 +418,7 @@ const PERSIST_VERSION = 1 as const;
 /** Serialize a proposal for the persistence layer (versioned envelope). */
 export function serializeChangeProposal(proposal: ChangeProposal): string { return JSON.stringify({ v: PERSIST_VERSION, proposal }); }
 
-/** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can
- *  never be served as a trusted proposal. Fail-soft to null. */
+/** Parse + RE-VALIDATE a persisted proposal: a hand-edited row that no longer satisfies the contract can never be served as a trusted proposal. Fail-soft to null. */
 export function deserializeChangeProposal(content: string | null | undefined): ChangeProposal | null {
   try { const obj = content ? JSON.parse(content) as { v?: number; proposal?: unknown } : null;
     const res = obj && obj.v === PERSIST_VERSION ? ChangeProposalSchema.safeParse(obj.proposal) : null;
@@ -482,8 +443,7 @@ export function proposalId(input: EvidenceInput): string {
 export function effortForFamily(family: string): number {
   if (family === "title" || family === "meta" || family === "h1") return 1;
   return family === "answer" ? 3 : family === "new_page" ? 60 : 5; }
-/** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE;
- *  lives here rather than the bundle producer so a client card may import it without dragging server modules. */
+/** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE; lives here rather than the bundle producer so a client card may import it without dragging server modules. */
 const CLASS_OF: Record<string, string> = {
   gsc_demand: "your search data", page_extract: "the page as last read", keyword: "monthly search counts",
   serp: "the live results page", ai_observation: "AI answers watched", winning_page: "winning pages read",

@@ -126,11 +126,17 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   // WITH their provenance now, and copy that reached the row before this did is redrafted once rather than
   // served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
   if (!prior.bundle && (prior.claims ?? []).length === 0) return incoming;
+  // AND A CLAIM POINTING AT AN ID NOBODY BANKED THE WORDS FOR IS NOT PROVENANCE EITHER. The ids resolve inside the
+  // pass that drafted the copy and nowhere else, so banked words survive only while every id their claims name has
+  // its exact quoted fact banked beside them. Copy banked before the pairs existed is redrafted once, exactly as
+  // copy banked before the claims existed was.
+  const banked = new Set((prior.supportFacts ?? []).map((f) => f.id));
+  if (!prior.bundle && (prior.claims ?? []).some((c) => c.supportedBy.some((id) => !banked.has(id)))) return incoming;
   // The words, where they land, what they cost, what was said about them AND what each claim stands on stay as
   // banked; THIS pass's evidence, ranking and receipt still land on the row, so the card keeps arguing from what
   // is true today.
   return { ...incoming, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes,
-    ...(prior.claims ? { claims: prior.claims } : {}),
+    ...(prior.claims ? { claims: prior.claims } : {}), ...(prior.supportFacts ? { supportFacts: prior.supportFacts } : {}),
     ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}) };
 }

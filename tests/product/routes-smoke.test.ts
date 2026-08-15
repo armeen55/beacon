@@ -1,6 +1,4 @@
-/** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render
- *  their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one
- *  CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
+/** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
 
@@ -19,9 +17,7 @@ vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(asyn
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
-/** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every
- *  layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No
- *  changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
+/** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
 // after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
 vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} }));
 const DB = vi.hoisted(() => ({ ledgerError: null as { code: string; message: string } | null }));
@@ -58,12 +54,17 @@ describe("Today renders, and tells the truth about its own queue", () => {
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
   const NO_WORK = "No finished change is ready today. The next one is ranked here the moment Beacon has written the exact work.";
-  // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is
-  // not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
+  // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
   it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const view = buildTodayViewFromChanges(readyView(12, 3));
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
+    // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
+    const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView;
+    const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
+    expect([mixed.headerSentence, mixed.readyTotal, mixed.toDoTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit])
+      .toEqual(["You have 3 finished changes ready to make, best first. 1 idea is waiting on a review in Changes.", 3, 1, 3,
+        "No finished change is ready today. 1 idea is waiting on a review in Changes.", undefined]);
     expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence,
       buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence, buildTodayViewFromChanges(empty).headerSentence,
       buildTodayViewFromChanges({ ...empty, developing: 7 }).headerSentence])

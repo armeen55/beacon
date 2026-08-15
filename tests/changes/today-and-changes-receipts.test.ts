@@ -1,5 +1,4 @@
-/** CHANGES. The ranked queue explains its own order, and a change detail hands over the whole
- *  investigation, the pieces picker and the override. Every test name states the promise it pins. Fixtures only. */
+/** CHANGES. The ranked queue explains its own order, and a change detail hands over the whole investigation, the pieces picker and the override. Every test name states the promise it pins. Fixtures only. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
@@ -149,18 +148,18 @@ describe("a change detail hands over the whole investigation and the controls to
       "this page already has a change under measurement (held it back)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
-    const html = await renderDetail(proposal());
-    // PIN (B): the control asks what they wrote; it never offers to skip the check.
-    for (const s of ["Which pieces did you apply?", "Page title", "Canonical tag", "Only the pieces you tick get measured",
+    // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
+    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label });
+    const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
+    for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
       "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");
     // Every piece starts ticked: applying all of them is the normal case.
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
-    // TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other.
-    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // a lever this fixture's split AUTHORIZES: two section rewrites do not settle one, and the detail page holds a change whose lever misses its own cause instead of offering Mark done on it
-    const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
-    expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]); });
+    // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
+    const review = await renderDetail(proposal());
+    expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); });
   // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
     const b = proposal().bundle!;
@@ -174,7 +173,8 @@ describe("a change detail hands over the whole investigation and the controls to
       "To undo it"]) expect(html, s).toContain(s);
     // A piece that RETIRES a page is not a page that happens to have nothing today.
     expect(html).not.toContain("This page has none today.");
-    expect(html).toContain("Confirmed: this moves or hides a page"); });
+    // AND NOTHING TO CONFIRM WHILE IT IS IN REVIEW: a piece that moves or hides a page is graded dangerous, the canon refuses a dangerous piece in the ready lane, so this change can only ever be read here, never recorded.
+    expect([html.includes("Confirmed: this moves or hides a page"), html.includes("still being reviewed")]).toEqual([false, true]); });
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too

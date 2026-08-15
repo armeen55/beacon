@@ -64,6 +64,12 @@ describe("the one reading a case may buy", () => {
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
     expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);
   });
+  // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
+  it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => {
+    const pool = { left: 1 }, s = seam(reading());
+    const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool });
+    const second = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool, cacheImpl: memoryCache() });
+    expect([first?.winners, Math.max(0, pool.left), second, s.calls()]).toEqual([4, 0, null, 1]); });
   it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
     // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never
     // used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.

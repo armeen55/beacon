@@ -23,6 +23,7 @@ import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudicatio
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
 import { applyDraftedCopy, staleBundleReasons, withoutCta, MAX_PAID_CALLS } from "./drafted-copy";
+import { MAX_NEW_READS_PER_PASS } from "./producers/page-job";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
@@ -69,7 +70,6 @@ const pageKeys = (pageUrl: string | null | undefined): string[] => {
   if (!url) return [];
   try { return [url, new URL(url.startsWith("http") ? url : `https://${url}`).pathname || "/"]; } catch { return [url]; }
 };
-
 /** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the allowed direction), else the drafted dates of the applied rows in hand. Fail-soft. */
 async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> {
   if (opts.measuringPagePaths) return [...opts.measuringPagePaths];
@@ -79,7 +79,6 @@ async function measuringPaths(tenantId: string, existing: Map<string, ChangeProp
 
 /** TWO CONSECUTIVE 28-DAY WINDOWS PER PAGE, Google's and GA4's side by side: the only read that tells "Google moved this page" apart from "something on this page stopped working". $0, fail-soft. */
 type Windows = Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; clicksNow: number; clicksPrior: number; impressionsNow: number; impressionsPrior: number; windowEnd: string; lostClicks: number }>;
-
 async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> {
   const out: Windows = new Map();
   const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null), import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
@@ -114,8 +113,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] }; }
   const profile = await loadBusinessProfile(tenantId).catch(() => null), allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
   const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
-  /** ONE HARD ATTEMPT BUDGET FOR THE WHOLE PASS, born HERE, before the first charged call of any kind: the new page brief, the shallow field drafts, the deep bundles, the sibling pages a differentiation writes on, the  descriptions and answers below, and every judging of any of them. Every charged call comes off it whether it  succeeded, refused or threw. Born halfway down this function, it left the shallow drafts spending before it  existed and `applyDraftedCopy` minting a SECOND pool the same size: three pools wearing one ceiling's name. */
-  const attempts = { left: MAX_PAID_CALLS };
+  /** TWO HARD BUDGETS, BOTH BORN HERE, and every paid Decision call this pass can reach decrements one of them BEFORE the call, whether it succeeded, refused or threw. 1. `attempts` (MAX_PAID_CALLS): the reading of the winning pages, the new page brief, the shallow field drafts, every deep bundle piece (title, section, link, opening), the sibling pages a differentiation writes on, the descriptions and answers below, and every judging of any of them. 2. `pageReads` (MAX_NEW_READS_PER_PASS): the durable page readings the $0 producers buy to place their cards (producers/page-job). These are a DIFFERENT thing bought at a different rate and they are not folded into the attempt pool, where sixty of them would starve every drafter; they are named, counted and reported instead. "One pool pays every attempt" was untrue by the winning-pattern read, four bundle drafters and every page reading, so it is not said any more: two pools, both countable, both on the receipt. */
+  const attempts = { left: MAX_PAID_CALLS }, pageReads = { left: MAX_NEW_READS_PER_PASS };
   // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   const basis = await resolveCurrentBasis(tenantId, profile);
   // ONE CURVE FOR THE WHOLE PASS, fitted once and handed to every surface that measures a gap, so the diagnosis, the coverage walk, the bundle and the suggestions cannot judge one page by four bars.
@@ -151,7 +150,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       const facts = extractPageFacts((snapshot.research.winningPages ?? []).filter((r) => mine.has(r.url)));
       // THE PAGE BEING COMPARED AGAINST IS SHOWN, OR NO GAP MAY BE WRITTEN.
       const owned = ownedFactsFor(snapshot, coverage);
-      const pattern = await readWinningPattern(facts, owned, tenantId, { complete: opts.complete, now: opts.now, pageType: coverage.investigation.pageType, label: coverage.investigation.label }).catch(() => null);
+      const pattern = await readWinningPattern(facts, owned, tenantId, { complete: opts.complete, now: opts.now, pageType: coverage.investigation.pageType, label: coverage.investigation.label, attempts }).catch(() => null);
       if (pattern) {
         const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, curve,
           patternFor: { topicKey: coverage.investigation.key, pattern } }).catch(() => null);
@@ -458,7 +457,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
 
   const suggested = await withSuggestions(proposals);
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
-  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve }))
+  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the producers own the verdict, the coverage walk owns what happens next, and it happens only once the search has earned it. Read defensively, so a producer not surfacing them yet banks nothing. THEN THE WORDS GO ON THE CARDS, after the $0 producers and never inside one, so a budget block changes which cards CARRY COPY, never which exist or which are swept.
   const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
@@ -491,6 +490,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       : proposals.length > 0 ? "proposals_persisted"
         : acted.length + consolidating > 0 ? "actionable_but_no_trusted_draft"
           : investigating > 0 ? "investigating" : "no_actionable_candidate";
+  // WHAT THIS PASS SPENT, OFF THE BUDGET OBJECTS THEMSELVES, so the receipt is arithmetic rather than a claim: attempts made against the pool, and page readings bought against theirs.
+  log.info("[produce-proposals] paid work this pass", { tenantId, attemptsMade: MAX_PAID_CALLS - Math.max(0, attempts.left), attemptsLeft: Math.max(0, attempts.left), pageReadsMade: MAX_NEW_READS_PER_PASS - Math.max(0, pageReads.left), pageReadsLeft: Math.max(0, pageReads.left) });
   if (outcome !== "proposals_persisted") log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
   return { proposals: await rankAndStamp(proposals), candidates: runReceipt(), outcome,
     actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, ...research };

@@ -206,6 +206,13 @@ export async function markProposalImplementedAction(args: {
     // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
     const unfit = unsettledCause(stored);
     if (unfit) return { success: false, error: unfit };
+    // AND THE LANE ITSELF IS THE RULE, not two of the reasons a row lands in it. Completeness and the unsettled cause are why MOST review cards
+    // are held, and this action asked only those two: a complete card that never earned `ready` (no producer promoted it, or a gate this pass
+    // could not run) was recordable through a direct link and would have started a 28 day reading of work nobody stood behind. Only `ready` is
+    // work somebody can have done; an already recorded row still replays idempotently below, so a double press is never an error.
+    if (stored.status !== "ready" && stored.status !== "implemented_pending_verification") {
+      return { success: false, error: "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today." };
+    }
     // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a
     // hand-built list nobody could have ticked selected nothing, walked past the confirmation below and closed the whole change. Ids are
     // derived from the stored bundle HERE.

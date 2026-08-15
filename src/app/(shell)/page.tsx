@@ -226,7 +226,8 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
   // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
   const plan = !!edit && !edit.paste && !edit.after;
-  const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0);
+  // THE OTHER CHANGES ARE THE OTHER FINISHED ONES. Adding the review lane in put a card nobody can paste behind "See the other 3 changes".
+  const openTotal = today.readyTotal ?? 0;
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 

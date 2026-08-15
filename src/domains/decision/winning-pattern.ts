@@ -200,7 +200,8 @@ export async function readWinningPattern(
   opts: Pick<StructuredDraftRequest<"winning_pattern">, "complete" | "cacheImpl" | "now"> & { label?: string }
   /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
-  & { pageType?: SerpPageType | null } = {},
+  /** THE PASS'S OWN HARD ATTEMPT BUDGET, decremented BEFORE the call below like every other charged call in the pass. This read used to be the one paid Decision call the pool never saw, so "one budget pays every attempt" was untrue by exactly this call every pass that reached a verdict. Absent = a reading standing on its own, which spends against the money caps alone. */
+  & { pageType?: SerpPageType | null; attempts?: { left: number } } = {},
 ): Promise<WinningPattern | null> {
   // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
   const pages: PageFacts[] = [];
@@ -223,6 +224,7 @@ export async function readWinningPattern(
     "Say what these winning pages have in common, and what my own page is missing against them.",
   ].join("\n");
 
+  if (opts.attempts && (opts.attempts.left -= 1) < 0) { log.info("[winning-pattern] the pass has spent its whole attempt budget, so the winners are not read", { tenantId }); return null; }
   const call = await callStructuredLLM({
     kind: "winning_pattern", tenantId, system: SYSTEM, user, grounded: lines.join(" "),
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,

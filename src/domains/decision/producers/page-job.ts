@@ -72,9 +72,11 @@ const PAGE_JOB_COST_USD = 0.002;
 const PAGE_JOB_MAX_TOKENS = 1200;
 /** How many readings run at once. Four keeps the provider inside its concurrency and one pass inside its time. */
 const CONCURRENCY = 4;
-/** New readings one pass may BUY. A durable or cached hit costs nothing and never counts, so a site that has been
- *  read answers for free forever and a cold one spreads over passes rather than spending its month in one sweep. */
-const MAX_NEW_READS_PER_PASS = 60;
+/** New readings one pass may BUY: THE SECOND NAMED BUDGET of a production pass, and the only one outside the pass's attempt pool. A durable or
+ *  cached hit costs nothing and never counts, so a site that has been read answers for free forever and a cold one spreads over passes rather
+ *  than spending its month in one sweep. The pass mints ONE object off this and hands it in, so the rotation and the mint-time reads that used
+ *  to hold two separate counters now spend one countable budget the pass can report. */
+export const MAX_NEW_READS_PER_PASS = 60;
 /** Bounds on what is shown to the model, so one enormous page cannot become one enormous prompt. */
 const MAX_HEADINGS = 24, MAX_HEADING_CHARS = 120, MAX_OPENING_CHARS = 600, MAX_TITLE_CHARS = 200;
 
@@ -198,6 +200,8 @@ async function readPageJob(
 
 type LoadOptions = PageJobOptions & {
   maxNewReads?: number;
+  /** The pass's page-reading budget, decremented BEFORE each reading. Absent = this call owns one of its own. */
+  reads?: { left: number };
   /** How many leading extracts are PRIORITY: read first every pass and never rotated. Everything after them is
    *  the rotation, resumed from the persisted cursor so the whole site is reached over passes. */
   priority?: number;
@@ -226,7 +230,7 @@ export async function loadPageJobs(
   const items = (extracts ?? []).filter((e) => !!e?.url);
   if (!tenantId?.trim() || items.length === 0) return out;
   const store = opts.store ?? pageStore;
-  const allowance = Math.max(0, opts.maxNewReads ?? MAX_NEW_READS_PER_PASS);
+  const allowance = Math.max(0, opts.maxNewReads ?? MAX_NEW_READS_PER_PASS), pool = opts.reads ?? { left: allowance };
   const held = await store.read(tenantId, items.map((e) => e.url)).catch(() => new Map<string, PageUnderstanding>());
   const lead = Math.min(Math.max(0, opts.priority ?? items.length), items.length);
   const cursor = lead >= items.length ? null : await store.cursor(tenantId).catch(() => null);
@@ -240,10 +244,10 @@ export async function loadPageJobs(
       const key = canonicalUrlKey(extract.url);
       // THE ALLOWANCE IS RESERVED BEFORE THE READING, not counted after it. Four readings run at once, and
       // counting afterwards let all four pass a cap of one. A reading that turned out free hands its unit back.
-      const buy = paid < allowance;
-      if (buy) paid += 1;
+      const buy = paid < allowance && pool.left > 0;
+      if (buy) { paid += 1; pool.left -= 1; }
       const read = await readPageJob(tenantId, extract, { ...opts, buy, held: held.get(key) ?? null });
-      if (buy && !read.paid) paid -= 1;
+      if (buy && !read.paid) { paid -= 1; pool.left += 1; }
       if (read.paid && i >= lead) lastBought = Math.max(lastBought, i);
       opts.onRead?.(extract.url, read.reason);
       if (read.job && key) out.set(key, read.job);
@@ -433,9 +437,11 @@ type PageUnderstandingPass = {
  * are eligible at all, because what an essay may never land on is the caller's rule, not this file's.
  */
 export async function pageUnderstanding(
-  tenantId: string, eligible: readonly OwnedPageEvidence[], opts: { openPaths: ReadonlySet<string>; now: Date; store?: Store },
+  tenantId: string, eligible: readonly OwnedPageEvidence[], opts: { openPaths: ReadonlySet<string>; now: Date; store?: Store; reads?: { left: number } },
 ): Promise<PageUnderstandingPass> {
   const { now, openPaths } = opts;
+  // ONE BUDGET FOR EVERY READING THIS PASS BUYS, the rotation's and the mint-time ones together. Two separate counters meant nothing could say what a pass spent here, and the pass's own attempt pool never saw a cent of it.
+  const reads = opts.reads ?? { left: MAX_NEW_READS_PER_PASS };
   const store = opts.store ?? pageStore;
   const decay = await import("@/domains/evidence/readers/gsc-page-signals")
     .then((m) => m.loadGscDecaySignalsForTenant(tenantId, now)).catch(() => null);
@@ -460,7 +466,7 @@ export async function pageUnderstanding(
   const rest = tiered.filter((t) => t.tier === 5).sort((a, b) => a.p.url.localeCompare(b.p.url));
   const reasons = new Map<string, JobReason>();
   const corpus = await loadPageJobs(tenantId, [...first, ...rest].map((t) => extractOf(t.p)), {
-    priority: first.length, maxNewReads: MAX_NEW_READS_PER_PASS - MINT_TIME_RESERVE, now, store,
+    priority: first.length, maxNewReads: Math.max(0, reads.left - MINT_TIME_RESERVE), reads, now, store,
     onRead: (url, reason) => reasons.set(canonicalUrlKey(url), reason),
   }).catch(() => new Map<string, OwnedPageJob>());
   const minted = new Map<string, Promise<{ job: OwnedPageJob | null; reason: JobReason }>>();
@@ -481,8 +487,8 @@ export async function pageUnderstanding(
       if (already) return already;
       // THE READING IS BOUGHT WHERE A CARD WOULD LAND, which is money better spent than the next page down a
       // ranking nobody mints from. Out of reserve is the fail-open case, never a hold.
-      const buy = reserve > 0;
-      if (buy) reserve -= 1;
+      const buy = reserve > 0 && reads.left > 0;
+      if (buy) { reserve -= 1; reads.left -= 1; }
       const read = pageJobFor(tenantId, extractOf(page), { buy, now, store })
         .catch(() => ({ job: null as OwnedPageJob | null, reason: "refused" as JobReason }));
       minted.set(key, read);

@@ -365,7 +365,9 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to the industry table, a far more generous bar, so a caller that can fit one should. */
-  curve?: Pick<TenantCtrCurve, "expectedCtrAt"> }): Promise<ExtraQueueRun> {
+  curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
+  /** THE PASS'S PAGE-READING BUDGET, the second of the two named budgets a production pass owns. Handed in so the one paid read this file makes is counted where every other paid call is counted. */
+  reads?: { left: number } }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
   const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
@@ -388,7 +390,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const mine = new Set(rows.map((p) => p.id));
   // WHAT AN ESSAY MAY NEVER LAND ON is this file's rule, so this file decides which pages are worth reading.
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
-  const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())) });
+  const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
   const links = await linkCards(tenantId, pages, weak, u);
   const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),

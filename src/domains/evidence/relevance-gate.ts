@@ -50,6 +50,9 @@ const GENERIC = new Set([
   "most", "famous", "popular", "common", "great", "greatest", "biggest", "largest",
   "major", "important", "different", "various", "type", "types", "kind", "kinds", "thing",
   "things", "good", "better", "known", "must", "some", "many", "other", "another", "every",
+  // DEMONSTRATIVES ARE NOT SUBJECTS EITHER. "this" and "that" were here and their plurals were not, so "these accessory types" carried "these" as a content token and a
+  // sentence could be refused for a word that names nothing.
+  "these", "those",
 ]);
 
 /** Domains that are noise for editorial intent (social / forum / UGC / recipe-aggregator /

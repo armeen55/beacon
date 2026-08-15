@@ -69,8 +69,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page";
-  // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens.
-  const held = unsettledCause(proposal);
+  // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens: the LANE first (only `ready` may be pasted), then the unsettled cause.
+  const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet." : unsettledCause(proposal);
   // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on",
   // "Why this is the smartest move", "What was checked"), which reads as padding rather than proof. Claimed in
   // render order, first occurrence wins, and a section left with nothing to say does not print its heading.
@@ -175,9 +175,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
             // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
-        <p className="text-[12px] text-muted-foreground">
-          {held ? "Nothing here is ready to paste and nothing here can be marked done until the change settles what its own evidence names." : "After you make it, the page is checked and the measurement starts from what is found."}
-        </p>
+        {held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
         <SetAsideChange proposalId={proposal.id} />
       </section>
     </div>
@@ -409,6 +407,13 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   // A card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own
   // line, or the page would print an empty list where the finding should be.
   const research = deliverableGaps(proposal).length > 0;
+  // LIFECYCLE, NOT SHAPE. Completeness answered "are the words written", and this page asked nothing else: a
+  // finished card sitting in the review lane, which the list refuses to offer, was handed over here with a Copy
+  // press and a Mark done on a direct link. READY IS THE ONLY LANE THAT MAY BE PASTED, and it is asked here, on
+  // the row itself, exactly as the list and the mutation ask it.
+  const held = proposal.status !== "ready"
+    ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
+    : unsettledCause(proposal);
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";
@@ -434,7 +439,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
             <p className="min-w-0 flex-1 text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
-            {research ? null : <CopyButton text={after} label="Copy" />}
+            {research || held ? null : <CopyButton text={after} label="Copy" />}
           </div>
           {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
               and this page printed the words without it, so the operator read finished copy and still had to guess. */}
@@ -454,20 +459,26 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
           <Bullets items={[...checks]} />
         </div>
       ) : null}
-      {/* WHAT EACH SENTENCE STANDS ON. The editor names every claim beside the evidence ids carrying it, and the
-          mapping was persisted with nothing reading it, so the one thing that makes drafted copy checkable was
-          invisible on the screen where the operator decides whether to paste it. */}
+      {/* WHAT EACH SENTENCE STANDS ON, IN THE EVIDENCE'S OWN WORDS. This printed "(from page-copy-1)", which is a
+          symbolic id and not a fact: nothing on the screen said what page-copy-1 says, so the one thing that makes
+          drafted copy checkable was unreadable exactly where the operator decides whether to paste it. The exact
+          quoted words the editor was shown ride on the row now, and an id with no quoted words behind it is shown
+          as unquoted rather than dressed up as evidence. */}
       {(proposal.claims ?? []).length > 0 ? (
         <div className="space-y-1">
           <Heading>What each line stands on</Heading>
-          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text} (from ${[...c.supportedBy].join(", ")})`)} />
+          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text}. Stands on: ${[...c.supportedBy]
+            .map((id) => { const f = (proposal.supportFacts ?? []).find((x) => x.id === id); return f ? `"${f.fact}"` : `${id} (the words behind this were not banked with the copy)`; })
+            .join(" ")}`)} />
         </div>
       ) : null}
       {/* A RESEARCH CARD HAS NOTHING TO MARK DONE: no copy has been written for this page, so recording it as
-          applied would start a reading of a change nobody made. Setting it aside stays, because deciding not to
-          chase a question is a real answer. */}
+          applied would start a reading of a change nobody made. A card still in review has nothing to mark done
+          either, for the same reason the list refuses to offer it. Setting it aside stays either way, because
+          deciding not to chase a question is a real answer. */}
+      {held && !research ? <p className="text-[13px] leading-relaxed text-foreground" data-held-reason="true">{held}</p> : null}
       <div className="flex flex-wrap items-center gap-3">
-        {research ? null : <MarkImplemented proposalId={proposal.id} />}
+        {research || held ? null : <MarkImplemented proposalId={proposal.id} />}
         <SetAsideChange proposalId={proposal.id} />
       </div>
     </div>

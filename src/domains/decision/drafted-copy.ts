@@ -1,9 +1,6 @@
 import "server-only";
 
-/** decision/drafted-copy: THE WORDS, ON THE CARD. The $0 producers prove a page has no description and prove a page is a stub, and both hand the operator an instruction instead of work: "write a description of about 150 characters". That is the job, restated. This runs AFTER them and never inside one, so a budget block, a
- *  refusal or a cold cache changes nothing about which cards exist or which families were swept. Two halves:   1. A MISSING OR TEMPLATED DESCRIPTION gets a paste-ready line and a page AI answers never credit gets a      paste-ready ANSWER, both through the EXISTING structured drafter, grounded on that page's OWN STORED
- *  BODY under named ids (one bounded read for the pass), budgeted and cached by the one gateway, and read      back by the editor contract below, at most MAX_DRAFTS a pass. Anything short leaves the producer's card.   2. A THIN PAGE gets an OUTLINE, deterministically, out of headings at least two read winners share, named
- *  as theirs. No model, no invention; no winners on file leaves the card as the producer wrote it. */
+/** decision/drafted-copy: THE WORDS, ON THE CARD. The $0 producers prove a page has no description and prove a page is a stub, and both hand the operator an instruction instead of work: "write a description of about 150 characters". That is the job, restated. This runs AFTER them and never inside one, so a budget block, a refusal or a cold cache changes nothing about which cards exist or which families were swept. Two halves:   1. A MISSING OR TEMPLATED DESCRIPTION gets a paste-ready line and a page AI answers never credit gets a      paste-ready ANSWER, both through the EXISTING structured drafter, grounded on that page's OWN STORED BODY under named ids (one bounded read for the pass), budgeted and cached by the one gateway, and read      back by the editor contract below, at most MAX_DRAFTS a pass. Anything short leaves the producer's card.   2. A THIN PAGE gets an OUTLINE, deterministically, out of headings at least two read winners share, named as theirs. No model, no invention; no winners on file leaves the card as the producer wrote it. */
 
 import { log } from "@/lib/logger";
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
@@ -46,12 +43,12 @@ function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvi
 }
 
 // ── THE EDITOR CONTRACT ───────────────────────────────────────────────────────
-/** WHETHER COPY IS FINISHED IS NOT A QUESTION ABOUT ITS SPELLING. Two word lists used to answer it: a verb list  called a sentence an instruction, and a vocabulary list called a word invented because the page had not  already printed it. The second refused the one thing an editor is for, a faithful paraphrase. So the editor
- *  hands back its HOMEWORK and two gates read it. The deterministic half checks only what code can know: fields  present, no placeholder, every id resolves, the text it replaces and the place it lands are really on the  stored page, the heading is not the tracked question said back, the copy is the length its field takes.
- *  Sense is the JUDGE's, and NO JUDGE MEANS NO DELIVERABLE. Dashes, ungrounded figures and destructive replacements stay where they live (validate-proposal, llm/numeric-fidelity): house rules for any copy. */
+/** WHETHER COPY IS FINISHED IS NOT A QUESTION ABOUT ITS SPELLING. Two word lists used to answer it: a verb list  called a sentence an instruction, and a vocabulary list called a word invented because the page had not  already printed it. The second refused the one thing an editor is for, a faithful paraphrase. So the editor hands back its HOMEWORK and two gates read it. The deterministic half checks only what code can know: fields  present, no placeholder, every id resolves, the text it replaces and the place it lands are really on the  stored page, the heading is not the tracked question said back, the copy is the length its field takes. Sense is the JUDGE's, and NO JUDGE MEANS NO DELIVERABLE. Dashes, ungrounded figures and destructive replacements stay where they live (validate-proposal, llm/numeric-fidelity): house rules for any copy. */
 type EditorDeliverable = {
   actionType: "title" | "h1" | "meta" | "answer_block" | "section" | "internal_link"; targetUrl: string; placementAnchor: string; beforeText: string | null;
   finalCopy: string; naturalHeading: string | null; claims: readonly { text: string; supportedBy: readonly string[] }[];
+  /** THE EXACT WORDS BEHIND EACH ID THE CLAIMS NAME, resolved off this packet's own evidence map and carried with the copy so provenance survives the pass that wrote it. */
+  supportFacts: readonly { id: string; fact: string }[];
   evidenceIdsUsed: readonly string[]; uncertaintyOrOmitted: readonly string[]; implementationMinutes: number; measurementTarget: string;
   /** A LINK IS A SENTENCE, NEVER AN ERRAND. `finalCopy` is the whole sentence carrying it, `linkTo` the owned page it lands on and `anchorText` the words on it, all three so the live check reads the link rather than a paraphrase of the instruction. */
   linkTo?: string | null; anchorText?: string | null };
@@ -71,12 +68,10 @@ type JudgeFn = (d: EditorDeliverable, p: SourcePacket) => Promise<JudgeVerdict |
 /** WHAT ONE ACTION TYPE MAY WEIGH: characters for a line that replaces a field, words for a block of copy. */
 const BAND: Record<EditorDeliverable["actionType"], [number, number, "c" | "w"]> = { title: [20, 70, "c"], h1: [10, 90, "c"],
   meta: [META_MIN, META_MAX, "c"], answer_block: [ANSWER_MIN, ANSWER_MAX, "w"], section: [40, 400, "w"], internal_link: [8, 90, "w"] };
-/** COPY THAT POINTS AT THE PAGE INSTEAD OF ANSWERING. Deleted in the editor pass on the theory a judge would  read for this; the judge then passed "This page lists hello, goodbye, thank you" for a page listing no such  phrase, and "See the headings below for each example" as an answer. It is cheap, it is exact, and it is back.
- *  An ANSWER is the words a reader needs, never a description of where those words live. */
+/** COPY THAT POINTS AT THE PAGE INSTEAD OF ANSWERING. Deleted in the editor pass on the theory a judge would  read for this; the judge then passed "This page lists hello, goodbye, thank you" for a page listing no such  phrase, and "See the headings below for each example" as an answer. It is cheap, it is exact, and it is back. An ANSWER is the words a reader needs, never a description of where those words live. */
 const SELF_POINTER = /\b(?:covered|described|explained|shown|listed)\s+(?:in|on|here)\b|\bthis (?:guide|page|article)\b|\bsee the\b|\bsections?\s+(?:below|above)\b|\bheadings?\s+below\b/i;
-/** WHAT THE COPY ASSERTS, READ OFF THE COPY. The gate used to check only the claims the WRITER chose to declare,  so an assertion nobody declared was never checked at all: a description promised visitors could "filter by  type, color, or region" on a page whose stored words carry no such control, declared none of it, and shipped.
- *  Replaces a phrase list ("this page lists|contains|shows...") that could only ever catch the sentences somebody  had thought of. TWO STRUCTURES, both about MEMBERSHIP and neither about any particular wording: a coordinated list says its members exist, and the object of an enumerating preposition says the page offers that thing. */
-const ENUMERATED = /\b([a-z][a-z' -]{2,30}(?:,\s*[a-z][a-z' -]{2,30}){1,5},?\s+(?:and|or)\s+[a-z][a-z' -]{2,30})\b/gi;
+/** WHAT THE COPY ASSERTS, READ OFF THE COPY. The gate used to check only the claims the WRITER chose to declare,  so an assertion nobody declared was never checked at all: a description promised visitors could "filter by  type, color, or region" on a page whose stored words carry no such control, declared none of it, and shipped. Replaces a phrase list ("this page lists|contains|shows...") that could only ever catch the sentences somebody  had thought of. TWO STRUCTURES, both about MEMBERSHIP and neither about any particular wording: a coordinated list says its members exist, and the object of an enumerating preposition says the page offers that thing. */
+const ENUMERATED = /\b([a-z][a-z' -]{2,40}(?:,\s*[a-z][a-z' -]{2,40}){1,5},?\s+(?:and|or)\s+[a-z][a-z' -]{2,40})\b/gi;
 const OFFERED = /\b(?:by|such as|including)\s+([a-z][a-z' -]{2,40})/gi;
 const MEMBER_WORDS = 4; // past this a comma joins clauses rather than listing members
 /** CRAWLER MARKERS ARE NOT PAGE COPY. The capture brackets every body with these, and an anchor cut from them ("top of pagePopular Persian...") names a string no operator can find on the rendered page. */
@@ -98,8 +93,7 @@ const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ")
 const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
 const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
 
-/** THE LIVE JUDGE, through the ONE gateway: registered prompt, content-hash cache ($0 on a repeat), fail-closed  budget, strict schema, single retry, then refusal. gpt-5-mini spends reasoning tokens before it answers, so  the timeout is the memory's floor and not the drafter's default. Any transport or schema failure is null,
- *  which is a refusal: nothing about a judge that could not read the copy says the copy is good. */
+/** THE LIVE JUDGE, through the ONE gateway: registered prompt, content-hash cache ($0 on a repeat), fail-closed  budget, strict schema, single retry, then refusal. gpt-5-mini spends reasoning tokens before it answers, so  the timeout is the memory's floor and not the drafter's default. Any transport or schema failure is null, which is a refusal: nothing about a judge that could not read the copy says the copy is good. */
 const JUDGE_SYSTEM = 'You are a senior SEO and AEO editor reviewing ONE finished edit before it is handed to a paying customer. You are given the edit and the exact stored evidence it names. Return ONLY a JSON object with seven booleans and "notes" (one sentence naming what decided it): '
   + '"pageFit" (does this belong on THIS page), "claimsEntailed" (check EVERY material claim against the quoted evidence one at a time: the evidence must carry it, with no fact added that the evidence does not show. ANY claim about what the page itself contains, lists or shows must be verifiable in the stored page excerpt below; a page that merely mentions a subject does not list it. When in doubt on any claim, answer false), "usefulAndNatural" (does it read as a person wrote it and tell a reader something), "placementCorrect" (does it belong exactly where it says it lands), '
   + '"implementableNow" (could an operator paste this today with no further decisions), "improvesPage" (does it improve the page rather than repeat the search back, and does an answer answer rather than point at its own page), "wouldHandToCustomer" (would you personally hand this to a customer). Judge only what you are given. When in doubt on any field, answer false.';
@@ -107,8 +101,7 @@ const liveJudge = (tenantId: string, now: Date): JudgeFn => async (d, p) => {
   const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`, `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`,
     `Edit type: ${d.actionType}`, `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "", d.beforeText ? `It replaces: ${d.beforeText}` : "It replaces nothing.",
     `THE COPY: ${d.finalCopy}`, "Its claims and the evidence each one names:", ...d.claims.map((c) => `- "${c.text}" <- ${c.supportedBy.join(", ")}`),
-    // THE WHOLE STORED PAGE, NOT A SLICE OF IT. The judge was asked whether the copy is true of the page while being shown six passages of it, so "the page does not list that" was a question it could not answer. It now reads everything held, bounded ONLY by the 24,000 characters that fit the call beside the rest of the
-    // prompt; a page longer than that is truncated and the judge is told so rather than left to assume it saw all.
+    // THE WHOLE STORED PAGE, NOT A SLICE OF IT. The judge was asked whether the copy is true of the page while being shown six passages of it, so "the page does not list that" was a question it could not answer. It now reads everything held, bounded ONLY by the 24,000 characters that fit the call beside the rest of the prompt; a page longer than that is truncated and the judge is told so rather than left to assume it saw all.
     "The stored evidence, by id:", ...Object.entries(p.evidence).map(([id, t]) => `${id}: ${t.slice(0, 4000)}`),
     p.bodyText.length > BODY_TO_JUDGE ? `The page's own words (first ${BODY_TO_JUDGE} characters of ${p.bodyText.length}; anything past this you have NOT seen, so do not conclude the page lacks something on this alone): ${p.bodyText.slice(0, BODY_TO_JUDGE)}`
       : `The page's own words, whole: ${p.bodyText}`, "", "Return the JSON now."].filter(Boolean).join("\n");
@@ -116,13 +109,11 @@ const liveJudge = (tenantId: string, now: Date): JudgeFn => async (d, p) => {
   return r?.status === "drafted" ? (r.value as JudgeVerdict) : null;
 };
 
-/** THE GATES THAT NEED NO MODEL AND NO FRESH EVIDENCE, so they can be re-read against a STORED piece as well as  a fresh one: markup where a word belongs, a figure that dropped the qualifier its own sentence carried, a  range that is really two neighbours, a rival's name this page never mentions, and the account's own banned
- *  words. Split out because a bundle is SERVED FROM REUSE without redrafting, so a piece written before a gate existed outlived the gate that would have refused it. PURE. */
+/** THE GATES THAT NEED NO MODEL AND NO FRESH EVIDENCE, so they can be re-read against a STORED piece as well as  a fresh one: markup where a word belongs, a figure that dropped the qualifier its own sentence carried, a  range that is really two neighbours, a rival's name this page never mentions, and the account's own banned words. Split out because a bundle is SERVED FROM REUSE without redrafting, so a piece written before a gate existed outlived the gate that would have refused it. PURE. */
 function rereadableRefusals(copy: string, p: SourcePacket, heading: string | null = null): string[] {
   const out: string[] = [];
   if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
-  // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body
-  // saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
+  // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
   const figure = (t: string): string => t.replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
   // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies.
   const said = p.bodyText.replace(/\bfrom\s+([\d,.]+)\s+to\s+([\d,.]+)/gi, "$1-$2").split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
@@ -162,18 +153,14 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (unknown.length > 0) out.push(`it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check");
   if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
-  // THE COPY IS READ INDEPENDENTLY OF WHAT WAS DECLARED, so an assertion the writer simply did not mention is held to the same evidence as one it did. NOT A VOCABULARY TEST: asking whether every word of a sentence is printed on the page refuses the one thing an editor is for, a faithful paraphrase, and this codebase has
-  // already thrown that mechanism out once. This asks a STRUCTURAL question instead. Enumerating is naming MEMBERS, and a member either exists or it does not. The HEAD of a list is skipped on purpose: a pattern reading backwards from the first comma swallows the
-  // verb in front of it ("browse and filter Persian accessories by type"), and judging that phrase judges the sentence rather than the member. AND A LIST OF LONG MEMBERS IS NOT A LIST: "Ferdowsi, who founded an empire and wrote the epic that carried the Persian language" is a chain of clauses wearing commas, so a match with
-  // any member past MEMBER_WORDS is discarded whole rather than read as a claim about what the page holds.
+  // THE COPY IS READ INDEPENDENTLY OF WHAT WAS DECLARED, so an assertion the writer simply did not mention is held to the same evidence as one it did. NOT A VOCABULARY TEST: asking whether every word of a sentence is printed on the page refuses the one thing an editor is for, a faithful paraphrase, and this codebase has already thrown that mechanism out once. This asks a STRUCTURAL question instead. Enumerating is naming MEMBERS, and a member either exists or it does not. The HEAD of a list is skipped on purpose: a pattern reading backwards from the first comma swallows the verb in front of it ("browse and filter Persian accessories by type"), and judging that phrase judges the sentence rather than the member. AND A LIST OF LONG MEMBERS IS NOT A LIST: "Ferdowsi, who founded an empire and wrote the epic that carried the Persian language" is a chain of clauses wearing commas, so a match with any member past MEMBER_WORDS is discarded whole rather than read as a claim about what the page holds.
   const members = (t: string): string[] => t.split(",").slice(1).flatMap((x) => x.split(/\band\b|\bor\b/)).map((x) => x.trim()).filter((x) => x.length > 2);
   const asserted = [...new Set([...[...d.finalCopy.matchAll(ENUMERATED)].map((m) => members(m[1]!)),
     ...[...d.finalCopy.matchAll(OFFERED)].map((m) => [m[1]!.trim()])]
     .filter((list) => list.length > 0 && list.every((t) => words(t) <= MEMBER_WORDS)).flat())];
   const invented = asserted.filter((t) => topicTokens(t).length > 0 && unheld(corpus, t).length > 0);
   if (invented.length > 0) out.push(`it tells a reader this page offers ${invented.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and this page's own evidence shows no such thing`);
-  // WHAT IS BEING REPLACED HAS TO EXIST, or the operator is told to swap words the page does not have, and the swap deletes whatever is truly there. A FIELD IS ITS OWN PLACE. A title, a heading and a description are lines the page already HAS, so what they replace is the stored FIELD and where they land IS that field, never a string inside the body copy. Checked
-  // against the body they were refused every single time: a description is not printed in a page's own words, so no real description edit could ever finish. Copy that lands in the body still owes a real anchor in it.
+  // WHAT IS BEING REPLACED HAS TO EXIST, or the operator is told to swap words the page does not have, and the swap deletes whatever is truly there. A FIELD IS ITS OWN PLACE. A title, a heading and a description are lines the page already HAS, so what they replace is the stored FIELD and where they land IS that field, never a string inside the body copy. Checked against the body they were refused every single time: a description is not printed in a page's own words, so no real description edit could ever finish. Copy that lands in the body still owes a real anchor in it.
   const FIELD: Partial<Record<EditorDeliverable["actionType"], string | null>> = { title: p.title, h1: p.h1, meta: p.metaDescription };
   if (d.actionType in FIELD) {
     if (d.beforeText != null && flat(d.beforeText) !== flat(FIELD[d.actionType] ?? "\u0000")) out.push("the line it says it replaces is not the one this page carries");
@@ -184,8 +171,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (blankish(d.naturalHeading)) out.push("it lands somewhere new and names no heading");
     // A TRACKED PROMPT PASTED ABOVE A BLOCK IS A SEARCH STRING ON A CUSTOMER'S PAGE, the one thing a reader can see was written by a machine.
     else if (flat(d.naturalHeading!) === flat(p.trackedQuestion ?? "\u0000")) out.push("its heading is the tracked question said back word for word"); }
-  // A REWRITE THAT COMES BACK AS THE LINE ALREADY THERE IS NOT A CHANGE. Case, spacing, dashes and end punctuation are not work: a card asking an operator to replace "(1979-Current) (2 Variations)" with "(1979 - present): 2 variations" is a chore dressed as an edit, and it passed both the deterministic half
-  // (the strings differ) and the judge (the copy is fine, and it was never asked whether anything moved).
+  // A REWRITE THAT COMES BACK AS THE LINE ALREADY THERE IS NOT A CHANGE. Case, spacing, dashes and end punctuation are not work: a card asking an operator to replace "(1979-Current) (2 Variations)" with "(1979 - present): 2 variations" is a chore dressed as an edit, and it passed both the deterministic half (the strings differ) and the judge (the copy is fine, and it was never asked whether anything moved).
   const same = (a: string, b: string): boolean => flat(a).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim()
     === flat(b).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
   if (d.beforeText != null && same(d.finalCopy, d.beforeText)) out.push("it hands back the line the page already carries, re-punctuated, so nothing about the page would change");
@@ -201,6 +187,13 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
+  // AND EVERY ASSERTION IS READ BACK AGAINST THE CLAIM GRAPH, not only against the page. The page's own words are wide: "modern designs" cleared the corpus above because one stored sentence says "timeless designs" and another says "modern fashion", and it shipped on a live card whose four claims carried no such thing. TWO STRICTNESSES, because these are two questions. A MEMBER of a list is a specific thing the copy says this page holds, so a CLAIM the writer declared has to carry it. Ordinary prose is read against the claim graph, which is those claims PLUS the exact stored words each one names: a faithful paraphrase of cited evidence passes, and a sentence about something no claim ever cited does not, list shape or no list shape.
+  const declared = flat(d.claims.map((c) => c.text).join(" ")).replace(/[^a-z0-9]+/g, " ");
+  const graph = `${declared} ${flat([...new Set(d.claims.flatMap((c) => [...c.supportedBy]))].map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " ")}`;
+  const undeclared = asserted.filter((t) => topicTokens(t).length > 0 && unheld(declared, t).length > 0);
+  if (undeclared.length > 0) out.push(`it tells a reader this page offers ${undeclared.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and no claim on this card carries it`);
+  const uncovered = unheld(graph, d.finalCopy);
+  if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
   return [...new Set(out)];
 }
 
@@ -240,31 +233,23 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
 
 /** The wiring one editor run needs, and nothing about which card asked for it, so a card's own edit and a sibling page's edit are ONE editor rather than two that drift. */
 type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
-  /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged
-   *  call, so a refusal costs exactly what it cost. Absent means one editor run standing on its own. */
+  /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. Absent means one editor run standing on its own. */
   attempts?: { left: number } };
 /** The fields this editor writes: a line the page already has, or the copy an opening owes. */
 type EditorField = "title" | "h1" | "meta" | "answer_block";
 
-/** THE EDITOR OVER ONE PACKET: the drafter writes the field against that page's own stored words, the
- *  deterministic half of the contract reads its homework against the same packet, and the judge reads it for
- *  sense. Null is a refusal, never a draft, and every refusal names itself through `refuse`. */
+/** THE EDITOR OVER ONE PACKET: the drafter writes the field against that page's own stored words, the deterministic half of the contract reads its homework against the same packet, and the judge reads it for sense. Null is a refusal, never a draft, and every refusal names itself through `refuse`. */
 async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: string, hints: string[],
   minutes: number, opts: EditorWiring, refuse: (why: string, extra?: Record<string, unknown>) => null, redrafted = false): Promise<EditorDeliverable | null> {
-  // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored
-  // `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a
-  // re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field
-  // edit was refused for disagreeing with itself.
+  // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field edit was refused for disagreeing with itself.
   const held = field === "meta" ? packet.metaDescription : field === "title" ? packet.title : field === "h1" ? packet.h1 : null;
-  // THE MONEY IS SPENT HERE, SO THE BUDGET IS READ HERE. Counted down before the call and never after it, so a
-  // call that fails, refuses or throws has still been paid for and still counts against what this pass may spend.
+  // THE MONEY IS SPENT HERE, SO THE BUDGET IS READ HERE. Counted down before the call and never after it, so a call that fails, refuses or throws has still been paid for and still counts against what this pass may spend.
   if (opts.attempts && (opts.attempts.left -= 1) < 0) return refuse("this pass has spent its whole attempt budget");
   const drafted = await draftAtomicEditStructured({
     query: packet.trackedQuestion ?? "", pageLabel, field, currentValue: held,
     outline: [...packet.headings].slice(0, 8), evidenceHints: hints, tenantId: opts.tenantId,
   }, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch(() => null);
-  // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that
-  // could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
+  // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
   if (!drafted || drafted.status !== "drafted") return refuse("no draft came back", { status: drafted?.status ?? "threw",
     errors: (drafted as { errors?: string[] } | null)?.errors?.slice(0, 4) ?? null, failure: (drafted as { failure?: string } | null)?.failure ?? null });
   const v = drafted.value as AtomicEditDraft;
@@ -273,38 +258,29 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     actionType: field, targetUrl: packet.targetUrl,
     placementAnchor: v.placementAnchor, beforeText: v.before, finalCopy: v.after.replace(/\s+/g, " ").trim(),
     naturalHeading: v.naturalHeading, claims, evidenceIdsUsed: [...new Set(claims.flatMap((c) => [...c.supportedBy]))],
+    // THE ID IS RESOLVED WHERE THE EVIDENCE IS IN HAND. Afterwards nobody can: the packet is built from a snapshot and a body read that this pass holds and the next one rebuilds, so "(from page-copy-1)" on a stored row named a fact that no longer existed anywhere.
+    supportFacts: [...new Set(claims.flatMap((c) => [...c.supportedBy]))].filter((id) => !!packet.evidence[id]).map((id) => ({ id, fact: packet.evidence[id]!.slice(0, 400) })),
     uncertaintyOrOmitted: v.risks, implementationMinutes: v.implementationMinutes || minutes,
     measurementTarget: v.proofPlan.metrics[0] ?? "",
   };
-  // THE MODEL PROPOSES, CODE VERIFIES. A field edit replaces the page's OWN stored line, and a model that
-  // paraphrases or re-spaces it by a character was refused outright. A near miss is RESOLVED to the exact stored
-  // form here, so what persists is still character-exact to the page; only a `before` naming something else fails.
-  // A NEAR MISS IS PUNCTUATION, NOT DISAGREEMENT. The house rule forbids en dashes, so a model asked to echo a
-  // stored line containing one rewrites it ("550-330" for "550\u2013330") and the two strings stop matching. They are
-  // compared with dashes and their spacing normalized, and the STORED form is what gets written back.
+  // THE MODEL PROPOSES, CODE VERIFIES. A field edit replaces the page's OWN stored line, and a model that paraphrases or re-spaces it by a character was refused outright. A near miss is RESOLVED to the exact stored form here, so what persists is still character-exact to the page; only a `before` naming something else fails. A NEAR MISS IS PUNCTUATION, NOT DISAGREEMENT. The house rule forbids en dashes, so a model asked to echo a stored line containing one rewrites it ("550-330" for "550\u2013330") and the two strings stop matching. They are compared with dashes and their spacing normalized, and the STORED form is what gets written back.
   const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-");
   const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
-  // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in
-  // the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for,
-  // so the anchor is resolved to that and only an anchor nothing on the page carries is refused below.
-  // THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third.
+  // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for, so the anchor is resolved to that and only an anchor nothing on the page carries is refused below. THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third.
   const trimmed = withoutCta(deliverable.finalCopy, field);
   if (trimmed == null) return redrafted ? refuse("its closing line asks the reader to read the page and too little is left without it")
     : runEditor(packet, field, pageLabel, [...hints, NO_CTA], minutes, opts, refuse, true);
   deliverable.finalCopy = trimmed;
   const anchor = deliverable.placementAnchor.trim();
   if (anchor) {
-    // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the
-    // operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
+    // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
     const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
       .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
     if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] });
     if (cands[0]) deliverable.placementAnchor = cands[0];
   }
   if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
-  // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned
-  // into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget
-  // only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
+  // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
   if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) return refuse("this pass has spent its whole attempt budget");
   const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? liveJudge(opts.tenantId, opts.now));
   // A REFUSAL NAMES THE TWO STRINGS IT COMPARED. "not the line this page carries" was unactionable without them.
@@ -312,8 +288,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   return deliverable;
 }
 
-/** THE STORED WORDS OF ONE PAGE, AS A PACKET. Built off the held body alone, so any page of the account whose
- *  copy is on file can be edited on its own evidence rather than only the page a card happens to sit on. */
+/** THE STORED WORDS OF ONE PAGE, AS A PACKET. Built off the held body alone, so any page of the account whose copy is on file can be edited on its own evidence rather than only the page a card happens to sit on. */
 function packetForBody(body: OwnedPageBody, query: string, hints: readonly string[], ownedPaths: readonly string[], bannedTerms: readonly string[]): SourcePacket {
   const evidence: Record<string, string> = {};
   if (body.title) evidence["page-title"] = body.title; if (body.h1) evidence["page-h1"] = body.h1;
@@ -325,10 +300,7 @@ function packetForBody(body: OwnedPageBody, query: string, hints: readonly strin
     headings: body.headings, evidence, trackedQuestion: query, ownedPaths, bannedTerms };
 }
 
-/** ONE FINISHED FIELD ON ONE PAGE OF THIS ACCOUNT, or nothing. Telling sibling pages apart is ONE decision on
- *  several addresses, so every address is written through the SAME editor against ITS OWN stored body: same
- *  drafter, same deterministic checks, same judge. A refusal anywhere leaves the bundle unfinished, which is
- *  what completeness already demands of a change that names more than one page. */
+/** ONE FINISHED FIELD ON ONE PAGE OF THIS ACCOUNT, or nothing. Telling sibling pages apart is ONE decision on several addresses, so every address is written through the SAME editor against ITS OWN stored body: same drafter, same deterministic checks, same judge. A refusal anywhere leaves the bundle unfinished, which is what completeness already demands of a change that names more than one page. */
 export async function draftFieldForPage(input: { field: EditorField; body: OwnedPageBody; query: string;
   brief: string; evidenceHints: readonly string[]; ownedPaths: readonly string[]; minutes: number },
 opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: string | null; after: string; anchor: string; heading: string | null; minutes: number } | null> {
@@ -338,49 +310,38 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
     return null; };
   const done = await runEditor(packet, input.field, input.body.h1 ?? input.body.title ?? input.body.url,
     [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, 400)}`), input.brief,
-      "Every claim you make must name the ids above that carry it. Write only what those words already show about this page."],
+      "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused."],
     input.minutes, opts, refuse);
   return done && { before: done.beforeText, after: done.finalCopy, anchor: done.placementAnchor,
     heading: done.naturalHeading, minutes: done.implementationMinutes };
 }
 
-/** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes.
- *  The drafter is handed the page's own stored words under named ids and must hand back the whole homework;
- *  the deterministic half of the editor contract reads it against the packet, the judge reads it for sense,
- *  and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
+/** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
   opts: DraftedCopyOptions, kind: "description" | "answer"): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
   const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []), outline = (page.content?.outline ?? []).slice(0, 8);
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
     return null; };
-  // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an
-  // agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the
-  // stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own.
+  // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own.
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
   const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, 400)}`),
     ...(spec ? [`The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
-    "Every claim you make must name the ids above that carry it. Write only what those words already show about this page."];
+    "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused."];
   const deliverable = await runEditor(packet, kind === "description" ? "meta" : "answer_block", card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse);
   if (!deliverable) return null;
-  // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are
-  // house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
+  // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : "section",
     before: deliverable.beforeText, after: deliverable.finalCopy } },
-  // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the
-  // outline and never the stored body, so it judged copy about a page against everything except that page.
+  // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
-  // THE PROMOTION IS THE VERDICT, NOT A HABIT. Every card these producers mint is born `needs_review`, and
-  // nothing ever moved one to `ready`: copy that had passed the drafter, the deterministic contract, the judge
-  // AND this validator still sat in the same lane as a card nobody had written, and the screen offered both of
-  // them Copy and Mark done. A deliverable that cleared all four is ready; anything else stays for a human.
+  // THE PROMOTION IS THE VERDICT, NOT A HABIT. Every card these producers mint is born `needs_review`, and nothing ever moved one to `ready`: copy that had passed the drafter, the deterministic contract, the judge AND this validator still sat in the same lane as a card nobody had written, and the screen offered both of them Copy and Mark done. A deliverable that cleared all four is ready; anything else stays for a human.
   return verdict.verdict === "rejected" ? refuse(verdict.reasons[0] ?? "canon refused it")
     : { d: deliverable, ready: verdict.verdict === "ready" };
 }
 
-/** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share.
- *  Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
+/** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
 function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
   const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null;
@@ -401,14 +362,10 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
     .sort((a, b) => b.on.size - a.on.size || a.label.localeCompare(b.label)).slice(0, MAX_HEADINGS).map((h) => h.label);
 }
 
-/** The same cards, with words wherever this pass could honestly put them. Never adds, drops or reorders a
- *  card. Fail-soft: anything that does not land leaves the producer's own card intact. */
+/** The same cards, with words wherever this pass could honestly put them. Never adds, drops or reorders a card. Fail-soft: anything that does not land leaves the producer's own card intact. */
 export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: DraftedCopyOptions): Promise<ChangeProposal[]> {
   const out: ChangeProposal[] = [];
-  // EVERY ATTEMPT COUNTS, NOT EVERY SUCCESS. `bought` counted the drafts that WORKED, so a card whose draft was
-  // refused simply left the cap where it was and the next card bought another call, and the next, without limit.
-  // The pass's shared budget is decremented inside the editor before each charged call instead, so this is only
-  // the reading of it. THE PASS OWNS THAT BUDGET: called without one this minted a SECOND pool the same size beside the one the deep bundles were already spending, so a 30 call ceiling bought 60. The fallback is for a caller standing on its own, and it says so; the one production caller hands its own budget in.
+  // EVERY ATTEMPT COUNTS, NOT EVERY SUCCESS. `bought` counted the drafts that WORKED, so a card whose draft was refused simply left the cap where it was and the next card bought another call, and the next, without limit. The pass's shared budget is decremented inside the editor before each charged call instead, so this is only the reading of it. THE PASS OWNS THAT BUDGET: called without one this minted a SECOND pool the same size beside the one the deep bundles were already spending, so a 30 call ceiling bought 60. The fallback is for a caller standing on its own, and it says so; the one production caller hands its own budget in.
   const attempts = opts.attempts ?? { left: MAX_PAID_CALLS };
   if (!opts.attempts) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own attempts", { tenantId: opts.tenantId, left: attempts.left });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
@@ -426,19 +383,15 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
       const drafted = done?.d;
       out.push(drafted
         ? { ...card, researchOnly: false,
-            // FINISHED WORK IS READY WORK. Copy that cleared the drafter, the deterministic editor contract, the
-            // judge and the canon validator is not something waiting on a human look, and leaving it at
-            // `needs_review` put it in the same lane, with the same Copy and Mark done, as a card nobody wrote.
+            // FINISHED WORK IS READY WORK. Copy that cleared the drafter, the deterministic editor contract, the judge and the canon validator is not something waiting on a human look, and leaving it at `needs_review` put it in the same lane, with the same Copy and Mark done, as a card nobody wrote.
             status: done!.ready ? "ready" : card.status,
-            // THE CLAIMS AND THE EVIDENCE BEHIND EACH ONE, PERSISTED WITH THE WORDS. "What supports every claim"
-            // was answerable only inside the pass that wrote the copy, so nothing on the card could be re-checked.
+            // THE CLAIMS AND THE EVIDENCE BEHIND EACH ONE, PERSISTED WITH THE WORDS. "What supports every claim" was answerable only inside the pass that wrote the copy, so nothing on the card could be re-checked.
             claims: drafted.claims.map((c) => ({ text: c.text, supportedBy: [...c.supportedBy] })),
+            // AND THE WORDS EACH ID STANDS FOR, so the detail page can quote the evidence instead of printing its symbol.
+            supportFacts: drafted.supportFacts.map((f) => ({ id: f.id, fact: f.fact })),
             recommendedChange: { kind: "existing_edit", field: meta ? "meta" : "section",
               before: drafted.beforeText, after: drafted.finalCopy,
-              // WHERE IT GOES, IN THE PAGE'S OWN WORDS. The placement used to be built out of the tracked
-              // question ("a new section headed \"What are basic Persian phrases for beginners?\""), which put a
-              // search string on the customer's page. It is now the anchor the editor found in the stored copy
-              // and a heading a reader would search for, both checked against that copy before they got here.
+              // WHERE IT GOES, IN THE PAGE'S OWN WORDS. The placement used to be built out of the tracked question ("a new section headed \"What are basic Persian phrases for beginners?\""), which put a search string on the customer's page. It is now the anchor the editor found in the stored copy and a heading a reader would search for, both checked against that copy before they got here.
               where: meta ? null : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
             operatorSteps: meta
               ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
@@ -468,12 +421,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
 /** THE FIELD a stored component replaces, where it replaces one at all. */
 const FIELD_OF_KIND: Partial<Record<string, EditorField>> = { title: "title", h1: "h1", meta: "meta", opening_answer: "answer_block" };
 
-/** WHY A STORED BUNDLE MAY NOT BE SERVED AGAIN AS IT STANDS, or empty. A deep bundle is REUSED without being
- *  redrafted, so every gate added after it was written simply never ran on it: the pieces that narrowed a page
- *  off its own subject sat in a live queue through three passes because nothing ever re-read them. This is the
- *  re-read. It runs ONLY the gates that need no model and no fresh evidence, plus the one structural question a
- *  cluster can answer about itself, so a re-read can never invent a failure the producer would not have made.
- *  A page whose words are not in hand is SKIPPED, never failed: I cannot re-read what I am not holding. */
+/** WHY A STORED BUNDLE MAY NOT BE SERVED AGAIN AS IT STANDS, or empty. A deep bundle is REUSED without being redrafted, so every gate added after it was written simply never ran on it: the pieces that narrowed a page off its own subject sat in a live queue through three passes because nothing ever re-read them. This is the re-read. It runs ONLY the gates that need no model and no fresh evidence, plus the one structural question a cluster can answer about itself, so a re-read can never invent a failure the producer would not have made. A page whose words are not in hand is SKIPPED, never failed: I cannot re-read what I am not holding. */
 export function staleBundleReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[]): string[] {
   const parts = p.bundle?.components ?? [];
   if (parts.length === 0) return [];
@@ -484,9 +432,7 @@ export function staleBundleReasons(p: ChangeProposal, bodies: ReadonlyMap<string
     const page = (c.page ?? p.pagePath ?? "").trim(); const body = page ? bodyFor(page) : null; if (!body) continue;
     const packet = packetForBody(body, p.primaryQuery, p.evidence.hints, owned, bannedTerms);
     for (const why of rereadableRefusals(c.after, packet)) out.push(`${page}: ${why}`);
-    // A PIECE THAT MAKES ITS PAGE LESS DISTINCT among the pages this very change names: the words its own line
-    // carried that no sibling carries are why that address exists, and a stored rewrite that dropped one is the
-    // defect this bundle shipped. Only asked where the change really spans several pages of this account.
+    // A PIECE THAT MAKES ITS PAGE LESS DISTINCT among the pages this very change names: the words its own line carried that no sibling carries are why that address exists, and a stored rewrite that dropped one is the defect this bundle shipped. Only asked where the change really spans several pages of this account.
     const siblingPages = [...new Set(parts.map((x) => x.page).filter((x): x is string => !!x && x !== page))];
     if (siblingPages.length === 0 || c.before == null) continue;
     const siblings = new Set(siblingPages.flatMap((sp) => { const b = bodyFor(sp);
