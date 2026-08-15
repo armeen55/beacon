@@ -6,7 +6,7 @@
  *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { dismissProposalAction, markProposalImplementedAction } from "./actions";
+import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction } from "./actions";
 
 /** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
  *  operator to press it again puts the burden of a flaky minute on the person who did the work. A plain
@@ -115,6 +115,25 @@ export function SetAsideChange({ proposalId }: { proposalId: string }) {
         Keep it
       </button>
       {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
+    </div>
+  );
+}
+
+/** THE SECOND STEP OF THE TWO-STEP HOLD, and the only control that promotes anything. A change that moves or hides a page is held for a look; this is the look being answered. It renders under the pieces, the addresses, the destination, the copy and the risks the detail page already prints, because a confirmation is worth nothing unless what is being confirmed is on the same screen.
+ *  TWO PRESSES, never one: the tick says the operator read the consequences, the button sends the exact version they read, and the server re-reads the row and refuses a version that has moved since. Nothing here writes to the site: it makes the change pasteable, and the operator still pastes it. */
+export function ConfirmDangerous({ proposalId, version }: { proposalId: string; version: string }) {
+  const [pending, startTransition] = useTransition();
+  const [state, setState] = useState<{ done: string | null; ticked: boolean; error: string | null }>({ done: null, ticked: false, error: null });
+  if (state.done) return <p className="text-[13px] font-semibold text-foreground" data-confirm-done="true">{state.done}</p>;
+  return (
+    <div className="space-y-2">
+      <label className="flex items-start gap-2 text-[13px] leading-relaxed text-foreground">
+        <input type="checkbox" checked={state.ticked} onChange={(e) => setState((s) => ({ ...s, ticked: e.target.checked }))} className="mt-0.5" data-confirm-tick="true" />
+        <span>Read the pieces, the addresses and the risks above. This one moves or hides a page, so it takes a deliberate yes before it becomes work.</span></label>
+      <button type="button" disabled={!state.ticked || pending} data-confirm-dangerous="true" className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
+        onClick={() => startTransition(async () => { const res = await confirmDangerousChangeAction({ proposalId, version });
+          setState((s) => ({ ...s, done: res.success ? res.note ?? "Confirmed. This change is ready to make." : null, error: res.success ? null : res.error ?? "That could not be confirmed just now." })); })}>{pending ? "Saving…" : "Confirm this version"}</button>
+      {state.error ? <p className="text-[12px] text-red-500">{state.error}</p> : null}
     </div>
   );
 }

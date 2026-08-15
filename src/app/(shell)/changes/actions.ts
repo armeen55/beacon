@@ -7,8 +7,8 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, componentIdOf, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, unsettledCause,
-  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
+import { actionableProposalFailures, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, unsettledCause,
+  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, saveChangeProposal, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShipment, type MeasurementState } from "@/domains/measurement";
@@ -277,6 +277,39 @@ export async function markProposalImplementedAction(args: {
     // THE RAW MESSAGE GOES TO THE LOG AND NOWHERE ELSE: a table name is not an answer to a customer.
     log.error("markProposalImplemented: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "That could not be recorded just now. Press it again in a moment." };
+  }
+}
+
+/** STEP TWO OF THE TWO-STEP HOLD, AND THE ONLY WAY A CHANGE THAT MOVES OR HIDES A PAGE BECOMES WORK. Step one has always existed: a redirect, a merge, a canonical or a de-index
+ *  is minted `needs_review` and the queue says so. Step two did not, so every one of them was held for a confirmation nobody could give and none could ever be pasted. The
+ *  operator reads the pieces, the addresses, the destination, the copy, the risks and the evidence on the change's own detail page and confirms THAT version. NOTHING IS TRUSTED FROM THE SCREEN: the row is re-read here and every gate is asked again at the moment of the mutation, because the page could have been open since before the copy was redrafted, before the cause was re-judged or before the bar moved. Never automatic: this runs on a press and on nothing else. */
+export async function confirmDangerousChangeAction(args: { proposalId: string; version: string }): Promise<MarkProposalImplementedResponse> {
+  if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to confirm this change." };
+  if (!args.proposalId || !args.version) return { success: false, error: "No change was specified." };
+  const tenantId = await currentTenantId();
+  try {
+    const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+    const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
+    if (stored == null) return { success: false, error: "That change could not be found, so nothing was confirmed." };
+    // THE LANE IS THE PERMISSION, AND ONLY THE DANGEROUS KIND MAY LEAVE IT THIS WAY. Work already ready, already done or already put aside is not up for a confirmation, and ordinary work sits in review because a quality gate held it: confirming that would promote copy nobody stands behind past the very gate that held it. AN UNFINISHED CHANGE IS NOT ONE ANYBODY CAN CONFIRM either, and neither is one that leaves its own diagnosed cause unsettled: the same two boundaries the queue and Mark done both ask, asked here at the moment of the mutation.
+    if (stored.status !== "needs_review") return { success: false, error: "This one is not waiting for your confirmation. Open Changes for the work that stands today." };
+    if (dangerousComponents(stored.bundle?.components ?? []).length === 0) return { success: false, error: "This one does not move or hide a page, so there is nothing here to confirm. It is being reviewed for another reason." };
+    const gaps = deliverableGaps(stored), unfit = unsettledCause(stored);
+    if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to confirm: ${gaps[0]}.` };
+    if (unfit) return { success: false, error: unfit };
+    // THE YES BINDS TO ONE EXACT VERSION: the copy, the pieces, the destination, the risk grade, the evidence and the basis it was given for. Anything moved since makes it stale. AND THE ROW'S OWN INTEGRITY IS ASKED OF THE PROMOTED VERSION rather than the held one: whose change this is, the bar it was drafted under, whether its readings still stand, and whether the stamp it now carries really names it. Nothing is written unless the change would be servable the moment it lands.
+    if (confirmedVersion(stored) !== args.version) return { success: false, error: "This change has been rewritten since that screen was drawn, so your confirmation is not being applied to it. Open it again, read the new version, and confirm that one." };
+    const promoted: ChangeProposal = { ...stored, status: "ready", confirmedVersion: args.version };
+    const failures = actionableProposalFailures(promoted, { tenantId, currentBasis: basis });
+    if (failures.length > 0) return { success: false, error: failures[0]! };
+    const saved = await saveChangeProposal(promoted);
+    if (saved === "failed" || saved === "blocked" || saved === "refused") { log.error("confirmDangerousChange: the confirmation did not land", { proposalId: args.proposalId, saved }); return { success: false, error: "That could not be confirmed just now. Press it again in a moment." }; }
+    await invalidateCoreSurfaces().catch(() => {});
+    revalidatePath("/changes"); revalidatePath("/", "layout");
+    return { success: true, note: "Confirmed. This change is ready to make, and the copy is on the card." };
+  } catch (err) {
+    log.error("confirmDangerousChange: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "That could not be confirmed just now. Press it again in a moment." };
   }
 }
 

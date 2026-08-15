@@ -14,7 +14,7 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), transitionProposalToImplemented: vi.fn(async () => true) }));
+  loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), transitionProposalToImplemented: vi.fn(async () => true), saveChangeProposal: vi.fn(async () => "saved") }));
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
@@ -108,18 +108,22 @@ describe("a direct link renders only what the ranked list would, and always land
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
     const b = bundled(NOW).bundle!;
-    const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => {
-      await link(p); // the same stored row this screen would be rendered from
-      return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args });
-    };
+    // the same stored row this screen would be rendered from
+    const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
     const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal;
     expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
-    const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."],
-      components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
+    const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
     // A PAGE-MOVER IS GRADED DANGEROUS AND A DANGEROUS PIECE CAN NEVER SIT IN READY, so the lane refuses it before the deliberate yes is ever reached, with or without one: nothing about a change in review is recordable, and no ticked box changes that.
     const refused = await mark(merge);
     expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
-    expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]); }); });
+    expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
+    // STEP TWO, AND THE ONLY WAY OUT OF THE HOLD: Product Truth asks for two steps and only the first one existed, so a merge, a forward, a canonical or a de-index was held for a confirmation nobody could give. The confirmation lives on the change's own detail page, beside the pieces, the addresses, the destination and the risks, and it binds to ONE version: a version that has moved since the screen was drawn refuses, safe work sitting in review for a quality gate cannot reach this door at all, and the yes is written back onto the row so the queue and the mutation read it rather than trust a screen.
+    const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, saveChangeProposal: saved } = await import("@/domains/decision");
+    const safe = { ...merge, bundle: { ...merge.bundle!, components: [b.components[0]!] } } as ChangeProposal;
+    await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
+    await link(safe); const wrong = await confirm({ proposalId: safe.id, version: confirmedVersion(safe) });
+    await link(merge); const ok = await confirm({ proposalId: merge.id, version: confirmedVersion(merge) }), wrote = vi.mocked(saved).mock.calls.at(-1)?.[0];
+    expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, wrote?.status, wrote?.confirmedVersion === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, "ready", true]); }); });
 
 describe("an account that skipped the connectors still reaches its own Today", () => {
   // Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all.

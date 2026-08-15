@@ -113,7 +113,6 @@ const AnswerBlockDraftSchema = z.object({
   proofPlan: ProofPlanSchema,
   ...base,
 });
-export type AnswerBlockDraft = z.infer<typeof AnswerBlockDraftSchema>;
 
 /** 2. AtomicEditDraft, one precise field change on an existing page. */
 const AtomicEditDraftSchema = z.object({

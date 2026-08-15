@@ -90,10 +90,4 @@ export type Finding = {
   tenant_id: string;
 };
 
-export const FINDING_PRIORITY_ORDER: Record<FindingPriority, number> = {
-  critical: 0,
-  important: 1,
-  minor: 2,
-  informational: 3,
-};
 

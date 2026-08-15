@@ -31,6 +31,7 @@ import { looksLikePlaceholder } from "./placeholder-detection";
 import { containsUuid, AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./copy-sanitize";
 import type { BundleComponent, BundleComponentKind, ChangeProposal, RecommendedChange } from "./contracts";
 import { dangerousComponents, needsSourcePack } from "./contracts";
+import { confirmedVersion } from "./completeness";
 
 /** Quality statuses that are HARD failures, never actionable and always rejected.
  *  These are inventions / garbage / off-topic / malformed drafts: unsafe copy.
@@ -73,9 +74,10 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
     ...items.map((i) => i.fact), ...components.map((c) => `${c.after} ${c.objective ?? ""} ${c.mechanism ?? ""}`),
     ...(proposal.causeFinding ? [proposal.causeFinding.explanation, ...some(proposal.causeFinding.notConsidered).map((n) => n.missing)] : [])].join(" ");
   if (HOLDS_PAGE.test(says) && MISSING_PAGE.test(says)) out.push("I say two different things about whether I hold this page's own words, so I am not putting it in front of you.");
-  if (dangerousComponents(components).length > 0 && (proposal.riskLevel !== "high" || proposal.status === "ready")) {
-    out.push("This change moves or hides a page and it is filed as something lighter than that, so I am not putting it in front of you.");
-  }
+  const danger = dangerousComponents(components).length > 0;
+  if (danger && proposal.riskLevel !== "high") out.push("This change moves or hides a page and it is filed as something lighter than that, so I am not putting it in front of you.");
+  // STEP TWO OF THE TWO-STEP HOLD, ASKED ON EVERY READ. `ready` on a change that moves or hides a page used to be unreachable and therefore unforgeable, which also meant no redirect, merge, canonical or de-index could ever become work an operator was allowed to make. It is reachable now, through one confirmation of one exact version, and this is where that yes is checked rather than trusted: the stamp on the row must still name the version on the row. An edit to the copy, the pieces, the destination, the risk grade, the evidence or the basis moves the version, the stamp goes stale, and the change falls back behind the hold instead of standing ready on a yes given to other words.
+  if (danger && proposal.status === "ready" && proposal.confirmedVersion !== confirmedVersion(proposal)) out.push("This change moves or hides a page and it has changed since you confirmed it, so I am not putting it in front of you until you read it again.");
   // A READING IS CURRENT ONLY IF IT WAS TAKEN TODAY, and an UNDATED reading is not current either: skipping the
   // undated ones let the one line that carries no date say "today" and mean whenever it was last collected.
   const day = now.toISOString().slice(0, 10);

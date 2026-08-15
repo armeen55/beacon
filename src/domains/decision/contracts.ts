@@ -306,6 +306,8 @@ export type ChangeProposal = {
   claims?: readonly { text: string; supportedBy: readonly string[] }[];
   /** THE EXACT WORDS EACH SUPPORT ID CARRIES, banked with the claims that name it. A claim pointing at "page-copy-1" is a symbol, not a fact: the operator, and any later re-check, could not read what page-copy-1 says, so provenance was unreadable on the one screen where the copy gets pasted. These are the editor's own evidence map values, bounded per fact. Absent on a row banked before this existed. */
   supportFacts?: readonly { id: string; fact: string }[];
+  /** THE OPERATOR'S OWN YES TO ONE EXACT VERSION of a change that moves or hides a page. Product Truth holds such a change behind two steps: it is minted `needs_review`, and it reaches `ready` only when a person has read its components, its addresses, its destination, its copy and its risks and confirmed THAT version (decision/completeness's `confirmedVersion`). Stored so the yes survives the request that gave it and so a later pass cannot inherit it: any edit to the copy, the pieces, the destination, the evidence or the basis mints a different version and this stamp stops matching, which refuses the stale confirmation. Absent on everything that never needed one. */
+  confirmedVersion?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -409,6 +411,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   copyStamp: z.string().min(1).optional(),
   claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })).optional(),
   supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1) })).optional(),
+  confirmedVersion: z.string().min(1).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;

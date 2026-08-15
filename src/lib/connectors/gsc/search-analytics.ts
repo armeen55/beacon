@@ -38,7 +38,7 @@ const REQUIRED_SCOPE = "https://www.googleapis.com/auth/webmasters.readonly";
 /** Google's documented per-request maximum. */
 export const GSC_SA_ROW_LIMIT = 25_000;
 
-export type GscSearchAnalyticsRow = {
+type GscSearchAnalyticsRow = {
   keys: string[];
   clicks: number;
   impressions: number;

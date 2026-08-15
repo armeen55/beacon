@@ -3,10 +3,10 @@
  *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
  *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, dangerousComponents, deliverableGaps, sameComponentId, unsettledCause } from "@/domains/decision";
+import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
-import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
+import { ConfirmDangerous, CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
 import { pageLabel } from "../types";
 
 function Heading({ children }: { children: React.ReactNode }) {
@@ -71,6 +71,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   const isNew = proposal.kind === "new_page";
   // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens: the LANE first (only `ready` may be pasted), then the unsettled cause.
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet." : unsettledCause(proposal);
+  // AND A HELD CHANGE THAT MOVES OR HIDES A PAGE HAS SOMEWHERE TO GO. Everything the operator needs to decide is already on this page: the pieces, the addresses, where a forward lands, what survives it, the copy, the risks and the evidence behind each one. The confirmation belongs beside them, never on a page of its own. Offered ONLY on finished work whose own cause is settled: review work held because a quality gate refused it is not up for a yes, and confirming it would promote copy nobody stands behind.
+  const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
   // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on",
   // "Why this is the smartest move", "What was checked"), which reads as padding rather than proof. Claimed in
   // render order, first occurrence wins, and a section left with nothing to say does not print its heading.
@@ -176,6 +178,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
         />}
         {held ? null : <p className="text-[12px] text-muted-foreground">After you make it, the page is checked and the measurement starts from what is found.</p>}
+        {confirmable ? <ConfirmDangerous proposalId={proposal.id} version={confirmable} /> : null}
         <SetAsideChange proposalId={proposal.id} />
       </section>
     </div>

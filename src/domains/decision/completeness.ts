@@ -10,6 +10,7 @@
  * component) and the server mutation all ask one question and a voice edit moves none of them. It sits beside the
  * contract rather than inside the validator because a client bundle may reach this and may not reach that. */
 
+import { componentIdOf } from "./contracts";
 import type { ChangeProposal } from "./contracts";
 
 /** NO VERB LIST LIVES HERE ANY MORE. Whether copy is the finished words or a note about producing them is a
@@ -138,5 +139,16 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   return { ...incoming, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes,
     ...(prior.claims ? { claims: prior.claims } : {}), ...(prior.supportFacts ? { supportFacts: prior.supportFacts } : {}),
-    ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}) };
+    ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}),
+    // AND THE OPERATOR'S YES RIDES WITH THE VERSION IT WAS GIVEN TO. The words, the pieces and the stage are carried over from the stored row, so dropping the confirmation beside them would silently demote a change the operator had already read and confirmed, on a pass that changed nothing about it. A pass that DOES change any of it fails the identity above, `incoming` wins whole, and the confirmation is gone with the version it belonged to.
+    ...(prior.confirmedVersion ? { confirmedVersion: prior.confirmedVersion } : {}) };
+}
+
+/** THE EXACT VERSION OF A CHANGE AN OPERATOR CAN SAY YES TO. A confirmation is worthless unless it names WHAT was confirmed, so this is the whole of what they were shown: the
+ *  identity beneath the words (basis, the page as it read, the cause, the pieces, the addresses, the evidence), plus the three material things that identity deliberately leaves out because copy has to survive a pass, which are the copy itself, where each piece forwards to, and the risk each piece is graded at. Any edit to any of them mints a different string, the stored stamp stops matching, and the stale confirmation refuses.
+ *  SHORT and PURE: the copy folds through the same tiny fingerprint a bundle's pieces are already named by, so a server component can hand it to a browser and the server recomputes it byte for byte off the row it re-reads. */
+export function confirmedVersion(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  return [p.riskLevel, componentIdOf({ kind: c.kind, after: c.kind === "existing_edit" ? c.after : c.proposedTitle }, 0), componentIdOf({ kind: "identity", after: copyIdentity(p) }, 0),
+    ...(p.bundle?.components ?? []).map((x, i) => `${componentIdOf(x, i)}:${x.risk}:${x.redirectTo ?? ""}`)].join("|");
 }

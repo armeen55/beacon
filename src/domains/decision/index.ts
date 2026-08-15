@@ -79,7 +79,8 @@ export { rankProposals, proposalValueScore } from "./rank-proposals";
 // THE ONE COMPLETENESS BOUNDARY every surface asks: has Beacon finished this deliverable, or is it still an
 // opportunity being developed? Empty means it is a Change; anything else keeps it out of the queue, out of
 // Today, out of measurement, and out of Mark done.
-export { deliverableGaps } from "./completeness";
+// THE EXACT VERSION AN OPERATOR CONFIRMS. A change that moves or hides a page reaches `ready` on one yes to one version; the detail page prints the version it is showing and the mutation recomputes it off the row it re-reads.
+export { deliverableGaps, confirmedVersion } from "./completeness";
 // THE ONE PERMISSION QUESTION a surface may ask about a stored change: does its lever settle the cause its own evidence named. The queue holds a change that does not; the detail page and the mutation keep that promise.
 export { unsettledCause } from "./authorization";
 export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";

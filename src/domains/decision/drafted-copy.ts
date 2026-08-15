@@ -187,13 +187,17 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
-  // AND EVERY ASSERTION IS READ BACK AGAINST THE CLAIM GRAPH, not only against the page. The page's own words are wide: "modern designs" cleared the corpus above because one stored sentence says "timeless designs" and another says "modern fashion", and it shipped on a live card whose four claims carried no such thing. TWO STRICTNESSES, because these are two questions. A MEMBER of a list is a specific thing the copy says this page holds, so a CLAIM the writer declared has to carry it. Ordinary prose is read against the claim graph, which is those claims PLUS the exact stored words each one names: a faithful paraphrase of cited evidence passes, and a sentence about something no claim ever cited does not, list shape or no list shape.
+  // TWO QUESTIONS, TWO CORPORA, AND NEITHER IS ANSWERED BY THE WRITER'S OWN SAY SO. CLAIM COVERAGE asks whether every material assertion in the copy maps to a persisted claim. The page's own words are wide: "modern designs" cleared the corpus above because one stored sentence says "timeless designs" and another says "modern fashion", and it shipped on a live card whose four claims carried no such thing. TWO STRICTNESSES inside that one question, because a MEMBER of a list is a specific thing the copy says this page holds, so a CLAIM the writer declared has to carry it, while ordinary prose is read against those claims PLUS the exact stored words each one names: a faithful paraphrase of cited evidence passes, and a sentence about something no claim ever cited does not, list shape or no list shape.
   const declared = flat(d.claims.map((c) => c.text).join(" ")).replace(/[^a-z0-9]+/g, " ");
   const graph = `${declared} ${flat([...new Set(d.claims.flatMap((c) => [...c.supportedBy]))].map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " ")}`;
   const undeclared = asserted.filter((t) => topicTokens(t).length > 0 && unheld(declared, t).length > 0);
   if (undeclared.length > 0) out.push(`it tells a reader this page offers ${undeclared.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and no claim on this card carries it`);
   const uncovered = unheld(graph, d.finalCopy);
   if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
+  // SUPPORT ENTAILMENT is the other question, and it used to be nobody's: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself: "These shoes are waterproof", declared word for word as a claim against a page title silent about waterproofing, cleared coverage because the word was in the claim. A CLAIM IS NEVER PART OF ITS OWN SUPPORT. Each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, which is exactly where a claim can vouch for a lie: a claim word the copy never prints cannot make the copy false, and holding an editor's bookkeeping ("the page subject is") against a page excerpt refuses provenance for its grammar. Singular and plural are one word here, so a stemmer's quirk is not a hallucination.
+  const inCopy = new Set(topicTokens(d.finalCopy));
+  const ungrounded = [...new Set(d.claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " "), held = `${q} ${topicTokens(q).join(" ")}`; return topicTokens(c.text).filter((w) => inCopy.has(w) && !held.includes(w)); }))];
+  if (ungrounded.length > 0) out.push(`its copy says ${ungrounded.slice(0, 3).map((t) => `"${t}"`).join(", ")} on a claim of its own, and the evidence that claim names does not carry it`);
   return [...new Set(out)];
 }
 
@@ -207,7 +211,7 @@ export function withoutCta(copy: string, type: EditorDeliverable["actionType"]):
   const kept = t.slice(0, cut + 1).trim().replace(/[;,-]+$/, "").trim(), [lo, , unit] = BAND[type], done = /[.!?]$/.test(kept) ? kept : `${kept}.`;
   return (unit === "c" ? done.length : words(done)) >= lo ? done : null; }
 /** THE ONE ANSWER: a finished deliverable, or every reason it is not one. Deterministic first, so a judge is never paid to read copy the packet already refutes. */
-async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: JudgeFn | undefined): Promise<string[]> {
+export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: JudgeFn | undefined): Promise<string[]> {
   const hard = deliverableFailures(d, p);
   if (hard.length > 0) return hard;
   if (!judge) return ["nothing read it for sense, so it is not finished"];

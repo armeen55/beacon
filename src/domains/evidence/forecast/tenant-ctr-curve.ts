@@ -88,7 +88,7 @@ export type TenantCtrCurve = {
 
 /** ONE search of this account's own, over the window being fitted. `position` may be fractional (it is an
  *  impressions-weighted average) and is rounded into a band by the fit. */
-export type CtrCurveRow = { query: string; position: number; impressions: number; clicks: number };
+type CtrCurveRow = { query: string; position: number; impressions: number; clicks: number };
 
 /**
  * POOL ADJACENT VIOLATORS (isotonic regression, decreasing). Walks the measured bands best position first and,
