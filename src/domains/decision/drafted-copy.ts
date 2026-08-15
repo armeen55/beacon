@@ -41,8 +41,7 @@ const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // 
 
 /** The page this card lands on, by either key. */
 function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvidence | null {
-  const url = (card.pageUrl ?? "").trim();
-  const path = (card.pagePath ?? "").trim().toLowerCase();
+  const url = (card.pageUrl ?? "").trim(), path = (card.pagePath ?? "").trim().toLowerCase();
   return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;
 }
 
@@ -125,7 +124,8 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
   // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body
   // saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
   const figure = (t: string): string => t.replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
-  const said = p.bodyText.split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
+  // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies.
+  const said = p.bodyText.replace(/\bfrom\s+([\d,.]+)\s+to\s+([\d,.]+)/gi, "$1-$2").split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
   for (const n of new Set(figure(copy).match(/\d[\d,.-]*\d|\d+/g) ?? [])) {
     const q = QUALIFIER.exec(said.find((s) => s.includes(n)) ?? "");
     if (q && !new RegExp(`\\b${q[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(copy)) {
@@ -154,14 +154,11 @@ const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase)
 
 /** WHY THIS DELIVERABLE IS NOT FINISHED, or empty. PURE, and no line here is an opinion about whether the copy is any good. */
 export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): string[] {
-  const out: string[] = [];
-  const stored = flat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? ""].join(" "));
-  const corpus = corpusOf(p);
+  const out: string[] = [], stored = flat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? ""].join(" ")), corpus = corpusOf(p);
   for (const [what, text] of [["copy", d.finalCopy], ["placement", d.placementAnchor], ["measurement target", d.measurementTarget]] as const) {
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
   if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about");
-  const known = new Set(Object.keys(p.evidence));
-  const unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
+  const known = new Set(Object.keys(p.evidence)), unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
   if (unknown.length > 0) out.push(`it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check");
   if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
@@ -192,8 +189,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   const same = (a: string, b: string): boolean => flat(a).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim()
     === flat(b).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
   if (d.beforeText != null && same(d.finalCopy, d.beforeText)) out.push("it hands back the line the page already carries, re-punctuated, so nothing about the page would change");
-  const [lo, hi, unit] = BAND[d.actionType];
-  const n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
+  const [lo, hi, unit] = BAND[d.actionType], n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
   if (n < lo || n > hi || UNSAFE.test(d.finalCopy)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted. AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
   if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) {
@@ -208,13 +204,21 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   return [...new Set(out)];
 }
 
+/** A CLOSING SENTENCE THAT ASKS THE READER TO READ THE PAGE IS FILLER WHERE A FACT BELONGS: the description  equivalent of "click here". DETERMINISTIC and about the SHAPE of an imperative, never a vocabulary: the final  sentence, opening on an instruction to read, view, browse, visit or shop. Trimmed where what is left still fills  the field, and otherwise sent back for ONE redraft that is told not to write one. PURE. */
+const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|learn|find|check)\b/i;
+const NO_CTA = "Write no closing call to action. Never end with an instruction to read, view, browse, visit or shop this page: the last sentence has to carry a fact about the page.";
+export function withoutCta(copy: string, type: EditorDeliverable["actionType"]): string | null {
+  // A CLAUSE IS A CLOSING LINE TOO. Cut only on a full stop and the same instruction came back joined on with a dash or a semicolon ("- click to read the focused account"), which is the identical filler wearing different punctuation. THE CUT LEAVES A SENTENCE, NEVER A STUB: whatever the join was, what is left ends its own line.
+  const t = copy.trim(), cut = Math.max(t.lastIndexOf(". "), t.lastIndexOf("; "), t.lastIndexOf("! "), t.lastIndexOf("? "), t.lastIndexOf(" - "));
+  if (cut < 0 || !CTA_TAIL.test(t.slice(cut).replace(/^[.;!?\s-]+/, ""))) return copy;
+  const kept = t.slice(0, cut + 1).trim().replace(/[;,-]+$/, "").trim(), [lo, , unit] = BAND[type], done = /[.!?]$/.test(kept) ? kept : `${kept}.`;
+  return (unit === "c" ? done.length : words(done)) >= lo ? done : null; }
 /** THE ONE ANSWER: a finished deliverable, or every reason it is not one. Deterministic first, so a judge is never paid to read copy the packet already refutes. */
 async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: JudgeFn | undefined): Promise<string[]> {
   const hard = deliverableFailures(d, p);
   if (hard.length > 0) return hard;
   if (!judge) return ["nothing read it for sense, so it is not finished"];
-  const v = await judge(d, p).catch(() => null);
-  if (!v) return ["no reading of it came back, so nothing is accepted"];
+  const v = await judge(d, p).catch(() => null); if (!v) return ["no reading of it came back, so nothing is accepted"];
   return ([["pageFit", "it does not belong on this page"], ["claimsEntailed", "the evidence it names does not carry every claim it makes"],
     ["usefulAndNatural", "it is not useful or does not read naturally"], ["placementCorrect", "it lands in the wrong place"],
     ["implementableNow", "an operator could not act on it as written"], ["improvesPage", "it repeats the search instead of improving the page"],
@@ -225,8 +229,7 @@ async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: J
 function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[]): SourcePacket {
   const evidence: Record<string, string> = {};
   card.evidence.hints.forEach((h, i) => { evidence[`card-${i + 1}`] = h; });
-  if (page.content?.title) evidence["page-title"] = page.content.title;
-  if (page.content?.h1) evidence["page-h1"] = page.content.h1;
+  if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
   (page.content?.outline ?? []).slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   (body?.passages ?? []).slice(0, 6).forEach((t, i) => { evidence[`page-copy-${i + 1}`] = t; });
   return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null, metaDescription: body?.metaDescription ?? page.content?.metaDescription ?? null,
@@ -247,7 +250,7 @@ type EditorField = "title" | "h1" | "meta" | "answer_block";
  *  deterministic half of the contract reads its homework against the same packet, and the judge reads it for
  *  sense. Null is a refusal, never a draft, and every refusal names itself through `refuse`. */
 async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: string, hints: string[],
-  minutes: number, opts: EditorWiring, refuse: (why: string, extra?: Record<string, unknown>) => null): Promise<EditorDeliverable | null> {
+  minutes: number, opts: EditorWiring, refuse: (why: string, extra?: Record<string, unknown>) => null, redrafted = false): Promise<EditorDeliverable | null> {
   // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored
   // `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a
   // re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field
@@ -284,6 +287,11 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in
   // the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for,
   // so the anchor is resolved to that and only an anchor nothing on the page carries is refused below.
+  // THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third.
+  const trimmed = withoutCta(deliverable.finalCopy, field);
+  if (trimmed == null) return redrafted ? refuse("its closing line asks the reader to read the page and too little is left without it")
+    : runEditor(packet, field, pageLabel, [...hints, NO_CTA], minutes, opts, refuse, true);
+  deliverable.finalCopy = trimmed;
   const anchor = deliverable.placementAnchor.trim();
   if (anchor) {
     // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the
@@ -308,8 +316,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
  *  copy is on file can be edited on its own evidence rather than only the page a card happens to sit on. */
 function packetForBody(body: OwnedPageBody, query: string, hints: readonly string[], ownedPaths: readonly string[], bannedTerms: readonly string[]): SourcePacket {
   const evidence: Record<string, string> = {};
-  if (body.title) evidence["page-title"] = body.title;
-  if (body.h1) evidence["page-h1"] = body.h1;
+  if (body.title) evidence["page-title"] = body.title; if (body.h1) evidence["page-h1"] = body.h1;
   body.headings.slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   body.passages.slice(0, 6).forEach((t, i) => { evidence[`page-copy-${i + 1}`] = t; });
   hints.slice(0, 5).forEach((h, i) => { evidence[`case-${i + 1}`] = h; });
@@ -343,8 +350,7 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
  *  and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
   opts: DraftedCopyOptions, kind: "description" | "answer"): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
-  const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []);
-  const outline = (page.content?.outline ?? []).slice(0, 8);
+  const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []), outline = (page.content?.outline ?? []).slice(0, 8);
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
     return null; };
@@ -379,8 +385,7 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
   const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null;
   if (!row) return [];
-  const ranked = new Set(row.organic.map((o) => canonicalUrlKey(o.url)));
-  const mine = canonicalUrlKey(page.url);
+  const ranked = new Set(row.organic.map((o) => canonicalUrlKey(o.url))), mine = canonicalUrlKey(page.url);
   const seen = new Map<string, { label: string; on: Set<string> }>();
   for (const w of snapshot.research?.winningPages ?? []) {
     const key = canonicalUrlKey(w.url);
@@ -388,10 +393,8 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
     for (const h of w.extract.headings) {
       const label = h.replace(/\s+/g, " ").trim();
       if (!label || label.length > 60 || words(label) > MAX_HEADING_WORDS || FURNITURE.test(label) || UNSAFE.test(label)) continue;
-      const at = label.toLowerCase();
-      const cur = seen.get(at) ?? { label, on: new Set<string>() };
-      cur.on.add(w.domain);
-      seen.set(at, cur);
+      const at = label.toLowerCase(), cur = seen.get(at) ?? { label, on: new Set<string>() };
+      cur.on.add(w.domain); seen.set(at, cur);
     }
   }
   return [...seen.values()].filter((h) => h.on.size >= AGREEING_WINNERS)
@@ -405,19 +408,20 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   // EVERY ATTEMPT COUNTS, NOT EVERY SUCCESS. `bought` counted the drafts that WORKED, so a card whose draft was
   // refused simply left the cap where it was and the next card bought another call, and the next, without limit.
   // The pass's shared budget is decremented inside the editor before each charged call instead, so this is only
-  // the reading of it; a run with no shared budget gets one of its own for the same reason.
+  // the reading of it. THE PASS OWNS THAT BUDGET: called without one this minted a SECOND pool the same size beside the one the deep bundles were already spending, so a 30 call ceiling bought 60. The fallback is for a caller standing on its own, and it says so; the one production caller hands its own budget in.
   const attempts = opts.attempts ?? { left: MAX_PAID_CALLS };
+  if (!opts.attempts) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own attempts", { tenantId: opts.tenantId, left: attempts.left });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => ["missing_description", "ai_answer_gap"].includes(slugOf(c)))
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
   const bodies = drafting.length > 0 ? await loadOwnedPageBodies(opts.tenantId, drafting).catch(() => new Map<string, OwnedPageBody>()) : new Map<string, OwnedPageBody>();
   for (const card of cards) {
-    const slug = slugOf(card);
-    const wants = slug === "missing_description" ? "description" : slug === "ai_answer_gap" ? "answer" : null;
+    const slug = slugOf(card), wants = slug === "missing_description" ? "description" : slug === "ai_answer_gap" ? "answer" : null;
     const page = wants || slug === "thin_page" ? pageFor(opts.snapshot, card) : null;
     if (!page) { out.push(card); continue; }
     if (wants) {
       const meta = wants === "description";
+      if (attempts.left <= 0) log.info("[drafted-copy] paid work stopped: the pass has spent its whole attempt budget", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
       const done = attempts.left > 0 ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, opts, meta ? "description" : "answer") : null;
       const drafted = done?.d;
       out.push(drafted
@@ -473,14 +477,11 @@ const FIELD_OF_KIND: Partial<Record<string, EditorField>> = { title: "title", h1
 export function staleBundleReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[]): string[] {
   const parts = p.bundle?.components ?? [];
   if (parts.length === 0) return [];
-  const held = [...bodies.values()];
+  const held = [...bodies.values()], owned = held.map((b) => pathOf(b.url)), out: string[] = [];
   const bodyFor = (page: string): OwnedPageBody | null => held.find((b) => pathOf(b.url).toLowerCase() === page.toLowerCase() || canonicalUrlKey(b.url) === canonicalUrlKey(page)) ?? null;
-  const owned = held.map((b) => pathOf(b.url));
-  const out: string[] = [];
   for (const c of parts) {
     const field = FIELD_OF_KIND[c.kind]; if (!field) continue;
-    const page = (c.page ?? p.pagePath ?? "").trim(); const body = page ? bodyFor(page) : null;
-    if (!body) continue;
+    const page = (c.page ?? p.pagePath ?? "").trim(); const body = page ? bodyFor(page) : null; if (!body) continue;
     const packet = packetForBody(body, p.primaryQuery, p.evidence.hints, owned, bannedTerms);
     for (const why of rereadableRefusals(c.after, packet)) out.push(`${page}: ${why}`);
     // A PIECE THAT MAKES ITS PAGE LESS DISTINCT among the pages this very change names: the words its own line

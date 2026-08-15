@@ -3,7 +3,7 @@
  *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
  *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, dangerousComponents, deliverableGaps, sameComponentId } from "@/domains/decision";
+import { causeLabel, componentIdOf, dangerousComponents, deliverableGaps, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -69,6 +69,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page";
+  // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens.
+  const held = unsettledCause(proposal);
   // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on",
   // "Why this is the smartest move", "What was checked"), which reads as padding rather than proof. Claimed in
   // render order, first occurrence wins, and a section left with nothing to say does not print its heading.
@@ -104,7 +106,7 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
           <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
         ) : null}
         {bundle.components.map((c, i) => (
-          <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} />
+          <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} />
         ))}
       </section>
 
@@ -165,16 +167,16 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
       </section>
 
       <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-        <MarkImplemented
+        {held ? <p className="text-[13px] leading-relaxed text-foreground">{held}</p> : <MarkImplemented
           proposalId={proposal.id}
           label={isNew ? "Mark done" : "Mark done"}
           newPage={isNew}
           components={bundle.components.map((c, i) => ({ id: componentIdOf(c, i), kind: c.kind, label: c.label,
             // Era-tolerant, exactly as the server matches: a piece recorded before its copy joined its name still shows as recorded.
             moves: dangerousComponents([c]).length > 0, recorded: [...recorded].some((r) => sameComponentId(r, componentIdOf(c, i))) }))}
-        />
+        />}
         <p className="text-[12px] text-muted-foreground">
-          After you make it, the page is checked and the measurement starts from what is found.
+          {held ? "Nothing here is ready to paste and nothing here can be marked done until the change settles what its own evidence names." : "After you make it, the page is checked and the measurement starts from what is found."}
         </p>
         <SetAsideChange proposalId={proposal.id} />
       </section>
@@ -273,11 +275,14 @@ function ComponentCard({
   component,
   cited,
   isNew,
+  held,
 }: {
   component: BundleComponent;
   /** The facts this piece stands on that the page has NOT already printed, resolved by the caller. */
   cited: string[];
   isNew: boolean;
+  /** TRUE while the whole change is held for review, which takes the Copy control with it. */
+  held: boolean;
 }) {
   // The producer already answered where this lands, what it achieves and why it works, and named the sources
   // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was handed copy with no place to put it and a source pack they could not see.
@@ -323,7 +328,7 @@ function ComponentCard({
       <div className="space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">Use this</p>
-          {!moves && component.after.trim() ? <CopyButton text={component.after} label="Copy" /> : null}
+          {!moves && !held && component.after.trim() ? <CopyButton text={component.after} label="Copy" /> : null}
         </div>
         <CopyBlock component={component} />
       </div>
@@ -447,6 +452,15 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         <div className="space-y-1">
           <Heading>What was checked</Heading>
           <Bullets items={[...checks]} />
+        </div>
+      ) : null}
+      {/* WHAT EACH SENTENCE STANDS ON. The editor names every claim beside the evidence ids carrying it, and the
+          mapping was persisted with nothing reading it, so the one thing that makes drafted copy checkable was
+          invisible on the screen where the operator decides whether to paste it. */}
+      {(proposal.claims ?? []).length > 0 ? (
+        <div className="space-y-1">
+          <Heading>What each line stands on</Heading>
+          <Bullets items={(proposal.claims ?? []).map((c) => `${c.text} (from ${[...c.supportedBy].join(", ")})`)} />
         </div>
       ) : null}
       {/* A RESEARCH CARD HAS NOTHING TO MARK DONE: no copy has been written for this page, so recording it as

@@ -102,7 +102,13 @@ export function copyIdentity(p: ChangeProposal): string {
   // because it has not read the field yet, and reading that as "the line changed" would throw away the copy on
   // every single pass, which is the exact destruction this function exists to stop. What the page carries is
   // carried by `copyStamp` instead, which is read off the stored page and says so honestly for every field.
+  // AN ATOMIC CARD'S EVIDENCE IS ITS OWN HINTS, and they were the one material thing outside this identity. A
+  // description drafted through the editor names its support by id ("card-1", "card-2"), and those ids ARE this
+  // list in order, so a hint that moved, was reworded or disappeared changes what every claim on that card
+  // points at while the banked words carried on being served. The receipt items below answer the same question
+  // for a bundle, which is why they were already here and the hints were not.
   return JSON.stringify([p.basis ?? null, p.copyStamp ?? null, p.changeFamily, p.diagnosisCause ?? null, p.causeFinding?.explanation ?? null,
+    p.bundle ? null : [...p.evidence.hints],
     p.recommendedChange.kind === "existing_edit" ? [p.recommendedChange.field] : ["new_page"],
     [...new Set(parts.map((c) => c.page ?? p.pagePath ?? ""))].sort(),
     parts.map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before]),
@@ -113,9 +119,18 @@ export function copyIdentity(p: ChangeProposal): string {
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
   if (!prior || copyIdentity(prior) !== copyIdentity(incoming)) return incoming;
   if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return incoming;
-  // The words, where they land, what they cost and what was said about them stay as banked; THIS pass's
-  // evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.
+  // COPY NOBODY CAN TRACE IS NOT FINISHED WORK. An atomic card's words are written by the editor, which hands
+  // back every claim beside the evidence ids carrying it, and this branch banked the words and dropped the
+  // claims: all three ready cards on the live account carried `claims: null` and no persisted mapping from a
+  // sentence to the thing behind it, so nothing on the row could ever be re-checked. Banked words survive only
+  // WITH their provenance now, and copy that reached the row before this did is redrafted once rather than
+  // served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
+  if (!prior.bundle && (prior.claims ?? []).length === 0) return incoming;
+  // The words, where they land, what they cost, what was said about them AND what each claim stands on stay as
+  // banked; THIS pass's evidence, ranking and receipt still land on the row, so the card keeps arguing from what
+  // is true today.
   return { ...incoming, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes,
+    ...(prior.claims ? { claims: prior.claims } : {}),
     ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}) };
 }

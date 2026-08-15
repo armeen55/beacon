@@ -122,6 +122,8 @@ export function proposalFingerprint(p: ChangeProposal): string {
     dispositions: p.bundle?.dispositions ?? null,
     // THE PAGE THE WORDS WERE WRITTEN FOR. Conditional, like the ids below: a row minted before the stamp existed hashes byte for byte what it always did and is never churned to say the identical thing.
     ...(p.copyStamp ? { stamp: p.copyStamp } : {}),
+    // WHAT THE COPY ASSERTS AND WHAT STANDS BEHIND EACH ASSERTION. Left out, a claim could be reworded, dropped or re-pointed at different evidence and the row computed "unchanged" against the version it replaced: the one thing a re-check reads was the one thing identity did not cover. Support SORTED, so reordering the same ids moves nothing, and CONDITIONAL, so a row carrying no claim hashes byte for byte what it always did.
+    ...(p.claims?.length ? { claims: p.claims.map((c) => [c.text, [...c.supportedBy].sort()]) } : {}),
     // THE WORDS ARE WHAT THE OPERATOR ACTS ON. A pass that sharpened the headline, the reason or the steps and
     // nothing else computed "unchanged" and wrote nothing, so every rewrite of the queue's language died inside
     // the producer and the stored row kept serving the sentence it was meant to replace.

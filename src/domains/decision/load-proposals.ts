@@ -22,6 +22,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { deliverableGaps } from "./completeness";
+import { unsettledCause } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -190,11 +191,14 @@ export async function loadProposalQueue(
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.
   const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()),
     familyHistory: await familyHistoryFor(tenantId) });
-  // READY has to mean ready: the validator passed it (status "ready") and it owes nobody a source. Every other current-basis row is a to-do.
+  // READY has to mean ready: the validator passed it (status "ready"), it owes nobody a source, AND its lever
+  // treats the cause its own evidence named. That last one is the screen's half of the same boundary the
+  // producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve
+  // as paste-ready work just because it is already on file. Every other current-basis row is a to-do.
   const ready: ChangeProposal[] = [];
   const toDo: ChangeProposal[] = [];
   for (const p of ranked) {
-    if (p.status === "ready" && !holdsForUnresolvedSource(p)) ready.push(p);
+    if (p.status === "ready" && !holdsForUnresolvedSource(p) && unsettledCause(p) == null) ready.push(p);
     else toDo.push(p);
   }
   return {

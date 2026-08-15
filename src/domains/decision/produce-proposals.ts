@@ -14,7 +14,7 @@ import { proposeExistingPageChange, type ProposeOptions } from "./propose";
 import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store";
 import { actionableProposalFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
-import { ownershipCards, researchingCards, withholdReason } from "./authorization";
+import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization";
 import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { preferFinished } from "./completeness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
@@ -22,7 +22,7 @@ import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evi
 import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
 import { extractPageFacts, readWinningPattern } from "./winning-pattern";
 import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
-import { applyDraftedCopy, staleBundleReasons, MAX_PAID_CALLS } from "./drafted-copy";
+import { applyDraftedCopy, staleBundleReasons, withoutCta, MAX_PAID_CALLS } from "./drafted-copy";
 import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
 import { readTechnicalFindings } from "./technical-findings";
 import { buildNewPageProposal } from "./new-page";
@@ -105,19 +105,17 @@ async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings
 
 /** Produce (and by default persist) ranked ChangeProposals for one tenant from cached evidence only. Never throws on a single-source outage: a failed source simply narrows the snapshot. */
 export async function produceProposalsForTenant(tenantId: string, opts: ProduceProposalsOptions = {}): Promise<ProduceProposalsResult> {
-  const maxDrafts = opts.maxDrafts ?? DEFAULT_MAX_DRAFTS;
-  const persist = opts.persist ?? true;
-
+  const maxDrafts = opts.maxDrafts ?? DEFAULT_MAX_DRAFTS, persist = opts.persist ?? true;
   const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
   // A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING IN IT: a GSC read that threw makes every page read clean, so the pass ENDS HERE rather than retiring the whole queue. Empty is not failed. AND THE SAME FOR THE PAGE READ: an account whose own pages could not be read presents as an account that owns NO PAGE AT ALL, which is the one condition that earns a brand new page, so a storage outage could talk this pass into building a page for a subject the operator already covers.
   const blind = snapshot.sources.find((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed");
   if (blind) {
     log.warn(`[produce-proposals] the ${blind.source === "gsc" ? "search data" : "page inventory"} did not answer, so this pass changes nothing`, { tenantId });
     return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] }; }
-  const profile = await loadBusinessProfile(tenantId).catch(() => null);
-  const allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
+  const profile = await loadBusinessProfile(tenantId).catch(() => null), allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
   const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
-
+  /** ONE HARD ATTEMPT BUDGET FOR THE WHOLE PASS, born HERE, before the first charged call of any kind: the new page brief, the shallow field drafts, the deep bundles, the sibling pages a differentiation writes on, the  descriptions and answers below, and every judging of any of them. Every charged call comes off it whether it  succeeded, refused or threw. Born halfway down this function, it left the shallow drafts spending before it  existed and `applyDraftedCopy` minting a SECOND pool the same size: three pools wearing one ceiling's name. */
+  const attempts = { left: MAX_PAID_CALLS };
   // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   const basis = await resolveCurrentBasis(tenantId, profile);
   // ONE CURVE FOR THE WHOLE PASS, fitted once and handed to every surface that measures a gap, so the diagnosis, the coverage walk, the bundle and the suggestions cannot judge one page by four bars.
@@ -251,8 +249,15 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (!persist) return;
     // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted on the same page, the same diagnosis, the same evidence and the same lever. THE PAGE AS THIS PASS READ IT rides on the row (its four stored fields, off the snapshot the pass already holds, so this costs no read), so words written for a page since re-crawled into a different shape are retired rather than served, and a page nothing is held for stamps nothing and is decided on everything else.
     const held = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(raw.pageUrl ?? raw.pagePath).includes(k)))?.content ?? null;
-    const prior = existing.get(raw.id), carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
-    const p: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
+    // BANKED COPY IS RE-READ AGAINST THE CONTRACT THAT STANDS TODAY, because banking skips every gate: a closing line telling the reader to read the page outlived the rule that refuses one. Trimmed where the field still fills without it, and NOT BANKED AT ALL where it does not, so a stale call to action can never be served on while the drafter keeps missing. $0 and deterministic.
+    const held0 = existing.get(raw.id), copy0 = held0 && !held0.bundle && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
+    const clean = copy0 ? withoutCta(copy0.after, copy0.field === "meta" ? "meta" : copy0.field === "title" ? "title" : copy0.field === "h1" ? "h1" : "answer_block") : null;
+    const prior = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
+    const carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
+    const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
+    // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
+    const unfit = ranked.status === "ready" ? unsettledCause(ranked) : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change
+    const p: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])] } : ranked;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;
     else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing
@@ -328,31 +333,26 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const heldPage = live.find((p) => p.kind === "new_page" && current(p) && ids.some((k) => p.id.includes(`::${k}::`))) ?? null;
     if (heldPage) { proposals.push(heldPage); reused += 1; }
     else {
-      const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
+      const built = await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, attempts }).catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }));
       if (built.status === "built") { const page = { ...built.proposal, ...(basis ? { basis } : {}) }; proposals.push(page); await persistIfChanged(page); }
       else log.info("[produce-proposals] no new page this pass", { tenantId, reason: built.reason });
     }
   }
 
-  const bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts);
-  const earned = candidatesToEvidenceInputs(snapshot, acted);
-  const inputs = earned.slice(0, bound);
+  const bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts), earned = candidatesToEvidenceInputs(snapshot, acted), inputs = earned.slice(0, bound);
   /** THE PAGES THIS PASS NEVER REACHED, because paid drafting stops at `bound`. NOT RE-EMITTED BY A CAP IS NOT NOT RE-EMITTED: the sweep read the budget's silence as the generator withdrawing its own work, and took back a draft already PAID for on the sixth strongest page of every pass. */
   const cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")]));
   const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
-  // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted here, not passed over.
-  const consolidating = candidates.filter((c) => c.action === "consolidate").length;
+  const consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
   if (acted.length === 0 && deep.length === 0) {
-    log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length,
-      watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
+    log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap with no explanation yet is NOT a quiet day, and neither is one that cannot be drafted.
     await sweepStale([await withSuggestions(proposals)]);
     return { proposals: await rankAndStamp(proposals), candidates: runReceipt(),
-      outcome: proposals.length > 0 ? "proposals_persisted"
-        : investigating > 0 ? "investigating"
-          : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
+      outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating"
+        : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
       actionable: consolidating, investigating, noDraft: 0, persisted, reused, heldForMeasurement, ...research };
   }
 
@@ -400,7 +400,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       }
       continue;
     }
-    const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist }).catch((e) => {
+    const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, attempts }).catch((e) => {
       log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
       return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" }; });
     if (outcome.status !== "ready") {
@@ -415,8 +415,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
 
   // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
-  /** ONE HARD ATTEMPT BUDGET FOR THE WHOLE PASS, shared by every editor it runs: the deep bundles, the sibling  pages a differentiation writes on, and the drafted descriptions and answers below. Every charged call comes  off it whether it succeeded, refused or threw, so the pass has one ceiling instead of one cap per producer that only ever counted the successes. Deliberately mutable and deliberately shared. */
-  const attempts = { left: MAX_PAID_CALLS };
   const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms, attempts };
   const onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
 
@@ -467,7 +465,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
   // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize is not worth paying to write.
   const allowed: ChangeProposal[] = []; for (const c of extra.cards) if (await admit(c)) allowed.push(c);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms }).catch(() => allowed); // the account's own vocabulary reaches the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).

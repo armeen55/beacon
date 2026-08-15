@@ -3,7 +3,7 @@
  *  determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a
  *  round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-import { receiptComposition } from "@/domains/decision/contracts"; import { deliverableGaps, preferFinished } from "@/domains/decision/completeness"; import { deliverableFailures } from "@/domains/decision/drafted-copy";
+import { receiptComposition } from "@/domains/decision/contracts"; import { deliverableGaps, preferFinished } from "@/domains/decision/completeness"; import { deliverableFailures, withoutCta } from "@/domains/decision/drafted-copy";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -13,7 +13,7 @@ import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { readTechnicalFindings, technicalComponents, type TechnicalFinding } from "@/domains/decision/technical-findings"; import { suggestedEdits } from "@/domains/decision/suggested-edits"; import { compileCandidates } from "@/domains/decision/opportunities";
-import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
+import { CORE_PRODUCERS } from "@/domains/decision/producers/core"; import { unsettledCause } from "@/domains/decision/authorization";
 import type { Producer, ProducerCtx } from "@/domains/decision/producers/contract"; import { fieldForComponent } from "@/domains/decision/producers/contract";
 import { emptyResearchEvidence, type CanonicalPairObservation, type ResearchPageExtract, type ResearchWinningAppearance } from "@/domains/evidence/funnel/research-evidence"; const TENANT = "fixture-tenant"; const NOW = new Date("2026-07-25T00:00:00.000Z");
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area"; const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Replace the field"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
@@ -334,14 +334,12 @@ const SERVED = { inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT
     { url: `${AT}/twin`, title: "Rain Barrel Sizing Guide", h1: null, canonical_url: null, internal_links: [] }], };
 describe("what is wrong with how a page is served", () => { it("names every fault it can prove, on a concrete address, with the exact fix", () => {
     const found = readTechnicalFindings(SERVED);
-    expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission",
-      "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
+    expect(found.map((f) => f.kind)).toEqual(["non_200", "redirect_chain", "orphaned_page", "sitemap_omission", "broken_internal_link", "canonical_conflict", "duplicate_title", "robots_noindex", "canonical_missing", "duplicate_title", "missing_h1"]);
     expect(found.every((f) => f.url.startsWith(AT) && f.exactFix.length > 20 && f.evidence.length > 20)).toBe(true);
     // PIN (B, F2): a dead address with no replacement ASKS for one; a forward carries its destination as an address, so the live check reads where it was told to land.
     expect(found[0]!.exactFix).toBe("Tell me the address that replaced /gone and I will write you the forward. Until then I keep it out of your queue.");
     expect(found[0]!.redirectTo).toBeUndefined(); expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
-    expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`);
-    // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one.
+    expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`); // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one
     expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
     // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
     const orphan = found.find((f) => f.kind === "orphaned_page")!;
@@ -355,11 +353,8 @@ describe("what is wrong with how a page is served", () => { it("names every faul
   // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support is gone" produce a dead-page change; being turned away,
   // rate-limited or unreachable says something about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
   it("calls a page dead only on 404, 410 or a twice-confirmed server error, and never on an access state", () => {
-    const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] })
-      .filter((f) => f.kind === "non_200");
-    for (const code of [401, 403, 429, 503]) { expect(dead({ http_status: code }), `${code}`).toEqual([]);
-      expect(dead({ crawl_state: "blocked", http_status: code }), `robots ${code}`).toEqual([]);
-    }
+    const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] }).filter((f) => f.kind === "non_200");
+    for (const code of [401, 403, 429, 503]) { expect(dead({ http_status: code }), `${code}`).toEqual([]); expect(dead({ crawl_state: "blocked", http_status: code }), `robots ${code}`).toEqual([]); }
     expect([dead({ http_status: 404 }).length, dead({ http_status: 410 }).length, dead({ crawl_state: "gone", http_status: null }).length]).toEqual([1, 1, 1]);
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]);
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
@@ -376,15 +371,11 @@ describe("what is wrong with how a page is served", () => { it("names every faul
       { finding: { cause: "technical_indexability", payload: { cause: "technical_indexability", findings } }, primary: "rain barrel sizing" } as unknown as ProducerCtx);
     const vague = readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide" }, { url: `${AT}/b`, title: "Rain Barrel Sizing Guide" }] });
     expect(vague.map((f) => f.kind)).toEqual(["duplicate_title", "duplicate_title"]);
-    const held = await run(vague);
-    expect(held.components).toEqual([]);
-    expect(held.refusal).toContain("an instruction is not handed over dressed as a change");
-    // The same producer DOES hand over the ones whose exact wording it holds.
-    expect((await run(readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide", h1: "" }] }))).components.map((c) => c.after))
-      .toEqual(["Rain Barrel Sizing Guide"]);
+    const held = await run(vague); expect(held.components).toEqual([]);
+    expect(held.refusal).toContain("an instruction is not handed over dressed as a change"); // and the same producer DOES hand over the ones whose exact wording it holds
+    expect((await run(readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide", h1: "" }] }))).components.map((c) => c.after)).toEqual(["Rain Barrel Sizing Guide"]);
     // PIN (B, F2b): a dead address with nowhere to send people is held the same deterministic way, and the operator is asked the one question that turns it into work.
-    const stranded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 })] }));
-    expect(stranded.components).toEqual([]);
+    const stranded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 })] })); expect(stranded.components).toEqual([]);
     expect(stranded.refusal).toContain("Name the address that replaced it");
     const forwarded = await run(readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404, redirects_to: `${AT}/rain-barrels` })] }));
     expect(forwarded.components.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", `${AT}/rain-barrels`]]); });
@@ -456,8 +447,7 @@ describe("the complete change universe answers for itself", () => { it("round-tr
 describe("one score orders every kind of change, and says why", () => { it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
     const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
     const bigger = prop({ id: "section-add", impactScore: 2000, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) });
-    const ranked = rankProposals([bigger, named]);
-    expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]);
+    const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]);
     expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
     expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads");
     expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
@@ -474,8 +464,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // the whole of the errand's speed is worth less than what the losing page has riding on it.
     const losing = prop({ id: "losing", pagePath: "/persian-male-names", impactScore: 191, estimatedEffortMinutes: 30 });
     const errand = prop({ id: "errand", pagePath: "/tiny", impactScore: null, demandImpressions90d: 2, estimatedEffortMinutes: 1 });
-    const ranked = rankProposals([errand, losing]);
-    expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
+    const ranked = rankProposals([errand, losing]); expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
     expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[1]!, "effort")]).toEqual([7.64, 3.83]);
     expect(factorOf(ranked[0]!, "visibility")).toBeGreaterThan(factorOf(ranked[1]!, "effort"));
     // THE RECOVERY BELONGS TO THE CAUSE: a lever that does not touch the cause forfeits the figure outright, so a
@@ -483,6 +472,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
     expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
     expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(80); });
+  // THE CARD THAT SHIPPED AS READY ON 2026-08-15: its own ranking receipt read "this change does not touch two of your own pages splitting one search", it rewrote the title of ONE of the two pages Google serves for "persian girl names" and left the other exactly as it was, and it sat in the paste-ready lane with a Copy button on it. A RANKING PENALTY IS AN ORDER, NEVER A PERMISSION. A split is settled on every page it names or it is not settled, and a page left alone is a page that got no words whatever reason was recorded beside it.
+  it("never reads as ready while it leaves its own diagnosed cause unsettled", () => {
+    const NAMED = ["iranopedia.com/persian-female-first-names", "iranopedia.com/persian-names"];
+    const split = (pages: string[]) => unsettledCause(prop({ pagePath: "/persian-female-first-names", primaryQuery: "persian girl names", diagnosisCause: "cannibalization", causeFinding: { cause: "cannibalization", action: null, evidenceKeys: [], explanation: "2 of your own pages come up for it.", competingExplanations: [], notConsidered: [], falsifier: "the split closes and one page keeps the search", payload: { cause: "cannibalization", competingPaths: NAMED, comparison: [], survivor: null } }, bundle: bundleOf(pages.map((pg) => comp({ kind: "title", page: pg, after: `A line only ${pg} could carry.` }))) }));
+    expect([split(["/persian-female-first-names"])?.includes("(/persian-names)"), split(["/persian-female-first-names", "/persian-names"]), unsettledCause(prop({ diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) }))?.slice(0, 20), unsettledCause(prop({}))])
+      .toEqual([true, null, "This change works on", null]); });
   // IF BEACON HAS NOT FINISHED THE DELIVERABLE, IT IS NOT A CHANGE. One boundary, read off the deliverable itself and never off the sentence an operator reads. NO VERB LIST: a producer that hands over a brief says so in a typed field as it mints the card, so ordinary imperative page copy ("Cover the pot with a lid") is finished
   // copy and stays one, and a brief is held by the fact rather than by its spelling.
   it("calls a deliverable finished only when it is the work, by type", () => { const gaps = (after: string, field: "title" | "meta" | "h1" | "section" = "title", over: Partial<ChangeProposal> = {}) => deliverableGaps(prop({ recommendedChange: { kind: "existing_edit", field, before: null, after }, ...over }))[0];
@@ -506,17 +501,29 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   // FINISHED WORK SURVIVES A PASS THAT DID NOT REACH IT. Drafting is capped per pass, so a card past the cap comes back as the BRIEF it started as; writing that over banked copy took the live queue from 6 finished
   // cards to 4 to 3 across three consecutive passes on 2026-08-15, destroying the biggest description on the site. Real stored shapes: the brief the producer re-mints, and the description an earlier pass banked.
   it("a pass that did not re-draft a card never undoes it", () => { const banked = prop({ id: "t::/iran-flags/achaemenid-empire-flag::existing_edit::missing_description", basis: "b8", status: "needs_review", estimatedEffortMinutes: 3, limitations: ["Read off the last stored copy of each page."], operatorSteps: ["Paste the description above, exactly as written"],
+      // THE PROVENANCE IS PART OF THE BANKED WORK. All three ready cards on the live account carried `claims: null` because this branch preserved the copy and dropped what stood behind it, so nothing on the row could ever be re-checked. Banked copy survives WITH its claims, and copy that cannot show what supports it is redrafted rather than served on.
+      claims: [{ text: "The Achaemenid Empire ran from 550 to 330 BCE.", supportedBy: ["card-1"] }], evidence: { query: "achaemenid flag", hints: ["23 pages share one templated description"], evidenceRefCount: 3 },
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Learn about the History of Iran Flags and the Achaemenid Empire Flag (550-330 BCE).", after: "Achaemenid Empire Flag (550 - 330 BCE) in Persian Flags History: symbolism, role, changes and origins. Explore more." } });
-    const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { query: "achaemenid flag", hints: ["fresh"], evidenceRefCount: 9 },
+    const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { ...banked.evidence, evidenceRefCount: 9 },
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that says what only this page answers." } });
     // AND THE PAGE THE WORDS WERE WRITTEN FOR KEEPS THEM ALIVE. The basis alone decided, and a basis is a reading of the ACCOUNT: it does not move when the page is re-crawled, so copy written for a page that has since changed shape outlived it.
     const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked);
     const recrawled = preferFinished({ ...brief, copyStamp: "a page that reads differently now" }, { ...banked, copyStamp: "the page as it read when this line was written" });
     expect((recrawled.recommendedChange as { after: string }).after.slice(0, 5)).toBe("Write");
     const fresher = preferFinished(prop({ ...banked, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "A newer finished line about the Achaemenid flag and what it meant." } }), banked);
-    expect([deliverableGaps(kept), kept.recommendedChange, kept.researchOnly, kept.estimatedEffortMinutes, kept.limitations, kept.evidence.evidenceRefCount,
-      moved.researchOnly, (moved.recommendedChange as { after: string }).after.slice(0, 5), (fresher.recommendedChange as { after: string }).after.slice(0, 7), preferFinished(brief, null).researchOnly])
-      .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, true, "Write", "A newer", true]); });
+    expect([deliverableGaps(kept), kept.recommendedChange, kept.researchOnly, kept.estimatedEffortMinutes, kept.limitations, kept.evidence.evidenceRefCount, kept.claims,
+      moved.researchOnly, (moved.recommendedChange as { after: string }).after.slice(0, 5), (fresher.recommendedChange as { after: string }).after.slice(0, 7), preferFinished(brief, null).researchOnly,
+      // UNSUPPORTED BANKED COPY IS NOT FINISHED WORK, and a support that DISAPPEARS kills the words written on it: the ids a claim names are this card's own hints in order, so a hint that went away leaves the claim pointing at nothing.
+      preferFinished(brief, { ...banked, claims: undefined }).researchOnly, preferFinished({ ...brief, evidence: { ...brief.evidence, hints: [] } }, banked).researchOnly])
+      .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, banked.claims, true, "Write", "A newer", true, true, true]); });
+  // THE CLOSING "READ THIS PAGE" LINE, on the two descriptions that carried one into the live queue on 2026-08-15. A description whose last sentence tells the reader to read the page carries filler where a fact belongs, which is the description equivalent of "click here". Trimmed where the field still fills without it, sent back for ONE redraft where it does not, and NEITHER card is special-cased: the achaemenid line loses too much (104 characters left, under the 110 a description takes) and the accessories line does not (142 left).
+  it("takes the call to action off the end of a description, or sends it back for one redraft", () => {
+    const A = "Achaemenid Empire Flag (550-330 BCE): its symbolism, origins, role and changes in Persian flags history. Read this page for the focused summary.", B = "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion. Browse unique pieces.";
+    const FACT = "Persian Accessories: hats, phone cases and designs inspired by Iranian culture, made for everyday wear and shipped from the shop.";
+    const SEMI = "Iranopedia x TavanDesigns Persian Shoes - features Love \"Eshgh\" and Nothingness \"Heech\" sneakers with Persian calligraphy; view designs and shop details.", DASH = "Achaemenid Empire Flag (550-330 BCE): concise history, symbolism and origins featured on this page - click to read the focused account.";
+    expect([withoutCta(A, "meta"), withoutCta(B, "meta"), withoutCta(FACT, "meta"), withoutCta(SEMI, "meta"), withoutCta(DASH, "meta")])
+      // THE CUT LEAVES A SENTENCE, NOT A STUB: the last one shipped ending on the semicolon its call to action had been joined on with.
+      .toEqual([null, "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion.", FACT, "Iranopedia x TavanDesigns Persian Shoes - features Love \"Eshgh\" and Nothingness \"Heech\" sneakers with Persian calligraphy.", null]); });
   // THE MATERIALLY FALSE CARD THAT REACHED THE LIVE QUEUE ON 2026-08-15: every digit was lifted from the page and the sentence was still a lie. The stored body says INTERNATIONAL delivery takes 7-21 days DEPENDING on location while the page offers free USA shipping, and the copy sold that window as the shipping time. It evaded the gate twice on punctuation alone: the body writes an en dash and the drafter wrote a hyphen, then spaced hyphens. Both spellings of the same figure are pinned here, with the real stored sentence.
   it("refuses a figure that walked away from the qualifier its own sentence carried", () => { const body = "Free USA shipping on all orders, with delivery in 2-6 business days. International shipping is available worldwide, with delivery usually between 7\u201321 business days depending on location.";
     const pk = { targetUrl: "https://www.iranopedia.com/p", title: "T", h1: "H", metaDescription: null, bodyText: body, headings: [], evidence: { "page-copy-1": body }, trackedQuestion: "Q", ownedPaths: ["/p"], bannedTerms: [] };
@@ -550,8 +557,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
-    const ranked = rankProposals([owed, finished]);
-    expect(ranked.map((p) => p.id)).toEqual(["finished", "owed"]);
+    const ranked = rankProposals([owed, finished]); expect(ranked.map((p) => p.id)).toEqual(["finished", "owed"]);
     expect([factorOf(ranked[1]!, "visibility"), factorOf(ranked[1]!, "readiness")]).toEqual([40, -45]);
     expect(ranked[1]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("only as far as an audience while the copy is owed");
     // A PAGE LOSING GROUND ON A SEARCH PEOPLE STILL RUN has levers; a search fewer people run has none, and
@@ -566,8 +572,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
     // A DANGEROUS CHANGE IS DISCOUNTED, NOT SUNK, and being held for a look is no longer a score at all: what separates these three is what each costs (a risky lever, -18) and what each would ruin (-30, a second change on a page being read). Whether the risky one may be pasted is settled off this file.
     expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
-    const held = ranked.find((p) => p.id === "risky")!;
-    expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
+    const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
     expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
     expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
     expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
@@ -577,8 +582,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
     // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
-    expect(factorOf(floored!, "evidence")).toBe(0);
-    expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
+    expect(factorOf(floored!, "evidence")).toBe(0); expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
     // WORTH DECIDES, AND ONLY WORTH: 9,999 clicks proven recoverable outranks none, and the stage a row is at contributes nothing either way. Being safe to paste was worth 250, more than every other factor together.
     expect(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))).toBeGreaterThan(proposalValueScore(floored!));
     // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
@@ -586,17 +590,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
     expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
-    expect(blind!.rankingReceipt!.directional).toBe(true);
+    expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]);
     expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
-    expect(factorOf(blind!, "visibility")).toBe(0);
-    const [sized] = rankProposals([prop({ impactScore: 570 })]);
-    expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([false, 22.8]);
+    const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([false, 22.8]);
     expect(sized!.rankingReceipt!.basis).toContain("about 570 clicks proven recoverable"); });
   it("decodes and ranks a stored row that predates every field this ranking added", () => {
     const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
     void _r; void _w; void _c; void _b;
-    const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal));
-    expect(back).not.toBeNull();
+    const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal)); expect(back).not.toBeNull();
     const [ranked] = rankProposals([back!]);
     expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["readiness", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished

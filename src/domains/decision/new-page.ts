@@ -170,6 +170,13 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     "Write the brief for this one page.",
   ].join("\n");
 
+  // ONE PASS, ONE CEILING: a brief and its sections are charged calls like any other, and this whole path used
+  // to sit outside the count entirely.
+  const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
+  if (spent()) {
+    log.info("[new-page] the pass has spent its whole attempt budget, so no brief was bought", { tenantId, topicKey: inv.key });
+    return { status: "none", reason: "This pass has spent its whole attempt budget, so this page was not written for yet." };
+  }
   const call = await callStructuredLLM({
     kind: "new_page_brief", tenantId, system: SYSTEM, user, grounded: facts.join(" "),
     projectedCostUsd: 0.03, maxTokens: 2600, complete: opts.complete, now, bypassCache: opts.bypassCache,
@@ -244,6 +251,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const outline = v.sections.map((s) => s.heading);
   const written: string[] = [];
   for (const s of v.sections) {
+    if (spent()) break; // an exhausted budget leaves a partial draft, which the shortfall check below refuses whole
     const drafted = await draftSectionStructured({ tenantId, query: inv.label, pageLabel: v.proposedTitle,
       heading: s.heading, brief: `${s.covers} Write no figure that is not in the evidence you were given, including a list length such as 5 or 10: name the items without counting them.`, outline, evidenceHints: facts },
       { complete: opts.complete, now, bypassCache: opts.bypassCache });

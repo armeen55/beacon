@@ -112,6 +112,36 @@ export function withholdReason(p: ChangeProposal, cause: Cause | null | undefine
   return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Settle that first and this card comes back.`;
 }
 
+/**
+ * WHY THIS CHANGE MAY NOT BE CALLED READY, or null when it may. The table above DISCOUNTS a mismatched lever in
+ * the ranking and REFUSES an unauthorized card at the boundary, and between the two sat the case that shipped: a
+ * card whose own ranking receipt reads "this change does not touch two of your own pages splitting one search",
+ * ranked down 25 points for it, stamped `ready`, and handed over with a Copy button. A RANKING PENALTY IS AN
+ * ORDER, NEVER A PERMISSION. This is the permission, and it is asked wherever `ready` is minted or served.
+ *
+ * A SPLIT IS SETTLED ON EVERY PAGE IT NAMES OR IT IS NOT SETTLED. Telling competing pages apart is the one
+ * wording change a split authorizes, and it authorizes it on ALL of them: a sharper title on one of two pages
+ * fighting over a search, with the other left exactly as it was, makes the fight worse. So a split is judged on
+ * COVERAGE of the addresses its own finding named, and a `keep_as_is` verdict is an address that got no words,
+ * whatever reason was recorded beside it. Everything else is judged on the lever table. PURE.
+ */
+export function unsettledCause(p: ChangeProposal): string | null {
+  const cause = p.causeFinding?.cause ?? p.diagnosisCause;
+  if (!cause) return null;
+  const payload = p.causeFinding?.payload;
+  const split = payload?.cause === "cannibalization" ? payload : null;
+  const named = split ? [...new Set([pathOf(p.pagePath ?? p.pageUrl ?? ""), ...split.competingPaths.map(pathOf)])].filter(Boolean) : [];
+  if (cause === "cannibalization" && named.length > 1) {
+    const written = new Set((p.bundle?.components ?? []).filter((c) => (c.after ?? "").trim().length > 0)
+      .map((c) => pathOf(c.page ?? p.pagePath ?? "")));
+    const owed = named.filter((n) => !written.has(n));
+    if (owed.length === 0) return null;
+    return `${num(owed.length)} of the ${num(named.length)} pages coming up for "${p.primaryQuery}" get no words from this change (${owed.join(", ")}), so the split it names is not settled and this is held for review rather than handed over as ready to paste.`;
+  }
+  return withholdReason(p, cause) == null ? null
+    : `This change works on something other than ${causeLabel(cause)}, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste.`;
+}
+
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 /** A PATH IS ALREADY A PATH. Prefixing a scheme onto "/iran-flags/qajar-empire-flags" makes the first segment
  *  the HOST, so the ladder's own competingPaths came back as "/" and "/qajar-empire-flags": a card naming pages

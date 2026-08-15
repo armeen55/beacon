@@ -44,6 +44,9 @@ export type ProposeOptions = {
   now?: Date;
   bypassCache?: boolean;
   authoritativeSourceDomains?: readonly string[];
+  /** THE PASS'S ONE ATTEMPT BUDGET, decremented BEFORE the charged call below so a refusal costs exactly what it
+   *  cost. Absent means this call stands on its own, which is what a test and a single-shot caller want. */
+  attempts?: { left: number };
 };
 
 /** Build the immutable evidence snapshot carried on the proposal. */
@@ -120,6 +123,12 @@ export async function proposeExistingPageChange(
       ?? "I checked the results page, but it does not yet show that the title is the problem.", drafterStatus: "not_diagnosed" };
   }
   const field = input.opportunity.field ?? "title";
+  // THE MONEY IS SPENT ON THE NEXT LINE, SO THE BUDGET IS READ ON THIS ONE. This path drafted outside the pass's
+  // ceiling entirely, so the strongest few pages spent first and whatever was left over was what the ceiling
+  // then counted from.
+  if (opts.attempts && (opts.attempts.left -= 1) < 0) {
+    return { status: "no_draft", reason: "This pass has spent its whole attempt budget, so nothing more was written for it.", drafterStatus: "budget_spent" };
+  }
   const draft = await draftAtomicEditStructured(
     {
       query: input.opportunity.query,

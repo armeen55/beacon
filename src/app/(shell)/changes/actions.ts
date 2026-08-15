@@ -7,7 +7,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, componentIdOf, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus,
+import { actionableProposalFailures, componentIdOf, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, unsettledCause,
   loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
@@ -203,6 +203,9 @@ export async function markProposalImplementedAction(args: {
     // never reach measurement because it can never be recorded here.
     const gaps = deliverableGaps(stored);
     if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
+    // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
+    const unfit = unsettledCause(stored);
+    if (unfit) return { success: false, error: unfit };
     // WHAT THEY SAY THEY APPLIED IS CHECKED AGAINST WHAT I HOLD. The server used to take the caller's word for a list of KINDS, so a
     // hand-built list nobody could have ticked selected nothing, walked past the confirmation below and closed the whole change. Ids are
     // derived from the stored bundle HERE.

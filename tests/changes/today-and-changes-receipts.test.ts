@@ -158,7 +158,7 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
     // TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other.
-    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "section" as const, label });
+    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // a lever this fixture's split AUTHORIZES: two section rewrites do not settle one, and the detail page holds a change whose lever misses its own cause instead of offering Mark done on it
     const twins = await renderDetail(proposal({ bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     expect([twins.includes("The opening section"), twins.includes("The sizing section"), twins.match(/type="checkbox" checked=""/g)?.length]).toEqual([true, true, 2]); });
   // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.

@@ -275,7 +275,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of noMeta.slice(0, TOP_PAGES_PER_CLASS)) out.push({
     page: p, slug: "missing_description", field: "meta", query: labelOf(p), brief: true,
     headline: `Write the missing description on ${pathOf(p.url)} (Google is writing its own)`, before: null,
-    after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends with a reason to click.",
+    after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends on a fact about the page rather than an instruction to read it.",
     // A COUNT IS NOT AN ARGUMENT UNTIL IT IS BIG ENOUGH TO BE ONE. "3 views in 90 days, so that line is read a lot" was printed on a live card: the sentence was welded to the figure and stayed true only while the figure was large. It says what the figure actually shows now, and a small one says it is small.
     why: `${pathOf(p.url)} carries no description, so the line under its title in the results is Google's own writing. It was shown ${count(impressions(p), "time")} and earned ${count(clicksOf(p), "click")} in 90 days, ${impressions(p) >= 1000 ? "so that line is read a lot" : "so it is a small page today and this is a small fix"}.`,
     steps: [`Open the site editor on ${pathOf(p.url)}`, "Paste a description of about 150 characters",
@@ -302,7 +302,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     out.push({
       page: p, slug: "missing_description", field: "meta", query: labelOf(p), brief: true, minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
       headline: `Write a real description on ${pathOf(p.url)}: ${family} pages share one templated line`, before: (p.content?.metaDescription ?? "").trim() || null,
-      after: "Write a description of about 150 characters that says what only this page answers, and ends with a reason to click.",
+      after: "Write a description of about 150 characters that says what only this page answers, and ends on a fact about the page rather than an instruction to read it.",
       why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, "Replace the templated description with one written for this page",
         "Mark it done here and the click rate gets read again"],
