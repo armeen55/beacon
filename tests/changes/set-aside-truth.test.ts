@@ -15,7 +15,7 @@ vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof 
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn(), transitionProposalToImplemented: vi.fn(async () => true), saveChangeProposal: vi.fn(async () => "saved"),
-  promoteConfirmedProposal: vi.fn(async () => ({ status: "promoted" as const })) }));
+  answerReviewedProposal: vi.fn(async () => ({ status: "promoted" as const })) }));
 vi.mock("@/app/(shell)/changes-data", async () => ({ ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn() }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
@@ -40,8 +40,8 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
     components: [{ kind: "title", label: "Title", risk: "safe", before: "Comedians", after: EXACT, evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "163 clicks lost in 4 weeks.", observedAt: SEEN }], missing: [], freshestObservedAt: SEEN } },
 } as unknown as ChangeProposal);
-const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [],
-  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, developing: 0, decidedCountCanonical: 0,
+const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [], research: [],
+  summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
 
 async function renderDetail(): Promise<string> {
@@ -119,7 +119,7 @@ describe("a direct link renders only what the ranked list would, and always land
     expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
     expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
     // STEP TWO, AND THE ONLY WAY OUT OF THE HOLD: Product Truth asks for two steps and only the first one existed, so a merge, a forward, a canonical or a de-index was held for a confirmation nobody could give. The confirmation lives on the change's own detail page, beside the pieces, the addresses, the destination and the risks, and it binds to ONE version: a version that has moved since the screen was drawn refuses, safe work sitting in review for a quality gate cannot reach this door at all, and the yes is written back onto the row so the queue and the mutation read it rather than trust a screen.
-    const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, promoteConfirmedProposal: promote } = await import("@/domains/decision");
+    const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, answerReviewedProposal: promote } = await import("@/domains/decision");
     const safe = { ...merge, bundle: { ...merge.bundle!, components: [b.components[0]!] } } as ChangeProposal;
     await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
     await link(safe); const wrong = await confirm({ proposalId: safe.id, version: confirmedVersion(safe) });
@@ -147,15 +147,32 @@ describe("an account that skipped the connectors still reaches its own Today", (
 
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
-  // ONE STORY ACROSS BOTH SURFACES: the empty queue says which empty it is, Changes owns the housekeeping sentence, and unfinished work is ONE status count with a next step on either screen, never a rank and never the word edit. A bar that could not be READ is not a bar that was raised, so that case claims none.
-  it("says which empty it is, counts what is still being developed, and never calls it an edit", async () => {
-    const view = emptyView(21), { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"), html = await renderChanges(view);
-    for (const said of ["21 earlier ideas that no longer clear it went aside", "No finished change is ready right now", "the moment Beacon has written the exact work"]) expect(html).toContain(said);
-    expect(html).not.toMatch(/No changes yet|error|sorry|oops/i);
-    expect([(await renderChanges({ ...view, basisUnreadable: true })).includes("21 earlier ideas"), buildTodayViewFromChanges(view).headerSentence, buildTodayViewFromChanges(view).nextOpportunities.length,
-      buildTodayViewFromChanges({ ...view, developing: 4 }).headerSentence, (await renderChanges({ ...view, developing: 4 })).includes("4 opportunities are still being developed")])
-      .toEqual([false, "No finished change is ready today. The next one is ranked here the moment Beacon has written the exact work.", 0,
-        "No finished change is ready today. 4 opportunities are still being developed.", true]); });
+  // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen. Zero ready still renders every draft and every opportunity under research, in full; a draft shows its exact copy and says out loud it is not finished; a research card carries what is missing; the same three counts appear on Today and on Changes, and no row is in two lanes.
+  it("shows every open opportunity with zero ready, never calls a draft finished, and counts the same on both screens", async () => {
+    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
+    const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
+    const missing = 'The results page for "iranian comedians" has not been read, and that read is what turns this into exact work.';
+    const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
+      operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing } } as unknown as ChangeProposal;
+    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
+    const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
+    for (const said of ["1 draft is waiting on your review", EXACT, "Copy draft", "Why it is held", "1 opportunity is being researched", "has not been read, and that read is what turns this into exact work", "Still missing"]) expect(html).toContain(said);
+    expect(html).not.toMatch(/Proven|Mark done/);
+    expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
+      .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. 1 draft is waiting on your review in Changes. 1 opportunity is being researched, each one shown with what is missing."]);
+    expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and the research card is its own shape
+  // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
+  it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
+    const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
+    const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); };
+    const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
+    const hard = { ...soft, limitations: ["1 of the 2 pages coming up for \"iranian comedians\" get no words from this change (/other), so the split it names is not settled and this is held for review rather than handed over as ready to paste."] } as ChangeProposal;
+    await link(soft); const yes = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "approve" });
+    await link(hard); const no = await reviewDraftAction({ proposalId: hard.id, version: confirmedVersion(hard), decision: "approve" });
+    await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" });
+    const { answerReviewedProposal: answer } = await import("@/domains/decision");
+    expect([yes.success, no.success, no.error?.includes("not settled"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)])
+      .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts.
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",

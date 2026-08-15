@@ -25,10 +25,10 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
     const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
       decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
       measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
-    for (const s of ["Work happening behind the scenes", "iranian saffron", "2,400 searches a month", "reading Google&#x27;s results page", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "waiting on the first read (lands Jul 8)", "it worked"]) expect(html, s).toContain(s);
+    for (const s of ["Pages being watched", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "waiting on the first read (lands Jul 8)", "it worked"]) expect(html, s).toContain(s);
     const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
-    // The drawer counts what it lists: 1 topic, and 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
-    expect([n(/\(([\d,]+) topics?,/), n(/, ([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows('data-researching-card="true"'), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([1, 23, 7, 16, 1, 7, 3, false]); });
+    // The drawer counts what it lists: 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
+    expect([n(/\(([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([23, 7, 16, 7, 3, false]); });
   // THE MEASURING LANE IS A LIST, NOT AN ESSAY: one row printed the whole stored argument for the change, and "still measuring" never answered the only question the row is asked, which is when the operator hears back.
   it("a measuring row is a short label, a date and where the reading has got to, never the paragraph behind the change", async () => {
     const why = "The page answers the question in the fourth paragraph while every page beating it answers in the first, and the searches behind it are worth about 2,400 a month, so the answer moves to the top and the rest of the page stays exactly as it is.";
@@ -44,12 +44,12 @@ describe("Changes shows every opportunity, and evidence decides only which lane 
   it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
     const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
     expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("What is measuring could not be read just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);
-    // AND THE SAME DISTINCTION IN THE DRAWER: a search read that did not answer emptied both lists in one render and the empty state said I have nothing open.
-    const dark = await renderFeed({ evidenceRead: false, investigations: [TOPIC], decay: [DECAY] }), open = await renderFeed({ investigations: [TOPIC], decay: [DECAY] });
-    const fixed = await renderFeed({ investigations: [TOPIC], decay: [DECAY], view: { ...viewOf([]), queuedPages: ["/comedians"] } }); // a page whose fix is in the list above names its rank, never "I have no change for it"
-    expect([dark.includes("Your Google search data could not be read just now"), dark.includes("No topic is open right now"), /\([\d,]+ topics?,/.test(dark), /data-watching-row/.test(dark),
-      open.includes("Your Google search data could not be read just now"), /\(1 topic, 1 page\)/.test(open), open.includes("its results page is read next"),
-      fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, false, false, true, true, true, false]); }); });
+    // AND THE SAME DISTINCTION IN THE DRAWER: a search read that did not answer emptied the list in one render and the empty state said I have nothing open.
+    const dark = await renderFeed({ evidenceRead: false, decay: [DECAY] }), open = await renderFeed({ decay: [DECAY] });
+    const fixed = await renderFeed({ decay: [DECAY], view: { ...viewOf([]), queuedPages: ["/comedians"] } }); // a page whose fix is in the list above names its rank, never "I have no change for it"
+    expect([dark.includes("Your Google search data could not be read just now"), /data-watching-row/.test(dark),
+      open.includes("Your Google search data could not be read just now"), /\(1 page\)/.test(open), open.includes("its results page is read next"),
+      fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, true, true, true, false]); }); });
 
 // ── Changes: the receipts reach the operator ─────────────────────────────────
 
@@ -94,8 +94,8 @@ const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
-  proposals: rows, ready: rows, toDo: [], summary: { todo: 0, ready: rows.length, implemented: 0, measuring: 0, results: 0 },
-  measuringCountCanonical: 0, demotedStaleBasis: 0, developing: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
+  proposals: rows, ready: rows, toDo: [], research: [], summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
+  measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 
 async function renderList(view: ChangesView): Promise<string> {
@@ -117,7 +117,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "waiting on a look", "Awaiting validation", "nothing below can be marked done"]) expect(held, s).toContain(s);
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "waiting on your review", "Why it is held", "moves or hides a page", "Copy draft"]) expect(held, s).toContain(s);
     for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {

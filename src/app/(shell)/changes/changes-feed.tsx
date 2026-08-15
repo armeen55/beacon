@@ -11,9 +11,10 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { changeSentence, ledgerProofLine } from "@/domains/decision";
-import type { TopicInvestigation } from "@/domains/evidence";
-import { developingClause, type ChangesView } from "../changes-data";
+import type { ChangeProposal } from "@/domains/decision";
+import { type ChangesView } from "../changes-data";
 import { isWatchedDecay } from "./lane-counts";
+import { pageLabel } from "./types";
 
 /** One page's two consecutive 28 day windows, as the decay read hands them over. */
 type DecayRow = {
@@ -124,37 +125,52 @@ function Lane({ title, blurb, children }: { title: string; blurb: string; childr
   );
 }
 
-// ── the drawer's two lanes, one line per row ─────────────────────────────────
+// ── the opportunity lane, one card per ranked signal ─────────────────────────
 
-/** HOW MUCH THIS TOPIC IS WORTH LOOKING AT, in one number I can defend: the largest priced search behind it,
- *  or the impressions Google already gave it. Never a sum of overlapping volumes. */
-const weightOf = (inv: TopicInvestigation): number =>
-  Math.max(inv.demand.monthlySearchVolume ?? 0, (inv.demand.gscImpressions ?? 0) / 4, inv.demand.trackedPrompts * 50);
-
-/** What I noticed, in ONE number. "came up 1 times" is not English, and it shipped. */
-function signalOf(inv: TopicInvestigation): string {
-  if (inv.demand.monthlySearchVolume != null) return `${num(inv.demand.monthlySearchVolume)} searches a month`;
-  const seen = inv.demand.gscImpressions ?? 0;
-  if (seen > 0) return `you came up ${seen === 1 ? "once" : `${num(seen)} times`} for it`;
-  if (inv.demand.trackedPrompts > 0) return `${inv.demand.trackedPrompts} of the tracked AI questions land here`;
-  return "Pricing the demand now";
+/** ONE OPPORTUNITY THAT HAS NO FINISHED WORDS YET, SHOWN WHOLE. It was a number in a sentence until 2026-08-15
+ *  ("7 opportunities are still being developed"), which is the account's own ranked research reported as
+ *  weather. Every card says the page, the exact search behind it, how big the audience is, what Beacon believes
+ *  is wrong, what it already holds, what is still missing and what happens next. Nothing here is offered as
+ *  work: there is no copy to take and no control that records it done. */
+function ResearchCard({ p }: { p: ChangeProposal }) {
+  const path = p.pagePath ?? p.pageUrl ?? "";
+  const owed = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after : p.recommendedChange.proposedTitle;
+  const believes = p.causeFinding?.explanation ?? p.whyItMatters;
+  // WHAT HAPPENS NEXT IS BEACON'S STEP, NEVER THE OPERATOR'S. A producer's own steps end on "mark it done here", which is an instruction to record work nobody has written, so only a step naming the read still owed counts and everything else says plainly that the words are not written and nothing here is theirs to do yet.
+  const next = (p.operatorSteps ?? []).find((x) => /lands on this card|next pass|read is on file|has not been read/i.test(x))
+    ?? "The exact work is not written yet. It lands on this card when it is, and nothing here is yours to do until then.";
+  const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !owed.includes(h.trim())).slice(0, 2);
+  const facts = [p.demandImpressions90d ? `${num(p.demandImpressions90d)} views in Google over 90 days` : null,
+    p.impactScore ? `${num(p.impactScore)} clicks recoverable` : null].filter(Boolean);
+  return (
+    <li className="space-y-1.5 rounded-2xl border border-border bg-surface-raised p-4" data-research-card="true">
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[14px] font-semibold text-foreground">{path ? pageLabel(path) : p.pageLabel}</span>
+        {path ? <span className="text-[12px] text-muted-foreground">{prettyPage(path)}</span> : null}
+      </p>
+      <p className="text-[13px] font-semibold leading-relaxed text-foreground">{p.opportunityType}</p>
+      <p className="text-[12px] tabular-nums text-muted-foreground">
+        Searched as &ldquo;{p.primaryQuery}&rdquo;{facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}
+      </p>
+      <p className="text-[13px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">What the evidence says: </span>{believes}</p>
+      <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-owed="true"><span className="font-semibold text-foreground">Still missing: </span>{owed}</p>
+      <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-next="true"><span className="font-semibold text-foreground">Next: </span>{next}</p>
+      {held.length > 0 ? (
+        <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-research-evidence="true">
+          {held.map((h, i) => <li key={i}>{h}</li>)}
+        </ul>
+      ) : null}
+    </li>
+  );
 }
-
-/** What I do next on this topic, from the acquisition's KIND rather than its sentence, so no stored date and no
- *  internal phrasing can ever reach this line. */
-const NEXT_WORD: Record<string, string> = { read_winner: "reading the winning pages",
-  buy_serp: "reading Google's results page", buy_volume: "pricing the searches" };
-const nextOf = (inv: TopicInvestigation): string =>
-  (inv.nextAcquisition ? NEXT_WORD[inv.nextAcquisition.kind] : null) ?? "watching it until your numbers move";
 
 // ── the feed ─────────────────────────────────────────────────────────────────
 
 /** THE one Changes screen. `queue` is the ranked list (its own client component, which owns paging, set aside
  *  and mark implemented); the ledger sits under it, and the background sits in a closed drawer under that. */
-export function ChangesFeed({ view, queue, investigations, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true, researchPaused = false, staleCounts = null }: {
+export function ChangesFeed({ view, queue, decay, declineNotes, measuring, results, heldForMeasurement = 0, ledgerRead = true, evidenceRead = true, researchPaused = false, staleCounts = null }: {
   view: ChangesView;
   queue: ReactNode;
-  investigations: readonly TopicInvestigation[];
   decay: readonly DecayRow[];
   declineNotes: readonly { page: string; note: string }[];
   measuring: readonly LedgerRow[];
@@ -164,8 +180,8 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
    *  an account with nothing measuring: printing "make your first change" to an operator holding 25 results is
    *  the worst lie this screen can tell, and the counts it cannot stand behind stay off the strip. */
   ledgerRead?: boolean;
-  /** FALSE when the evidence behind the drawer could not be read. Absence of a source is not an account with
-   *  nothing open: the drawer says which of the two happened and claims no count. */
+  /** FALSE when the decay read behind the watched pages could not be read. Absence of a source is not an
+   *  account with nothing open: the drawer says which of the two happened and claims no count. */
   evidenceRead?: boolean;
   /** TRUE when the account's research switch is off. Nothing on this screen may then promise a next daily round
    *  or work happening behind the scenes, because none is. */
@@ -173,15 +189,6 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   /** Release-stamped open-lane counts (same arithmetic, lane-counts.ts), shown with their age ONLY when the live read failed. */
   staleCounts?: { researching: number; watching: number; ago: string | null } | null;
 }) {
-  // One row per topic label: two investigation records for the same words is my bookkeeping, not two topics.
-  const seenLabels = new Set<string>();
-  const ranked = [...investigations].sort((a, b) => weightOf(b) - weightOf(a))
-    .filter((inv) => (seenLabels.has(inv.label) ? false : (seenLabels.add(inv.label), true)));
-  const shownResearch = ranked.slice(0, RESEARCH_LIMIT);
-  // SAID ONCE WHEN IT IS THE SAME ANSWER. Eight rows repeating one sentence is not eight facts.
-  const nextWords = new Set(shownResearch.map(nextOf));
-  const oneNext = nextWords.size === 1 ? [...nextWords][0]! : null;
-
   // Pages the decision already judged and resolved to watch keep the kernel's own verdict.
   const judged = new Map(declineNotes.map((n) => [n.page, n.note] as const));
   // THE FIX IS IN THE QUEUE, so this page may not also be called a page I have no change for. The ranking's own
@@ -203,11 +210,10 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
   const watchMore = watchingCount - (shownWatch.length + extraWatchRows);
   const shownMeasuring = measuring.slice(0, LANE_LIMIT), shownResults = results.slice(0, LANE_LIMIT);
   const ledgerMore = (measuring.length - shownMeasuring.length) + (results.length - shownResults.length);
-  // A live read that failed falls back to the counts the release stamped, said with their age.
-  const stale = evidenceRead === false ? staleCounts : null;
-  const backstage = evidenceRead === false
-    ? (stale ? { topics: stale.researching, pages: stale.watching, ago: stale.ago } : null)
-    : { topics: ranked.length, pages: watchingCount, ago: null };
+  // A live read that failed falls back to the count the release stamped, said with its age.
+  const watchLabel = evidenceRead === false ? staleCounts?.watching ?? null : watchingCount;
+  // THE THREE LANES ARE COUNTED ONCE, HERE, off the same release Today reads, so the two screens agree exactly.
+  const research = view.research ?? [], shownResearch = research.slice(0, RESEARCH_LIMIT);
 
   return (
     <div className="space-y-8" data-changes-feed="true">
@@ -217,13 +223,26 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
             said here rather than in brackets on every row that happens to quote one. */}
         {through ? <p className="-mt-1 text-[12px] tabular-nums text-muted-foreground" data-watermark="true">Google data through {through}.</p> : null}
         {queue}
-        {/* THE ONE STATUS COUNT for unfinished work: a number and a next step, never a ranked row, never an edit, and with no control that records it done. */}
-        {(view.developing ?? 0) > 0 ? (
-          <p className="text-[12px] leading-relaxed text-muted-foreground tabular-nums" data-developing-count="true">
-            {developingClause(view.developing)}
-          </p>
-        ) : null}
       </Lane>
+
+      {/* THE THIRD LANE, AND IT IS A LIST OF CARDS RATHER THAN A NUMBER (operator, 2026-08-15). Genuine
+          opportunities whose exact words are not written stay VISIBLE here with everything known about each
+          one; what the gates decide is that none of them carries copy to take or a control that records it
+          done. Nothing is hidden but a duplicate, a page mapping the evidence refuses, an idea the evidence
+          contradicts and a gap too small to be worth a morning, and each of those keeps its existing exit. */}
+      {research.length > 0 ? (
+        <Lane title="Opportunities being researched" blurb="Real signals off your own data with no finished wording yet. Each one says what is known, what is still missing and what happens next. Nothing here is ready to make.">
+          <p className="text-[14px] font-semibold tabular-nums text-foreground" data-research-count="true">
+            {num(view.summary?.research ?? research.length)} {plural(view.summary?.research ?? research.length, "opportunity is", "opportunities are")} being researched
+          </p>
+          <ul className="list-none space-y-3">{shownResearch.map((p) => <ResearchCard key={p.id} p={p} />)}</ul>
+          {research.length > shownResearch.length ? (
+            <p className="text-[12px] tabular-nums text-muted-foreground" data-lane-more="research">
+              {num(research.length - shownResearch.length)} more {plural(research.length - shownResearch.length, "is", "are")} open under these, and they are worked in this order.
+            </p>
+          ) : null}
+        </Lane>
+      ) : null}
 
       <Lane title="Measuring and results" blurb="Changes you have already made. Each page is read against how it did before and against similar pages that were not changed.">
         {view.countsUnavailable || !ledgerRead ? (
@@ -263,13 +282,14 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
         ) : null}
       </Lane>
 
-      {/* THE BACKGROUND, CLOSED. It is true, it is mine, and it is not his work: one line per row, no bullets,
-          no per-row repetition of a sentence that is the same on every one of them. */}
+      {/* THE PAGES BEING WATCHED, CLOSED. Not opportunities and not work: pages losing clicks, ideas set aside
+          and ideas waiting on a page already under measurement, one line each. Every opportunity that HAS a
+          card now has one, in the lane above, so the drawer that used to hide them holds only this. */}
       <details id="researching" className="rounded-2xl border border-border bg-surface-inset/40 px-4 py-3" data-backstage="true">
         {/* A PAUSED ACCOUNT HAS NOTHING HAPPENING BEHIND THE SCENES, and saying otherwise is the one claim here the operator can check and catch. */}
         <summary className="cursor-pointer text-[13px] font-semibold text-foreground">
-          {researchPaused ? "Open while research is paused" : "Work happening behind the scenes"}
-          {backstage ? ` (${num(backstage.topics)} ${plural(backstage.topics, "topic", "topics")}, ${num(backstage.pages)} ${plural(backstage.pages, "page", "pages")})` : ""}
+          {researchPaused ? "Pages watched while research is paused" : "Pages being watched"}
+          {watchLabel == null ? "" : ` (${num(watchLabel)} ${plural(watchLabel, "page", "pages")})`}
         </summary>
         <div className="mt-3 space-y-4">
           {researchPaused ? (
@@ -277,40 +297,13 @@ export function ChangesFeed({ view, queue, investigations, decay, declineNotes, 
               Research is paused, so none of this is being worked on right now. Turn it back on in Settings and the next round picks it up.
             </p>
           ) : null}
-          {/* A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING OPEN. The two lists below come off that
-              read; the ideas I set aside and the ones waiting on a measured page come off the release, so they
-              are still said. */}
+          {/* A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING OPEN. The list comes off that read; the
+              ideas set aside and the ones waiting on a measured page come off the release, so they are still said. */}
           {evidenceRead === false ? (
             <p className="text-[13px] leading-relaxed text-muted-foreground">
               Your Google search data could not be read just now, so no empty list is shown. Nothing here has been dropped, and Beacon is checking again automatically.
             </p>
-          ) : (
-              <div className="space-y-1" data-backstage-topics="true">
-                {shownResearch.length === 0 ? (
-                  <p className="text-[13px] text-muted-foreground">{researchPaused
-                    ? "No topic is open right now, and none is opened while research is paused."
-                    : "No topic is open right now. The next daily round opens the strongest one it finds and it lands here."}</p>
-                ) : (
-                  <>
-                    {oneNext ? <p className="text-[12px] text-muted-foreground" data-lane-note="true">Next on every one of these: {oneNext}.</p> : null}
-                    <ul className="space-y-1">
-                      {shownResearch.map((inv) => (
-                        <li key={inv.key} className="text-[13px] leading-relaxed text-muted-foreground tabular-nums" data-researching-card="true">
-                          <span className="font-semibold text-foreground">{inv.label}</span> · {signalOf(inv)}
-                          {oneNext ? "" : ` · next: ${nextOf(inv)}`}
-                        </li>
-                      ))}
-                    </ul>
-                    {ranked.length > shownResearch.length ? (
-                      <p className="text-[12px] tabular-nums text-muted-foreground">
-                        {num(ranked.length - shownResearch.length)} more {plural(ranked.length - shownResearch.length, "topic is", "topics are")} open under these, and they are worked in this order.
-                      </p>
-                    ) : null}
-                  </>
-                )}
-              </div>
-          )}
-
+          ) : null}
           <ul className="space-y-1" data-backstage-pages="true">
             {(evidenceRead === false ? [] : shownWatch).map((d) => {
                   const path = pathOf(d.page);

@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, deliverableGaps, loadProposalQueue, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { countLedgerLifecycle } from "@/domains/decision";
@@ -19,24 +19,24 @@ import { readCustomerSurface, isCustomerSurfaceStale, type CustomerSurface } fro
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
-type ChangesSummary = { todo: number; ready: number; implemented: number; measuring: number; results: number };
+type ChangesSummary = { todo: number; ready: number; research: number; implemented: number; measuring: number; results: number };
 
 export type ChangesView = {
   /** The ranked pre-ship queue, cut to ONE page. `summary` carries the true totals, counted in the database. */
   proposals: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (the Ready tab). */
   ready: ChangeProposal[];
-  /** Generated but held for a human look (the To do tab). */
+  /** DRAFTS TO REVIEW: exact copy written, one judgement or one named check still standing. */
   toDo: ChangeProposal[];
+  /** OPPORTUNITIES BEING RESEARCHED: ranked signals with nothing exact written yet, shown as cards and never
+   *  as a bare count. Carried on the release itself (one screen of them), never paged in the database. */
+  research: ChangeProposal[];
   /** New-page briefs, kept distinct from existing-page edits. */
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
   measuringCountCanonical: number;
   /** Validator-passed rows set aside because they predate the current decision bar. */
   demotedStaleBasis: number;
-  /** Opportunities whose deliverable is not finished: stored and evidenced, never ranked, never called an edit.
-   *  Exactly one status count on Changes may say how many, and nothing else. */
-  developing: number;
   /** True when I could not read the current bar, so the count above is not a raised bar. */
   basisUnreadable?: boolean;
   /** Whole-tenant decided count (proof ledger). */
@@ -78,14 +78,11 @@ export function sanitizeSurfaceComputedAt(iso: string | null | undefined): strin
   return iso;
 }
 
-/** THE ONE STATUS COUNT for work Beacon has not finished: a count and a next step, never a list, never a rank and never the word edit. */
-export function developingClause(n: number): string {
-  return `${n} ${n === 1 ? "opportunity is" : "opportunities are"} still being developed. Each one lands here as a change once Beacon has written the exact work.`;
-}
-/** THE EMPTY QUEUE'S OWN COPY. Zero finished changes is an honest state, said plainly and never dressed up as ideas waiting on a review. */
-export function setAsideHint(developing = 0): string {
-  return developing > 0
-    ? `No finished change is ready right now. ${developingClause(developing)}`
+/** THE EMPTY READY LANE'S OWN COPY, and it may no longer imply an empty screen: drafts to review and the
+ *  opportunities under research render underneath whatever this says, so it states the one fact it owns. */
+export function setAsideHint(open = 0): string {
+  return open > 0
+    ? `No finished change is ready right now. ${open} ${open === 1 ? "opportunity is" : "opportunities are"} open below, with what is written for each and what is still missing.`
     : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
 }
 
@@ -95,26 +92,27 @@ export function setAsideHint(developing = 0): string {
  *  because a uniformly stale release looks perfectly consistent. A basis I cannot read withholds everything. */
 export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string; currentBasis: string | null }): ChangesView {
   const currentBasis = ctx.currentBasis;
-  // THE STORED RELEASE PASSES THE COMPLETENESS BOUNDARY TOO. A blob published before a producer's copy rule
-  // tightened can still be carrying an instruction, and a photograph of unfinished work is still unfinished work.
   const standing = view.proposals.filter((p) => actionableProposalFailures(p, ctx).length === 0);
-  const keep = standing.filter((p) => deliverableGaps(p).length === 0);
-  if (keep.length === view.proposals.length && currentBasis != null) return view;
-  const id = new Set(keep.map((p) => p.id));
-  const ready = view.ready.filter((p) => id.has(p.id));
-  const toDo = view.toDo.filter((p) => id.has(p.id));
+  if (standing.length === view.proposals.length && currentBasis != null) return view;
+  // A PHOTOGRAPH IS RE-SORTED, NEVER EMPTIED. A blob published before a gate tightened can be carrying a row in
+  // the wrong lane, so every surviving row is put back through the ONE hold: nothing is dropped for being
+  // unfinished, it is shown where it belongs and the count follows the list.
+  const id = new Set(standing.map((p) => p.id));
+  const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => id.has(p.id));
+  const research = kept.filter((p) => openHold(p).lane === "research");
+  const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).blocking == null);
+  const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);
-  const developing = Math.max(view.developing ?? 0, standing.length - keep.length);
-  return { ...view, proposals: keep, ready, toDo, developing,
-    summary: { ...view.summary, ready: ready.length, todo: toDo.length },
+  return { ...view, proposals: standing, ready, toDo, research,
+    summary: { ...view.summary, ready: ready.length, todo: toDo.length, research: research.length },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
-    readyZeroHint: keep.length === 0 ? setAsideHint(developing) : view.readyZeroHint };
+    readyZeroHint: ready.length === 0 ? setAsideHint(toDo.length + research.length) : view.readyZeroHint };
 }
 
 const EMPTY_CHANGES_VIEW: ChangesView = {
-  proposals: [], ready: [], toDo: [], measuringCountCanonical: 0, demotedStaleBasis: 0, developing: 0, decidedCountCanonical: 0,
-  summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 },
+  proposals: [], ready: [], toDo: [], research: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
+  summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: null, surfaceBuilding: true,
 };
 
@@ -161,7 +159,9 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has
   // nothing behind it.
   if (ready.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
-  return { ...view, proposals: [...ready.rows, ...toDo.rows], ready: ready.rows, toDo: toDo.rows,
+  // The two paged lanes come out of the database; the research lane rides the release itself and is spread in
+  // beside them, so an account whose only open work is being researched is never read as an account with none.
+  return { ...view, proposals: [...ready.rows, ...toDo.rows, ...(view.research ?? [])], ready: ready.rows, toDo: toDo.rows,
     summary: { ...view.summary, ready: ready.total, todo: toDo.total }, surfaceVersion: ready.release,
     queueCursor: { ready: ready.nextRank, todo: toDo.nextRank },
     queueMore: { ready: ready.more, todo: toDo.more } };
@@ -227,7 +227,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   // ranking built against a bar it is no longer filtering on.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
   const [queue, ledger] = await Promise.all([
-    loadProposalQueue(tenantId, { currentBasis }).catch(() => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0, developing: 0, basisUnreadable: true })),
+    loadProposalQueue(tenantId, { currentBasis }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
     // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results" during an outage, which reads
     // as "nothing you shipped is being watched" and is a lie they cannot check.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
@@ -237,17 +237,18 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   const summary: ChangesSummary = {
     todo: queue.toDo.length,
     ready: queue.ready.length,
+    research: queue.research.length,
     implemented: queue.implementedPendingVerification,
     measuring: ledgerCounts.measuring,
     results: ledgerCounts.decided,
   };
 
-  // THE EMPTY QUEUE SAYS WHICH EMPTY IT IS, and never dresses unfinished work up as a queue. It is read off the
-  // WHOLE ranked list, not off the Ready lane alone: a change waiting on a human look is still a finished change.
+  // THE EMPTY READY LANE SAYS WHICH EMPTY IT IS, over a screen that still shows every draft and every
+  // opportunity underneath it: zero ready is never zero work in view.
   let readyZeroHint: string | null = null;
-  if (queue.ranked.length === 0) {
-    readyZeroHint = queue.developing > 0
-      ? setAsideHint(queue.developing)
+  if (queue.ready.length === 0) {
+    readyZeroHint = queue.toDo.length + queue.research.length > 0
+      ? setAsideHint(queue.toDo.length + queue.research.length)
       : summary.measuring > 0
         ? `No finished change is ready right now. Everything written so far is live and being read (${summary.measuring} in progress), and the next change is ranked here as fresh demand data comes in.`
         : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
@@ -275,11 +276,11 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     queuedPages: [...new Set(queue.ranked.map((p) => (p.pagePath ?? p.pageUrl ?? "").replace(/^https?:\/\/[^/]+/, "")).filter((s) => s.length > 0))],
     ready: queue.ready.slice(0, CHANGES_PAGE_SIZE),
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),
+    research: queue.research.slice(0, CHANGES_PAGE_SIZE),
     summary,
     basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,
     demotedStaleBasis: queue.demotedStaleBasis,
-    developing: queue.developing,
     decidedCountCanonical: ledgerCounts.decided,
     readyZeroHint,
     receiptLine,

@@ -2,8 +2,9 @@
  * decision/load-proposals (CORE 100K cutover, 2026-07-22): the ONE read path
  * the live surfaces (Changes + Today) consume. It loads the persisted, re- validated ChangeProposals for a tenant, ranks them by honest value, and partitions them into the operator-facing lifecycle:
  *
- *   ready     validated safe, owes no source: act now.
- *   toDo      still live under the same basis: held for review or waiting on a source.
+ *   ready     validated safe, every hold answered: act now.
+ *   toDo      the exact copy exists and a judgement or one named check stands between it and ready.
+ *   research  a real ranked signal with nothing exact written for it yet. VISIBLE, never a bare count.
  *   (a withdrawn draft is history and never surfaces; an implemented one has moved to the ledger.)
  *
  * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an older basis, one carrying no basis, and every proposal at all when the current
@@ -21,7 +22,7 @@ import { basisTag, getTenant, loadBusinessProfile, type BusinessProfile } from "
 import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
-import { deliverableGaps } from "./completeness";
+import { openHold } from "./completeness";
 import { unsettledCause } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
@@ -65,20 +66,6 @@ export async function resolveCurrentBasis(
   } catch {
     return null;
   }
-}
-
-/**
- * A limitation that still ASKS for a source or a fact check is an UNRESOLVED requirement: whatever the stored status says, the copy is not paste-ready, so
- * it presents as to-do instead of ready. Deliberately narrow (the phrasings the
- * quality gate and the validator actually emit) so an honest "what I could not check yet" receipt line never demotes a finished change.
- */
-const UNRESOLVED_SOURCE =
-  /paste-ready|cited authoritative source|carries no source|add (?:a |an |one |1-2 )?(?:cited |authoritative )?sources?|verify (?:this|the) (?:claim|fact)/i;
-
-/** PURE: does this proposal still owe a source before anyone can paste it? Internal to this queue: the
- *  public surface asks for the partition below, never for one row's source hold. */
-function holdsForUnresolvedSource(p: ChangeProposal): boolean {
-  return p.limitations.some((l) => UNRESOLVED_SOURCE.test(l));
 }
 
 /** THE MEASUREMENT WINDOW: the longest reading Beacon takes on an applied change. Past it, that page is
@@ -133,17 +120,18 @@ export type RankedProposalQueue = {
   ranked: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (status "ready"). */
   ready: ChangeProposal[];
-  /** Generated but held for a human look (status "needs_review"). */
+  /** DRAFTS TO REVIEW: the exact copy is written and something still stands between it and ready, either a
+   *  person's judgement or one named check. Shown in full, never called finished. */
   toDo: ChangeProposal[];
+  /** OPPORTUNITIES BEING RESEARCHED: a real ranked signal with no finished copy yet. Shown in full with what
+   *  is known, what is missing and what happens next, never offered as work and never collapsed to a count. */
+  research: ChangeProposal[];
   /** Marked implemented and not yet checked on the live page. Counted, never queued: it is
    *  the operator's claim awaiting my reading, so it belongs on the lifecycle line, not the list. */
   implementedPendingVerification: number;
   /** How many live rows I set aside instead of queueing, because I cannot show
    *  they were drafted under the basis I hold now (surfaces say this out loud). */
   demotedStaleBasis: number;
-  /** Opportunities whose deliverable is not finished. Stored, evidenced, never ranked and never called an edit:
-   *  one status count is all any surface may say about them. */
-  developing: number;
   /** TRUE when the account's current basis could not be read at all. The queue is
    *  empty because I cannot tell what is current, NOT because I raised the bar. */
   basisUnreadable: boolean;
@@ -172,13 +160,11 @@ export async function loadProposalQueue(
   // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
-  // THE COMPLETENESS BOUNDARY. A row whose deliverable Beacon has not finished is an opportunity still being developed,
-  // not a change: it keeps its words, its evidence and its history and stays out of the ranked queue, so nothing
-  // instruction-shaped, blank or research-blocked is handed over as work. It is counted instead, and one status line
-  // says how many. A row that cannot be presented may not suppress one that can, so this runs BEFORE the supersession
-  // below, exactly as the basis filter does.
-  const all = standing.filter((p) => deliverableGaps(p).length === 0);
-  const developing = standing.length - all.length;
+  // THE COMPLETENESS BOUNDARY DECIDES THE LANE, NEVER WHETHER THE WORK IS SEEN (operator, 2026-08-15). A row whose
+  // deliverable is not finished used to leave the queue entirely and reach the operator as a number, which buried
+  // genuine opportunities the account had already paid to find. Every standing row is ranked and shown; what the
+  // boundary decides is which of the three lanes it lands in and which controls its card carries.
+  const all = standing;
   // A bundle REPLACES its own shallow rows: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC. READ AFTER the basis filter above, never before it: a bundle from a retired generation can never be shown, and one that censored the current card for its own page took a whole split off the queue rather than the wrong half of it (2026-08-14). A row that cannot be presented may not suppress one that can.
   const bundledPages = new Set(all.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
   const bundledTopics = new Set(all.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
@@ -195,19 +181,24 @@ export async function loadProposalQueue(
   // treats the cause its own evidence named. That last one is the screen's half of the same boundary the
   // producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve
   // as paste-ready work just because it is already on file. Every other current-basis row is a to-do.
-  const ready: ChangeProposal[] = [];
-  const toDo: ChangeProposal[] = [];
+  // THE THREE LANES, off the ONE hold: nothing written yet is research, exact copy with anything at all still
+  // standing is a draft to review, and a row stamped ready whose holds are all answered is ready. `blocking` is
+  // asked here as well as at the mutation, so a row promoted by an older pass, or one whose banked placement can
+  // no longer be checked, is demoted in presentation instead of being served as paste-ready work.
+  const ready: ChangeProposal[] = [], toDo: ChangeProposal[] = [], research: ChangeProposal[] = [];
   for (const p of ranked) {
-    if (p.status === "ready" && !holdsForUnresolvedSource(p) && unsettledCause(p) == null) ready.push(p);
+    const hold = openHold(p);
+    if (hold.lane === "research") research.push(p);
+    else if (p.status === "ready" && hold.blocking == null && unsettledCause(p) == null) ready.push(p);
     else toDo.push(p);
   }
   return {
     ranked,
     ready,
     toDo,
+    research,
     implementedPendingVerification: [...byId.values()].filter((p) => p.status === "implemented_pending_verification").length,
     demotedStaleBasis,
-    developing,
     basisUnreadable,
   };
 }

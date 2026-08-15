@@ -63,13 +63,13 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
     expect([mixed.headerSentence, mixed.readyTotal, mixed.toDoTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit])
-      .toEqual(["You have 3 finished changes ready to make, best first. 1 idea is waiting on a review in Changes.", 3, 1, 3,
-        "No finished change is ready today. 1 idea is waiting on a review in Changes.", undefined]);
+      .toEqual(["You have 3 finished changes ready to make, best first. 1 draft is waiting on your review in Changes.", 3, 1, 3,
+        "No finished change is ready today. 1 draft is waiting on your review in Changes.", undefined]);
     expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence,
       buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence, buildTodayViewFromChanges(empty).headerSentence,
-      buildTodayViewFromChanges({ ...empty, developing: 7 }).headerSentence])
+      buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
       .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
-        "No finished change is ready today. 7 opportunities are still being developed."]);
+        "No finished change is ready today. 7 opportunities are being researched, each one shown with what is missing."]);
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
 });

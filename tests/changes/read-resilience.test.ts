@@ -7,7 +7,7 @@ const calls = vi.hoisted(() => ({ ledger: 0, evidence: 0, surface: 0, failSurfac
 const SURFACE = vi.hoisted(() => ({
   schemaVersion: 2 as const, releaseId: "t::r1", tenantId: "t",
   computedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
-  changes: { proposals: [], ready: [], toDo: [], summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 },
+  changes: { proposals: [], ready: [], toDo: [], research: [], summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
     measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null },
   today: { today: {} },
 }));
@@ -18,9 +18,7 @@ vi.mock("next/server", async () => ({ ...(await vi.importActual<typeof import("n
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/evidence", () => ({
-  loadEvidenceSnapshot: vi.fn(async () => { calls.evidence += 1; if (calls.evidence === 1) throw new Error("cold"); return {}; }),
-  buildTopicInvestigations: () => [],
-  loadGscDecaySignalsForTenant: async () => new Map(),
+  loadGscDecaySignalsForTenant: vi.fn(async () => { calls.evidence += 1; if (calls.evidence === 1) throw new Error("cold"); return new Map(); }),
 }));
 vi.mock("@/domains/measurement", () => ({
   loadProofLedgerCached: vi.fn(async () => { calls.ledger += 1; await new Promise((r) => setTimeout(r, 80)); return []; }),
@@ -30,7 +28,7 @@ vi.mock("@/domains/decision", () => ({
   resolveCurrentBasis: async () => null,
   actionableProposalFailures: () => [],
   countLedgerLifecycle: () => ({ measuring: 0, decided: 0 }),
-  loadProposalQueue: async () => ({ ranked: [], ready: [], toDo: [], implementedPendingVerification: 0, demotedStaleBasis: 0 }),
+  loadProposalQueue: async () => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0 }),
   readQueuePage: async () => ({ rows: [], total: 0, nextRank: 0, release: null, more: false, dropped: 0 }),
   stampQueueRanking: async () => true,
 }));
@@ -45,8 +43,8 @@ vi.mock("@/app/(shell)/surface-release", () => ({
 }));
 vi.mock("@/app/(shell)/changes-data", async () => ({
   ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
-  loadChangesView: vi.fn(async () => ({ proposals: [], ready: [], toDo: [],
-    summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0,
+  loadChangesView: vi.fn(async () => ({ proposals: [], ready: [], toDo: [], research: [],
+    summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0,
     demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null, surfaceBuilding: false })),
 }));
 

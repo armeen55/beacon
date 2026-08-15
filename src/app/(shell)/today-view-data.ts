@@ -12,7 +12,11 @@ import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
  *  the ranking sentence and the evidence tier rode this shape for months and no screen ever read one of them. */
-type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: string; problem?: string };
+type TodayOpportunity = { changeId: string; pageLabel: string; recommendation: string; problem?: string;
+  /** WHICH LANE THIS ITEM CAME OUT OF, so Today can say what it is before anybody presses it. `ready` is
+   *  finished work; `review` is a draft owing a look and `research` an opportunity with nothing written yet,
+   *  and neither of those may ever be printed as a finished change. */
+  lane: "ready" | "review" | "research" };
 
 /** The minimal Today read model the Today page renders: the header sentence plus the ranked next opportunities. Owned here now that the
  *  changes-domain today-view was retired. */
@@ -37,6 +41,8 @@ type TodayView = {
   /** THE SIZE OF THE READY QUEUE, uncapped, beside the capped `nextOpportunities` preview. ONE queue, ONE number: the command used to count
    *  the preview and say "4 more" under a header that said 12. */
   readyTotal?: number;
+  /** THE RESEARCH LANE'S OWN TOTAL, the same number Changes prints over its own cards. */
+  researchTotal?: number;
   /** THE NEEDS REVIEW LANE'S OWN TOTAL, counted in the database. Today has to carry it or the command cannot tell a genuinely quiet day from a
    *  day with twenty ideas waiting on the operator, and it said "nothing needs a decision" over both. */
   toDoTotal?: number;
@@ -79,8 +85,8 @@ function recommendationOf(p: ChangeProposal): string {
 
 /** PURE: map a ranked proposal to Today's opportunity shape. The PROBLEM rides along, because three directives
  *  with no statement of what any of them is for is a chore list, not a recommendation. */
-const proposalToOpportunity = (p: ChangeProposal): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
-  recommendation: recommendationOf(p), ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
+const proposalToOpportunity = (p: ChangeProposal, lane: TodayOpportunity["lane"]): TodayOpportunity => ({ changeId: p.id, pageLabel: p.pageLabel,
+  recommendation: recommendationOf(p), lane, ...(p.whyItMatters ? { problem: p.whyItMatters } : {}) });
 
 /** PURE: the top ranked change said as an action plus the two lines. Null when it carries nothing to put there.
  *  EVERY CHANGE THAT REACHES HERE IS FINISHED: the completeness boundary keeps unfinished work out of the queue
@@ -149,7 +155,12 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const readyTotal = view.summary?.ready ?? view.ready.length;
   // ONLY WHAT IS READY IS OFFERED. Today used to draw its preview and its "Do this first" edit off ready AND review together, so on a day
   // with nothing finished the top of the homepage handed over a card the queue itself holds back, with a Copy press on it.
-  const ready = view.ready.slice(0, TODAY_PREVIEW_LIMIT).map(proposalToOpportunity);
+  // AT MOST THREE NEXT ITEMS, EACH SAYING WHAT IT IS. Finished work leads; a draft owing a look and an
+  // opportunity still being researched fill the rest rather than leaving the day looking empty, and both carry
+  // their lane so no surface can print either as a finished change.
+  const ready = [...view.ready.map((p) => proposalToOpportunity(p, "ready")),
+    ...view.toDo.map((p) => proposalToOpportunity(p, "review")),
+    ...(view.research ?? []).map((p) => proposalToOpportunity(p, "research"))].slice(0, TODAY_PREVIEW_LIMIT);
   const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
   const unread = view.countsUnavailable === true;
@@ -158,6 +169,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const declineNotes = producer.declineNotes?.length ? { declineNotes: producer.declineNotes } : {};
   const waiting = producer.waitingUntil && Number.isFinite(Date.parse(producer.waitingUntil)) ? producer.waitingUntil : null;
   const held = producer.heldForMeasurement ?? 0;
+  const researching = view.summary?.research ?? (view.research ?? []).length;
+  const inReview = view.summary?.todo ?? view.toDo.length;
   const rest = {
     ...declineNotes,
     ...(waiting ? { waitingUntil: waiting } : {}),
@@ -165,7 +178,8 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ...(held > 0 ? { heldForMeasurement: held } : {}),
     ...(producer.outcome ? { producerOutcome: producer.outcome } : {}),
     readyTotal,
-    toDoTotal: view.summary?.todo ?? view.toDo.length,
+    toDoTotal: inReview,
+    researchTotal: researching,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
   // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane whose
@@ -173,11 +187,9 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   // this number: it rides its own clause below, as a count, exactly as work still being developed does. Production
   // held 3 ready and 1 in review and this sentence said "4 finished changes ready to make".
   const openTotal = readyTotal;
-  const developing = view.developing ?? 0;
-  const inReview = view.summary?.todo ?? view.toDo.length;
-  const stillComing = (developing > 0
-    ? ` ${developing} ${developing === 1 ? "opportunity is" : "opportunities are"} still being developed.` : "")
-    + (inReview > 0 ? ` ${inReview} ${inReview === 1 ? "idea is" : "ideas are"} waiting on a review in Changes.` : "");
+  // THE SAME THREE NUMBERS CHANGES SHOWS, off the same release, so one navigation cannot show two answers.
+  const stillComing = (inReview > 0 ? ` ${inReview} ${inReview === 1 ? "draft is" : "drafts are"} waiting on your review in Changes.` : "")
+    + (researching > 0 ? ` ${researching} ${researching === 1 ? "opportunity is" : "opportunities are"} being researched, each one shown with what is missing.` : "");
   const headerSentence = openTotal > 0
     ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.${stillComing}`
     : waiting

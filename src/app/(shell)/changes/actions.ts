@@ -7,8 +7,8 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, unsettledCause,
-  loadChangeProposal, markRecommendedEditsAsShipped, promoteConfirmedProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
+import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, openHold, unsettledCause,
+  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, recordShipment, type MeasurementState } from "@/domains/measurement";
@@ -250,7 +250,7 @@ export async function confirmDangerousChangeAction(args: { proposalId: string; v
     // THE YES BINDS TO ONE EXACT VERSION: the copy, where it lands, the pieces, the destination, the risk grades, the risks, the caveats, the steps, the claims and the words behind them, the readings and the basis it was given for. Anything moved since makes it stale, and the SCREEN is answered here so a stale tab reads the plain sentence rather than a race it never ran into. THE PROMOTION ITSELF IS ONE COMPARE-AND-SET IN THE STORE: it re-reads the row, asks the row's own integrity of the PROMOTED version (whose change this is, the bar it was drafted under, whether its readings still stand), and writes only while the row is still the exact version that was confirmed. A rewrite landing in between changes nothing and is never overwritten.
     const stale = "This change has been rewritten since that screen was drawn, so your confirmation is not being applied to it. Open it again, read the new version, and confirm that one.";
     if (confirmedVersion(stored) !== args.version) return { success: false, error: stale };
-    const done = await promoteConfirmedProposal(tenantId, args.proposalId, args.version, basis);
+    const done = await answerReviewedProposal(tenantId, args.proposalId, args.version, basis, { kind: "promote", at: new Date().toISOString() });
     if (done.status === "stale") return { success: false, error: stale };
     if (done.status === "refused") return { success: false, error: done.refusal! };
     if (done.status !== "promoted") { log.error("confirmDangerousChange: the confirmation did not land", { proposalId: args.proposalId }); return { success: false, error: "That could not be confirmed just now. Press it again in a moment." }; }
@@ -260,6 +260,45 @@ export async function confirmDangerousChangeAction(args: { proposalId: string; v
   } catch (err) {
     log.error("confirmDangerousChange: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "That could not be confirmed just now. Press it again in a moment." };
+  }
+}
+
+/** THE OPERATOR'S ANSWER TO A DRAFT THEY READ. TWO ANSWERS, ONE DOOR: `approve` says the words are good enough to make and `improve` asks the next funded pass to write better ones over them. THE BOUNDARY IS SERVER-ENFORCED AND NOT A UI RULE: a human yes may answer EDITORIAL judgement (how it reads, whether anybody would hand it to a customer) and may never answer a fact about the work, so the row is re-read here, its own stored reasons are split into hard and soft by the ONE pure rule the card renders from, and a hard hold refuses with that exact reason. A change that moves or hides a page keeps its own version-bound confirmation and is refused here. The promotion itself is the SAME compare-and-set the confirmation uses: the yes binds to the exact version that was read, and a rewrite landing in between changes nothing. */
+export async function reviewDraftAction(args: { proposalId: string; version: string; decision: "approve" | "improve" }): Promise<MarkProposalImplementedResponse> {
+  if (!(await canPublishForCurrentTenant())) return { success: false, error: "You do not have permission to answer this draft." };
+  if (!args.proposalId || !args.version) return { success: false, error: "No draft was specified." };
+  const tenantId = await currentTenantId();
+  try {
+    const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+    const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
+    if (stored == null) return { success: false, error: "That draft could not be found, so nothing was changed." };
+    if (stored.status !== "needs_review") return { success: false, error: "This one is not waiting on your review. Open Changes for the work that stands today." };
+    const hold = openHold(stored);
+    if (hold.lane === "research") return { success: false, error: "Nothing exact is written for this one yet, so there is no draft to answer. It is being researched and lands in your list as a change once the work is written." };
+    const stale = "This draft has been rewritten since that screen was drawn, so your answer is not being applied to it. Open it again, read the new version, and answer that one.";
+    if (confirmedVersion(stored) !== args.version) return { success: false, error: stale };
+    const at = new Date().toISOString();
+    if (args.decision === "approve") {
+      // THE HARD HOLDS, REFUSED BY NAME. Approving one would promote copy past the very check that holds it.
+      if (hold.blocking) return { success: false, error: `This one is not yours to wave through: ${hold.blocking} Ask for a better draft instead, or skip it.` };
+      const who = (await getTenant(tenantId).catch(() => null))?.domain?.trim() || tenantId;
+      const done = await answerReviewedProposal(tenantId, args.proposalId, args.version, basis, { kind: "promote", by: who, at });
+      if (done.status === "stale") return { success: false, error: stale };
+      if (done.status === "refused") return { success: false, error: done.refusal! };
+      if (done.status !== "promoted") return { success: false, error: "That could not be approved just now. Press it again in a moment." };
+    } else {
+      const done = await answerReviewedProposal(tenantId, args.proposalId, args.version, basis, { kind: "redraft", at });
+      if (done.status === "stale") return { success: false, error: stale };
+      if (done.status !== "promoted") return { success: false, error: "That could not be sent back just now. Press it again in a moment." };
+    }
+    await invalidateCoreSurfaces().catch(() => {});
+    revalidatePath("/changes"); revalidatePath("/", "layout");
+    return { success: true, note: args.decision === "approve"
+      ? "Approved. It is ready to make, the copy is on the card, and your name is on the approval."
+      : "Sent back for better words. The next drafting pass writes over this one, and the draft you read stays here until it does." };
+  } catch (err) {
+    log.error("reviewDraft: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
+    return { success: false, error: "That could not be saved just now. Press it again in a moment." };
   }
 }
 

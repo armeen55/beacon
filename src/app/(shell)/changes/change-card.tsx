@@ -12,10 +12,11 @@ import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
 import { componentIdOf, dangerousComponents, receiptComposition } from "@/domains/decision/contracts";
+import { confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
 import { pageLabel } from "./types";
-import { CopyButton, MarkImplemented } from "./change-controls";
+import { CopyButton, MarkImplemented, ReviewAnswer } from "./change-controls";
 
 /** The producer's own boilerplate. It said the same sentence on all 37 title cards, so it is dropped outright
  *  rather than reprinted anywhere: a sentence true of every row is a fact about the producer, not a reason. */
@@ -30,7 +31,7 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
 /** HOW PROVEN THIS EDIT IS, as one ordered tier: 0 cleared every evidence and safety check, 1 has a receipt
  *  citing a live results page or a page that beats you, 2 has neither. The list sorts and filters on the SAME
  *  number the chip renders, so a filter and a chip can never disagree. */
-export const evidenceTier = (p: ChangeProposal, proven: boolean): 0 | 1 | 2 =>
+const evidenceTier = (p: ChangeProposal, proven: boolean): 0 | 1 | 2 =>
   proven ? 0 : (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page") ? 1 : 2;
 /** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument
  *  behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. */
@@ -173,6 +174,10 @@ export function ChangeCard({ proposal, rank, proven, review = false, onAside, on
   // entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
   const merge = isConsolidation(proposal);
   const recordDone = () => { setDone(true); onDone(proposal.id); };
+  // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
+  // may be pressed: editorial judgement is the operator's to answer, a fact about the work is nobody's.
+  const hold = review ? openHold(proposal) : null;
+  const placement = proposal.recommendedChange.kind === "existing_edit" ? proposal.recommendedChange.where ?? null : null;
 
   if (done) return (
     <li className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-4" data-change-card="done">
@@ -237,12 +242,22 @@ export function ChangeCard({ proposal, rank, proven, review = false, onAside, on
               <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
                 <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
               </p>
-              {review ? <span className="shrink-0 rounded-md border border-border px-2 py-1 text-[12px] text-muted-foreground" data-awaiting-validation="true">Awaiting validation</span>
-                : <CopyButton text={after} onToast={onToast}
-                  label={`Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />}
+              <CopyButton text={after} onToast={onToast}
+                label={review ? "Copy draft" : `Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
           </div>
         )}
+
+        {hold ? (
+          <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
+            <p className="text-[12px] font-semibold text-foreground">A draft, not finished work. Why it is held:</p>
+            <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
+              {hold.why.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+            {placement ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-draft-placement="true">Where it goes: {placement}</p> : null}
+            <p className="text-[12px] leading-relaxed text-muted-foreground">Copying it takes an imperfect starting point, not proven work.</p>
+          </div>
+        ) : null}
 
         {/* THE FACTS, AS CHIPS. Everything they stand for opens in the ONE expander below, so a card is what to
             change, where, the final work, and why it ranks; the argument, the checks and the risks live in one
@@ -307,11 +322,8 @@ export function ChangeCard({ proposal, rank, proven, review = false, onAside, on
             {/* A CARD THAT CLEARED EVERY CHECK CAN RECORD THAT IT WAS MADE. One that is still waiting on a look
                 says what it is waiting for instead, because offering to record it done is offering to measure
                 work whose exact words nobody has validated. */}
-            {review ? (
-              <p className="rounded-md border border-border px-3 py-2 text-[12px] leading-relaxed text-muted-foreground" data-awaiting-note="true">
-                Waiting on a look. The evidence is here and the exact words are not validated yet, so there is
-                nothing to paste and nothing to mark done. It moves up to the ranked list when they pass.
-              </p>
+            {hold ? (
+              <ReviewAnswer proposalId={proposal.id} version={confirmedVersion(proposal)} approvable={hold.blocking == null} />
             ) : (
               <MarkImplemented proposalId={proposal.id} label="Mark done" newPage={isNew}
                 components={piecesOf(bundle)} onRecorded={recordDone} />

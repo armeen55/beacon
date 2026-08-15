@@ -6,7 +6,7 @@
  *  Every surface that hands over copy or records work renders these same controls, so a press means one thing. */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction } from "./actions";
+import { confirmDangerousChangeAction, dismissProposalAction, markProposalImplementedAction, reviewDraftAction } from "./actions";
 
 /** THE PRESS SURVIVES THE CONNECTION. A "Mark done" that THREW never reached the server, and telling the
  *  operator to press it again puts the burden of a flaky minute on the person who did the work. A plain
@@ -134,6 +134,41 @@ export function ConfirmDangerous({ proposalId, version }: { proposalId: string; 
         onClick={() => startTransition(async () => { const res = await confirmDangerousChangeAction({ proposalId, version });
           setState((s) => ({ ...s, done: res.success ? res.note ?? "Confirmed. This change is ready to make." : null, error: res.success ? null : res.error ?? "That could not be confirmed just now." })); })}>{pending ? "Saving…" : "Confirm this version"}</button>
       {state.error ? <p className="text-[12px] text-red-500">{state.error}</p> : null}
+    </div>
+  );
+}
+
+/** THE TWO ANSWERS A DRAFT CAN GET, beside the words they are about. "Approve as ready" is the operator saying
+ *  this wording is good enough to make: it answers EDITORIAL judgement and nothing else, so it is offered only
+ *  where the one pure hold rule says a person may answer, and the server re-reads the row and refuses anything
+ *  harder by name whatever this screen offers. "Improve this draft" hands it to the next drafting pass and
+ *  leaves these words exactly where they are until better ones land. Neither writes to the site. */
+export function ReviewAnswer({ proposalId, version, approvable }: { proposalId: string; version: string; approvable: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [state, setState] = useState<{ note: string | null; error: string | null }>({ note: null, error: null });
+  const answer = (decision: "approve" | "improve") => startTransition(async () => {
+    const res = await reviewDraftAction({ proposalId, version, decision }).catch(() => null);
+    setState({ note: res?.success ? res.note ?? "Saved." : null,
+      error: res?.success ? null : res?.error ?? "That could not be saved just now. Press it again in a moment." });
+  });
+  if (state.note) return <p className="text-[13px] font-semibold text-foreground" data-review-answered="true">{state.note}</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {approvable ? (
+        <button type="button" data-approve-draft="true" disabled={pending} onClick={() => answer("approve")}
+          className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
+          {pending ? "Saving…" : "Approve as ready"}
+        </button>
+      ) : null}
+      <button type="button" data-improve-draft="true" disabled={pending} onClick={() => answer("improve")}
+        className="rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60">
+        Improve this draft
+      </button>
+      <span className="text-[12px] leading-relaxed text-muted-foreground">
+        {approvable ? "Approving records your name against these exact words and moves it to the ready list."
+          : "This one cannot be approved as it stands: what is holding it is a fact about the work, not a matter of taste."}
+      </span>
+      {state.error ? <span className="text-[12px] text-red-500">{state.error}</span> : null}
     </div>
   );
 }

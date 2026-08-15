@@ -9,6 +9,3 @@ type DecaySlice = { clicksNow: number; clicksPrior: number };
  *  operator never gets told. A page with almost no clicks to begin with is noise, so it needs a real prior. */
 export const isWatchedDecay = (d: DecaySlice): boolean =>
   d.clicksPrior - d.clicksNow >= 3 && d.clicksPrior >= 5;
-
-/** One row per topic label: two investigation records for the same words is bookkeeping, not two topics. */
-export const distinctTopicCount = (labels: readonly string[]): number => new Set(labels).size;

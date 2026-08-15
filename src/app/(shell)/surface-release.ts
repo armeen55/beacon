@@ -186,7 +186,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       heldForMeasurement: produced?.heldForMeasurement, declineNotes });
     // The open-lane counts this release can vouch for, off the SAME arithmetic the live strip uses. Fail-soft:
     // a publish never aborts over a fallback count; a failed decay read stamps nothing, never stale-and-wrong.
-    const { isWatchedDecay, distinctTopicCount } = await import("./changes/lane-counts");
+    const { isWatchedDecay } = await import("./changes/lane-counts");
     const { loadGscDecaySignalsForTenant } = await import("@/domains/evidence");
     const decayRows = await loadGscDecaySignalsForTenant(tenantId, new Date())
       .then((m) => [...m.values()]).catch(() => null);
@@ -194,7 +194,9 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     const heldRow = (produced?.heldForMeasurement ?? 0) > 0 ? 1 : 0;
     const watched = (decayRows ?? []).filter(isWatchedDecay);
     const laneCounts = decayRows === null ? {} : { laneCounts: {
-      researching: distinctTopicCount((produced?.investigations ?? []).map((i) => i.label)),
+      // THE RESEARCH LANE'S OWN COUNT, off the release being published, so the stale fallback names the same
+      // number the lane's own cards do rather than a second count of a different thing.
+      researching: changes.summary.research,
       watching: watched.length + setAsideRow + heldRow,
     } };
     // The same rows the count was taken over, biggest fall first, carried instead of discarded.

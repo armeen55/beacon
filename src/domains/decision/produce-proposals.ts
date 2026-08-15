@@ -15,7 +15,7 @@ import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdr
 import { actionableProposalFailures } from "./validate-proposal";
 import { rankProposals } from "./rank-proposals";
 import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization";
-import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { preferFinished } from "./completeness";
+import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { openHold, preferFinished } from "./completeness";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
@@ -256,7 +256,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
     const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
-    const unfit = ranked.status === "ready" ? unsettledCause(ranked) : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change
+    const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
     const p: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])] } : ranked;
     const result = await saveChangeProposal(p);
     if (result === "failed") writeFailures += 1;

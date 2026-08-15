@@ -124,13 +124,13 @@ explains where the business stands, and every action lives in Changes.
 
 Analysis is Beacon's work; a customer-facing Change contains the complete deliverable: exactly what to add,
 replace, delete, move, link, redirect or create, exactly where, and the final copy whenever copy is involved
-(operator-approved 2026-08-14). Opportunity discovery stays continuous, but an opportunity without its
-finished deliverable is internal research: it feeds a small status count, never the ranked execution queue,
-never leads Today, and never offers completion controls. Zero finished Changes is an honest state.
+(operator-approved 2026-08-14). An unfinished but genuine opportunity is visible in Changes, separated from the
+execution-ready lane (operator-approved 2026-08-15): review drafts show their copy, placement, hold reason and
+evidence; researched ones show what is known and what is missing. Gates set the lane, label and controls, never
+visibility; only duplicates, refused mappings, contradicted or unsupported ideas and sub-floor gaps stay hidden.
+Neither is ever called finished, and a human approval answers editorial judgement only. Zero finished is honest.
 
-Canonical lifecycle:
-
-`needs_review -> ready -> implemented_pending_verification -> measuring -> result`
+Canonical lifecycle: `needs_review -> ready -> implemented_pending_verification -> measuring -> result`.
 
 `dismissed` (the operator declines) and `withdrawn` (Beacon retires a Change whose evidence expired or became
 invalid) are terminal dispositions, not additional stages. There is no separate Approved stage. A dangerous

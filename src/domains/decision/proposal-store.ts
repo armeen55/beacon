@@ -248,23 +248,26 @@ export async function transitionProposalToImplemented(tenantId: string, id: stri
   return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed";
 }
 
-/** THE OPERATOR'S YES, APPLIED TO THE EXACT ROW THEY READ AND TO NO OTHER. Step two of the two-step hold used to be a read, a check and then an ordinary save, and the save takes its OWN read afterwards: a rewrite that landed in between was simply overwritten by the version the operator had been looking at, which is the one thing a hold on a page-mover exists to stop. ONE COMPARE-AND-SET instead. The row must still be this account's, still non-terminal, still in review, still at the stored version that was read, still under the basis it was drafted for, and still fingerprint for fingerprint the version that was confirmed; the promoted row is then put through the ONE servability verdict before anything is written. The write itself carries the version it read, so a save landing between this read and this write matches NO row, changes nothing, and answers `stale`. */
-export async function promoteConfirmedProposal(tenantId: string, id: string, version: string, basis: string | null): Promise<{ status: "promoted" | "stale" | "refused" | "failed"; refusal?: string }> {
+/** THE OPERATOR'S YES, APPLIED TO THE EXACT ROW THEY READ AND TO NO OTHER. Step two of the two-step hold used to be a read, a check and then an ordinary save, and the save takes its OWN read afterwards: a rewrite that landed in between was simply overwritten by the version the operator had been looking at, which is the one thing a hold on a page-mover exists to stop. ONE COMPARE-AND-SET instead. The row must still be this account's, still non-terminal, still in review, still at the stored version that was read, still under the basis it was drafted for, and still fingerprint for fingerprint the version that was confirmed; the promoted row is then put through the ONE servability verdict before anything is written. The write itself carries the version it read, so a save landing between this read and this write matches NO row, changes nothing, and answers `stale`.
+ *  TWO ANSWERS RIDE THIS ONE DOOR, because both are a person answering one exact version of one reviewed change: `promote` makes it ready (the page-mover's confirmation, and a draft only judgement was holding, which stamps who and when), and `redraft` leaves it exactly where it is and asks the next funded pass to write better words over it. The refusal check runs on the PROMOTED row only: nothing about asking for better words has to pass the bar for handing work over. */
+export async function answerReviewedProposal(tenantId: string, id: string, version: string, basis: string | null,
+  answer: { kind: "promote" | "redraft"; by?: string; at: string }): Promise<{ status: "promoted" | "stale" | "refused" | "failed"; refusal?: string }> {
   if (!tenantId || !id || !version) return { status: "failed" };
   try {
     const row = await rowById(tenantId, id), stored = row ? decode(row.payload) : null;
     if (!row || !stored) return { status: "failed" };
     if (row.terminal_disposition != null || row.status !== "needs_review" || (row.basis ?? null) !== basis || confirmedVersion(stored) !== version) return { status: "stale" };
-    const promoted: ChangeProposal = { ...stored, status: "ready", confirmedVersion: version };
-    const refusal = actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0];
+    const promoted: ChangeProposal = answer.kind === "redraft" ? { ...stored, redraftRequested: answer.at }
+      : { ...stored, status: "ready", confirmedVersion: version, ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
+    const refusal = answer.kind === "promote" ? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0] : undefined;
     if (refusal) return { status: "refused", refusal };
     const { data, error } = await getSupabaseAdmin().from(TABLE)
-      .update({ status: "ready", payload: JSON.parse(serializeChangeProposal(promoted)) as unknown, proposal_version: row.proposal_version + 1,
-        queue_lane: null, queue_rank: null, updated_at: new Date().toISOString() })
+      .update({ status: promoted.status, payload: JSON.parse(serializeChangeProposal(promoted)) as unknown, proposal_version: row.proposal_version + 1,
+        ...(answer.kind === "promote" ? { queue_lane: null, queue_rank: null } : {}), updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId).eq("id", id).eq("proposal_version", row.proposal_version).eq("status", "needs_review").is("terminal_disposition", null).select("id");
-    if (error) { log.error("[proposal-store] the confirmation did not land", { tenantId, id, error: error.message }); return { status: "failed" }; }
+    if (error) { log.error("[proposal-store] the operator's answer did not land", { tenantId, id, error: error.message }); return { status: "failed" }; }
     return { status: data && data.length > 0 ? "promoted" : "stale" };
-  } catch (e) { log.error("[proposal-store] promoting a confirmed change threw", { id, error: e instanceof Error ? e.message : String(e) }); return { status: "failed" }; }
+  } catch (e) { log.error("[proposal-store] answering a reviewed change threw", { id, error: e instanceof Error ? e.message : String(e) }); return { status: "failed" }; }
 }
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator has to read: it lands as history under the disposition that says I took it back. Fail-soft. */

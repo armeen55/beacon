@@ -222,12 +222,16 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
   const top = today.nextOpportunities[0] ?? null;
-  const edit = today.topEdit ?? null;
+  // WHAT THE TOP ITEM IS, BEFORE ANYTHING IS OFFERED ABOUT IT. Today leads with finished work whenever there is
+  // any, and otherwise with the draft or the opportunity next in line: both are named for what they are, neither
+  // gets the pasteable line or the "make this change" press, and neither is ever called finished.
+  const lane = top?.lane ?? "ready";
+  const edit = lane === "ready" ? today.topEdit ?? null : null;
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
   // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
   const plan = !!edit && !edit.paste && !edit.after;
   // THE OTHER CHANGES ARE THE OTHER FINISHED ONES. Adding the review lane in put a card nobody can paste behind "See the other 3 changes".
-  const openTotal = today.readyTotal ?? 0;
+  const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0) + (today.researchTotal ?? 0);
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 
@@ -241,8 +245,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           first thing read was reasoning for a thing nobody had been told to do yet. Order now: what to change, what is there now,
           what to put there with the press that takes it, then the one number that says why, then the way in. */}
       {top ? (
-        <div className="rounded-2xl border border-accent-primary/50 bg-surface-raised p-5" data-top-edit="true">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Do this first</p>
+        <div className={`rounded-2xl border bg-surface-raised p-5 ${lane === "ready" ? "border-accent-primary/50" : "border-border"}`} data-top-edit="true">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane={lane}>
+            {lane === "ready" ? "Do this first" : lane === "review" ? "A draft waiting on your review" : "An opportunity being researched"}
+          </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit && edit.after ? (
             <div className="mt-2 space-y-1" data-top-edit-lines="true">
@@ -269,11 +275,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              {plan ? "Open the steps" : "Make this change"}
+              {lane === "research" ? "See what is missing" : lane === "review" ? "Read the draft" : plan ? "Open the steps" : "Make this change"}
             </Link>
             {openTotal > 1 ? (
               <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "change" : "changes"}
+                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "opportunity" : "opportunities"}
               </Link>
             ) : null}
           </div>

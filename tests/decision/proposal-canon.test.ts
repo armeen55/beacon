@@ -35,7 +35,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client
 /** What the store SAID, so a distinct failure can be pinned as distinct rather than as one more "failed". */
 const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
-import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, promoteConfirmedProposal, saveChangeProposal,
+import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
 import { confirmedVersion } from "@/domains/decision/completeness";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
@@ -74,6 +74,7 @@ const current = () => db.state.rows.filter((r) => r.terminal_disposition == null
 const seedLegacy = (p: ChangeProposal) => db.state.legacy.push({ tenant_id: p.tenantId, rec_id: p.id, kind: "change_proposal", content: serializeChangeProposal(p), created_at: p.createdAt });
 beforeEach(() => { db.state.rows = []; db.state.legacy = []; db.state.missing = false; db.state.rpcMissing = false; db.state.breakWrite = false; db.state.rpcCalls = 0; db.state.raceForeign = ""; db.state.race = null; });
 /** POST-CONTRACT HISTORY (packet acceptance 22). The contract migration moved every row onto the three lifecycle words and the bridge decoder is deleted with it: the same reads answer identically without one, and no historical proposal disappears. */
+const PROMOTE = { kind: "promote" as const, at: "2026-08-15T00:00:00.000Z" };
 describe("rows written after the lifecycle contract", () => {
   const row = (id: string, word: string): Row => ({
     tenant_id: T, id, proposal_version: 1, status: word, terminal_disposition: null, superseded_by: null,
@@ -306,19 +307,19 @@ describe("the operator's yes lands on the exact version they read, or on nothing
     db.state.rows = [];
     expect(await saveChangeProposal(held)).toBe("saved");
     db.state.race = rewriting(held);
-    const raced = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    const raced = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE);
     expect([raced.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]);
     // AND THE UNRACED PRESS DOES LAND, once, on the version it named: the yes is written onto the row and the row is at the next version.
-    const ok = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    const ok = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE);
     expect([ok.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]); // the row is a rewrite now, so the version they read is not this one
     db.state.rows = [];
     expect(await saveChangeProposal(held)).toBe("saved");
-    const yes = await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null);
+    const yes = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE);
     const stored = deserializeChangeProposal(JSON.stringify(db.state.rows.find((r) => r.id === held.id)!.payload))!;
     expect([yes.status, ...landed(held), stored.confirmedVersion === confirmedVersion(held)]).toEqual(["promoted", "ready", 2, "Nowruz Traditions and the Haft-Seen Table", true]);
     // A version nobody is looking at, a row already promoted out of review, and a bar that has moved are all stale, and none of them writes anything.
     const after = landed(held);
-    expect([(await promoteConfirmedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null)).status,
-      (await promoteConfirmedProposal(T, held.id, confirmedVersion(held), held.basis ?? null)).status,
-      (await promoteConfirmedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9")).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
+    expect([(await answerReviewedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null, PROMOTE)).status,
+      (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
+      (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
 });

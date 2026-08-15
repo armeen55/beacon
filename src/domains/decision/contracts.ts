@@ -308,6 +308,10 @@ export type ChangeProposal = {
   supportFacts?: readonly { id: string; fact: string }[];
   /** THE OPERATOR'S OWN YES TO ONE EXACT VERSION of a change that moves or hides a page. Product Truth holds such a change behind two steps: it is minted `needs_review`, and it reaches `ready` only when a person has read its components, its addresses, its destination, its copy and its risks and confirmed THAT version (decision/completeness's `confirmedVersion`). Stored so the yes survives the request that gave it and so a later pass cannot inherit it: any edit to the copy, the pieces, the destination, the evidence or the basis mints a different version and this stamp stops matching, which refuses the stale confirmation. Absent on everything that never needed one. */
   confirmedVersion?: string;
+  /** THE PERSON WHO SAID YES TO AN IMPERFECT DRAFT, AND WHEN. Editorial judgement is the one hold a human may answer: a draft whose exact words passed every deterministic check and that nothing has read for sense is promoted by a named person reading it (decision/completeness's `openHold`, soft side). A hard hold is a fact about the work and no stamp here overrides one. Absent on everything nobody had to approve. */
+  approval?: { by: string; at: string };
+  /** THE OPERATOR ASKED FOR BETTER WORDS. Banked copy is preserved for ever while its material identity holds, which is exactly right until a person reads it and wants it rewritten; this is that ask, stamped on the row so the next funded pass writes over it instead of preserving it. A nudge, never a queue and never a second pipeline. */
+  redraftRequested?: string;
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -412,6 +416,8 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })).optional(),
   supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1) })).optional(),
   confirmedVersion: z.string().min(1).optional(),
+  approval: z.object({ by: z.string().min(1), at: z.string().min(1) }).optional(),
+  redraftRequested: z.string().min(1).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;

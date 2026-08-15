@@ -1,6 +1,6 @@
 /** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap, receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
-import { receiptComposition } from "@/domains/decision/contracts"; import { confirmedVersion, deliverableGaps, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, deliverableFailures, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
+import { receiptComposition } from "@/domains/decision/contracts"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, deliverableFailures, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -671,4 +671,26 @@ describe("a change earns ready on its own evidence, its whole version, and words
       .toEqual([[], [], "the figure's own sentence says international, and the copy drops it",
         'its copy says "order", "earn", "store" on a claim of its own, and the evidence that claim names does not carry it',
         "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
+  // A WORD IS THE WORD IT IS. The fold that made "showcase" and "showcases" one token also made "rate" and "rat" one, so evidence about a rat was read as carrying copy about a rate, in both directions. Only the tokenizer's own over-trim is repaired now.
+  it("never lets a silent e make two words one, and still matches the plural the tokenizer over-trims", () => {
+    const said = (fact: string, claim: string, after: string) => deliverableFailures({ targetUrl: "https://fixture-content.example/x", actionType: "meta",
+      naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["e1"], uncertaintyOrOmitted: [], implementationMinutes: 1,
+      measurementTarget: "clicks", claims: [{ text: claim, supportedBy: ["e1"] }], supportFacts: [], finalCopy: after } as never,
+    { targetUrl: "https://fixture-content.example/x", title: null, h1: null, metaDescription: null, headings: [], trackedQuestion: null, ownedPaths: [],
+      bannedTerms: [], evidence: { e1: fact }, bodyText: `${fact} ${after}` } as never).filter((r) => r.includes("on a claim of its own"));
+    expect([said("A rat lives in the barn here.", "the barn has a rate", "The barn has a rate of one.").length > 0,
+      said("A rate of one per day here.", "the barn has a rat", "The barn has a rat in it.").length > 0,
+      said("This page showcases every flag.", "the page showcase every flag", "The page showcase every flag.").length]).toEqual([true, true, 0]); });
+  // THE THREE LANES, AND THE ONE DEMOTION THAT KEEPS THE WORK. Nothing written is research; exact copy owing only a look is a draft a person may approve; copy whose placement nobody can re-check is a draft nobody may approve, and its words, claims and evidence are untouched by the demotion.
+  it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
+    const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
+    const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: BODY, where: 'A new section headed "Sizing", placed after "The studio cuts every barrel."' };
+    const placed = prop({ status: "ready", claims: [{ text: "The studio cuts every barrel", supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: "The studio cuts every barrel." }], recommendedChange: body });
+    const lost = { ...placed, supportFacts: [{ id: "card-1", fact: "A reading that no longer quotes that sentence." }] } as ChangeProposal;
+    const brief = prop({ researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters." } });
+    const lanes = [openHold(placed), openHold(lost), openHold(brief)];
+    expect([lanes.map((h) => h.lane), lanes.map((h) => h.blocking == null), lanes[1]!.why[0]!.startsWith("Where this copy goes can no longer be checked"),
+      (lost.recommendedChange as { after: string }).after === BODY, lost.claims?.length])
+      .toEqual([["review", "review", "research"], [true, false, false], true, true, 1]); });
 });

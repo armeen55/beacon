@@ -85,7 +85,7 @@ describe("Today and Changes answer one question once", () => {
     expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     const { ChangesFeed } = await import("@/app/(shell)/changes/changes-feed");
-    expect(renderToStaticMarkup(createElement(ChangesFeed, { view, queue: null, investigations: [], decay: [], declineNotes: [], measuring: [], results: [] })))
+    expect(renderToStaticMarkup(createElement(ChangesFeed, { view, queue: null, decay: [], declineNotes: [], measuring: [], results: [] })))
       .toContain("What is measuring could not be read just now");
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();

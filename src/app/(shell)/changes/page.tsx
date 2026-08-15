@@ -13,7 +13,7 @@ import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
-import { buildTopicInvestigations, loadEvidenceSnapshot, loadGscDecaySignalsForTenant, type TopicInvestigation } from "@/domains/evidence";
+import { loadGscDecaySignalsForTenant } from "@/domains/evidence";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { researchPermission } from "@/domains/runtime";
 import { splitLedgerLifecycle } from "@/domains/decision";
@@ -104,12 +104,11 @@ function twice<T>(key: string, tenantId: string, read: () => Promise<T>, empty: 
   );
 }
 
-/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The research packets come off the
- *  same cached snapshot the producers read, the declining pages off the same decay read Today uses, and the
- *  measuring and results rows off the SAME ledger split the counts come from. */
+/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The three opportunity lanes come
+ *  off the release itself, the declining pages off the same decay read Today uses, and the measuring and results
+ *  rows off the SAME ledger split the counts come from. */
 async function loadLanes(tenantId: string) {
-  const [investigations, decayMap, ledger, release, permission] = await Promise.all([
-    twice("evidence", tenantId, () => loadEvidenceSnapshot(tenantId).then(buildTopicInvestigations), [] as TopicInvestigation[]),
+  const [decayMap, ledger, release, permission] = await Promise.all([
     twice("decay", tenantId, () => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
     twice("ledger", tenantId, () => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
     valueWithDeadline(
@@ -123,12 +122,11 @@ async function loadLanes(tenantId: string) {
   return {
     ledgerRead: ledger.read,
     researchPaused: permission === "paused",
-    evidenceRead: investigations.read && decayMap.read,
+    evidenceRead: decayMap.read,
     // Last-known open-lane counts off the release stamp, with their age, for the strip's failed-read fallback.
     staleCounts: release?.laneCounts
       ? { ...release.laneCounts, ago: checkedAgoLabel(release.computedAt, serverNowMs()) }
       : null,
-    investigations: investigations.v,
     decay: Array.from((decayMap.v as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
     declineNotes: today?.declineNotes ?? [],
     heldForMeasurement: today?.heldForMeasurement ?? 0,
@@ -156,7 +154,6 @@ export async function ChangesSection() {
     <ChangesFeed
       view={view}
       queue={<QueueSlot view={view} researchPaused={lanes?.researchPaused ?? false} />}
-      investigations={lanes?.investigations ?? []}
       decay={lanes?.decay ?? []}
       declineNotes={lanes?.declineNotes ?? []}
       measuring={lanes?.measuring ?? []}

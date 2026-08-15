@@ -11,7 +11,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
-import { ChangeCard, evidenceTier } from "./changes/change-card";
+import { ChangeCard } from "./changes/change-card";
 import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
@@ -61,14 +61,14 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // evidence is or which lane it was paged out of decides it, so a card can never present above its stage.
   const raw = useMemo(() => [...laneRows("ready"), ...laneRows("todo")], [laneRows]);
   const readyIds = useMemo(() => new Set(raw.filter((p) => p.status === "ready").map((p) => p.id)), [raw]);
-  const tierOf = useMemo(() => (p: ChangeProposal) => evidenceTier(p, readyIds.has(p.id)), [readyIds]);
   const order = useMemo(() => (kept: ChangeProposal[]) => {
-    // QUICKEST TIES BREAK ON EVIDENCE: two one-minute changes are not equal work, and the proven one is the one
+    // QUICKEST TIES BREAK ON STAGE: two one-minute changes are not equal work, and the validated one is the one
     // to do first.
-    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || tierOf(a) - tierOf(b));
+    const proven = (p: ChangeProposal) => (readyIds.has(p.id) ? 0 : 1);
+    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || proven(a) - proven(b));
     if (sort === "gap") return [...kept].sort((a, b) => (b.upsidePerMonth ?? b.impactScore ?? 0) - (a.upsidePerMonth ?? a.impactScore ?? 0));
     return kept;
-  }, [sort, tierOf]);
+  }, [sort, readyIds]);
   const shown = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
   const rows = useMemo(() => order(shown.filter((p) => p.status === "ready")), [order, shown]);
   const review = useMemo(() => order(shown.filter((p) => p.status !== "ready")), [order, shown]);
@@ -136,12 +136,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {review.length > 0 ? (
         <section className="space-y-3 rounded-2xl border border-dashed border-border bg-surface-inset p-4" data-review-area="true">
           <div className="space-y-1">
-            <p className="text-[14px] font-semibold tabular-nums text-foreground">
-              {review.length.toLocaleString("en-US")} more {review.length === 1 ? "is" : "are"} waiting on a look
+            <p className="text-[14px] font-semibold tabular-nums text-foreground" data-review-count="true">
+              {review.length.toLocaleString("en-US")} {review.length === 1 ? "draft is" : "drafts are"} waiting on your review
             </p>
             <p className="text-[12px] leading-relaxed text-muted-foreground">
-              These have the evidence but not the validation. Read one and it moves up here as a change once its
-              exact words pass every check. Nothing below is ready to paste and nothing below can be marked done.
+              Each one carries its proposed wording, where it goes, why it is held and what backs it. Take the
+              draft as a starting point, approve the wording where only judgement is holding it, or send it back
+              for better words. Nothing here counts as finished until it is approved.
             </p>
           </div>
           <ul className="list-none space-y-3">
