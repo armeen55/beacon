@@ -161,6 +161,14 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
       .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. 1 draft is waiting on your review in Changes. 1 opportunity is being researched, each one shown with what is missing."]);
     expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and the research card is its own shape
+  // EVERY GENUINE OPPORTUNITY IS REACHABLE, PAST WHATEVER ONE SCREEN SHOWS OPEN. Twelve is past the feed's own fold (RESEARCH_LIMIT), so the rest used to sit under a count with no way to reach them; every one now renders, and every card carries its own link to the same detail page a draft opens on.
+  it("exposes all 12 research opportunities past the fold, each with its own detail link", async () => {
+    const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Missing for idea ${i}` } })) as ChangeProposal[];
+    const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } };
+    const html = await renderChanges(view);
+    expect([html.match(/data-research-card="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("12 opportunities are being researched")])
+      .toEqual([12, 12, true]); });
   // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");

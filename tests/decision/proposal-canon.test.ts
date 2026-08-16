@@ -323,3 +323,14 @@ describe("the operator's yes lands on the exact version they read, or on nothing
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
 });
+
+/** APPROVAL REFUSES ON THE FACT, NEVER ON THE SENTENCE DESCRIBING IT. A row whose lever does not treat its own diagnosed cause is refused by `unsettledCause` run directly on the promoted row, even when the stored limitation is worded to clear every phrase the display classifier (HARD_LIMITATION) looks for. */
+describe("a badly classified row cannot be waved through", () => {
+  it("refuses promotion on the unsettled cause even though the stored limitation reads as benign", async () => {
+    const held = deep({ status: "needs_review", diagnosisCause: "weak_opening",
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after: "Everything you need to know about Nowruz traditions this year." },
+      limitations: ["Written from the account's current search data."], bundle: undefined });
+    await saveChangeProposal(held);
+    expect(await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE))
+      .toEqual({ status: "refused", refusal: "This change works on something other than how this page opens, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste." });
+    expect(current().find((r) => r.id === held.id)!.status).toBe("needs_review"); }); });

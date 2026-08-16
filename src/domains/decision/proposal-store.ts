@@ -8,8 +8,9 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertRowsScopedToTenant, dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
-import { confirmedVersion } from "./completeness";
+import { confirmedVersion, deliverableGaps } from "./completeness";
 import { actionableProposalFailures } from "./validate-proposal";
+import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy";
 
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
@@ -259,7 +260,9 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
     if (row.terminal_disposition != null || row.status !== "needs_review" || (row.basis ?? null) !== basis || confirmedVersion(stored) !== version) return { status: "stale" };
     const promoted: ChangeProposal = answer.kind === "redraft" ? { ...stored, redraftRequested: answer.at }
       : { ...stored, status: "ready", confirmedVersion: version, ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
-    const refusal = answer.kind === "promote" ? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0] : undefined;
+    // THE STORE REFUSES WHAT THE LABEL SAYS NOTHING ABOUT, never by classifying a stored limitation's wording: unfinished work, a lever that misses the diagnosed cause, and banked copy whose claims no longer resolve are asked HERE, on the row itself.
+    const refusal = answer.kind !== "promote" ? undefined : deliverableGaps(promoted)[0] ?? unsettledCause(promoted)
+      ?? staleCopyReasons(promoted, new Map(), [])[0] ?? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0];
     if (refusal) return { status: "refused", refusal };
     const { data, error } = await getSupabaseAdmin().from(TABLE)
       .update({ status: promoted.status, payload: JSON.parse(serializeChangeProposal(promoted)) as unknown, proposal_version: row.proposal_version + 1,

@@ -136,9 +136,7 @@ function ResearchCard({ p }: { p: ChangeProposal }) {
   const path = p.pagePath ?? p.pageUrl ?? "";
   const owed = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after : p.recommendedChange.proposedTitle;
   const believes = p.causeFinding?.explanation ?? p.whyItMatters;
-  // WHAT HAPPENS NEXT IS BEACON'S STEP, NEVER THE OPERATOR'S. A producer's own steps end on "mark it done here", which is an instruction to record work nobody has written, so only a step naming the read still owed counts and everything else says plainly that the words are not written and nothing here is theirs to do yet.
-  const next = (p.operatorSteps ?? []).find((x) => /lands on this card|next pass|read is on file|has not been read/i.test(x))
-    ?? "The exact work is not written yet. It lands on this card when it is, and nothing here is yours to do until then.";
+  const next = p.researchOnly === true && (p.operatorSteps ?? []).length > 0 ? p.operatorSteps!.at(-1)! : "The exact work is not written yet. It lands on this card when it is, and nothing here is yours to do until then.";
   const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !owed.includes(h.trim())).slice(0, 2);
   const facts = [p.demandImpressions90d ? `${num(p.demandImpressions90d)} views in Google over 90 days` : null,
     p.impactScore ? `${num(p.impactScore)} clicks recoverable` : null].filter(Boolean);
@@ -160,6 +158,7 @@ function ResearchCard({ p }: { p: ChangeProposal }) {
           {held.map((h, i) => <li key={i}>{h}</li>)}
         </ul>
       ) : null}
+      <Link href={`/changes/${encodeURIComponent(p.id)}`} data-research-detail="true" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Open details &rarr;</Link>
     </li>
   );
 }
@@ -237,9 +236,10 @@ export function ChangesFeed({ view, queue, decay, declineNotes, measuring, resul
           </p>
           <ul className="list-none space-y-3">{shownResearch.map((p) => <ResearchCard key={p.id} p={p} />)}</ul>
           {research.length > shownResearch.length ? (
-            <p className="text-[12px] tabular-nums text-muted-foreground" data-lane-more="research">
-              {num(research.length - shownResearch.length)} more {plural(research.length - shownResearch.length, "is", "are")} open under these, and they are worked in this order.
-            </p>
+            <details className="rounded-xl border border-dashed border-border" data-lane-more="research">
+              <summary className="cursor-pointer px-3 py-2 text-[12px] tabular-nums text-muted-foreground">Show {num(research.length - shownResearch.length)} more {plural(research.length - shownResearch.length, "opportunity", "opportunities")}, worked in this order</summary>
+              <ul className="list-none space-y-3 p-3 pt-0">{research.slice(shownResearch.length).map((p) => <ResearchCard key={p.id} p={p} />)}</ul>
+            </details>
           ) : null}
         </Lane>
       ) : null}

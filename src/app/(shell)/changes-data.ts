@@ -276,7 +276,8 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     queuedPages: [...new Set(queue.ranked.map((p) => (p.pagePath ?? p.pageUrl ?? "").replace(/^https?:\/\/[^/]+/, "")).filter((s) => s.length > 0))],
     ready: queue.ready.slice(0, CHANGES_PAGE_SIZE),
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),
-    research: queue.research.slice(0, CHANGES_PAGE_SIZE),
+    // RESEARCH IS NEVER CUT TO ONE PAGE: it rides the release blob whole, already in hand, so a page-size cut here only ever dropped a reachless opportunity behind an honest count. The feed decides how many render open, never how many exist.
+    research: queue.research,
     summary,
     basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,
