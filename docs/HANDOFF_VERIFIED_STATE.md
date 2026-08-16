@@ -6,7 +6,7 @@
 ## Current foundation
 
 - Branch `main`; MVP rebuild started at `4669fbb5`. Stack: Next.js App Router, strict TypeScript, Supabase, Vercel.
-- Production TypeScript is 74,584 lines under a 74,700 ceiling; tests 12,200 at a 12,200 ceiling; exports 1,317 under 1,320.
+- Production TypeScript is 73,299 lines at a 73,299 ceiling; tests 12,266 at 12,266; exports 1,307 at 1,307. Champion run deployed and verified at `fe097452` (2026-08-16): rendered reads for javascript pages, 16-month GSC backfill self-completing, demand units, both-ways link fit, scoped guides, demand-first drafting with earning-word protection, every family through the one editor, confidence-multiplier ranking, judged metric + AI outcome on every Result, $1/day mechanical cap at both paid doors.
 - The foundation guard caps production, tests, combined LOC, domains, routes, exports, files, dependencies, and Markdown. `npm run gate` runs the guard, lint, typecheck, tests, and build. Five kernels exist (Account, Evidence, Decision, Measurement, Runtime); five surfaces (Today, Visibility, Changes, Results, Connections). Wix is removed; publishing is manual for every account. Supabase authentication provisions one membership and one tenant per new user.
 - One login resolves exactly one account, fail-closed (2026-07-23; loop-proofed 2026-07-26): on product paths the
   middleware injects the single membership's account; zero, multiple, erroring, or timed-out lookups redirect to
