@@ -9,7 +9,7 @@ import { assertRowsScopedToTenant, dualWriteUpsertScoped } from "@/lib/persisten
 import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { confirmedVersion, deliverableGaps } from "./completeness";
-import { actionableProposalFailures } from "./validate-proposal";
+import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy";
 
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
@@ -104,7 +104,7 @@ export function proposalFingerprint(p: ChangeProposal): string {
     // WHAT THE COPY ASSERTS AND WHAT STANDS BEHIND EACH ASSERTION. Left out, a claim could be reworded, dropped or re-pointed at different evidence and the row computed "unchanged" against the version it replaced: the one thing a re-check reads was the one thing identity did not cover. Support SORTED, so reordering the same ids moves nothing, and CONDITIONAL, so a row carrying no claim hashes byte for byte what it always did.
     ...(p.claims?.length ? { claims: p.claims.map((c) => [c.text, [...c.supportedBy].sort()]) } : {}),
     // THE WORDS ARE WHAT THE OPERATOR ACTS ON. A pass that sharpened the headline, the reason or the steps and nothing else computed "unchanged" and wrote nothing, so every rewrite of the queue's language died inside the producer and the stored row kept serving the sentence it was meant to replace.
-    copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? [])],
+    copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? []), ...(p.research ? [p.research.missing, p.research.next] : [])],
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
     // WHERE THE RANKING PUT IT IS MATERIAL. Leaving the receipt out meant a row written before its pass had ranked anything computed "unchanged" against the ranked version of itself, so every card the $0 producers mint sat on file for ever with no receipt and nothing could say why it ranked where it did. CONDITIONAL, exactly like the answer ids above: an unranked row hashes byte for byte what it always did, so nothing on file is rewritten once just to say the identical thing.
@@ -260,9 +260,9 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
     if (row.terminal_disposition != null || row.status !== "needs_review" || (row.basis ?? null) !== basis || confirmedVersion(stored) !== version) return { status: "stale" };
     const promoted: ChangeProposal = answer.kind === "redraft" ? { ...stored, redraftRequested: answer.at }
       : { ...stored, status: "ready", confirmedVersion: version, ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
-    // THE STORE REFUSES WHAT THE LABEL SAYS NOTHING ABOUT, never by classifying a stored limitation's wording: unfinished work, a lever that misses the diagnosed cause, and banked copy whose claims no longer resolve are asked HERE, on the row itself.
-    const refusal = answer.kind !== "promote" ? undefined : deliverableGaps(promoted)[0] ?? unsettledCause(promoted)
-      ?? staleCopyReasons(promoted, new Map(), [])[0] ?? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0];
+    // THE STORE REFUSES WHAT THE LABEL SAYS NOTHING ABOUT, never by classifying a stored limitation's wording: unfinished work, a lever that misses the diagnosed cause, and banked copy whose claims no longer resolve are asked HERE, on the row itself. STRICT: this door holds no fresh page body and no producer is standing by to fill one in, so provenance nobody can check is a refusal here rather than the skip an ordinary re-validation pass is owed. THE CANON RUNS LAST, on the words the row itself carries: the same validator a fresh draft passes through, asked again of the exact version being promoted, on the evidence banked beside it and nothing fetched new.
+    const canon = answer.kind !== "promote" ? null : validateProposal(promoted, { now: new Date(answer.at), evidenceText: [promoted.evidence.hints.join(" "), promoted.causeFinding?.explanation ?? "", (promoted.bundle?.receipt.items ?? []).map((i) => i.fact).join(" "), (promoted.supportFacts ?? []).map((f) => f.fact).join(" ")].filter(Boolean).join(" ") }),
+      refusal = answer.kind !== "promote" ? undefined : deliverableGaps(promoted)[0] ?? unsettledCause(promoted) ?? staleCopyReasons(promoted, new Map(), [], null, true)[0] ?? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0] ?? (canon!.verdict === "rejected" ? canon!.reasons[0] : undefined);
     if (refusal) return { status: "refused", refusal };
     const { data, error } = await getSupabaseAdmin().from(TABLE)
       .update({ status: promoted.status, payload: JSON.parse(serializeChangeProposal(promoted)) as unknown, proposal_version: row.proposal_version + 1,

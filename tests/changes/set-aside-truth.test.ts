@@ -153,7 +153,8 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
     const missing = 'The results page for "iranian comedians" has not been read, and that read is what turns this into exact work.';
     const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
-      operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing } } as unknown as ChangeProposal;
+      operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
+      research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
     for (const said of ["1 draft is waiting on your review", EXACT, "Copy draft", "Why it is held", "1 opportunity is being researched", "has not been read, and that read is what turns this into exact work", "Still missing"]) expect(html).toContain(said);
@@ -169,6 +170,14 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const html = await renderChanges(view);
     expect([html.match(/data-research-card="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("12 opportunities are being researched")])
       .toEqual([12, 12, true]); });
+  // TYPED, NOT GUESSED FROM ARRAY POSITION (fix, 2026-08-15): the last string in operatorSteps used to be read as "Next", so reordering that array changed the answer. A producer-minted card carries `research.missing`/`research.next` and the feed reads only those.
+  it("reads Still missing / Next off the typed research field, never off operatorSteps order", async () => {
+    const idea = { ...bundled(NOW, "t::idea-typed"), status: "needs_review", researchOnly: true, bundle: undefined,
+      operatorSteps: ["typed-missing-text", "unrelated-earlier-step"], research: { missing: "typed-missing-text", next: "typed-next-text" } } as unknown as ChangeProposal;
+    const view = { ...emptyView(0), proposals: [idea], ready: [], toDo: [], research: [idea], summary: { ...emptyView(0).summary, research: 1 } };
+    const html = await renderChanges(view);
+    expect([/data-research-next="true"><span[^>]*>Next: <\/span>([^<]*)</.exec(html)?.[1], /data-research-owed="true"><span[^>]*>Still missing: <\/span>([^<]*)</.exec(html)?.[1]])
+      .toEqual(["typed-next-text", "typed-missing-text"]); });
   // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");

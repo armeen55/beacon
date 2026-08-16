@@ -284,7 +284,7 @@ export type ChangeProposal = {
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
   basis?: string;
   /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a Mark done. Absent on a pre-field row, which reads as an edit. */
-  researchOnly?: boolean;
+  researchOnly?: boolean; research?: { missing: string; next: string }; // `research`: WHAT THE MINTING PRODUCER ALREADY KNOWS, typed so the feed never re-guesses it from `recommendedChange.after` or the last string in `operatorSteps`; absent on a row minted before this field existed, said honestly rather than guessed.
   /** THE CAUSE the ladder named, so the ranker can ask whether this change's levers address it. Absent when nothing was diagnosed; an unrecognised value on a hand-edited row matches no lever and is discounted nothing. */
   diagnosisCause?: CauseFinding["cause"];
   /** THE WHOLE REASONING STEP, carried so the operator can read it: the explanation, what it beat, what would disprove it, and every cause whose evidence is not on file. Absent on an unjudged row. */
@@ -398,7 +398,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   demandImpressions90d: z.number().nullable().optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
-  researchOnly: z.boolean().optional(), // unknown keys are STRIPPED here: leave this out and a research card reloads as an edit
+  researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit
   diagnosisCause: z.string().min(1).optional(),
   causeFinding: z.object({ cause: z.string().min(1), action: z.string().nullable(), evidenceKeys: z.array(z.string()),
     // The reading the cause was decided from, kept whole. Carried opaquely here because the ladder OWNS the per-cause shape; a second copy of that union in this schema is a second thing to keep in step.

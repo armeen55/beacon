@@ -1,10 +1,10 @@
 /**
- * changes-feed - THE EDITS FIRST, and everything that is not yet an edit last. The ranked queue and the changes
- * already being read are the page; the topics under research and the pages being watched sit at the bottom in one
- * closed drawer, one line each, because they are background owed honestly and never work anybody has to read.
- * THE RULE THAT SURVIVED: evidence controls an opportunity's STATE, never its existence, so nothing is swallowed.
- * PURE PRESENTATION: every number arrives loaded, nothing here reads a store, and nothing recomputes a count
- * another surface owns. Beacon voice (amended 2026-08-11): NO first person, a number where one exists, a next step.
+ * changes-feed - THE EDITS FIRST, and every genuine opportunity stays visible under it, whole (operator, 2026-08-15):
+ * the ranked queue and the changes already being read are the page, research is its own lane of full cards, and only
+ * the PAGES BEING WATCHED sit at the bottom in one closed drawer, one line each, background owed honestly and never
+ * work anybody has to read. THE RULE THAT SURVIVED: evidence controls an opportunity's STATE, never its existence.
+ * PURE PRESENTATION: every number arrives loaded, nothing here reads a store, and nothing recomputes a count another
+ * surface owns. Beacon voice (amended 2026-08-11): NO first person, a number where one exists, a next step.
  */
 
 import type { ReactNode } from "react";
@@ -134,10 +134,10 @@ function Lane({ title, blurb, children }: { title: string; blurb: string; childr
  *  work: there is no copy to take and no control that records it done. */
 function ResearchCard({ p }: { p: ChangeProposal }) {
   const path = p.pagePath ?? p.pageUrl ?? "";
-  const owed = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after : p.recommendedChange.proposedTitle;
+  const missing = p.research?.missing ?? "what is missing has not been named in a typed field yet"; // typed, never guessed from operatorSteps order (operator, 2026-08-15)
   const believes = p.causeFinding?.explanation ?? p.whyItMatters;
-  const next = p.researchOnly === true && (p.operatorSteps ?? []).length > 0 ? p.operatorSteps!.at(-1)! : "The exact work is not written yet. It lands on this card when it is, and nothing here is yours to do until then.";
-  const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !owed.includes(h.trim())).slice(0, 2);
+  const next = p.research?.next ?? "what happens next has not been named in a typed field yet";
+  const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !missing.includes(h.trim())).slice(0, 2);
   const facts = [p.demandImpressions90d ? `${num(p.demandImpressions90d)} views in Google over 90 days` : null,
     p.impactScore ? `${num(p.impactScore)} clicks recoverable` : null].filter(Boolean);
   return (
@@ -151,7 +151,7 @@ function ResearchCard({ p }: { p: ChangeProposal }) {
         Searched as &ldquo;{p.primaryQuery}&rdquo;{facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}
       </p>
       <p className="text-[13px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">What the evidence says: </span>{believes}</p>
-      <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-owed="true"><span className="font-semibold text-foreground">Still missing: </span>{owed}</p>
+      <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-owed="true"><span className="font-semibold text-foreground">Still missing: </span>{missing}</p>
       <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-next="true"><span className="font-semibold text-foreground">Next: </span>{next}</p>
       {held.length > 0 ? (
         <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-research-evidence="true">

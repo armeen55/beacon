@@ -290,7 +290,9 @@ describe("done is only ever reached with a record behind it", () => {
 /** STEP TWO OF THE TWO-STEP HOLD IS A COMPARE-AND-SET, NEVER A READ AND A SAVE. The confirmation used to read the row, check the version on the screen against it, and then hand the promoted copy to the ordinary save path, whose own read happens afterwards: a rewrite landing in between was overwritten by the version the operator had been looking at, and that version became ready. Here is that exact interleaving, both ways round. */
 describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
   const mover = () => deep({ status: "needs_review", riskLevel: "high",
-    bundle: { ...bundle("consolidation"), risks: ["The old address stops answering."], components: [{ kind: "consolidation", label: "Merge the two pages", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"], risk: "dangerous", redirectTo: "https://www.fixture-outdoors.example/nowruz" }] } });
+    evidence: { query: "nowruz traditions", hints: ["Visitors already call this the Haft-Seen Table guide."], evidenceRefCount: 1 },
+    bundle: { ...bundle("consolidation"), risks: ["The old address stops answering."], components: [{ kind: "consolidation", label: "Merge the two pages", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table", evidenceKeys: ["k1"], risk: "dangerous", redirectTo: "https://www.fixture-outdoors.example/nowruz",
+      where: "This page's own address", objective: "Stop two pages from splitting one search.", mechanism: "One page answers the search once instead of two competing for it.", measurementPlan: "Clicks on the surviving page are read again after 14 days." }] } });
   const REWRITE = "A rewrite nobody has read yet";
   const rewriting = (p: ChangeProposal) => () => { const at = db.state.rows.findIndex((r) => r.id === p.id);
     db.state.rows[at] = { ...db.state.rows[at]!, proposal_version: 9, payload: JSON.parse(serializeChangeProposal({ ...p, recommendedChange: { ...p.recommendedChange, after: REWRITE } } as ChangeProposal)) as Row }; };
@@ -334,3 +336,18 @@ describe("a badly classified row cannot be waved through", () => {
     expect(await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "This change works on something other than how this page opens, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste." });
     expect(current().find((r) => r.id === held.id)!.status).toBe("needs_review"); }); });
+
+/** PROMOTION FAILS CLOSED WHEN VALIDATION CANNOT RUN: absence of provenance is a refusal at THIS door even where the producer pass legitimately skipped it. */
+describe("promotion fails closed when it cannot check its own work", () => {
+  it("refuses atomic copy that carries no claim and no support fact", async () => {
+    const bare = proposal({ status: "needs_review" });
+    await saveChangeProposal(bare);
+    expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
+      .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
+  it("refuses a bundle component whose page this door does not hold", async () => {
+    const untethered = deep({ status: "needs_review", bundle: { ...bundle("title"),
+      components: [{ kind: "title", label: "Page title", before: "Nowruz", after: "Nowruz Traditions", evidenceKeys: ["k1"], risk: "safe", page: PAGE }] } });
+    await saveChangeProposal(untethered);
+    const res = await answerReviewedProposal(T, untethered.id, confirmedVersion(untethered), untethered.basis ?? null, PROMOTE);
+    expect(res.status).toBe("refused");
+    expect(res.refusal).toContain("the words this change lands on are not in hand"); }); });

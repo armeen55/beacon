@@ -125,7 +125,7 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
     opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
     recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after },
-    ...(d.brief ? { researchOnly: true as const } : {}),
+    ...(d.brief ? { researchOnly: true as const, research: { missing: d.after, next: "The exact wording lands on this card once the next funded pass writes it." } } : {}),
     whyItMatters: d.why, operatorSteps: d.steps, estimatedEffortMinutes: d.minutes, riskLevel: "low",
     confidence: d.confidence, limitations: [d.limitation],
     // WHAT IS ON THE CARD, NEVER WHAT WAS CONSULTED TO WRITE IT: the link card counted every page whose stored link graph it read and claimed 224 pieces of evidence behind four sentences.

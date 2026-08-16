@@ -255,6 +255,7 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
       after: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. ${plan} ${owed}` },
     whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so ownership is settled first and every other change on these pages waits behind it. ${plan}`,
     estimatedEffortMinutes: 0, confidence: "low",
+    research: { missing: owed, next: "The exact titles and opening lines land on this card once they are drafted." },
     limitations: [RESEARCH_MARKER,
       "Which pages come up for that search is read off the last stored search data, so a page that stopped coming up since then is still counted here."],
     evidence: { query: b.query, hints: [b.finding.explanation, `Competing pages on file: ${list}`, plan, owed], evidenceRefCount: 4 },
@@ -312,13 +313,12 @@ function researchingCard(b: CardBase & { recoverable: number; blocker: ResearchB
   // WHAT WAS RULED OUT ON THE WAY HERE, so a research card argues rather than shrugs. Bounded to three. A
   // REJECTED LEVER IS NOT A STEP: numbered under "Read this twice, then:" it read as an instruction to go and
   // do the very thing the producer refused, so it stands beside the card as what was already ruled out.
-  const ruled = (b.blocker?.considered ?? []).slice(0, 3).map((c) => `Already ruled out, ${c.option.toLowerCase()}: ${c.reason}`);
+  const ruled = (b.blocker?.considered ?? []).slice(0, 3).map((c) => `Already ruled out, ${c.option.toLowerCase()}: ${c.reason}`), next = "The exact change lands on this card once that read is on file";
   return {
     ...shell(b, RESEARCHING_FAMILY, b.recoverable),
     opportunityType: `Find out what took the clicks from ${path}`,
     recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
-    whyItMatters: `${b.finding.explanation} ${missing}`,
-    operatorSteps: [missing, "The exact change lands on this card once that read is on file"],
+    whyItMatters: `${b.finding.explanation} ${missing}`, operatorSteps: [missing, next], research: { missing, next },
     estimatedEffortMinutes: 15, confidence: "low",
     limitations: [RESEARCH_MARKER, ...ruled,
       "This is what the gap is worth, not a promise of what comes back: what to change is not known until the read named above is on file."],
