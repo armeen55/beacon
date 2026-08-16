@@ -386,6 +386,8 @@ export async function recordShippedChange(args: {
   /** Whether this one can be fairly compared, decided by the recording seam BEFORE the write. A shortage
    *  is recorded here, never used to refuse the write: an implementation fact is a fact. */
   measurementState?: MeasurementState | null;
+  /** The ONE metric this change was made to move. Defaults to clicks; an AI citation card passes ai_mentions. */
+  judgedMetric?: string | null;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
   // NO FLOOR ON THE WRITE. A shipment used to be refused outright below MIN_CONTROLS, so a true
@@ -417,6 +419,9 @@ export async function recordShippedChange(args: {
     targetQueries: args.targetQueries,
     controlPages: args.controlPages,
     controlsReceipt: args.controlsReceipt ?? null,
+    // WHAT THIS SHIPMENT IS JUDGED ON, declared at record time. A change is a bet on ONE metric over ONE
+    // window; leaving these null let every later reading pick its own yardstick.
+    judgedMetric: args.judgedMetric ?? "clicks", primaryWindowDays: 28,
     windows: [],
     verdict: "measuring",
     confidence: "low",

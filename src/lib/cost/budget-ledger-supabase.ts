@@ -187,6 +187,24 @@ export async function getTenantLifetimeSpendUsd(
  * shares this ledger). Null on a read error: the caller falls back to the file
  * ledger, with the per-run cost ceiling as the always-on backstop.
  */
+/** TODAY's total spend for a tenant across EVERY platform on this ledger: the number the operator's daily
+ *  cap is enforced against, so search buys and model calls cannot each spend a whole day's budget. Null on
+ *  a read error, and the daily gate FAILS CLOSED on that null: unknown spend is not allowance. */
+export async function getTenantSpentTodayUsd(tenantId: string, now: Date = new Date()): Promise<number | null> {
+  if (typeof tenantId !== "string" || tenantId.trim() === "") return 0;
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from("llm_budget_ledger").select("spent_usd")
+      .eq("tenant_id", tenantId).eq("date_utc", todayUtcDate(now));
+    if (error || !Array.isArray(data)) return null;
+    let total = 0;
+    for (const row of data as Array<{ spent_usd?: number }>) {
+      if (typeof row.spent_usd === "number") total += row.spent_usd;
+    }
+    return total;
+  } catch { return null; }
+}
+
 export async function getTenantSpentThisMonthUsd(
   tenantId: string,
   now: Date = new Date(),

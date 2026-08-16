@@ -31,10 +31,9 @@ export type ShipmentVerification = {
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
   checkedAt: string;
   components: Array<{ kind: string; state: "verified" | "not_verified" | "changed_differently" | "unverifiable"; note: string | null }>;
-  /** A DAY-SCOPED ONE-TIME RECHECK (the reporting day this may be looked at again), set ONLY when the site did not
-   *  answer at all: a timeout is a fact about the transport, not about the change, so writing it off forever
-   *  would bury a change that really shipped. Null on every other ending and on the recheck's own answer. */
+  /** A DAY-SCOPED RECHECK (the reporting day this may be looked at again). Set when the site did not answer at all (a timeout is transport, not the change) and when the page DIFFERS: a CMS publishes through caches and build queues, so the first read after a paste routinely sees the old page, and one early "differs" buried three real shipments for good. Bounded by `checks`; null when final. */
   recheckAfter?: string | null;
+  /** Live reads so far; the recheck loop stops at its bound whatever the answer. */ checks?: number;
 };
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
@@ -99,9 +98,10 @@ export type ShippedChangeRecord = {
   shipmentBaseline: ShipmentBaseline | null;
   /** Null until the live check runs, and null is the due marker. Results renders what the check found,  component by component, and says plainly when I have not looked yet. */
   verification: ShipmentVerification | null;
-  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently
-   *  from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
+  /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
   operatorNote: string | null;
+  /** WHAT THIS SHIPMENT IS JUDGED ON, declared at record time and never re-derived: the one metric the change was made to move ("clicks", "ai_mentions") and the primary window it is read over. Both sat as NULL columns for months, leaving Results free to judge on whatever it read first. Null only predates the write. */
+  judgedMetric: string | null; primaryWindowDays: number | null;
   /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
    *  so the background re-measure every fifteen minutes can no longer move a number the operator was already
    *  shown. Null while the reading can still legitimately change (see pinned-read.ts). */
@@ -132,7 +132,7 @@ type LedgerRow = {
   live_source_url: string | null;
   recrawl_requested_at: string | null;
   operator_verdict_override?: "inconclusive" | null;
-  proposal_id?: string | null; proposal_version?: string | null; basis?: string | null;
+  judged_metric?: string | null; primary_window_days?: number | null; proposal_id?: string | null; proposal_version?: string | null; basis?: string | null;
   case_id?: string | null; bundle_hypothesis?: string | null;
   components_applied?: ShippedChangeRecord["componentsApplied"];
   implemented_at?: string | null; pre_change_content_hash?: string | null;
@@ -177,7 +177,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
     pre_change_hash_unavailable: r.preChangeHashUnavailable, measurement_state: r.measurementState,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
-    operator_override_reason: r.operatorNote, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt,
+    operator_override_reason: r.operatorNote, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt, judged_metric: r.judgedMetric, primary_window_days: r.primaryWindowDays,
   };
 }
 
@@ -193,7 +193,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     liveSourceUrl: row.live_source_url ?? null, recrawlRequestedAt: row.recrawl_requested_at ?? null,
     operatorVerdictOverride: row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
     // A row written before Phase 6 has none of these and reads as a manual record with no proposal behind it, rather than failing to decode at all.
-    proposalId: row.proposal_id ?? null, proposalVersion: row.proposal_version ?? null,
+    judgedMetric: row.judged_metric ?? null, primaryWindowDays: row.primary_window_days ?? null, proposalId: row.proposal_id ?? null, proposalVersion: row.proposal_version ?? null,
     basis: row.basis ?? null, caseId: row.case_id ?? null,
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,

@@ -279,6 +279,8 @@ export type ChangeProposal = {
   upsidePerMonth: number | null;
   /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
   demandImpressions90d?: number | null;
+  /** THE AI SIDE OF THIS CHANGE, IN ITS OWN UNITS, never converted into pretend clicks: how many stored answers to its question exist, the share that credit this site, how many rival domains those answers cite instead, and the Google audience of the page the work lands on as the honest weight. Absent on a card no stored answer is behind. */
+  aiImpact?: { answers: number; mentionRate: number; citedRivals: number; audienceWeight: number | null };
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
   bundle?: ChangeBundle;
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
@@ -396,6 +398,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
   demandImpressions90d: z.number().nullable().optional(),
+  aiImpact: z.object({ answers: z.number(), mentionRate: z.number(), citedRivals: z.number(), audienceWeight: z.number().nullable() }).optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
   researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit

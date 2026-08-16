@@ -14,7 +14,7 @@ import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
 import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
-import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
@@ -32,15 +32,14 @@ export type OwnedBody = { openingSample: string | null; fetchedAt: string | null
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
 
-/** RECOVERABLE OPPORTUNITY, never gross traffic: per query clearing MIN_QUERY_IMPRESSIONS, the shortfall under what that position earns on THE SAME curve the diagnosis
- *  used, past CTR_DEFICIT_SHARE of it. `at` defaults to the industry table only for a caller running outside a pass, which holds no fitted curve to hand over. */
-type Gap = { query: string; impressions: number; clicks: number; position: number; recoverable: number };
-const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): Gap[] => (p.search?.topQueries ?? []).flatMap((q) => {
-  if (q.impressions < MIN_QUERY_IMPRESSIONS || q.position == null) return [];
-  const expected = at(q.position), deficit = expected - q.clicks / q.impressions, recoverable = deficit * q.impressions;
+/** RECOVERABLE OPPORTUNITY, never gross traffic: per DEMAND UNIT clearing MIN_QUERY_IMPRESSIONS on the unit's combined impressions, the shortfall under what its members' positions earn on THE SAME curve the diagnosis used, past CTR_DEFICIT_SHARE of it. Units, not single rows: an intent spread across many phrasings is ONE audience, and reading it a row at a time hid most of the site's demand from the only path that can act. `at` defaults to the industry table only outside a pass, which holds no fitted curve. */
+type Gap = { query: string; impressions: number; clicks: number; position: number; recoverable: number; vocabulary?: string[] };
+const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): Gap[] => demandUnitsOf(p.search?.topQueries ?? [], at).flatMap((u) => {
+  if (u.impressions < MIN_QUERY_IMPRESSIONS || u.position == null) return [];
+  const expected = u.expectedClicks / u.impressions, deficit = expected - u.clicks / u.impressions, recoverable = u.expectedClicks - u.clicks;
   // BOTH BARS, because this figure is SUMMED onto a page: a share floor alone let a tail search missing 44 percent of a 1.8 percent position add 16 clicks to a page
-  // total, and the card then carried a number its own sentence (written from the one real gap) did not say. A search joins a page's worth only if it is worth something.
-  return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: q.query, impressions: q.impressions, clicks: q.clicks, position: q.position, recoverable }];
+  // total, and the card then carried a number its own sentence (written from the one real gap) did not say. A unit joins a page's worth only if it is worth something.
+  return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position, recoverable, vocabulary: u.vocabulary }];
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
 const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 

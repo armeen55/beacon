@@ -365,15 +365,12 @@ export function extractPageSnapshot(
   const faqHash = hash(faqs.map((f) => f.question).join("|"));
   const schemaHash = hash(dedupedSchemaTypes.sort().join("|"));
 
-  // ── Extraction certainty ── "confirmed" on JSON-LD or real body content; "uncertain" when the page may
-  // rely on client-side rendering raw HTML cannot verify.
+  // ── Extraction certainty ── ONLY real body content confirms a read. JSON-LD used to vouch on its own,
+  // so a client-rendered page with zero extracted words graded "confirmed" (the 500-surname page stored
+  // as blank while ranking position 4.9): markup in the head proves nothing about the body a reader sees.
   const hasBodyContent = wordCount > 50;
   const extractionCertainty: import("./types").ExtractionCertainty =
-    hasJsonLd || (hasBodyContent && (faqs.length > 0 || schemaTypes.length > 0))
-      ? "confirmed"
-      : hasBodyContent
-        ? "confirmed"
-        : "uncertain";
+    hasBodyContent ? "confirmed" : "uncertain";
 
   return {
     id: `snap-${pageId}-${Date.now()}`,

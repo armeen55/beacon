@@ -269,7 +269,6 @@ export function tenantizeRows<
 import type { ImportRun } from "@/lib/import/types";
 import type { PageSnapshot, PageEntity } from "@/domains/evidence/pages/types";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
-import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 
 type AnyRow = Record<string, unknown>;
 
@@ -456,18 +455,6 @@ export async function syncPageSnapshots(
 // syncChangePatterns removed 2026-07-21 (CORE 100K Lane F): its only caller was
 // the retired ChangeOutcome-fed materializeChangePatterns producer.
 
-export async function syncUrlChangeOutcomes(
-  rows: UrlChangeOutcome[],
-  tenantId: string,
-): Promise<void> {
-  const stamped = tenantizeRows(rows, tenantId, "url_change_outcomes");
-  // Shape is already snake_case - pass through, compound PK.
-  await dualWriteUpsert(
-    "url_change_outcomes",
-    stamped as unknown as AnyRow[],
-    "change_id,url",
-  );
-}
 
 // ── Page element inventory sync (Sprint 6A.1 Phase 6) ──
 

@@ -39,7 +39,7 @@ type OwnedPageRow = {
   /** When this same failing answer came back on a SECOND, later reporting day. Null until it has. */
   status_reconfirmed_at: string | null;
   content_hash: string | null;
-  completeness: "complete" | "partial" | "blocked" | "unsupported" | "missing" | "stale";
+  completeness: "complete" | "partial" | "unread" | "blocked" | "unsupported" | "missing" | "stale";
   blocked_until: string | null;
   redirects_to: string | null;
   is_canonical_target: boolean;

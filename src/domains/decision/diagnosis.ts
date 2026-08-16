@@ -176,9 +176,19 @@ const RULES: Rule[] = [
       if (!group && !kw) return { fired: false, reason: "only one page of yours comes up for that search, so nothing of yours is taking the click from it" };
       // WHAT THIS PROVES IS THAT BOTH PAGES COME UP, never that the clicks are being divided: the comparison decides the survivor or nobody does.
       const comparison = splitComparison(c.snapshot, c.query);
-      const pages = group?.competingUrls.length ?? 2;
+      // A COMPETITOR MUST MATERIALLY APPEAR. Two addresses were called fighters "every time somebody searches"
+      // when one carried a couple of impressions: a page with a KNOWN negligible share is not dividing anything.
+      // A page whose share is unknown (null) is kept, because absence of a number rules nothing out.
+      const knownTotal = comparison.reduce((a, r) => a + (r.impressions ?? 0), 0);
+      const floor = Math.max(30, Math.round(knownTotal * 0.1));
+      const material = comparison.filter((r) => r.impressions == null || r.impressions >= floor);
+      if (comparison.length >= 2 && material.length < 2)
+        return { fired: false, reason: `only one of your pages materially appears for ${quote(c.query)}; the rest barely surface, so nothing is dividing the clicks` };
+      const materialUrls = new Set(material.map((r) => canonicalUrlKey(r.url)));
+      const competing = (group?.competingUrls ?? []).filter((u) => comparison.length === 0 || materialUrls.has(canonicalUrlKey(u)));
+      const pages = (competing.length || group?.competingUrls.length) ?? 2;
       return { fired: true, action: "consolidate", evidenceKeys: comparison.length > 0 ? [RECEIPT.gsc, RECEIPT.competing] : [RECEIPT.gsc],
-        payload: { cause: "cannibalization", competingPaths: [...(group?.competingUrls ?? [])], comparison, survivor: provenSurvivor(comparison) },
+        payload: { cause: "cannibalization", competingPaths: competing.length >= 2 ? competing : [...(group?.competingUrls ?? [])], comparison: material, survivor: provenSurvivor(material) },
         // "either of them" is a claim about there being TWO, and this rule fires on three and on four.
         explanation: `${num(pages)} of your own pages come up for ${quote(c.query)}, so Google is choosing between them every time somebody searches it. Settle which one owns that search before changing a word on ${pages === 2 ? "either" : "any"} of them.` };
     },

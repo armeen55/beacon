@@ -462,10 +462,10 @@ function parseContentParsing(env: ProviderEnvelope): ParsedByCapability["onpage_
   const pc = (resultBlock(env).items[0]?.page_content ?? {}) as Record<string, unknown>;
   const topics = [...arr(pc.main_topic), ...arr(pc.secondary_topic)];
   const body = topics.flatMap((t) => arr(t.primary_content).map((p) => str(p.text) ?? "")).join(" ").replace(/\s+/g, " ").trim();
-  return {
-    title: str(topics[0]?.main_title), h1: str(topics[0]?.h_title), wordCount: body ? body.split(" ").length : 0,
+  return { title: str(topics[0]?.main_title), h1: str(topics[0]?.h_title), wordCount: body ? body.split(" ").length : 0,
     headings: topics.map((t) => str(t.h_title) ?? "").filter(Boolean).slice(0, 20), faqCount: 0,
     openingSample: body.slice(0, 600) || null, hasTable: topics.some((t) => arr(t.table_content).length > 0),
+    bodyText: body.slice(0, 100_000) || null, // the whole rendered body, under the crawler's own ceiling, so a javascript page is stored as the words a reader actually gets
   };
 }
 function modelObjects(env: ProviderEnvelope): Record<string, unknown>[] {

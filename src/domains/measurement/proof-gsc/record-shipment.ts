@@ -56,6 +56,8 @@ type ShipmentFacts = {
   caseId: string | null;
   bundleHypothesis: string;
   componentsApplied: ShipmentComponent[];
+  /** The ONE metric this change was made to move. Recorded, never re-derived. */
+  judgedMetric?: string | null;
   /** THE STAMP: when the change actually went live. Defaults to now for a press made as it happens. */
   implementedAt?: string;
   preChangeContentHash?: string | null;
@@ -105,7 +107,7 @@ async function write(
     controlPages: extra.controlPages, controlsReceipt: extra.controlsReceipt,
     // THE WINDOW IS READ FROM THE STAMP, and so is the 28 days before it: a change recorded weeks
     // after it went live must compare against the days that really preceded it, not against today.
-    shippedAt: stamp, notes: null, measurementState: extra.measurement, now,
+    shippedAt: stamp, notes: null, measurementState: extra.measurement, judgedMetric: f.judgedMetric ?? null, now,
     shipment: {
       proposalId: f.proposalId, proposalVersion: f.proposalVersion, basis: f.basis, caseId: f.caseId,
       bundleHypothesis: f.bundleHypothesis, componentsApplied: f.componentsApplied,

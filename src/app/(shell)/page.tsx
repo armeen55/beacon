@@ -291,6 +291,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           No finished change is ready today. <Link href="/changes" className="underline underline-offset-2">Open Changes</Link> to see everything that has been written for your pages.
         </p>
       )}
+      {/* THE HEARTBEAT: what the last research pass did and when, off its own stored row, so "is this thing alive" is answered on the first screen without a support question. */}
+      {composite.researchLiveness ? (
+        <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{composite.researchLiveness}</p>
+      ) : null}
       {/* THE PAUSE SWITCH IS A FACT ABOUT THIS ACCOUNT, said where the work is with the control that turns it back on. Nothing here may promise a nightly round while it is off. */}
       {composite.researchPaused ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-paused="true">

@@ -242,7 +242,7 @@ describe("the conditional day-56 read", () => {
   const shipped = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
     id: "s1", page: "https://site.com/x", path: "/x", actionType: "title-family", before: null, after: null,
     shippedAt: STAMP, baseline: { clicks: 400, impressions: 5000, ctr: 0.08, position: 8, windowDays: 28 },
-    targetQueries: [], controlPages: [], controlsReceipt: null, windows: [pw(7, true), pw(14, true), pw(28, true)],
+    targetQueries: [], controlPages: [], controlsReceipt: null, judgedMetric: null, primaryWindowDays: null, windows: [pw(7, true), pw(14, true), pw(28, true)],
     verdict: "won", confidence: "medium", measuredAt: null, notes: null, verifiedLive: false,
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
@@ -391,7 +391,7 @@ describe("a settled reading is held still", () => {
   const record = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
     id: "shp_pin", page: "https://site.com/x", path: "/x", actionType: "content", before: null, after: null,
     shippedAt: STAMP, baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
-    targetQueries: [], controlPages: [], controlsReceipt: null, windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
+    targetQueries: [], controlPages: [], controlsReceipt: null, judgedMetric: null, primaryWindowDays: null, windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
     verdict: "won", confidence: "high", measuredAt: null, notes: null, verifiedLive: false,
     liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
     proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,

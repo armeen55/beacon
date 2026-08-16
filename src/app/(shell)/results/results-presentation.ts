@@ -16,25 +16,23 @@ export type ShipmentPresentation = {
   read: KernelRead;
   /** Whether a fair comparison exists for this one. Recording an implementation never waits on it. */
   measurement?: MeasurementState | null;
-  /** The day the operator marked it done. Null on a record written before there was a stamp. */
-  implementedAt: string | null;
+  /** The day the operator marked it done. Null on a record written before there was a stamp. */ implementedAt: string | null;
   verification: ShipmentVerification | null;
-  /** The immutable numbers this page stood at when it was marked done. */
-  baseline: { clicks: number; impressions: number; windowDays: number; capturedAt: string } | null;
+  /** The immutable numbers this page stood at when it was marked done. */ baseline: { clicks: number; impressions: number; windowDays: number; capturedAt: string } | null;
   /** THIS PAGE'S OWN change over the read that was used, from the stored reading. Absent on a  snapshot written before it was kept, and then the before and after stay off the screen. */
   basisMove?: { clicks: number; impressions: number } | null;
   /** Which pages stood behind this one, and why each qualified. Absent on a row recorded before the
    *  receipt was kept, and then the screen never calls the comparison pages similar. */
   controlsReceipt?: ControlReceipt[] | null;
+  /** THE AI HALF OF THE SAME CHANGE, off the stored answers around its stamp: the direction and the one sentence the outcome engine wrote. Null when the change carries no scope or stamp, and then the screen says nothing about AI rather than implying it was watched. */
+  ai?: { direction: "improved" | "worsened" | "flat" | "unclear"; line: string } | null;
 };
 
 /** The four things a change can be, in the order the strip shows them. */
 type ResultsGroup = "worked" | "down" | "flat" | "reading";
 
 type ResultsRow = {
-  id: string;
-  path: string;
-  url: string;
+  id: string; path: string; url: string;
   /** What the change was, said the way an operator would say it. */
   work: string;
   group: ResultsGroup;
@@ -48,6 +46,7 @@ type ResultsRow = {
   /** What has been read, for a row that has no number yet. */
   readLabel: string | null;
   impressionsLabel: string | null;
+  /** The AI half in one sentence, off stored answers around the stamp. Null = not watched, and the row says nothing rather than implying it was. */ aiLine: string | null;
   chip: { text: string; amber: boolean } | null;
   pips: Array<{ day: number; state: "read" | "pending" | "shared" }>;
   pipCaption: string | null;
@@ -425,7 +424,7 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     numbers,
     numbersNote: note,
     comparedAgainst: receiptOf(p).map((c) => ((w) => (w.length > 0 ? `${c.path} (${w.join("; ")})` : c.path))(reasonWords(c.reasons))),
-    unadjustedNote: unadjustedLine(p),
+    unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null,
     caveats: caveatLines(r),
     timeline: timelineLines(p),
     taught: taughtLine(r),

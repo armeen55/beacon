@@ -104,6 +104,9 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // A new page answers a research case; an edit's subject is its own page.
       caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
       bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
+      // THE YARDSTICK IS DECLARED AT THE PRESS: a change minted off stored AI answers is judged on mentions,
+      // everything else on clicks, and Results reads the declaration instead of picking one later.
+      judgedMetric: proposal.aiImpact ? "ai_mentions" : "clicks",
       componentsApplied,
       preChangeContentHash: meta?.contentHash ?? null,
       // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.

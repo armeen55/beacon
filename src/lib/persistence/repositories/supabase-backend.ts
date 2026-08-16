@@ -23,7 +23,6 @@ import type {
 import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
-import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
@@ -370,16 +369,6 @@ export const supabaseBackend: SeedDataRepository = {
       dismissReason: row.dismiss_reason ?? null,
     })) as RecommendationResponse[];
   },
-  getUrlChangeOutcomes: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("url_change_outcomes")
-      .select("*");
-    if (error)
-      throw new Error(
-        `Supabase query failed on url_change_outcomes: ${error.message}`,
-      );
-    return (data ?? []) as UrlChangeOutcome[];
-  },
 
   // Sprint 6A.1 Phase 12 — specific edits read path. Rows are already
   // snake_cased to match the migration; no key mapping needed.
@@ -420,8 +409,6 @@ export const supabaseBackend: SeedDataRepository = {
         selectScoped<ChangelogEntry>("changelog_entries", tenantId),
       getObservationRuns: () =>
         selectScoped<ObservationRun>("observation_runs", tenantId),
-      getUrlChangeOutcomes: () =>
-        selectScoped<UrlChangeOutcome>("url_change_outcomes", tenantId),
       getRecommendedEdits: async () =>
         (await selectScoped(
           "recommended_edits",

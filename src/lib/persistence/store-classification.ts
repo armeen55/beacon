@@ -34,7 +34,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "results-surface",
   "proof-gsc-ledger",
   "recommended-edits",
-  "url-change-outcomes",
   // Per account, never shared: one account must never be served text generated for another.
   "llm-call-cache",
   "llm-budget", // per-account file cap backstop (the durable Supabase ledger is authoritative)
@@ -45,7 +44,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
 export const SINGLETON_STORES = new Set<string>([
   "robots-state",
   "url-daily-citations",
-  "url-watcher-state",
 ]);
 
 export const GLOBAL_STORES = new Set<string>([

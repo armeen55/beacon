@@ -11,7 +11,6 @@ import type {
 import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
 import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
-import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
@@ -79,7 +78,6 @@ export interface SeedDataRepository {
 
   // Phase 1a — operator loop stores
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
-  getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
 
   // Sprint 6A.1 Phase 12 (2026-04-24) — specific edits read path.
   // Fetched fresh per request on /recommendations (Sprint 1 pattern).
@@ -206,7 +204,6 @@ export interface TenantRepository {
   getPromptAnswerObservations(
     options?: ScopedObservationReadOptions,
   ): Promise<PromptAnswerObservation[]>;
-  getUrlChangeOutcomes(): Promise<UrlChangeOutcome[]>;
   /**
    * Customer-2 isolation fix (operator audit, 2026-05-06) —
    * tenant-scoped reads for `tracked_prompts` and `tracked_entities`.

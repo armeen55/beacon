@@ -100,9 +100,6 @@ export { loadCrawlFrontier, runCrawlBatch } from "./scanning/crawl-frontier";
 export type { OwnedPageBody } from "./pages/owned-context";
 export { loadOwnedPageBodies } from "./pages/owned-context";
 
-// Product URL watcher
-export { maybeRefreshUrlWatcher } from "./product/url-watcher";
-
 // Competitor-intel polite fetch
 export { fetchPageHtml } from "./competitor-intel/polite-fetch";
 

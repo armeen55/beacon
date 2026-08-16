@@ -226,7 +226,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(validate([{ ...link, after: "I read this page's stored words and would point readers on to Barrel sizes." }], undefined, // a contradiction in the copy itself, not only in the notes around it
       { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected"); });
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
-  it("rebuilds a page only when the causes agree, and only when the WHOLE page is written", async () => {
+  it("rebuilds a page only when the causes agree, and ships every finished section when the whole page is not written", async () => {
     const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]);
     expect([one.components.length, one.refusal!.includes("bigger swing than the evidence pays for")]).toEqual([0, true]);
     const causes = ["weak_opening", "incomplete_coverage", "weak_opening"] as const;
@@ -247,10 +247,12 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
     const narrow = validate(many.components, RECEIPT_ONLY);
     expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
-    // ONE SECTION SHORT IS NO REBUILD: nothing is emitted, the refusal counts what is owed, and resuming costs nothing.
+    // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions,
+    // the one still owed is named out loud, and resuming costs nothing a second time.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
     const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
-    expect([partial.components.length, partial.refusal]).toEqual([0, "3 of the 4 sections this rebuild needs are written and 1 is still owed, so half a page is not handed over. Ask again and it picks up where it stopped: the sections already written cost nothing a second time."]);
+    expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]);
+    expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);
     // and a page whose sections all landed with no opening to lead them is still not a page
     const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes);
     expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);

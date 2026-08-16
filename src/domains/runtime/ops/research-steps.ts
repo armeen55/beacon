@@ -18,6 +18,7 @@ import type { ResearchCase } from "@/domains/evidence/funnel/research-evidence";
 import { applySynthesis } from "@/domains/evidence/case-identity";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
@@ -60,7 +61,9 @@ type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: 
 export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
-  /** ONE bounded batch of the account's OWN website (crawl_pages). Free: polite owned reads on the same fetch path as every other owned read, never a provider. Returns how many pages this batch read. */
+  /** ONE bounded batch of the account's OWN website (crawl_pages). The polite raw reads are free; pages the
+   *  raw fetch stored as zero-word 200s then get a BOUNDED rendered read through the one provider gateway,
+   *  because a CMS page rendered with javascript is invisible to a raw fetch and blindness is not evidence. */
   crawlPages: (tenantId: string, now: Date) => Promise<number>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
@@ -190,11 +193,13 @@ export const defaultSteps: ResearchCycleSteps = {
   async crawlPages(tenantId) {
     const deps = { pickCandidates: await decliningPagesFirst(tenantId) };
     const first = await continueColdStartCrawlIfStarted(tenantId, deps);
-    if (first.status !== "no_crawl" || first.detail !== "no_frontier_state") return first.crawled;
+    if (first.status !== "no_crawl" || first.detail !== "no_frontier_state")
+      return first.crawled + await renderUnreadOwnedPages(tenantId).catch(() => 0);
     const domain = (await getTenant(tenantId).catch(() => null))?.domain?.trim();
     if (!domain) return 0;
     if ((await startColdStartCrawl({ tenantId, domain, deps })).status === "unreachable") return 0;
-    return (await continueColdStartCrawlIfStarted(tenantId, deps)).crawled; },
+    return (await continueColdStartCrawlIfStarted(tenantId, deps)).crawled
+      + await renderUnreadOwnedPages(tenantId).catch(() => 0); },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
     return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
   // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left

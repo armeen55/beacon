@@ -450,26 +450,27 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   // and in what this page already carries. My own figures are not page copy, so they are not handed over here.
   const hints = [...(pattern.commonEntities ?? []).map((e) => e.entity), ...questions,
     ...(ctx.body?.openingSample ? [`The page opens: ${ctx.body.openingSample}`] : []), ...(ctx.body?.cardTexts ?? []).slice(0, 4)];
-  const planned = covers.slice(0, MAX_HEADINGS);
-  const drafted: string[] = [];
+  const planned = covers.slice(0, MAX_HEADINGS), drafted: { asked: string; text: string }[] = [];
   for (const heading of planned) {
-    const section = await ctx.draft.section({
-      query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading,
+    const section = await ctx.draft.section({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url, heading,
       brief: `This page is being rebuilt as ${shape} for "${ctx.primary}", and every page that wins that search covers ${heading}. Write that section, in this page's own terms, keeping anything it already says that earns its place.`,
-      outline: ctx.page.outline, evidenceHints: hints,
-    });
-    if (section) drafted.push(`${plain(section.heading)}\n\n${nodash(section.body).trim()}`);
+      outline: ctx.page.outline, evidenceHints: hints });
+    if (section) drafted.push({ asked: heading, text: `${plain(section.heading)}\n\n${nodash(section.body).trim()}` });
   }
-  // The page's own new first lines, only once every section landed: nothing sits in front of a body with a hole.
-  const owed = planned.length - drafted.length;
-  // READY MEANS WHOLE: a rebuild that stopped part way is not shipped dressed as a change, and nothing already written is re-paid, so picking it up next pass costs the operator nothing.
-  if (owed > 0) return refuse(`${count(drafted.length)} of the ${count(planned.length)} sections this rebuild needs are written and ${count(owed)} ${owed === 1 ? "is" : "are"} still owed, so half a page is not handed over. Ask again and it picks up where it stopped: the sections already written cost nothing a second time.`);
+  const owed = planned.length - drafted.length; // sections asked for and not yet written
+  // FINISHED SECTIONS SHIP. A rebuild that stopped part way was withheld WHOLE, so paid finished copy sat invisible behind a refusal for as long as one section kept failing. What is written leaves as pasteable ADDITIONS, the remainder is named out loud, and nothing here is paid for twice next pass.
+  if (owed > 0) { if (drafted.length === 0) return refuse(`None of the ${count(planned.length)} sections this rebuild needs could be written this pass, so nothing is handed over. Ask again and it starts where it stopped.`);
+    return { components: drafted.map((d) => ({ kind: "section_add" as const, label: `Add the section: ${d.asked}`, before: null, after: d.text, evidenceKeys: keys, risk: "review" as const,
+      where: "a new section on the page, under its own heading", objective: `Cover ${d.asked}, which the pages winning "${ctx.primary}" cover and this page does not.`,
+      mechanism: `The full rebuild still owes ${count(owed)} ${owed === 1 ? "section" : "sections"} (${planned.filter((h) => !drafted.some((d) => d.asked === h)).join(", ")}). These are the ones already written; the rest costs nothing a second time next pass.`,
+      measurementPlan: `Clicks, views and average position for "${ctx.primary}", read at 7, 14, 28 and 56 days after you publish it, against what this page does today.` })), refusal: null };
+  }
   const opening = ctx.draft.openingAnswer
     ? await ctx.draft.openingAnswer({ query: ctx.primary, pageLabel: ctx.page.h1 ?? ctx.page.title ?? ctx.page.url,
       currentValue: ctx.body?.openingSample ?? null, outline: ctx.page.outline, evidenceHints: hints })
     : null;
   if (!opening) return refuse(`All ${count(planned.length)} sections this rebuild needs are written and the page's own opening lines are not, so a page with no way in is not handed over. Ask again and the opening is the only thing left: the sections already written cost nothing a second time.`);
-  const after = [nodash(opening).trim(), ...drafted].join("\n\n");
+  const after = [nodash(opening).trim(), ...drafted.map((d) => d.text)].join("\n\n");
   // THE PRESERVATION MAP. A rebuild can quietly delete something that ranks, so every held section and named
   // thing is checked against the draft: what appears SURVIVES, what does not is named as a LOSS with a reason.
   const written = plain(after).toLowerCase();

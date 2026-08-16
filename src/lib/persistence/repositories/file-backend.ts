@@ -14,7 +14,6 @@ import type {
 import { readObservationRunsMergedSync } from "@/domains/evidence/observations/observation-runs-merge";
 import { getFindings } from "@/domains/evidence/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
-import type { UrlChangeOutcome } from "@/domains/measurement/attribution/url-change-outcome";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
@@ -73,8 +72,6 @@ export const fileBackend: SeedDataRepository = {
   // Phase 1a — operator loop stores
   getRecommendationResponses: async () =>
     readStore<RecommendationResponse>("recommendation-responses"),
-  getUrlChangeOutcomes: async () =>
-    readStore<UrlChangeOutcome>("url-change-outcomes"),
 
   // Sprint 6A.1 Phase 12 — specific edits read path.
   // .data/recommended-edits.json — replace-by-id semantics from

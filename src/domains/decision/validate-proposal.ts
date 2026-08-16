@@ -96,6 +96,10 @@ export function receiptIntegrityFailures(proposal: ChangeProposal, now: Date = n
  *  redraft off moved evidence writes a new version; this is the half for the change nobody redrafts at all. */
 const EVIDENCE_VALID_DAYS = 30;
 
+/** The account half of a basis stamp is everything before the kernel's own ::dN generation suffix. */
+const sameAccountBasis = (a: string | null | undefined, b: string): boolean =>
+  a != null && a.replace(/::d\d+$/, "") === b.replace(/::d\d+$/, "");
+
 /**
  * THE ONE ANSWER EVERY DOOR ASKS about a stored change, so a direct link can never render what the ranked list refuses and no mutation can land on a change the screen would not show. It composes the row's own
  * integrity above with the four things only the account can answer: whose change this is, whether it was drafted under the bar I hold right now, whether anyone is still being asked, and whether the readings
@@ -108,7 +112,13 @@ export function actionableProposalFailures(
   const now = ctx.now ?? new Date();
   const out = [...receiptIntegrityFailures(p, now)];
   if (p.tenantId !== ctx.tenantId) out.push("This change was drafted for another account, so I am not putting it in front of you.");
-  if (ctx.currentBasis == null || p.basis !== ctx.currentBasis) out.push("I raised the bar for what counts as worth your time, and this one no longer clears it, so I am not putting it in front of you.");
+  // THE GENERATION SUFFIX IS THE KERNEL'S CLOCK, NOT THE ACCOUNT'S. A basis is the account's own fingerprint
+  // plus ::dN, and bumping N used to set aside every standing row wholesale: 85 real opportunities the account
+  // had already paid to find left the queue because the RULES improved, not because any check failed. The
+  // account half still gates hard; the generation half hands the verdict to the checks themselves, which all
+  // run right here and below, so an old row that clears today's bar rejoins and one that fails is refused for
+  // the failure, named in words, never for its birthday.
+  if (ctx.currentBasis == null || !sameAccountBasis(p.basis, ctx.currentBasis)) out.push("I raised the bar for what counts as worth your time, and this one no longer clears it, so I am not putting it in front of you.");
   if (p.status !== "ready" && p.status !== "needs_review") out.push("This one is not waiting on you any more, so I am not putting it in front of you.");
   if (staleReadings(p, now)) {
     out.push("The readings behind this change are too old to stand on now, so I am taking them again before I put it in front of you.");

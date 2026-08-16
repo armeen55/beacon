@@ -257,9 +257,18 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
   try {
     const row = await rowById(tenantId, id), stored = row ? decode(row.payload) : null;
     if (!row || !stored) return { status: "failed" };
-    if (row.terminal_disposition != null || row.status !== "needs_review" || (row.basis ?? null) !== basis || confirmedVersion(stored) !== version) return { status: "stale" };
+    // THE ACCOUNT HALF OF THE BASIS IS THE IDENTITY; the ::dN generation half is the kernel's own clock. A row
+    // drafted under an older generation that the operator is confirming RIGHT NOW, through THIS door's checks,
+    // is not somebody else's row: refusing it "stale" stranded every re-admitted opportunity one confirmation
+    // short of ready forever. Two nulls still match (a pre-basis row confirmed by a pre-basis caller).
+    const strip = (s: string): string => s.replace(/::d\d+$/, "");
+    const sameAccount = (row.basis ?? null) == null && basis == null
+      ? true : row.basis != null && basis != null && strip(row.basis) === strip(basis);
+    if (row.terminal_disposition != null || row.status !== "needs_review" || !sameAccount || confirmedVersion(stored) !== version) return { status: "stale" };
+    // PROMOTION RESTAMPS THE GENERATION: the door's own checks are the current bar, so a row that clears them
+    // under the operator's yes is current work by demonstration, and the ready lane may serve it as such.
     const promoted: ChangeProposal = answer.kind === "redraft" ? { ...stored, redraftRequested: answer.at }
-      : { ...stored, status: "ready", confirmedVersion: version, ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
+      : { ...stored, status: "ready", confirmedVersion: version, ...(basis != null ? { basis } : {}), ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
     // THE STORE REFUSES WHAT THE LABEL SAYS NOTHING ABOUT, never by classifying a stored limitation's wording: unfinished work, a lever that misses the diagnosed cause, and banked copy whose claims no longer resolve are asked HERE, on the row itself. STRICT: this door holds no fresh page body and no producer is standing by to fill one in, so provenance nobody can check is a refusal here rather than the skip an ordinary re-validation pass is owed. THE CANON RUNS LAST, on the words the row itself carries: the same validator a fresh draft passes through, asked again of the exact version being promoted, on the evidence banked beside it and nothing fetched new.
     const canon = answer.kind !== "promote" ? null : validateProposal(promoted, { now: new Date(answer.at), evidenceText: [promoted.evidence.hints.join(" "), promoted.causeFinding?.explanation ?? "", (promoted.bundle?.receipt.items ?? []).map((i) => i.fact).join(" "), (promoted.supportFacts ?? []).map((f) => f.fact).join(" ")].filter(Boolean).join(" ") }),
       refusal = answer.kind !== "promote" ? undefined : deliverableGaps(promoted)[0] ?? unsettledCause(promoted) ?? staleCopyReasons(promoted, new Map(), [], null, true)[0] ?? actionableProposalFailures(promoted, { tenantId, currentBasis: basis })[0] ?? (canon!.verdict === "rejected" ? canon!.reasons[0] : canon!.qualityStatus !== "ready" ? (canon!.qualityStatus === "missing_source" ? "This change states a fact with no source behind it. It is held until a source is added." : canon!.qualityStatus === "needs_source_check" ? "The source behind this change could not be checked. It is held until that source is confirmed." : canon!.qualityStatus === "stale_data_changed" ? "The numbers behind this change moved since it was drafted. It is held until it is refreshed." : canon!.qualityStatus === "not_quotable" ? "This change is not trimmed to one liftable answer yet. It is held until it is." : canon!.qualityStatus === "useful_but_needs_review" ? "This change introduces a number that has not been confirmed yet. It is held until that number is checked." : (canon!.reasons[0] ?? "This change is not finished enough to promote yet.")) : undefined);
@@ -359,8 +368,13 @@ export async function readQueuePage(
       .map((r) => (r.queue_lane ?? "").split("::")[0] ?? "").find((s) => s.length > 0) ?? null;
     if (release == null) return nothing;
     // EVERY FILTER THE QUEUE OWES IS ASKED HERE: this account, the bar it holds right now, still waiting on the operator, and the lane of the ranking that is live. Nothing is filtered after the fact.
+    // THE ACCOUNT HALF OF THE BASIS GATES IN THE DATABASE; the ::dN generation half belongs to the checks
+    // (actionableProposalFailures below), so a row the current bar re-admitted is not dropped by an exact
+    // string match against a stamp only the kernel's own version moved. LIKE wildcards in the prefix are
+    // escaped so an account fingerprint containing an underscore matches itself and nothing else.
+    const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&");
     const scoped = (cols: string, count?: { count: "exact"; head: true }) => sb.from(TABLE).select(cols, count)
-      .eq("tenant_id", tenantId).eq("queue_lane", `${release}::${lane}`).eq("basis", basis).is("terminal_disposition", null);
+      .eq("tenant_id", tenantId).eq("queue_lane", `${release}::${lane}`).like("basis", `${accountBasis}%`).is("terminal_disposition", null);
     const [counted, page] = await Promise.all([
       scoped("id", { count: "exact", head: true }),
       scoped(`${CANON_COLUMNS}, queue_rank`).gt("queue_rank", at)

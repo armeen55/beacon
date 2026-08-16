@@ -67,8 +67,3 @@ export { buildScoreboard, buildMoneyLine, type Scoreboard } from "./scoreboard/s
 // Revenue-by-day
 export { loadRevenueByDayForTenant } from "./revenue/load-revenue";
 
-// URL-change attribution
-export {
-  getWatchingUrlOutcomes,
-  ensureUrlChangeOutcomesSeeded,
-} from "./attribution/url-change-outcome";

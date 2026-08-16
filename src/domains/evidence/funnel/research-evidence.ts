@@ -190,6 +190,8 @@ export type ResearchPageExtract = {
   internalLinkCount?: number;
   externalLinkCount?: number;
   fetchedAt?: string | null;
+  /** The whole rendered body when the read came through the rendering provider; absent on sampled reads. */
+  bodyText?: string | null;
 };
 
 const OPENING_SAMPLE_CHARS = 600;

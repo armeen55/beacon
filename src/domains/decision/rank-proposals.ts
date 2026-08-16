@@ -95,23 +95,19 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // no wording change moves a card on this scale. It costs nothing here: what it is worth is what is below.
   const research = p.researchOnly === true;
 
-  // A CARD STILL OWED ITS EXACT COPY CANNOT LEAD. "Write a description" is an errand, not an edit: while
-  // the drafted words are owed (the marker drafted-copy leaves on the card), the card waits behind every
-  // card that carries finished work. The penalty is a flat 45 and the visibility below is capped at the
-  // audience band while it applies, so 45 always beats the most an owed card can earn and no amount of
-  // page size ever promotes work nobody has finished. Matched on the marker's stable phrase, export budget.
-  // READY MEANS ZERO BLANKS AND ZERO OPERATOR RESEARCH. A card whose copy is still owed, or whose copy
-  // carries a fill-in placeholder (NAME, SOUND, NUMBER, YEAR), is asking the operator to finish the work:
-  // it stays visible but waits behind every card carrying finished work, named on its receipt.
+  // READINESS IS A LABEL, NEVER A PENALTY. A flat 45 point fine put every research card, however much was
+  // riding on it, behind every finished trifle: a three impression description outranked the 152 click
+  // decline this queue exists to surface. What being unfinished honestly costs is CONFIDENCE, so it now
+  // discounts the worth MULTIPLICATIVELY inside visibility below: a big opportunity stays big while its
+  // copy is owed, a small finished card stays small, and the receipt says so in words. The lane label,
+  // not this ranking, is what tells the operator whether there is something to paste today.
   const after = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after ?? "" : "";
   const owed = (p.limitations ?? []).some((l) => l.includes("is still owed, and this card is what is owed"));
   const blanks = /\b(NAME|SOUND|NUMBER|YEAR)\b/.test(after);
-  // ALWAYS ON THE RECEIPT, so the sentence explaining an order can name it: a factor only one of two cards
-  // carries can never be what separated them, and finished words beating unfinished ones is worth saying.
   add("readiness", research ? "this is research still owed, not an edit waiting on you"
-    : owed ? "the exact copy is still owed, so finished work goes first"
-      : blanks ? "the copy carries blanks nobody has filled, so finished work goes first"
-        : "its exact words are written", research || owed || blanks ? -45 : 0, 45);
+    : owed ? "the exact copy is still owed"
+      : blanks ? "the copy carries blanks nobody has filled"
+        : "its exact words are written", 0, 0);
 
   // THE RECOVERY BELONGS TO THE CAUSE, NOT TO THE PAGE. Two changes on one page carry the same recoverable
   // click figure, and only the one that works on the cause the evidence NAMED can actually collect it. A
@@ -142,14 +138,23 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
     ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
-  const rode = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
-  // AND A CARD NOBODY HAS FINISHED MAY NOT RIDE THE PROVEN BAND. The flat 45 above held homework behind
-  // finished work while visibility topped out at 40; at 120 a page big enough simply bought its way past a
-  // card that is actually written. Until the copy exists, what is riding on it counts only as far as an
-  // AUDIENCE does, so 45 always outweighs it and no page is ever big enough to promote unfinished work.
-  const owedCap = owed || blanks || research;
-  const shown = owedCap && rode && rode.value > MAX.visibility / 3
-    ? { input: `${rode.input}, counted only as far as an audience while the copy is owed`, value: MAX.visibility / 3 }
+  const google = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
+  // THE AI SIDE RANKS IN ITS OWN UNITS. A citation gap card can carry no click figure at all, and the stored
+  // answers behind it are a real audience: every answer is somebody asking. It rides only where the Google
+  // numbers are not already carrying more, bounded under the audience band, never converted into clicks.
+  const ai = p.aiImpact && p.aiImpact.answers > 0
+    ? { input: `${num(p.aiImpact.answers)} stored AI answers hand this question to ${num(p.aiImpact.citedRivals)} rival ${p.aiImpact.citedRivals === 1 ? "site" : "sites"} and never this one`,
+      value: Math.min(MAX.visibility / 3, p.aiImpact.answers * 2) } : null;
+  const rode = ai && (!google || ai.value > google.value) ? ai : google;
+  // WHAT IS RIDING ON IT, HELD AT THE CONFIDENCE IT HAS EARNED. Unfinished copy and a low reading each
+  // shave the worth by a factor and never by a flat fine, so the order stays "largest credible impact
+  // first": a page big enough leads even while its words are owed, and the receipt names the discount.
+  const unfinished = research || owed || blanks;
+  const held = (unfinished ? 0.7 : 1) * (p.confidence === "high" ? 1 : p.confidence === "medium" ? 0.85 : 0.7);
+  const why = [unfinished ? "the copy is still owed" : null, p.confidence !== "high" ? `confidence is ${p.confidence}` : null]
+    .filter(Boolean).join(" and ");
+  const shown = rode && held < 1
+    ? { input: `${rode.input}, counted at ${Math.round(held * 100)} percent because ${why}`, value: rode.value * held }
     : rode;
   add("visibility", shown?.input ?? "no proven figure for what this wins back", shown?.value ?? 0, MAX.visibility);
 

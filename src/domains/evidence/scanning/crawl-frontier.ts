@@ -205,10 +205,10 @@ function failureStatusOf(result: { reason: string; detail?: string }): number {
   return result.reason === "robots_blocked" ? 403 : 0;
 }
 
-/** PURE. How much of the page the snapshot holds: `partial` only when the extractor's ceiling cut it. */
-export function completenessOf(snap: PageSnapshot): "complete" | "partial" {
-  return (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete";
-}
+/** PURE. How much of the page the snapshot holds. `unread`: a normal response whose body yielded zero words, a page the raw fetch cannot see (javascript-rendered), never a page that says nothing. The inventory used to grade these `complete`, asserting coverage of pages nobody had read. */
+export function completenessOf(snap: PageSnapshot): "complete" | "partial" | "unread" {
+  if ((snap.word_count ?? 0) === 0 && snap.http_status === 200) return "unread";
+  return (snap.structural_warnings ?? []).some((w) => w.startsWith("body_text_truncated")) ? "partial" : "complete"; }
 
 // ---------------------------------------------------------------------------
 // Init: bounded discovery -> durable inventory -> working set

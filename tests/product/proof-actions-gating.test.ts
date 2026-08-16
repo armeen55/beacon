@@ -278,7 +278,8 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect(facts().operatorNote).toBeNull();
   });
   it.each([
-    ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_today::d9")],
+    // The ACCOUNT half of the basis moved. A generation-only bump (::d6 to ::d9) no longer sets a row aside; the checks decide those.
+    ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_moved::d6")],
     ["a change I cannot find", () => mocks.loadChangeProposal.mockResolvedValue(null)],
     ["a press by someone who may not publish", () => { ownerFlag.value = false; }],
   ])("%s is refused before anything is written", async (_name, arrange) => {

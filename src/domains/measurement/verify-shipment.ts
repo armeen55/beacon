@@ -52,6 +52,8 @@ type VerifiableShipment = {
   components: Array<{ kind: string; after: string; anchorAfter?: string | null; redirectTo?: string | null }>;
   /** This is the ONE retry a site that did not answer earns. A recheck's own answer is final either way. */
   recheck?: boolean;
+  /** How many live reads this shipment has already had, so the differs recheck loop stays bounded. */
+  priorChecks?: number;
 };
 
 type VerifyDeps = {
@@ -242,8 +244,9 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   // THE ONE ANSWER THAT IS NOT FINAL. A site that did not answer at all says nothing about the change, so
   // it earns exactly one retry on a LATER day. Every other ending is written once: a robots denial is the
   // site's standing instruction, a missing page and a difference are facts about the page itself.
+  const checks = (shipment.priorChecks ?? 0) + 1;
   const transportBlocked = (note: string): ShipmentVerification => ({
-    status: "blocked", checkedAt, components: allUnknown(shipment, note),
+    status: "blocked", checkedAt, components: allUnknown(shipment, note), checks,
     recheckAfter: shipment.recheck === true ? null : reportingDay(now() + 86_400_000),
   });
   let res: Awaited<ReturnType<typeof fetchPageHtml>>;
@@ -251,10 +254,10 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   catch { return transportBlocked("Your website did not answer, so this change could not be checked."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
-      return { status: "not_found", checkedAt, components: allUnknown(shipment, "There is no page at that address right now.") };
+      return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, "There is no page at that address right now.") };
     }
     return res.reason === "robots_blocked"
-      ? { status: "blocked", checkedAt, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
+      ? { status: "blocked", checkedAt, checks, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }
       : transportBlocked("Your website did not answer, so this change could not be checked.");
   }
   const profile = deps.loadProfile ? await deps.loadProfile(tenantId).catch(() => null) : await loadBusinessProfile(tenantId).catch(() => null);
@@ -276,7 +279,12 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
       : seen.every((c) => c.state === "verified") ? "verified"
         : seen.some((c) => c.state === "verified") ? "partially_verified"
           : "differs";
-  return { status, checkedAt, components };
+  // A DIFFERENCE INSIDE THE PUBLISH LAG IS RE-READ, NEVER BURIED. CMSes serve the old page through caches
+  // and build queues for hours after a paste, so the first read routinely differs and that one reading used
+  // to stand as final: three of eight real shipments sat "differs" for good. Up to MAX_CHECKS bounded reads,
+  // two days apart; a verified answer is final on any read, and the last read's answer stands whatever it is.
+  const again = (status === "differs" || status === "partially_verified") && checks < MAX_CHECKS;
+  return { status, checkedAt, checks, components, recheckAfter: again ? reportingDay(now() + 2 * 86_400_000) : null };
 }
 
 /** WHAT THE OPERATOR SAID THEY APPLIED, with the exact copy WHERE I HOLD IT. A Shipment names the
@@ -296,8 +304,10 @@ function componentsOf(r: ShippedChangeRecord): VerifiableShipment["components"] 
 /** One Shipment row, as verification reads it. A row that already holds an answer is only ever here as
  *  the one retry a silent site earns, and it is told so, because a recheck's answer is final. */
 const toVerifiable = (r: ShippedChangeRecord): VerifiableShipment =>
-  ({ id: r.id, url: r.page, components: componentsOf(r), ...(r.verification != null ? { recheck: true } : {}) });
+  ({ id: r.id, url: r.page, components: componentsOf(r), ...(r.verification != null ? { recheck: true, priorChecks: r.verification.checks ?? 1 } : {}) });
 
+/** The most live reads one shipment ever gets. */
+const MAX_CHECKS = 3;
 const loadRows = (tenantId: string, deps: VerifyDeps): Promise<ShippedChangeRecord[]> =>
   (deps.loadShipments ?? loadShippedChangesForTenant)(tenantId).catch(() => []);
 

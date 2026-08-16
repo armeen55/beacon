@@ -10,7 +10,6 @@ import type { EnrichedChangeRow, ChangeRowProof } from "./types";
 import { ChangesV2Client } from "./changes-v2-client";
 import { getRepository } from "@/lib/persistence/repositories";
 import { currentTenantId } from "@/lib/tenant-context";
-import { maybeRefreshUrlWatcher } from "@/domains/evidence";
 import type { KernelRead } from "@/domains/measurement/proof-gsc";
 import { kernelProofSummary } from "@/domains/decision";
 import type { ImplementationStatus, RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
@@ -121,12 +120,6 @@ export async function ResultsTimeline() {
           </Link>
         </section>
       );
-    }
-
-    try {
-      await maybeRefreshUrlWatcher("page-load");
-    } catch (err) {
-      console.error("[results-timeline] URL watcher refresh error (non-fatal)", err);
     }
 
     // Core 100K: the lifecycle-classification + synthetic-pending-row enrichment was retired.

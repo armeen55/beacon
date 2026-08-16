@@ -25,6 +25,7 @@ import {
   getTenantSpentThisMonthUsd,
   recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
+import { dailyCapReason } from "@/lib/cost/daily-cap";
 import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
@@ -146,6 +147,11 @@ export async function checkBudget(
       reason: `Monthly adjudicator budget cap reached (${effectiveSpend.toFixed(4)} / ${state.capUsd} USD this ${state.monthKey}).`,
     };
   }
+  // THE OPERATOR'S DAILY CAP RIDES THIS DOOR TOO (lib/cost/daily-cap): one day-total across every
+  // platform on the ledger, held under the account's own daily_budget_usd, failing closed on an
+  // unreadable ledger.
+  const daily = await dailyCapReason(tenantId, now);
+  if (daily) return { allowed: false, reason: daily };
   return { allowed: true, remaining: state.capUsd - effectiveSpend };
 }
 

@@ -209,6 +209,35 @@ async function runDeepBackfillChunk(
   };
 }
 
+/** How far back Google serves Search Analytics history: roughly 16 months. */
+const DEEP_BACKFILL_DAYS = 480;
+
+/**
+ * Start the deep backfill: seed the progress row so every later chunk (the research pass's
+ * gsc_backfill_chunk phase, or a direct runDeepBackfillChunk loop) walks backward from the oldest
+ * day already synced toward `targetDays` ago. Idempotent: an in-progress or complete backfill is
+ * left alone. THIS WAS THE MISSING HALF: the continuation ran on every pass for weeks against a
+ * progress table nothing had ever seeded, so 16 months of free history sat unpulled at Google
+ * while every opportunity was scored against a post-collapse baseline.
+ */
+export async function startDeepBackfill(tenantId: string, targetDays = DEEP_BACKFILL_DAYS): Promise<{ started: boolean; reason: string }> {
+  const property = await resolveKnownProperty(tenantId);
+  if (property == null) return { started: false, reason: "no_synced_property" };
+  const existing = await readBackfillProgress(tenantId, property);
+  if (existing != null) return { started: false, reason: existing.status === "complete" ? "already_complete" : "already_in_progress" };
+  const sb = getSupabaseAdmin();
+  const { data } = await sb.from("gsc_daily_rows").select("date").eq("tenant_id", tenantId)
+    .order("date", { ascending: true }).limit(1);
+  const oldest = (data?.[0] as { date?: string } | undefined)?.date;
+  if (!oldest) return { started: false, reason: "no_synced_rows" };
+  const target = addDays(new Date().toISOString().slice(0, 10), -targetDays);
+  const cursor = addDays(oldest, -1);
+  if (cursor < target) return { started: false, reason: "history_already_covered" };
+  await writeProgress({ tenant_id: tenantId, property, target_date: target, cursor_date: cursor, status: "in_progress", days_pulled: 0 });
+  log.info("[gsc-deep-backfill] started", { tenantId, property, cursor, target });
+  return { started: true, reason: "seeded" };
+}
+
 /**
  * Nightly continuation (cron-sync wires this beside the normal GSC sync): if a
  * backfill is in progress for this tenant, run exactly one more chunk. A no-op

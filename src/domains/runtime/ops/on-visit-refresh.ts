@@ -2,7 +2,7 @@ import "server-only";
 
 import { after } from "next/server";
 
-import { getTenant } from "@/domains/account";
+import { getTenant } from "@/domains/account"; import { getTenantSpentTodayUsd } from "@/lib/cost/budget-ledger-supabase";
 import type { FunnelUnitOutcome } from "@/domains/evidence";
 import { log } from "@/lib/logger";
 import { runWithTenant } from "@/lib/tenant-context";
@@ -145,8 +145,10 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** A PAUSE IS ONLY A PAUSE ONCE IT LANDED: finishRun answers false when the lease was gone or no row matched, and a pause nobody recorded is a failure. */
   const pause = async (errorInfo: ResearchRunError | null = null): Promise<DriveReceipt> =>
     (await finishRun(tenantId, run.id, ownerToken, "paused", errorInfo)) ? "paused" : "failed";
-  /** THE CLOSE, AND THE MONEY WITH IT. Every completion goes through here so the row's own spend column is stamped from what this run actually tracked instead of claiming $0.00 forever. A run that bought nothing stamps 0, which is a fact; the number is carried off progress, never recomputed. */
-  const complete = async (p: ResearchRunProgress): Promise<DriveReceipt> => (await finishRun(tenantId, run.id, ownerToken, "completed", null, Number(p.funnel?.spendUsd) || 0)) ? "completed" : "failed";
+  /** THE CLOSE, AND THE MONEY WITH IT. The funnel counter sees only search buys, so a pass whose money went on model calls stamped $0 forever: 20 of 22 real runs. The day ledger holds EVERY platform's spend, so the run's cost is the ledger's movement across the run and the BIGGER of the two numbers is stamped; a run crossing midnight keeps the funnel number rather than inventing a delta. */
+  const dayAtStart = new Date().toISOString().slice(0, 10), ledgerAtStart = await getTenantSpentTodayUsd(tenantId).catch(() => null); const complete = async (p: ResearchRunProgress): Promise<DriveReceipt> => {
+    const end = new Date().toISOString().slice(0, 10) === dayAtStart ? await getTenantSpentTodayUsd(tenantId).catch(() => null) : null, delta = ledgerAtStart != null && end != null ? Math.max(0, Math.round((end - ledgerAtStart) * 1e6) / 1e6) : 0;
+    return (await finishRun(tenantId, run.id, ownerToken, "completed", null, Math.max(Number(p.funnel?.spendUsd) || 0, delta))) ? "completed" : "failed"; };
   // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then reads back from this row: today's checks, the plan's live
   // and waiting topics, the date a wait ends. They come from the ONE due-work read this pass already made, so no two requests can compute them differently.
   let progress: ResearchRunProgress = { ...(run.progress ?? {}), state: { ...(run.progress?.state ?? {}),

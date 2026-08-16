@@ -123,6 +123,12 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
                   ))}
                 </div>
               ) : null}
+              {row.aiLine ? (
+                <div className="mt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI answers</p>
+                  <p className="text-[11px] text-muted-foreground">{row.aiLine}</p>
+                </div>
+              ) : null}
               {row.caveats.map((c) => (
                 <p key={c} className="mt-1.5 text-[11px] text-amber-700">{c}</p>
               ))}

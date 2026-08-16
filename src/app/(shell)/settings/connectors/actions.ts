@@ -30,6 +30,7 @@ import { revalidatePath } from "next/cache";
 // existing per-tenant sync engines (HTTP + Supabase, Vercel-safe) must be
 // triggerable from the product. Each "Sync now" action wraps one.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
+import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime";
@@ -660,11 +661,17 @@ async function runConnectorSyncNow(
 
 /** Pull the latest Google Search Console search-analytics for this tenant.
  *  First click on a cold tenant auto-backfills the watermark window; click
- *  again to extend history further. */
+ *  again to extend history further. Each press also walks the deep 16-month
+ *  history backfill one month deeper when one is seeded, so the operator can
+ *  recover the pre-collapse record with clicks instead of waiting on passes. */
 export async function syncGscNow(): Promise<ConnectorSyncNowResult> {
   return runConnectorSyncNow(
     "syncGscNow",
-    (tenantId) => syncGscSearchAnalyticsForTenant({ tenantId }),
+    async (tenantId) => {
+      const r = await syncGscSearchAnalyticsForTenant({ tenantId });
+      await continueDeepBackfillIfStarted(tenantId).catch(() => null);
+      return r;
+    },
     "google_gsc",
   );
 }

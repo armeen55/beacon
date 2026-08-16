@@ -116,8 +116,6 @@ export function buildTenantRepo(
         return true;
       });
     },
-    getUrlChangeOutcomes: async () =>
-      filterByTenantId(await base.getUrlChangeOutcomes(), tenantId),
     // Customer-2 isolation fix (operator audit, 2026-05-06) — both
     // stores are TENANT_SCOPED in store-classification.ts; rows on
     // disk already carry tenant_id (and account_id). The unscoped

@@ -93,13 +93,24 @@ function upsertAndPrune(
   return sorted.slice(0, max);
 }
 
+/** ONE BLOB PULL SERVES A WHOLE BURST OF READS. Every cache read used to pull the full multi-megabyte store
+ *  row again, so one research pass's forty lookups cost forty blob reads of identical bytes and the account's
+ *  egress went on re-downloading its own cache. Reads inside READ_TTL_MS share one pull; every mutation
+ *  re-reads fresh inside its queue and updates the memo with exactly what it wrote. */
+const held = new Map<string, { at: number; rows: LlmCallCacheEntry[] }>();
+const READ_TTL_MS = 60_000;
+
 /** Read this account's rows only (routed per-tenant; owner re-checked in memory). */
-async function readAll(tenantId: string): Promise<LlmCallCacheEntry[]> {
+async function readAll(tenantId: string, fresh = false): Promise<LlmCallCacheEntry[]> {
+  const hit = held.get(tenantId);
+  if (!fresh && hit && Date.now() - hit.at < READ_TTL_MS) return hit.rows;
   try {
     const rows = await readStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, undefined, { tenantId });
-    return Array.isArray(rows)
+    const mine = Array.isArray(rows)
       ? rows.filter((r) => r && typeof r.key === "string" && r.tenantId === tenantId)
       : [];
+    held.set(tenantId, { at: Date.now(), rows: mine });
+    return mine;
   } catch {
     return [];
   }
@@ -115,8 +126,10 @@ async function readAll(tenantId: string): Promise<LlmCallCacheEntry[]> {
 const mutating = new Map<string, Promise<void>>();
 function mutate(tenantId: string, entry: LlmCallCacheEntry): Promise<void> {
   const run = (mutating.get(tenantId) ?? Promise.resolve()).then(async () => {
-    const rows = await readAll(tenantId);
-    await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, upsertAndPrune(rows, entry), { tenantId });
+    const rows = await readAll(tenantId, true);
+    const next = upsertAndPrune(rows, entry);
+    await writeStore<LlmCallCacheEntry>(LLM_CALL_CACHE_STORE, next, { tenantId });
+    held.set(tenantId, { at: Date.now(), rows: next });
   });
   const settled = run.catch(() => {});
   mutating.set(tenantId, settled);

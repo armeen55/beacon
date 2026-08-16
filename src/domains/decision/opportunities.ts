@@ -14,6 +14,7 @@
  */
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import { demandUnitsOf, type DemandUnit } from "@/domains/evidence/demand-units";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, evidenceComplete, readyForAction,
@@ -118,16 +119,20 @@ type QueryGap = {
   deficit: number;
   /** deficit x impressions, rounded. Negative = nothing to recover. */
   recoverableClicks: number;
+  /** Every member phrasing of the demand unit behind this gap: the searchers' own words. */
+  vocabulary?: string[];
 };
 
-/** Measure ONE exact query row against the curve. Null when the row cannot be
- *  measured honestly (no position, no impressions). */
-function measureQuery(q: OwnedQuerySignal, expectedCtrAt: (position: number) => number): QueryGap | null {
-  const impressions = Number(q.impressions), clicks = Number(q.clicks), position = q.position;
-  if (!Number.isFinite(impressions) || impressions <= 0 || !Number.isFinite(clicks) || clicks < 0) return null;
-  if (position == null || !Number.isFinite(position) || position <= 0) return null;
-  const expectedCtr = expectedCtrAt(position), actualCtr = Math.min(1, clicks / impressions), deficit = expectedCtr - actualCtr;
-  return { query: q.query, impressions, clicks, position, expectedCtr, actualCtr, deficit, recoverableClicks: Math.round(deficit * impressions) };
+/** Measure ONE DEMAND UNIT against the curve. The floor used to read one query row at a time, so an intent
+ *  spread across hundreds of phrasings never cleared a bar no single phrasing could, and most of the site's
+ *  audience was invisible to the only path that can authorise work. Null when the unit cannot be measured
+ *  honestly (no impressions, no position on any member). */
+function measureUnit(u: DemandUnit): QueryGap | null {
+  if (u.impressions <= 0 || u.position == null || u.position <= 0) return null;
+  const expectedCtr = u.expectedClicks / u.impressions, actualCtr = Math.min(1, u.clicks / u.impressions);
+  return { query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position,
+    expectedCtr, actualCtr, deficit: expectedCtr - actualCtr,
+    recoverableClicks: Math.round(u.expectedClicks - u.clicks), vocabulary: u.vocabulary };
 }
 
 /** WHICH FLOOR REFUSED THIS SEARCH, said in that floor's OWN unit. Checked in the same order the floors are
@@ -214,8 +219,8 @@ function missingSentence(r: EvidenceReadiness): string {
 function candidateForPage(page: OwnedPageEvidence, expectedCtrAt: (position: number) => number, index: ResearchIndex,
   snapshot: EvidenceSnapshot, opts: CompileOptions): QualifiedCandidate {
   const pageUrl = absoluteUrl(page.url);
-  const gaps = (page.search?.topQueries ?? [])
-    .map((q) => measureQuery(q, expectedCtrAt))
+  const gaps = demandUnitsOf(page.search?.topQueries ?? [], expectedCtrAt)
+    .map(measureUnit)
     .filter((g): g is QueryGap => g != null);
   // Counting the weak query too, does this page already earn more clicks than its positions predict? A title
   // is ONE lever shared by every search the page serves, so chasing one soft query bets the winning ones, and

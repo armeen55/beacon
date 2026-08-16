@@ -353,6 +353,12 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
     const winners = modeledOnWinners(snapshot, query, c.pageUrl!);
     const modeled = winners?.label ?? null;
     const earnedWords = earningWords(page);
+    // A FILLER WORD PEOPLE SEARCH WITH IS NOT FILLER ON THIS PAGE. "list" is droppable dressing on most
+    // titles, and it is the word the searches run with on a page whose own rows read "list of persian girl
+    // names": cutting it there trades away the phrasing the audience uses. A word is cuttable only when it
+    // is absent from every real search row this page holds.
+    for (const q of page.search?.topQueries ?? []) if (q.impressions >= MIN_IMPRESSIONS)
+      for (const w of words(q.query)) if (FILLER.has(w)) earnedWords.add(w);
     // COUNT-LED, ONLY ON A REAL COUNT. The winners open with a number and this page runs a countable list,
     // so its OWN count leads the line. No count on file keeps the plain merge and the note below.
     const lead = listPage && (winners?.counted ?? 0) >= 2 ? items : null;

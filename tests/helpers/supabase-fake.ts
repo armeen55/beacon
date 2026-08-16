@@ -57,6 +57,10 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       limit: (n: number) => { max = n; return q; }, range: (a: number, z: number) => { first = a; max = z - a + 1; return q; },
       eq: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v), is: (c: string, v: unknown) => where((r) => (r[c] ?? null) === v),
       in: (c: string, vs: readonly unknown[]) => where((r) => vs.includes(r[c])),
+      // SQL LIKE, honoring backslash-escaped wildcards, so a basis prefix containing an underscore matches itself and nothing else.
+      like: (c: string, v: string) => { const rx = new RegExp(`^${v.replace(/\\([%_\\])|([.*+?^${}()|[\]])|%|_/g,
+        (m, esc: string, meta: string) => esc ? esc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : meta ? `\\${meta}` : m === "%" ? ".*" : ".")}$`, "s");
+        return where((r) => typeof r[c] === "string" && rx.test(r[c] as string)); },
       gte: (c: string, v: string) => where((r) => typeof r[c] === "string" && (r[c] as string) >= v),
       lte: (c: string, v: string) => where((r) => r[c] != null && String(r[c]) <= v),
       lt: (c: string, v: string) => where((r) => r[c] != null && String(r[c]) < v),

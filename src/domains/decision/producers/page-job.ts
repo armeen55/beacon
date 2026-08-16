@@ -393,10 +393,11 @@ export function linkFit(
   anchorWords: readonly string[],
   jobs?: Jobs,
 ): FitVerdict {
-  if (!target || !source) return "unknown";
-  if (anchorWords.length === 0) return "unknown";
+  if (!target || !source || anchorWords.length === 0) return "unknown";
   if (!covers(target, anchorWords, jobs)) return "off_topic";
   if (target.pageType === "translation" && !covers(target, [...vocabularyOf(source)], jobs)) return "wrong_type";
+  // A LINK IS A CLAIM THAT TWO PAGES SHARE A SUBJECT, and the claim runs BOTH ways: a names page was told to link "iranian horse" to a horse page because both carry the word Iranian. The source must cover some of the target's own vocabulary too, read AFTER the type verdict so a dictionary page from a stranger is refused for what it IS.
+  if (![...vocabularyOf(target)].some((w) => covers(source, [w], jobs))) return "off_topic";
   return "fits";
 }
 

@@ -76,6 +76,11 @@ describe("what a job changes, and what a missing one may never change", () => {
     const target = job({ url: "https://mysite.example/persian-words", pageType: "translation", topics: ["farsi words", "persian phrases"], job: "Gives the English meaning of common Farsi words.", audience: "people learning Farsi" });
     const related = job({ url: "https://mysite.example/farsi", topics: ["farsi words", "learning persian"], job: "Explains how to start learning Farsi.", audience: "beginners" }), stranger = job({ url: "https://mysite.example/tabriz" });
     expect([linkFit(target, related, ["farsi", "word"]), linkFit(target, stranger, ["farsi", "word"]), linkFit(job(), stranger, ["saffron"])]).toEqual(["fits", "wrong_type", "off_topic"]);
+    // THE CASPIAN HORSE CLASS: the horse page covers the anchor perfectly, and the names page sharing not one
+    // of its subjects still may not link to it. A link is a claim two pages share a subject, read BOTH ways.
+    const horse = job({ url: "https://mysite.example/caspian-horse", topics: ["caspian horse", "horse breed"], job: "Describes the Caspian horse breed of Iran.", audience: "horse lovers" });
+    const names = job({ url: "https://mysite.example/persian-male-names", topics: ["persian male names", "baby names"], job: "Lists Persian male first names with meanings.", audience: "parents" });
+    expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic");
     expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);
   });
 });

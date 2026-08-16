@@ -19,10 +19,12 @@ type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "se
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
   /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */
   refs: number; impact?: number | null;
+  /** THE AI SIDE IN ITS OWN UNITS, only on a card stored answers stand behind. Never converted into clicks. */
+  aiImpact?: ChangeProposal["aiImpact"];
   /** The question this card came out of. ONE QUESTION, ONE CARD: an answer and the follow-up search an engine ran while writing it are the same question, so the strongest of them is the only one filed. */
   asked?: string;
-  /** THIS PRODUCER WROTE A BRIEF, NOT THE COPY. Said by the one that knows, instead of guessed back out of the sentence downstream by a verb list. The editor clears it when it lands real copy. */
-  brief?: true };
+  /** What happens next for this brief, when the default "the wording lands next pass" is not the truth. */
+  next?: string };
 
 /** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
 const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
@@ -48,6 +50,12 @@ const pathOf = (url: string): string => {
 /** Words carried in from an engine, a publisher or a title, made safe to paste: no dash Beacon never writes,  no bracket that reads as a blank somebody forgot to fill in. */
 const plain = (s: string | null | undefined): string => (s ?? "").replace(/[–—]/g, ", ").replace(/[[\]{}]/g, " ").replace(/\s+/g, " ").trim();
 const labelOf = (p: OwnedPageEvidence): string => plain(p.content?.h1 ?? p.content?.title ?? pathOf(p.url)) || pathOf(p.url);
+/** THE CARD'S QUERY IS A SEARCH SOMEBODY RAN, never the page's own name read back. A defect card whose query
+ *  is the page's H1 hands the drafter the site's own vocabulary and it optimises for what the page already
+ *  says; the page's biggest real search is on file and is the audience the fix is for. */
+const topQueryOf = (p: OwnedPageEvidence): string => {
+  const q = [...(p.search?.topQueries ?? [])].filter((q) => q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
+  return q ? q.query : labelOf(p); };
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 const count = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
 
@@ -125,13 +133,18 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
     opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
     recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after },
-    ...(d.brief ? { researchOnly: true as const, research: { missing: d.after, next: "The exact wording lands on this card once the next funded pass writes it." } } : {}),
+    // EVERY CARD THIS FILE WRITES IS A BRIEF, so researchOnly is DERIVED from who minted it, never declared
+    // per card: this producer names the work and the number behind it and writes no finished copy, and one
+    // forgotten flag (the duplicate-heading card shipped "rewrite this heading" as if it were paste-ready)
+    // must never put an instruction in front of a customer as a deliverable. The editor clears it with real words.
+    researchOnly: true as const, research: { missing: d.after, next: d.next ?? "The exact wording lands on this card once the next funded pass writes it." },
     whyItMatters: d.why, operatorSteps: d.steps, estimatedEffortMinutes: d.minutes, riskLevel: "low",
     confidence: d.confidence, limitations: [d.limitation],
     // WHAT IS ON THE CARD, NEVER WHAT WAS CONSULTED TO WRITE IT: the link card counted every page whose stored link graph it read and claimed 224 pieces of evidence behind four sentences.
     evidence: { query: d.query, hints: d.hints, evidenceRefCount: Math.max(1, Math.min(Math.round(d.refs), d.hints.length)) },
     // WHAT IS RIDING ON IT, off this page's own rows: the clicks it is measurably leaving behind, and the audience it is shown to. Either one absent stays null, never a zero the ranking would believe.
     impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.page.search?.impressions90d ?? null,
+    ...(d.aiImpact ? { aiImpact: d.aiImpact } : {}),
     publish: "manual", createdAt: now.toISOString(),
   };
 }
@@ -173,7 +186,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
     const [domain, cite] = top;
     const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", ");
     out.push({
-      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt, brief: true,
+      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
       headline: `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
       after: `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for.`,
       why: `AI answers for "${g.prompt}" cite ${domain} on ${count(cite.n, "answer")} and never name this site, across ${count(g.answers, "stored answer")} from ${engines}. The page they cite is ${cite.url}. ${labelOf(match.page)} at ${pathOf(match.page.url)} already covers ${covers}, so a section that answers the question outright is the cheapest way into that answer.`,
@@ -183,6 +196,11 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
         `${count(g.answers, "stored answer")} to this question from ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // Every stored answer to this question is one row this card stands on, and there are as many as there are.
+      // THE AI SIDE RIDES IN ITS OWN UNITS: the answers behind the claim, the zero share crediting this site
+      // (one credit retires the card above), the rivals cited instead, and the landing page's own Google
+      // audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click.
+      aiImpact: { answers: g.answers, mentionRate: 0, citedRivals: g.domains.size,
+        audienceWeight: match.page.search?.impressions90d ?? null },
       minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
@@ -207,8 +225,9 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
   const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0).sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 3);
   const nearMiss = pages.flatMap((p) => {
-    // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, and a dictionary ask ("hyena in farsi") earns a line on its own page.
+    // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, a dictionary ask ("hyena in farsi") earns a line on its own page, and a question is a sentence nobody links with; anchors are the noun phrase the destination is FOR.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
+      && !/^(what|how|why|when|where|who|which|is|are|can|do|does)\b/i.test(q.query)
       && !/\bin (farsi|persian|english)\b/i.test(q.query) && q.position != null && q.position >= NEAR_MISS_MIN
       && q.position <= NEAR_MISS_MAX && q.impressions >= MIN_IMPRESSIONS).sort((a, b) => b.impressions - a.impressions)[0];
     return q ? [{ page: p, query: q }] : [];
@@ -235,7 +254,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const held = inbound.get(to.toLowerCase()) ?? 0, support = held === 0 ? `No page of this site links to ${to} at all today`
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
-      page: from, slug: "internal_link", field: "section", query: target.query.query, brief: true,
+      page: from, slug: "internal_link", field: "section", query: target.query.query,
       headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
       // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell Google that page is for, and why this source page is the one being asked to give it.
@@ -273,7 +292,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   const out: Draft[] = [];
   const noMeta = rank(pages.filter((p) => !p.content?.metaDescription?.trim()));
   for (const p of noMeta.slice(0, TOP_PAGES_PER_CLASS)) out.push({
-    page: p, slug: "missing_description", field: "meta", query: labelOf(p), brief: true,
+    page: p, slug: "missing_description", field: "meta", query: topQueryOf(p),
     headline: `Write the missing description on ${pathOf(p.url)} (Google is writing its own)`, before: null,
     after: "Write a description of about 150 characters that names this page's subject and the one answer it gives, and ends on a fact about the page rather than an instruction to read it.",
     // A COUNT IS NOT AN ARGUMENT UNTIL IT IS BIG ENOUGH TO BE ONE. "3 views in 90 days, so that line is read a lot" was printed on a live card: the sentence was welded to the figure and stayed true only while the figure was large. It says what the figure actually shows now, and a small one says it is small.
@@ -300,7 +319,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of rank(templated.flat()).slice(0, 2)) {
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
-      page: p, slug: "missing_description", field: "meta", query: labelOf(p), brief: true, minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
+      page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),
       headline: `Write a real description on ${pathOf(p.url)}: ${family} pages share one templated line`, before: (p.content?.metaDescription ?? "").trim() || null,
       after: "Write a description of about 150 characters that says what only this page answers, and ends on a fact about the page rather than an instruction to read it.",
       why: `${count(family, "page")} carry the same templated description with only the name swapped, and ${pathOf(p.url)} is the busiest of them at ${count(impressions(p), "impression")} in 90 days. A line every sibling repeats gives nobody a reason to click this one.`,
@@ -317,7 +336,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   for (const p of rank(dupes.flat()).slice(0, TOP_PAGES_PER_CLASS)) {
     const heading = plain(p.content?.h1), sharers = (byH1.get((p.content?.h1 ?? "").trim().toLowerCase())?.length ?? 1) - 1;
     out.push({
-      page: p, slug: "duplicate_heading", field: "h1", query: labelOf(p),
+      page: p, slug: "duplicate_heading", field: "h1", query: topQueryOf(p),
       headline: `Give ${pathOf(p.url)} its own heading: ${sharers} other ${sharers === 1 ? "page shares" : "pages share"} it`,
       before: heading, after: "Rewrite this heading so it names what only this page covers.",
       why: `"${heading}" is the heading on ${count(sharers + 1, "page")} of this site, which asks Google to pick between them. ${pathOf(p.url)} earns ${count(impressions(p), "impression")} in 90 days, so it is the one to name first.`,
@@ -343,7 +362,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const stores = winnersAreStores(p);
     const shopStep = "Add a product block or shop link above the fold; the pages winning this search are stores.";
     out.push({
-      page: p, slug: "thin_page", field: "section", query: labelOf(p), brief: true,
+      page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
       headline: `Fill out ${pathOf(p.url)}: ${count(p.content?.wordCount ?? 0, "word")} on a page shown ${count(impressions(p), "time")}`,
       before: null,
       after: `Add ${target} words to ${pathOf(p.url)} that answer its main question, in short sections with their own headings.`,
@@ -357,6 +376,26 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       // This page's stored copy, its search row, and the stored results page the shape came from.
       minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
       limitation: "Word count is read off the last stored copy of the page, so copy added since that read is not counted here.",
+    });
+  }
+  // A ZERO-WORD 200 IS AN UNREAD PAGE, NEVER A THIN ONE. A page built with javascript answers a raw fetch
+  // with a normal response and no readable words, so what it carries is UNKNOWN: judging it thin would be
+  // judging blindness, and skipping it silently hid the site's biggest pages. It gets a research card that
+  // names the rendered read as the next step, and no body-dependent change can stand on it until that lands.
+  const unread = rank(pages.filter((p) => (p.content?.wordCount ?? 0) === 0 && impressions(p) > 0));
+  for (const p of unread.slice(0, TOP_PAGES_PER_CLASS)) {
+    out.push({
+      page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
+      headline: `Read ${pathOf(p.url)}: a page shown ${count(impressions(p), "time")} whose words a raw fetch cannot see`,
+      before: null,
+      after: `Capture the real words on ${pathOf(p.url)} with a rendered read; no judgment about its content stands until that read lands.`,
+      why: `${pathOf(p.url)} answers with a normal page and zero readable words, so it is built with javascript a raw read cannot run. What it carries is unknown rather than thin, and it is still shown ${count(impressions(p), "time")} in 90 days.`,
+      steps: [],
+      hints: [`${pathOf(p.url)} returns a normal response and zero readable words to a raw fetch`,
+        `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`],
+      minutes: 0, confidence: "low", refs: 2, impact: null,
+      limitation: "Nothing here is yours to do: the rendered read runs on the next research pass and this card updates itself.",
+      next: "A rendered read captures the page's real words on the next research pass, without touching the page.",
     });
   }
   return out;

@@ -189,7 +189,11 @@ export async function loadProposalQueue(
   for (const p of ranked) {
     const hold = openHold(p);
     if (hold.lane === "research") research.push(p);
-    else if (p.status === "ready" && hold.blocking == null && unsettledCause(p) == null) ready.push(p);
+    // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
+    // stamped by an older door, and this queue has already shipped what an older door waved through. The
+    // opportunity stays ranked and visible either way; only the paste-ready claim waits for the current
+    // door's own yes.
+    else if (p.status === "ready" && hold.blocking == null && unsettledCause(p) == null && p.basis === currentBasis) ready.push(p);
     else toDo.push(p);
   }
   return {

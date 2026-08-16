@@ -7,7 +7,7 @@ import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
-import { countTrackedQuestions, researchPermission } from "@/domains/runtime";
+import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
 import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
@@ -69,6 +69,9 @@ export type TodayComposite = {
    *  a next pass or work happening behind the scenes while it is off, so the surfaces read this and say the
    *  truthful line with the control that fixes it. A switch that could not be read claims nothing either way. */
   researchPaused?: boolean;
+  /** THE HEARTBEAT SENTENCE, off the latest research run's own row: what the last pass did and when, or that
+   *  none has run. Absent when the row could not be read, so an outage never claims research is dead. */
+  researchLiveness?: string;
 };
 
 /** A plain first-person directive for one proposal (the "do this next" line). */
@@ -155,12 +158,21 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
   const readyTotal = view.summary?.ready ?? view.ready.length;
   // ONLY WHAT IS READY IS OFFERED. Today used to draw its preview and its "Do this first" edit off ready AND review together, so on a day
   // with nothing finished the top of the homepage handed over a card the queue itself holds back, with a Copy press on it.
-  // AT MOST THREE NEXT ITEMS, EACH SAYING WHAT IT IS. Finished work leads; a draft owing a look and an
-  // opportunity still being researched fill the rest rather than leaving the day looking empty, and both carry
-  // their lane so no surface can print either as a finished change.
-  const ready = [...view.ready.map((p) => proposalToOpportunity(p, "ready")),
-    ...view.toDo.map((p) => proposalToOpportunity(p, "review")),
-    ...(view.research ?? []).map((p) => proposalToOpportunity(p, "research"))].slice(0, TODAY_PREVIEW_LIMIT);
+  // AT MOST THREE NEXT ITEMS: THE TOP OF THE ONE RANKING, each wearing its lane. Lane-priority concatenation
+  // used to rebuild the retired hierarchy right at the top of the homepage, so a three impression finished
+  // description sat above the account's biggest researched opportunity. The ORDER is the ranking's own (rows
+  // the ranked head does not name keep lane order behind it, which is also the whole answer on a stored blob
+  // that predates `proposals`); the LABEL is what says whether there is something to paste, and no research
+  // row can print as finished work.
+  type Lane = "ready" | "review" | "research";
+  const lanes: Array<[{ id: string }, Lane]> = [
+    ...view.ready.map((p): [{ id: string }, Lane] => [p, "ready"]),
+    ...view.toDo.map((p): [{ id: string }, Lane] => [p, "review"]),
+    ...(view.research ?? []).map((p): [{ id: string }, Lane] => [p, "research"])];
+  const rank = new Map((view.proposals ?? []).map((p, i) => [p.id, i]));
+  lanes.sort((a, b) => (rank.get(a[0].id) ?? Infinity) - (rank.get(b[0].id) ?? Infinity));
+  const ready = lanes.slice(0, TODAY_PREVIEW_LIMIT)
+    .map(([p, lane]) => proposalToOpportunity(p as Parameters<typeof proposalToOpportunity>[0], lane));
   const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.
   const unread = view.countsUnavailable === true;
@@ -223,14 +235,17 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   // One lean head-count, in parallel with the surface read: zero tracked questions is the ONE state that stops research outright, and Today
   // has to name it rather than look merely quiet. A failed count (null) claims NOTHING: a false zero would advertise a recovery the account
   // does not need.
-  const [customer, trackedCount, permission] = await Promise.all([
+  const [customer, trackedCount, permission, runStatus] = await Promise.all([
     readCustomerSurface(tenantId).catch(() => null),
     countTrackedQuestions(tenantId).catch(() => null),
     // THE REAL SWITCH, NOT AN ASSUMPTION. A surface that promises a nightly round while research is off is
     // telling the operator work is happening that is not. Unreadable claims nothing.
     researchPermission(tenantId).catch(() => "unreadable" as const),
+    // THE HEARTBEAT, off the latest run's own row: the day has a pulse the operator can read without asking.
+    researchRunStatus(tenantId).catch(() => null),
   ]);
-  const research = permission === "paused" ? { researchPaused: true } : {};
+  const research = { ...(permission === "paused" ? { researchPaused: true } : {}),
+    ...(runStatus?.liveness?.line ? { researchLiveness: runStatus.liveness.line } : {}) };
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.
   const unreadable = "Your changes could not be read just now, so the day is not being called clear. Beacon is checking again automatically.";

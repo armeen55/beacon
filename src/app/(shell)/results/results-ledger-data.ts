@@ -7,7 +7,7 @@ import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { currentTenantId } from "@/lib/tenant-context";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { runSingleFlight } from "@/lib/single-flight";
-import { readLastFinalizedDate } from "@/domains/measurement";
+import { aiOutcomesForShipments, readLastFinalizedDate } from "@/domains/measurement";
 import { loadProofLedger, loadProofLedgerPersisted } from "@/domains/measurement";
 import { applyPinnedRead, pinFor, readLedger, recordPinnedRead, withCorrection,
   recordPinnedReadCorrection, type ShippedChangeRecord } from "@/domains/measurement";
@@ -47,6 +47,12 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   if (records.length === 0) return [];
   const latestGscDate = await readLastFinalizedDate(tenantId).catch(() => null);
   const reads = readLedger(records, new Date(), latestGscDate);
+  // THE AI HALF OF EVERY SHIPMENT, off the answers already stored around each stamp. The 488 line outcome
+  // engine sat with zero callers while every Result was judged on Google alone; a failure here costs only
+  // the AI line, never the ledger.
+  const aiReads = await aiOutcomesForShipments(tenantId, records.map((r) => ({
+    implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries,
+  }))).catch(() => records.map(() => null));
   return records.map((r, i) => {
     // A FINISHED READING IS SERVED AS IT WAS READ. Everything below still recomputes from live Google data,
     // which is right while a window is open and wrong the moment it closes: a backfilled day inside a closed
@@ -71,6 +77,7 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       basisMove: basis ? { clicks: basis.treatedDelta, impressions: basis.treatedImpressionsDelta ?? 0 } : null,
       // Which pages stood behind this one, so the screen can name them rather than assert similarity.
       controlsReceipt: r.controlsReceipt ?? null,
+      ai: aiReads[i] ? { direction: aiReads[i]!.direction, line: aiReads[i]!.line } : null,
     };
   });
 }
