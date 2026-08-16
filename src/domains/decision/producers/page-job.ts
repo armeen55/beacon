@@ -95,8 +95,7 @@ const SYSTEM = [
 
 const trim = (s: string | null | undefined, max: number): string | null => {
   const v = (s ?? "").replace(/\s+/g, " ").trim();
-  return v ? v.slice(0, max) : null;
-};
+  return v ? v.slice(0, max) : null; };
 
 const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; }
@@ -323,7 +322,8 @@ function covers(job: OwnedPageJob, words: readonly string[], jobs: Jobs | null |
 }
 
 /** THE PAGE SHAPES THAT SPEAK FOR ONE NAMED THING and never for the whole it belongs to. */
-const SCOPED: ReadonlySet<PageJob["pageType"]> = new Set(["city", "entity", "product", "translation"]);
+// GUIDE IS SCOPED TOO: the reading typed /karaj, a travel guide to one city, as "guide" rather than "city", which walked it past this rule and handed one city a country-wide landmarks question on the live account (2026-08-16). A guide is about the one thing its own address names exactly as a city page is; only the shapes BUILT to survey a whole scope (hub, list, home, category) answer wider than their own name.
+const SCOPED: ReadonlySet<PageJob["pageType"]> = new Set(["city", "entity", "product", "translation", "guide"]);
 /**
  * A PAGE ABOUT ONE THING IS NOT THE ANSWER ABOUT EVERYTHING AROUND IT. A city page is not the national landmarks
  * answer, a product page is not the category answer, and a word's translation page is not the language answer.
