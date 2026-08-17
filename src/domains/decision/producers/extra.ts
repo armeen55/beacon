@@ -223,7 +223,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
       headline: `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
-      after: `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for.`,
+      after: `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. The section must add structure the page does not have: where the page states a question and its reply separately, connect them; where it marks one form as more formal, carry that note into the sentence; a flat restatement of what the page already lists is refused.`,
       why: `AI answers for "${g.prompt}" cite ${domain} on ${count(cite.n, "answer")} and never name this site, across ${count(g.answers, "stored answer")} from ${engines}. The page they cite is ${cite.url}. ${labelOf(match.page)} at ${pathOf(match.page.url)} already covers ${covers}, so a section that answers the question outright is the cheapest way into that answer.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${g.prompt}"`,
         "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],

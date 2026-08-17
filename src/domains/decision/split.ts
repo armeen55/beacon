@@ -23,7 +23,14 @@ export function splitComparison(snapshot: EvidenceSnapshot, query: string): Spli
   if (!group) return [];
   return group.competingUrls.map((url) => {
     const own = snapshot.ownedPages.find((p) => canonicalUrlKey(p.url) === canonicalUrlKey(url));
-    const row = (own?.search?.topQueries ?? []).find((q) => canonicalQueryKey(q.query) === key);
+    const rows = own?.search?.topQueries ?? [];
+    const row = rows.find((q) => canonicalQueryKey(q.query) === key);
+    // A MEASURED PAGE WITH NO ROW FOR THIS EXACT SEARCH EARNS ROUGHLY NOTHING ON IT: its other searches
+    // made the per-page list and this one did not. That zero is a measurement, not ignorance, and treating
+    // it as unknown held "settle which page owns this search" open for ever against a page whose whole
+    // share was a rounding error (operator, 2026-08-17: the two-page split is decided from evidence this
+    // account already holds). Only a page with no search rows at all stays genuinely unmeasured.
+    if (!row && own && rows.length > 0) return { url, clicks: 0, impressions: 0, position: null };
     return { url, clicks: row?.clicks ?? null, impressions: row?.impressions ?? null, position: row?.position ?? null };
   });
 }
@@ -39,9 +46,13 @@ export function splitComparison(snapshot: EvidenceSnapshot, query: string): Spli
  * survivor "ahead" of a page nobody weighed would send that page away for good on my ignorance. An exact tie on both settles nothing either: there is no honest way to pick, so I do not pretend there is.
  */
 export function provenSurvivor(rows: readonly SplitRow[]): string | null {
-  if (rows.length < 2 || rows.some((r) => r.clicks == null || r.position == null)) return null;
-  const best = [...rows].sort((a, b) => b.clicks! - a.clicks! || a.position! - b.position!)[0]!;
+  // A measured-at-zero page carries no position; that absence may not defer the verdict, because the page
+  // is behind on clicks, which is the half that decides. Position only breaks an exact clicks tie, and a
+  // tie between two position-less zeros still settles nothing.
+  if (rows.length < 2 || rows.some((r) => r.clicks == null)) return null;
+  const pos = (r: SplitRow): number => r.position ?? Number.POSITIVE_INFINITY;
+  const best = [...rows].sort((a, b) => b.clicks! - a.clicks! || pos(a) - pos(b))[0]!;
   const ahead = rows.every((r) => r.url === best.url || best.clicks! > r.clicks!
-    || (best.clicks! === r.clicks! && best.position! < r.position!));
+    || (best.clicks! === r.clicks! && pos(best) < pos(r)));
   return ahead ? best.url : null;
 }
