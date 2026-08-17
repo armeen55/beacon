@@ -12,7 +12,7 @@ import type { CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
-import { journeyLabel, readAnswerJourneys } from "@/domains/evidence/ai-visibility/answer-journeys";
+import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 
@@ -215,21 +215,29 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
     const top = [...g.domains.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0];
     if (!match || !top) continue;
     const [domain, cite] = top;
-    // THE ANSWER ITSELF, for the top cards only: what the assistant actually said around the rival's citation, quoted onto the card so the drafted treatment answers the REAL answer rather than a citation count.
-    const journeys = out.length < 2 ? await readAnswerJourneys(tenantId, g.promptId, domain, 2) : [];
+    // THE ANSWERS THEMSELVES, and this account's standing across them. The snapshot window is the NEWEST row per question and engine, which cannot tell "never seen" from "seen and passed over": read off it alone this card said none of three answers credited the site while the record held fifty-four, two citing it and ten retrieving it (operator, 2026-08-17).
+    const journeys = out.length < 3 ? await readAnswerJourneys(tenantId, g.promptId, domain, 40, site) : [];
+    const stand = standingOf(journeys);
     const passages = journeys.filter((j) => j.citedPassage != null).slice(0, 2).map((j) => `The ${journeyLabel(j)} answer drew on ${domain}: "${j.citedPassage}"`);
     const linkOnly = journeys.length > 0 && passages.length === 0 ? [`The stored answers cite ${domain} in their source list without quoting it in prose, so the opening to win is being the page an engine can lift a direct answer from.`] : [];
+    // RETRIEVED AND PASSED OVER IS ITS OWN CAUSE: a page an engine fetched and did not credit does not need to exist, it needs to be the thing the engine could lift.
+    const passedOver = stand.retrievedNotCitedEngines.length > 0;
+    const standLine = stand.answers > 0
+      ? `Across ${count(stand.answers, "stored answer")} on file (${stand.engines.join(", ")}), this site is cited on ${stand.cited}${stand.lastCitedAt ? `, last on ${stand.lastCitedAt.slice(0, 10)}` : ""} and retrieved on ${stand.retrieved}.`
+      : "";
     const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
-      headline: `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
+      headline: passedOver ? `${stand.retrievedNotCitedEngines.join(" and ")} reads ${pathOf(match.page.url)} for "${g.prompt}" and cites ${domain} instead; give it the answer it can lift`
+        : `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
       after: `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. The section must add structure the page does not have: where the page states a question and its reply separately, connect them; where it marks one form as more formal, carry that note into the sentence; a flat restatement of what the page already lists is refused.`,
-      why: `AI answers for "${g.prompt}" cite ${domain} on ${count(cite.n, "answer")} and never name this site, across ${count(g.answers, "stored answer")} from ${engines}. The page they cite is ${cite.url}. ${labelOf(match.page)} at ${pathOf(match.page.url)} already covers ${covers}, so a section that answers the question outright is the cheapest way into that answer.`,
+      why: `AI answers for "${g.prompt}" cite ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they cite is ${cite.url}. ${standLine} ${labelOf(match.page)} at ${pathOf(match.page.url)} already covers ${covers}, so ${passedOver ? "the page is already being read and passed over: the work is making the answer liftable, not making it exist" : "a section that answers the question outright is the cheapest way into that answer"}.`,
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${g.prompt}"`,
         "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],
       hints: [`${cite.engine} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
-        ...passages, ...linkOnly,
-        `${count(g.answers, "stored answer")} to this question from ${engines} credited other sites and none credited this one`,
+        ...passages, ...linkOnly, ...(standLine ? [standLine] : []),
+        ...(passedOver ? [`${stand.retrievedNotCitedEngines.join(", ")} retrieved this page while answering and credited other sites, so the page is reachable and not liftable`] : []),
+        `The newest answer from each of ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // Every stored answer to this question is one row this card stands on, and there are as many as there are.
       // THE AI SIDE RIDES IN ITS OWN UNITS: the answers behind the claim, the zero share crediting this site
@@ -238,11 +246,18 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
       aiImpact: { answers: g.answers, mentionRate: 0, citedRivals: g.domains.size,
         audienceWeight: match.page.search?.impressions90d ?? null },
       // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17: empty arrays do not constitute causal evidence); every entry is computed from what this producer holds.
-      cause: { cause: "ai_citation_gap", action: "section", evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current"],
-        explanation: `Every one of ${count(g.answers, "stored answer")} to the tracked question "${g.prompt}" cites other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, while ${pathOf(match.page.url)} already covers ${covers}: the page engines can lift a direct answer from does not exist here yet, and that is the gap by name.`,
+      cause: { cause: passedOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section",
+        evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current", ...(passedOver ? ["retrieval:own-page"] : [])],
+        explanation: passedOver
+          ? `${stand.retrievedNotCitedEngines.join(" and ")} retrieved ${pathOf(match.page.url)} while answering "${g.prompt}" and credited other sites instead (${domain} on ${count(cite.n, "answer")}). ${standLine} The page is reachable and is being read: what it does not carry is an answer an engine can lift whole, and that is the cause by name.`
+          : `The newest stored answer from each of ${engines} on "${g.prompt}" cites other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, and no stored answer reports retrieving this page, while ${pathOf(match.page.url)} already covers ${covers}: the page engines can lift a direct answer from does not exist here yet.`,
         competingExplanations: [...(inst.length > 0 ? [{ cause: "competitor_content_gap" as const, reason: `the cited rivals include institutional sources (${inst.join(", ")}), so assistants may be preferring that authority, and a better section narrows the gap without guaranteeing the citation flips` }] : []),
-          { cause: "technical_indexability" as const, reason: "these observations record what assistants answered, not what their crawlers could fetch from this page, so access stays a live alternative until a fetch is on file" }],
-        notConsidered: [{ cause: "retrieved_not_cited" as const, missing: "answer bodies are not stored for these observations, so an answer that used this page's words without linking it cannot be told apart from one that never saw it" }], falsifier: "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
+          ...(passedOver ? [{ cause: "ai_citation_gap" as const, reason: "absence was ruled out by the retrieval record itself: the engine reports fetching this page, so the answer it wants is missing from the page rather than the page missing from the index" }]
+            : [{ cause: "technical_indexability" as const, reason: "no stored answer reports retrieving this page, so an access problem is not ruled out until a fetch is on file" }]),
+          ...(stand.cited > 0 ? [{ cause: "no_problem" as const, reason: `this site HAS been cited on ${count(stand.cited, "stored answer")}${stand.lastCitedAt ? `, last on ${stand.lastCitedAt.slice(0, 10)}` : ""}, so the citation is winnable and this is a slipped position rather than an absent one`, fired: true }] : [])],
+        notConsidered: [{ cause: "intent_shift" as const, missing: "no results page for this question is on file, so whether searchers now want a different shape of answer is not decided here" }],
+        falsifier: passedOver ? "If a newly stored answer credits this site without the section shipping, the page was already liftable and this card retires itself."
+          : "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
       minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
