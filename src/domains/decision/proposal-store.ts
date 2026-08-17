@@ -27,7 +27,7 @@ type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";
 // ── canonical identity ────────────────────────────────────────────────────────
 
 /** THE CLOSED SET OF ACTION FAMILIES. One page holds one current change per family: rewriting the snippet and restructuring the body are two hypotheses, and two attempts at the snippet are one. */
-type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "new_page";
+type ActionFamily = "title-family" | "section-family" | "links-family" | "technical-family" | "consolidation" | "accuracy-family" | "new_page";
 
 /** Every kind maps to one family, once, here. Adding a kind without adding it here does not compile. */
 const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
@@ -35,7 +35,10 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
   opening_answer: "section-family", section: "section-family", source_pack: "section-family",
   paragraph_correction: "section-family", section_add: "section-family", section_remove: "section-family",
   section_rewrite: "section-family", restructure: "section-family", full_rewrite: "section-family",
-  factual_correction: "section-family", source_update: "section-family", entity_expansion: "section-family",
+  // REPLACING UNTRUE WORDS IS ITS OWN HYPOTHESIS ABOUT A PAGE, never the same one as adding a section. Filed
+  // under section-family, the accuracy card and the ranking-loss card for one page superseded each other, so
+  // the page could hold only one of two true findings at a time (operator, 2026-08-17: they are separate).
+  factual_correction: "accuracy-family", source_update: "accuracy-family", entity_expansion: "section-family",
   table_or_list_add: "section-family", internal_links: "links-family", internal_link_add: "links-family",
   internal_link_remove: "links-family", anchor_text: "links-family", schema: "technical-family",
   canonical: "technical-family", redirect: "technical-family", noindex: "technical-family",
@@ -43,7 +46,7 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
 };
 
 /** BLAST RADIUS ORDER. A bundle touching several families is named by the biggest thing it does: moving the page outranks rewriting the body. Deterministic, so one bundle always lands on the same identity. */
-const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "section-family", "links-family", "title-family"];
+const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "accuracy-family", "section-family", "links-family", "title-family"];
 
 /** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. THE ONE ANSWER: the id a producer mints, the `changeFamily` it stamps and the identity this store files it under all read it here, so a page can hold a snippet rewrite and a body rebuild at once without either wearing the other's name. Structural on purpose, so a producer can ask before it has a whole proposal to hand. */
 export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "recommendedChange">): ActionFamily {

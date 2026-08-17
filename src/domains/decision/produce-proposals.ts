@@ -206,6 +206,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const RECOVERS_A_FALL = new Set(["title", "h1", "answer_block", "thin_page", "missing_description"]);
   const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
   const recovered = (p: ChangeProposal): ChangeProposal => {
+    // AN ACCURACY DEFECT NEVER INHERITS A FALL. Every bundle used to be handed the page's lost clicks and a
+    // sentence saying that fall is what it is ranked on, so a card about statements contradicting their own
+    // sources arrived claiming 192 clicks nothing tied it to: the exact merge of two separate truths the
+    // operator forbade on 2026-08-17. A cause that claims no clicks by construction is left alone.
+    if ((p.causeFinding?.cause ?? p.diagnosisCause) === "factual_error") return p;
     if (!p.bundle && !RECOVERS_A_FALL.has(p.changeFamily)) return p;
     const lost = lostByKey.get((p.pageUrl ?? "").trim().toLowerCase()) ?? lostByKey.get((p.pagePath ?? "").trim().toLowerCase()) ?? 0;
     // THE NEW NUMBER SAYS WHERE IT CAME FROM, or the card's own sentence and the order disagree out loud.

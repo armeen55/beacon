@@ -110,6 +110,14 @@ const LEVER_WORDS: Record<string, string> = { title: "a new title", meta: "a new
  * before: this refuses only where the evidence NAMED something the card cannot touch.
  */
 export function withholdReason(p: ChangeProposal, cause: Cause | null | undefined): string | null {
+  // A CARD THAT NAMES ITS OWN CAUSE IS JUDGED ON THAT ONE. One page can be true in two ways at once: a page
+  // can be losing ground on a search AND be stating things its own sources contradict, and those are separate
+  // findings with separate evidence and separate work (operator, 2026-08-17). Judging every card against the
+  // page's single strongest ladder cause refused an accuracy correction for not treating a ranking loss,
+  // which is exactly the merge the operator forbade. The card's own diagnosis wins where it carries one AND
+  // its lever treats it; the page-level cause still governs every card that names nothing.
+  const own = p.causeFinding?.cause ?? p.diagnosisCause;
+  if (own && own !== cause && treatsCause(p, own)) return null;
   if (!cause || !treatable(cause) || treatsCause(p, cause)) return null;
   const lever = p.recommendedChange.kind === "new_page" ? "new_page" : p.recommendedChange.field;
   return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Settle that first and this card comes back.`;
