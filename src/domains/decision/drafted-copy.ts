@@ -409,8 +409,17 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
-      "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused."] : []),
-    ...(kind === "title" || kind === "h1" ? ["Keep every word of the current line that the demand ids show this page earns clicks on; drop a word only when a demand id you cite proves the replacement earns more. Use only vocabulary the evidence above already contains, and never a word this packet lists as banned, even when a search uses it."] : []),
+      "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused.",
+      `The section heading must NOT repeat "${card.primaryQuery}" back word for word; name what the section delivers in different words.`] : []),
+    ...(kind === "title" || kind === "h1" ? (() => {
+      // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line
+      // that earning searches carry (each must survive the rewrite), and the exact words the account bans.
+      const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+      const earning = new Set(packet.demand.preserve.flatMap(wordsOf));
+      const held = kind === "title" ? packet.title : packet.h1;
+      const keep = [...new Set(wordsOf(held ?? ""))].filter((w) => earning.has(w));
+      return [`Rewrite the line, but every one of these words must still appear in it, spelled as given: ${keep.join(", ") || "(none)"}. Add the higher-demand phrase alongside them; NEVER replace them with it.${packet.bannedTerms.length > 0 ? ` These words are banned and must not appear at all: ${packet.bannedTerms.join(", ")}.` : ""}`];
+    })() : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused.",
     "Return sources as an empty array; never send a source entry with blank fields. evidenceRefs is DIFFERENT and required: cite at least one of the evidence ids handed to you above. A claim's supportedBy lists at most 8 ids."];
   const deliverable = await runEditor(packet, kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block", card.pageLabel, hints,
