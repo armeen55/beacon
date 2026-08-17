@@ -219,7 +219,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
     const journeys = out.length < 2 ? await readAnswerJourneys(tenantId, g.promptId, domain, 2) : [];
     const passages = journeys.filter((j) => j.citedPassage != null).slice(0, 2).map((j) => `The ${journeyLabel(j)} answer drew on ${domain}: "${j.citedPassage}"`);
     const linkOnly = journeys.length > 0 && passages.length === 0 ? [`The stored answers cite ${domain} in their source list without quoting it in prose, so the opening to win is being the page an engine can lift a direct answer from.`] : [];
-    const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", ");
+    const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
       headline: `AI answers cite ${domain} for "${g.prompt}" and never you; answer it on ${pathOf(match.page.url)}`, before: null,
@@ -237,20 +237,12 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
       // audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click.
       aiImpact: { answers: g.answers, mentionRate: 0, citedRivals: g.domains.size,
         audienceWeight: match.page.search?.impressions90d ?? null },
-      // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17:
-      // empty arrays do not constitute causal evidence). Every entry below is computed from what this
-      // producer actually holds: the stored answers, the cited passage, the landing page's coverage, and
-      // the institutional class of the rivals; nothing is invented to fill a field.
-      cause: { cause: "ai_citation_gap", action: "section",
-        evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current"],
+      // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17: empty arrays do not constitute causal evidence); every entry is computed from what this producer holds.
+      cause: { cause: "ai_citation_gap", action: "section", evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current"],
         explanation: `Every one of ${count(g.answers, "stored answer")} to the tracked question "${g.prompt}" cites other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, while ${pathOf(match.page.url)} already covers ${covers}: the page engines can lift a direct answer from does not exist here yet, and that is the gap by name.`,
-        competingExplanations: [
-          ...([...g.domains.keys()].some((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d)) ? [{ cause: "competitor_content_gap" as const,
-            reason: `the cited rivals include institutional sources (${[...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d)).join(", ")}), so assistants may be preferring that authority, and a better section narrows the gap without guaranteeing the citation flips` }] : []),
+        competingExplanations: [...(inst.length > 0 ? [{ cause: "competitor_content_gap" as const, reason: `the cited rivals include institutional sources (${inst.join(", ")}), so assistants may be preferring that authority, and a better section narrows the gap without guaranteeing the citation flips` }] : []),
           { cause: "technical_indexability" as const, reason: "these observations record what assistants answered, not what their crawlers could fetch from this page, so access stays a live alternative until a fetch is on file" }],
-        notConsidered: [{ cause: "retrieved_not_cited" as const,
-          missing: "answer bodies are not stored for these observations, so an answer that used this page's words without linking it cannot be told apart from one that never saw it" }],
-        falsifier: "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
+        notConsidered: [{ cause: "retrieved_not_cited" as const, missing: "answer bodies are not stored for these observations, so an answer that used this page's words without linking it cannot be told apart from one that never saw it" }], falsifier: "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
       minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
