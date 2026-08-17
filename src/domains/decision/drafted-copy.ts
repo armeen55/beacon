@@ -461,10 +461,10 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
       "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused.",
-      `The section heading must NOT repeat "${card.primaryQuery}" back word for word; name what the section delivers in different words.`,
+      `The section heading must NOT repeat "${card.primaryQuery}" or the page's own H1 back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
-      "State each fact in the evidence's own wording: when the page lists a name and its meaning without a verb, write the pair the same way (Ali: elevated), and never introduce a verb or noun the cited passage does not use.",
+      "Write complete sentences a beginner can actually use: pair every expression in another language with its English meaning inside the same sentence, joined with plain carrier verbs (means, is, say, use) that add no fact of their own. A bare list of expressions with no meanings is refused; so is a section that restates what the page already says.",
       "Every descriptive word your copy uses must ALSO appear in the text of one of your claims, and that claim must cite the passage carrying those same words: a meaning your copy states but no claim spells out is refused.",
       "Return naturalHeading: a short heading for the NEW section, in words the evidence carries, never blank and never the tracked search said back."] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
