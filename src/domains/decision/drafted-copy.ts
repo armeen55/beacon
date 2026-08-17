@@ -420,9 +420,9 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // THE REFUSAL IS FEEDBACK, NOT ONLY A LOG LINE. The deterministic contract's reasons are exact and
   // repeatable, and a pass that never repeats them to the writer buys the same refusal every time; the last
   // refusal's reasons are kept so ONE bounded second attempt can be told precisely what to fix.
-  let refusedFor = "";
+  const lessons: string[] = [];
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
-    refusedFor = [why, ...((extra.reasons as string[] | undefined) ?? [])].filter(Boolean).join("; ").slice(0, 500);
+    lessons.push([why, ...((extra.reasons as string[] | undefined) ?? [])].filter(Boolean).join("; ").slice(0, 400));
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
     return null; };
   // A LINK DELIVERABLE IS ONE SENTENCE, and both its facts are the card's own: the destination off its
@@ -458,13 +458,12 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
   let deliverable = await runEditor(packet, field, card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
-  // TWO fed-back attempts at most: same packet, same gates, plus each refusal said verbatim. A title clears
-  // in one; a section's coverage contract names different words each round and earns the second. The editor
-  // decrements the pass's shared attempt budget before every call, so this is counted work, never free work.
-  for (let round = 0; !deliverable && refusedFor && round < 2; round += 1) {
-    const why = refusedFor; refusedFor = "";
+  // THREE fed-back attempts at most, each told EVERY refusal so far: a section juggles nine constraints and a
+  // retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor
+  // decrements the pass's shared attempt budget before every charged call, so this is counted work, never free.
+  for (let round = 0; !deliverable && lessons.length > round && round < 3; round += 1) {
     deliverable = await runEditor(packet, field, card.pageLabel,
-      [...hints, `Attempt ${round + 1} at this exact deliverable was refused for exactly this: ${why}. Fix precisely what that names and change nothing else about the approach.`],
+      [...hints, `${lessons.length} previous ${lessons.length === 1 ? "attempt" : "attempts"} at this exact deliverable ${lessons.length === 1 ? "was" : "were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`],
       card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
   }
   if (!deliverable) return null;

@@ -101,9 +101,9 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    // Five calls, not three: the defect card's draft is refused by the deterministic contract and the editor
-    // buys up to TWO fed-back attempts, each told its refusal verbatim. Still every one an edit.
-    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
+    // Six calls, not three: the defect card's draft is refused by the deterministic contract and the editor
+    // buys up to THREE fed-back attempts, each told every refusal so far. Still every one an edit.
+    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
