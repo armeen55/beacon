@@ -23,7 +23,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
-import { unsettledCause, withholdReason } from "./authorization";
+import { CAUSE_LEVERS, unsettledCause, withholdReason } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -192,7 +192,11 @@ export async function loadProposalQueue(
     // title rewrite sat at rank 2 in the drafts lane with causeFit reading "this change does not touch two of
     // your own pages splitting one search"). The opportunity stays visible in the research lane, where its
     // evidence still argues; it returns as a draft only when a pass writes the treatment its cause authorizes.
-    const mismatched = p.researchOnly !== true && withholdReason(p, p.causeFinding?.cause ?? p.diagnosisCause) != null;
+    const cause = p.causeFinding?.cause ?? p.diagnosisCause;
+    // An UNTREATABLE cause on an edit card is the same contradiction with a different receipt: nothing a page
+    // edit can carry fixes it, so the card is a finding and argues from the research lane.
+    const mismatched = p.researchOnly !== true && cause != null
+      && ((CAUSE_LEVERS[cause]?.size ?? 0) === 0 || withholdReason(p, cause) != null);
     if (hold.lane === "research" || mismatched) research.push(p);
     // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
     // stamped by an older door, and this queue has already shipped what an older door waved through. The

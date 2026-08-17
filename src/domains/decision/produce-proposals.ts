@@ -320,9 +320,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]);
     if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
     const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`), ids = new Set(proposals.map((p) => p.id));
+    // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence on
+    // a page the paid bound never reached is a real withdrawal; shielding it kept thirty-five titles minted
+    // under a boundary that no longer exists alive for days (operator, 2026-08-17: the cheetah card).
+    const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery"].join("|")})$`);
     let taken = 0;
     for (const [id, row] of existing) {
-      if (ids.has(id) || cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())) continue;
+      if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue;
       if (row.status !== "needs_review" || row.bundle || !pattern.test(id)) continue;
       if (await withdrawChangeProposal(row, "swept: the producer that owns this family rewrote it and did not re-emit this card").catch(() => false)) taken += 1;
     }
