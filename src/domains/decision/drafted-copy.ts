@@ -260,7 +260,11 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
   // TWO QUESTIONS, TWO CORPORA, AND NEITHER IS ANSWERED BY THE WRITER'S OWN SAY SO. CLAIM COVERAGE asks whether every material assertion in the copy maps to a persisted claim. The page's own words are wide: "modern designs" cleared the corpus above because one stored sentence says "timeless designs" and another says "modern fashion", and it shipped on a live card whose four claims carried no such thing. TWO STRICTNESSES inside that one question, because a MEMBER of a list is a specific thing the copy says this page holds, so a CLAIM the writer declared has to carry it, while ordinary prose is read against those claims PLUS the exact stored words each one names: a faithful paraphrase of cited evidence passes, and a sentence about something no claim ever cited does not, list shape or no list shape.
   const declared = flat(d.claims.map((c) => c.text).join(" ")).replace(/[^a-z0-9]+/g, " ");
-  const graph = `${declared} ${flat([...new Set(d.claims.flatMap((c) => [...c.supportedBy]))].map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " ")}`;
+  // THE TRACKED QUESTION'S OWN WORDS ARE NOT AN INVENTED CLAIM. A card exists BECAUSE somebody asks that
+  // question, and answering it in the asker's words is the point: "basic Persian phrases for beginners" was
+  // refused four times over "beginner", a word the question itself supplies (operator, 2026-08-17). The gate
+  // is not a vocabulary test; whether the answer is TRUE is the judge's question and the reviewer's.
+  const graph = `${declared} ${flat(p.trackedQuestion ?? "").replace(/[^a-z0-9]+/g, " ")} ${flat([...new Set(d.claims.flatMap((c) => [...c.supportedBy]))].map((id) => p.evidence[id] ?? "").join(" ")).replace(/[^a-z0-9]+/g, " ")}`;
   const undeclared = asserted.filter((t) => topicTokens(t).length > 0 && unheld(declared, t).length > 0);
   if (undeclared.length > 0) out.push(`it tells a reader this page offers ${undeclared.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and no claim on this card carries it`);
   const uncovered = unheld(graph, d.finalCopy);
@@ -460,11 +464,12 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
-      "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused.",
+      "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused. A summary answer belongs at the TOP of the page, so anchor it on the page's own opening heading, never on a mid-page heading about one item.",
       `The section heading must NOT repeat "${card.primaryQuery}" or the page's own H1 back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
       "Write complete sentences a beginner can actually use: pair every expression in another language with its English meaning inside the same sentence, joined with plain carrier verbs (means, is, say, use) that add no fact of their own. A bare list of expressions with no meanings is refused; so is a section that restates what the page already says.",
+      "DO NOT LIST. If the page already lists these items, listing them again adds nothing and will be refused. Take the three or four a reader needs first and CONNECT things the page states separately: which item is the reply to which question, which form the page marks as more formal and when that matters, what a person says in the first ten seconds and what they hear back. Every sentence must join two facts the page keeps apart.",
       "Every descriptive word your copy uses must ALSO appear in the text of one of your claims, and that claim must cite the passage carrying those same words: a meaning your copy states but no claim spells out is refused.",
       "Return naturalHeading: a short heading for the NEW section, in words the evidence carries, never blank and never the tracked search said back."] : []),
     ...(kind === "title" || kind === "h1" ? (() => {

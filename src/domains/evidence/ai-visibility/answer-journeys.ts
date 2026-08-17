@@ -46,7 +46,9 @@ type AnswerStanding = {
   /** The newest answer that credited this site, or null. */
   lastCitedAt: string | null;
   engines: string[];
-  /** Engines that retrieved the site on at least one answer and credited it on none of them. */
+  /** Engines that keep fetching this site and mostly do not credit it: retrieved on at least two answers and
+   *  cited on fewer than half of those. Zero citations is not the bar, because one credit in eight retrievals
+   *  is the same story and the real record looks like that. */
   retrievedNotCitedEngines: string[];
 };
 
@@ -81,7 +83,11 @@ export async function readAnswerJourneys(tenantId: string, promptId: string, riv
   try {
     const { data, error } = await getSupabaseAdmin().from("ai_observations")
       .select("prompt_id, prompt_version, engine, completed_at, reporting_day, answer_text, journey")
-      .eq("tenant_id", tenantId).eq("prompt_id", promptId).eq("status", "completed")
+      // `observed` IS THE STATUS AN ANSWER IN HAND CARRIES. This read asked for "completed", a value this
+      // table has never written, so it returned nothing for every account since it was built: the passage
+      // hints never appeared on a card and the retrieval signal never reached a diagnosis (2026-08-17).
+      // Filtering on the body itself is the check that cannot drift from what the writer stamps.
+      .eq("tenant_id", tenantId).eq("prompt_id", promptId).eq("status", "observed")
       .not("answer_text", "is", null)
       .order("completed_at", { ascending: false }).limit(Math.min(cap, JOURNEY_CAP));
     if (error != null) { log.warn("[answer-journeys] read failed", { tenantId, promptId, error: error.message }); return []; }
@@ -121,7 +127,7 @@ export function standingOf(journeys: readonly AnswerJourney[]): AnswerStanding {
     retrieved: journeys.filter((j) => j.ownRetrieved).length,
     lastCitedAt: cited.map((j) => j.observedAt).filter((t): t is string => !!t).sort().at(-1) ?? null,
     engines: [...byEngine.keys()].sort(),
-    retrievedNotCitedEngines: [...byEngine.entries()].filter(([, e]) => e.retrieved > 0 && e.cited === 0).map(([k]) => k).sort(),
+    retrievedNotCitedEngines: [...byEngine.entries()].filter(([, e]) => e.retrieved >= 2 && e.cited * 2 < e.retrieved).map(([k]) => k).sort(),
   };
 }
 

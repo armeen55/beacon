@@ -258,6 +258,12 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
         notConsidered: [{ cause: "intent_shift" as const, missing: "no results page for this question is on file, so whether searchers now want a different shape of answer is not decided here" }],
         falsifier: passedOver ? "If a newly stored answer credits this site without the section shipping, the page was already liftable and this card retires itself."
           : "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
+      // WHAT THE NEXT PASS OWES, said exactly. A page an engine already reads and passes over does not need
+      // its own list read back to it: what it lacks is the property the cited pages carry, and where that is
+      // new factual content the page does not hold, no grounded draft can invent it. The card says which.
+      next: passedOver
+        ? `The cited pages pair every expression with its English meaning and its pronunciation in one entry. This page carries the expressions and not the usage around them, so the next work is the facts it lacks: which reply answers which question, which form is formal, and what a reader says first. Those are not on the page, so they are researched before any section is written.`
+        : undefined,
       minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
