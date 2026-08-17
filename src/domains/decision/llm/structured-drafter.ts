@@ -51,7 +51,7 @@ import {
  * the budget check/record, and the gateway spend are all keyed by tenantId - a missing account fails closed before cache/budget/network, never a global call.
  */
 
-const MODEL = "gpt-5-mini";
+const MODEL = "gpt-5.4-mini"; // gpt-5-mini failed the claim-coverage contract on four funded passes (2026-08-17): forty refusals, zero survivors. The gates stay; the writer gets stronger.
 
 /** BEACON_500 item 74: present on a "drafted" result only when a CONFIDENT house
  *  pattern cell backed this draft's prompt (winner-memory's pattern aggregate cleared
