@@ -363,13 +363,16 @@ function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string
  *  queued, two topics stuck on one search spend one slot, and an unreadable packet never stalls the agenda. */
 export async function researchNeeds(snapshot: EvidenceSnapshot, tenantId: string, profile: BusinessProfile | null, max: number): Promise<ResearchNeed[]> {
   const out = (await readCoverage(snapshot, tenantId, { maxQueries: max, profile, basis: await resolveCurrentBasis(tenantId, profile) })).needs;
-  if (out.length >= max) return out;
-  // THE COLLAPSE'S OWN ACQUISITIONS FILL THE SPARE SLOTS: a lost audience whose cause the two windows cannot
-  // name promised "the results page is read on the next pass" on its card, and until this wire existed
-  // nothing fed that promise into the plan, so the promise could only come true by coincidence.
-  const more = await import("./producers/demand-recovery").then((m) => m.recoveryAcquisitions(tenantId, snapshot, max - out.length)).catch(() => []);
+  // THE COLLAPSE'S OWN ACQUISITIONS: a lost audience whose cause the two windows cannot name promised "the
+  // results page is read on the next pass" on its card, and until this wire existed nothing fed that promise
+  // into the plan, so it could only come true by coincidence. A measured loss the product has promised to
+  // diagnose is guaranteed ONE slot: when coverage fills the plan, its last topic yields to the largest
+  // undiagnosed collapse rather than starving it forever behind a never-empty coverage queue.
+  const more = await import("./producers/demand-recovery").then((m) => m.recoveryAcquisitions(tenantId, snapshot, Math.max(1, max - out.length))).catch(() => []);
   const seen = new Set(out.map((n) => (n.query ?? "").toLowerCase()));
-  for (const a of more) if (!seen.has(a.query.toLowerCase())) { seen.add(a.query.toLowerCase());
+  const fresh = more.filter((a) => !seen.has(a.query.toLowerCase()));
+  if (fresh.length > 0 && out.length >= max) out.pop();
+  for (const a of fresh) { if (out.length >= max) break;
     out.push({ topicKey: a.topicKey, requirement: "exact_serp", query: a.query, comparison: null, ownedUrl: null, retryAfter: null }); }
   return out;
 }

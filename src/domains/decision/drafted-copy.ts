@@ -430,6 +430,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       `The section heading must NOT repeat "${card.primaryQuery}" back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
+      "State each fact in the evidence's own wording: when the page lists a name and its meaning without a verb, write the pair the same way (Ali: elevated), and never introduce a verb or noun the cited passage does not use.",
       "Return naturalHeading: a short heading for the NEW section, in words the evidence carries, never blank and never the tracked search said back."] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line
