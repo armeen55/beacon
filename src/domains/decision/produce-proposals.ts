@@ -315,6 +315,12 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return { families: SUGGESTED_FAMILIES, complete: gscComplete };
   };
   /** A CARD THIS PASS DID NOT RE-EMIT IS ONE THE GENERATOR NO LONGER STANDS BEHIND, so it is taken back. Serving it beside the card that replaced it is how a query-pasted title outlived its own fix. Only untouched needs_review rows in the families a producer that FINISHED rewrites IN FULL qualify: anything the operator acted on, every bundle, and every family nobody finished, all stay. */
+  // THE PAGES THE BUNDLE DOOR ACTUALLY WALKED THIS PASS. A bundle row was exempt from every sweep, so a door
+  // that stopped emitting one left it standing for ever: two refuted "settle which page owns this search"
+  // rows outlived the evidence that minted them and had to be withdrawn by hand, and while they stood their
+  // page-level suppression hid the real card for that page (operator, 2026-08-17). A bundle may now be swept,
+  // but ONLY on a page this pass genuinely re-walked: silence about a page nobody looked at proves nothing.
+  const doorWalked = new Set<string>();
   const sweepStale = async (runs: readonly ProducerRun[]): Promise<void> => {
     if (!persist) return;
     const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]);
@@ -327,7 +333,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     let taken = 0;
     for (const [id, row] of existing) {
       if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue;
-      if (row.status !== "needs_review" || row.bundle || !pattern.test(id)) continue;
+      if (row.status !== "needs_review" || !pattern.test(id)) continue;
+      if (row.bundle && !doorWalked.has((row.pagePath ?? "").trim().toLowerCase()) && !doorWalked.has((row.pageUrl ?? "").trim().toLowerCase())) continue;
       if (await withdrawChangeProposal(row, "swept: the producer that owns this family rewrote it and did not re-emit this card").catch(() => false)) taken += 1;
     }
     if (taken > 0) log.info("[produce-proposals] stale cards withdrawn", { tenantId, taken, families });
@@ -444,6 +451,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       continue;
     }
     // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
+    doorWalked.add((d.pageUrl ?? "").trim().toLowerCase());
+    for (const k of pageKeys(d.pageUrl)) doorWalked.add(k.trim().toLowerCase());
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
@@ -513,7 +522,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     { families: ["demand_recovery"], complete: recovery.complete },
     // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["factual_correction"], complete: factual.complete },
-    { families: ["ownership", "researching"], complete: gscComplete }]);
+    { families: ["ownership", "researching"], complete: gscComplete },
+    // The door's own families, swept on the pages above and nowhere else.
+    { families: ["consolidation", "title-family", "section-family"], complete: doorWalked.size > 0 }]);
   // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
   const outcome: ProducerOutcome =
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
