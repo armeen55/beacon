@@ -362,5 +362,14 @@ function nextResearchQuery(d: CoverageDecision, inv: TopicInvestigation): string
  *  SAME canonical pass that decides whether a page is owed. A topic no purchase can move is skipped rather than
  *  queued, two topics stuck on one search spend one slot, and an unreadable packet never stalls the agenda. */
 export async function researchNeeds(snapshot: EvidenceSnapshot, tenantId: string, profile: BusinessProfile | null, max: number): Promise<ResearchNeed[]> {
-  return (await readCoverage(snapshot, tenantId, { maxQueries: max, profile, basis: await resolveCurrentBasis(tenantId, profile) })).needs;
+  const out = (await readCoverage(snapshot, tenantId, { maxQueries: max, profile, basis: await resolveCurrentBasis(tenantId, profile) })).needs;
+  if (out.length >= max) return out;
+  // THE COLLAPSE'S OWN ACQUISITIONS FILL THE SPARE SLOTS: a lost audience whose cause the two windows cannot
+  // name promised "the results page is read on the next pass" on its card, and until this wire existed
+  // nothing fed that promise into the plan, so the promise could only come true by coincidence.
+  const more = await import("./producers/demand-recovery").then((m) => m.recoveryAcquisitions(tenantId, snapshot, max - out.length)).catch(() => []);
+  const seen = new Set(out.map((n) => (n.query ?? "").toLowerCase()));
+  for (const a of more) if (!seen.has(a.query.toLowerCase())) { seen.add(a.query.toLowerCase());
+    out.push({ topicKey: a.topicKey, requirement: "exact_serp", query: a.query, comparison: null, ownedUrl: null, retryAfter: null }); }
+  return out;
 }

@@ -58,6 +58,25 @@ function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandU
     line: "The two windows cannot separate a ranking slide from a snippet change on their own numbers, so the cause is not named until the current results page is read." };
 }
 
+/** THE COLLAPSE'S OWN ACQUISITIONS: each lost unit whose two windows cannot name a cause, or whose click
+ *  rate fell at a held position with NO current results page on file, names that read as the one purchase
+ *  that decides it. Handed to the research plan as exact searches, so the card's "the results page is read
+ *  on the next pass" is a wire into the agenda rather than a hope. */
+export async function recoveryAcquisitions(tenantId: string, snapshot: EvidenceSnapshot, max: number): Promise<{ topicKey: string; query: string }[]> {
+  if (max <= 0) return [];
+  try {
+    const { units, historyWindow } = await loadCanonicalDemandUnits(tenantId, snapshot);
+    if (historyWindow.earlyDays < 30) return [];
+    const out: { topicKey: string; query: string }[] = [];
+    for (const u of units.filter((x) => (x.history?.lostClicksPerMonth ?? 0) >= MIN_LOST_PER_MONTH)) {
+      if (u.serp != null || out.length >= max) continue;
+      if (decompose(u.history!, false).cause != null) continue;
+      out.push({ topicKey: `recovery::${u.label.toLowerCase()}`, query: u.label });
+    }
+    return out;
+  } catch { return []; }
+}
+
 export async function demandRecoveryCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
   /** The pass's one load of the canonical units, so every producer joins the SAME audiences. */
