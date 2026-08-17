@@ -121,11 +121,13 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       cards.push({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::demand_recovery`, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: home, pageLabel: path, primaryQuery: u.label,
+        // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
+        // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
         opportunityType: d.cause === "ranking_loss"
-          ? `Win back "${u.label}" on ${path}: the page slid ${h.earlyPosition!.toFixed(1)} to ${h.recentPosition!.toFixed(1)} and ${n(h.lostClicksPerMonth)} clicks a month left`
+          ? `Rebuild the ground "${u.label}" lost on ${path}: position ${h.earlyPosition!.toFixed(1)} to ${h.recentPosition!.toFixed(1)}, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
           : d.cause === "ctr_snippet"
-            ? `Win back "${u.label}" on ${path}: position held while the click rate collapsed, ${n(h.lostClicksPerMonth)} clicks a month left`
-            : `Explain the "${u.label}" decline on ${path}: ${n(h.lostClicksPerMonth)} clicks a month left and the cause is not yet separable`,
+            ? `Rewrite the line searchers read for "${u.label}" on ${path}: position held while the click rate collapsed, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
+            : `Explain the "${u.label}" decline on ${path}: ${n(h.lostClicksPerMonth)} clicks a month LOST and the cause is not yet separable`,
         changeFamily: d.field, status: "needs_review",
         recommendedChange: { kind: "existing_edit", field: d.field, before: null,
           after: d.cause === "ranking_loss"
