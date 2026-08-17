@@ -431,12 +431,13 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
   let deliverable = await runEditor(packet, field, card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
-  if (!deliverable && refusedFor) {
-    // ONE fed-back attempt: same packet, same gates, plus the refusal said verbatim. The editor decrements
-    // the pass's shared attempt budget before the call, so this is counted work, never free work.
+  // TWO fed-back attempts at most: same packet, same gates, plus each refusal said verbatim. A title clears
+  // in one; a section's coverage contract names different words each round and earns the second. The editor
+  // decrements the pass's shared attempt budget before every call, so this is counted work, never free work.
+  for (let round = 0; !deliverable && refusedFor && round < 2; round += 1) {
     const why = refusedFor; refusedFor = "";
     deliverable = await runEditor(packet, field, card.pageLabel,
-      [...hints, `A previous attempt at this exact deliverable was refused for exactly this: ${why}. Fix precisely what that names and change nothing else about the approach.`],
+      [...hints, `Attempt ${round + 1} at this exact deliverable was refused for exactly this: ${why}. Fix precisely what that names and change nothing else about the approach.`],
       card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
   }
   if (!deliverable) return null;
