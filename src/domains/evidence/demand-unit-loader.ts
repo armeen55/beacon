@@ -29,8 +29,11 @@ export async function loadUnitHistory(tenantId: string, now: Date = new Date()):
   const none = { rows: [] as UnitHistoryRow[], earlyDays: 0, recentDays: RECENT_DAYS, earlyFrom: null, earlyTo: null };
   try {
     const sb = getSupabaseAdmin();
-    const { data: oldestRow } = await sb.from("gsc_daily_rows").select("date").eq("tenant_id", tenantId)
+    const { data: oldestRow, error: oldestError } = await sb.from("gsc_daily_rows").select("date").eq("tenant_id", tenantId)
       .order("date", { ascending: true }).limit(1);
+    // A FAILED READ IS SAID OUT LOUD, never returned as "this account holds no days": this exact read timed
+    // out unindexed for weeks and the silent none blinded every producer downstream of the units.
+    if (oldestError != null) { log.warn("[demand-units] the oldest-day read failed; units carry none", { tenantId, error: oldestError.message }); return none; }
     const oldest = (oldestRow?.[0] as { date?: string } | undefined)?.date;
     if (!oldest) return none;
     const today = day(now);
