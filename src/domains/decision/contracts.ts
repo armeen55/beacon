@@ -215,7 +215,10 @@ export function dangerousComponents(components: readonly BundleComponent[]): Bun
 /** One piece of canonical evidence the bundle used, in plain English. `key` is stable within the bundle and cited by BundleComponent.evidenceKeys; `fact` carries no raw id; `observedAt` null = undated aggregate. */
 export type BundleEvidenceItem = {
   key: string;
-  kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis";
+  // `independent_source` is evidence from OUTSIDE this account: a dictionary, an encyclopedia, a scholarly
+  // reference. It exists because a factual correction stands on the source that contradicts the page, and
+  // filing that under `page_extract` told the operator the check came from the page being corrected.
+  kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis" | "independent_source";
   fact: string;
   observedAt: string | null;
   observationId?: string; // EXCLUSIVE with `observationIds`: the ONE stored observation a single-answer item was read from, so the chain back to the answer is a lookup
@@ -460,7 +463,8 @@ const CLASS_OF: Record<string, string> = {
   gsc_demand: "your search data", page_extract: "the page as last read", keyword: "monthly search counts",
   serp: "the live results page", ai_observation: "AI answers watched", winning_page: "winning pages read",
   competitor: "the sites AI hands this to instead of you", internal_link: "links from your own pages",
-  diagnosis: "what the results page shows about the cause" };
+  diagnosis: "what the results page shows about the cause",
+  independent_source: "independent sources checked against the page" };
 export const receiptComposition = (items: readonly { kind: string }[]): string => {
   const by = new Map<string, number>();
   for (const it of items) by.set(CLASS_OF[it.kind] ?? it.kind, (by.get(CLASS_OF[it.kind] ?? it.kind) ?? 0) + 1);

@@ -82,7 +82,7 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const components = shown.map(componentOf);
       const batches = Math.ceil(shown.length / BATCH);
       const checked = rows.length;
-      const receipt = shown.map((c, i) => ({ key: `fact-${i + 1}`, kind: "page_extract" as const,
+      const receipt = shown.map((c, i) => ({ key: `fact-${i + 1}`, kind: "independent_source" as const,
         fact: `The page says ${c.subject} means "${c.current}". ${c.sources[0]?.kind ?? "The source"} ${sourceLine(c)} gives ${c.proposed}.`,
         observedAt: c.checkedAt || null }));
       const objective = `${n(shown.length)} statements on ${path} stop contradicting their own sources.`;

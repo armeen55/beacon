@@ -18,6 +18,7 @@ const EVIDENCE_GROUP: Record<BundleEvidenceItem["kind"], string> = {
   keyword: "How much demand there is",
   serp: "What Google shows today",
   diagnosis: "Why this looks like the problem",
+  independent_source: "What independent sources say",
   ai_observation: "What AI assistants answer",
   winning_page: "Pages winning this today",
   page_extract: "What your page says now",
