@@ -2,7 +2,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
-import { dailyCapReason } from "@/lib/cost/daily-cap";
+import { dailyCapReason, SEARCH_SHARE } from "@/lib/cost/daily-cap";
 import { log } from "@/lib/logger";
 import type { CachedCallDeps } from "./cached-call";
 import type { FunnelBoundaryDeps } from "./funnel-boundary";
@@ -53,7 +53,7 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
     reserveProviderSpend: async (tenantId, platform, amount, monthlyCap) => {
       // THE OPERATOR'S DAILY CAP GATES SEARCH BUYS TOO: one day-total across every platform on the ledger,
       // asked before the monthly reservation, failing closed when today's spend cannot be read.
-      const daily = await dailyCapReason(tenantId).catch(() => "Today's spend could not be read, so no more is spent today.");
+      const daily = await dailyCapReason(tenantId, new Date(), SEARCH_SHARE).catch(() => "Today's spend could not be read, so no more is spent today.");
       if (daily != null && amount > 0) { log.info("[dataforseo] the daily budget refused this call", { tenantId, platform, daily }); return false; }
       const { data, error } = await rpc("reserve_provider_spend", { p_tenant_id: tenantId, p_platform: platform, p_amount: amount, p_monthly_cap: monthlyCap });
       if (error) throw new Error(error.message);

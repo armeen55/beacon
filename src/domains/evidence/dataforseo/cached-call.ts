@@ -146,7 +146,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     await releaseClaim(d, cacheKey, now, "reserve_error");
     return { state: "error", cacheKey, disposition: "none", detail: `I could not set aside budget for this (${short(err)}); I made no provider call and will try again.` };
   }
-  if (!reserved) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: `monthly cap reached for ${PLATFORM}` }; }
+  if (!reserved) { await releaseClaim(d, cacheKey, now, "capped"); return { state: "capped", cacheKey, detail: `the spending cap refused this call for ${PLATFORM}: the daily or monthly ceiling is reached` }; }
   // ONE pre-call receipt for BOTH modes, persisted BEFORE the network, so an
   // uncertain outcome is never re-bought; task payloads carry tag = cacheKey.
   const payload = r.mode === "task" ? tagTaskPayload(r.payload, cacheKey) : r.payload;

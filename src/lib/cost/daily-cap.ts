@@ -16,11 +16,17 @@ import { getTenantSpentTodayUsd } from "./budget-ledger-supabase";
 
 const DEFAULT_DAILY_CAP_USD = 5;
 
-/** Null = under the cap, spend may proceed. A sentence = the refusal, in the operator's own units. */
-export async function dailyCapReason(tenantId: string, now: Date = new Date()): Promise<string | null> {
+/** Null = under the cap, spend may proceed. A sentence = the refusal, in the operator's own units.
+ *  `share` is the fraction of the day's budget THIS DOOR may consume: the search-buy door passes
+ *  SEARCH_SHARE so bulk evidence can never spend the whole day and starve the drafting that turns the
+ *  evidence into work. On 17 August 105 observation calls consumed the full dollar before one draft ran. */
+export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
-  const cap = (await getTenant(tenantId).catch(() => null))?.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD;
+  const cap = ((await getTenant(tenantId).catch(() => null))?.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD) * share;
   const today = await getTenantSpentTodayUsd(tenantId, now);
   if (today == null) return "Today's spend could not be read, so no more is spent today.";
-  return today >= cap ? `Today's budget is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
+  return today >= cap ? `Today's budget for this kind of work is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
 }
+
+/** What bulk evidence buying may take of the day: the rest is reserved for the editor that finishes the work. */
+export const SEARCH_SHARE = 0.85;

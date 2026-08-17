@@ -292,6 +292,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         // durable provider wait is not a failure), failed pauses with the unit's own bounded reason.
         if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: unitCursor })) return "lost_lease";
         if (unit.status === "advanced") { cursor = unitCursor; continue; }
+        // THE SPENDING CAP IS A CEILING ON MONEY, NEVER A WALL ACROSS THE DAY. A refusal from our own money door used to pause the RUN here, so the $0 phases behind it (the decision pass and the publish) never ran and the queue sat stale until midnight: on 17 August the daily dollar did its job at $1.02 and the day's free work died with it. The cap's refusal DEGRADES instead: the blocker stays on the receipt, the paid phase ends where the money ended, and the free phases still run today. Keyed on our own door's wording; owed a structured code on the outcome.
+        if (unit.status === "failed" && /spending cap|cap reached|cap refused|budget is spent|budget for this kind of work/i.test(unit.detail ?? "")) {
+          const past = nextPhase(phase);
+          log.info("[research-run] the spending cap ended paid evidence for today; the free phases continue", { tenantId, from: phase, to: past });
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase: past, progress, cursor: null })) return "lost_lease";
+          phase = past; cursor = null; continue; }
         return pause(unit.status === "waiting" ? null : { phase, message: (unit.detail ?? "evidence step could not finish").slice(0, 300), at: nowFn().toISOString() });
       }
       // THE BATCH IS NOT THE DAY. The unit answers for the window it was handed; the DAY is what the operator was promised, so a settled window RE-READS the

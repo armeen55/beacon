@@ -177,6 +177,15 @@ async function runDeepBackfillChunk(
     return { ran: false, reason: result.reason };
   }
 
+  // THE MONTHLY ARCHIVE IS REFRESHED FOR EVERY MONTH THIS CHUNK TOUCHED, in the same product path that
+  // landed the rows: the archive is what the demand-unit history reads (1.2M daily rows blew the statement
+  // timeout), and an archive nothing writes is how sixteen months of pulled history stays invisible.
+  for (let m = chunkStart.slice(0, 7); m <= chunkEnd.slice(0, 7); ) {
+    await getSupabaseAdmin().rpc("refresh_gsc_month", { p_tenant_id: tenantId, p_month: `${m}-01` })
+      .then(({ error }) => { if (error) log.warn("[gsc-deep-backfill] archive month refresh failed", { tenantId, month: m, error: error.message }); });
+    const [y, mo] = m.split("-").map(Number);
+    m = mo === 12 ? `${y! + 1}-01` : `${y}-${String(mo! + 1).padStart(2, "0")}`;
+  }
   const nextCursor = addDays(chunkStart, -1);
   const reachedTarget = chunkStart <= target;
   await writeProgress({

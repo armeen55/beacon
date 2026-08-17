@@ -682,6 +682,13 @@ export async function syncGscSearchAnalyticsForTenant(args: {
   if (days === 0 && pullFailed) {
     return { synced: false, reason: "gsc_day_pull_failed" };
   }
+  // THE MONTHLY ARCHIVE FOLLOWS THE ROWS, in the same path that landed them: it is what the demand-unit history reads, and an archive nothing refreshed is how pulled history stays invisible. Current month and the previous, for a sync that crossed a month edge; fail-soft, the sync already succeeded.
+  if (rowsUpserted > 0) {
+    const now2 = new Date(), m = now2.toISOString().slice(0, 7);
+    const prev = new Date(Date.UTC(now2.getUTCFullYear(), now2.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+    for (const month of [prev, m]) await getSupabaseAdmin().rpc("refresh_gsc_month", { p_tenant_id: tenantId, p_month: `${month}-01` }).then(({ error }) => {
+      if (error) log.warn("[gsc-sync] archive month refresh failed", { tenantId, month, error: error.message }); });
+  }
   return {
     synced: true,
     property,
