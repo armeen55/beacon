@@ -140,7 +140,11 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
   // AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL, while a proven recovery can reach three
   // times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both.
-  const audience = demand != null && demand > AUDIENCE_FLOOR
+  // A PAGE'S TRAFFIC IS NOT THIS CHANGE'S TRAFFIC. The queue orders on expected Google gain and expected AI
+  // gain; a change whose own cause claims neither may stay visible and may not ride the page's impressions
+  // to the top (Codex, 2026-08-18: an accuracy correction led on 56,804 impressions it does not address).
+  const claimsAudience = (p.causeFinding?.cause ?? p.diagnosisCause) !== "factual_error";
+  const audience = claimsAudience && demand != null && demand > AUDIENCE_FLOOR
     ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
@@ -162,10 +166,18 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const shown = rode && held < 1
     ? { input: `${rode.input}, counted at ${Math.round(held * 100)} percent because ${why}`, value: rode.value * held }
     : rode;
-  add("visibility", shown?.input ?? "no proven figure for what this wins back", shown?.value ?? 0, MAX.visibility);
+  add("visibility", shown?.input
+    ?? (claimsAudience ? "no proven figure for what this wins back"
+      : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
+    shown?.value ?? 0, MAX.visibility);
 
+  // EVIDENCE QUANTITY IS CONFIDENCE, NOT IMPACT (Codex, 2026-08-18). A correction bundle carrying forty
+  // sourced items outranked a supported traffic recovery on receipt volume alone, which optimises for how
+  // much a card can SHOW rather than what it is worth. It is capped hard and reads as confidence, so a
+  // thorough card still cannot buy its way past a card with an audience behind it.
   const items = shownEvidence(p);
-  add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence on the receipt`, Math.min(MAX.evidence, items * 1.5), MAX.evidence);
+  add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence behind it, which is how sure this is rather than how big it is`,
+    Math.min(MAX.evidence, Math.log10(1 + items) * 4), MAX.evidence);
 
   if (!cause) add("causeFit", "no cause named for this change yet", 0, MAX.causeFit);
   else if (!levers || levers.size === 0) add("causeFit", "nothing you can write on the page fixes the cause named here", 0, MAX.causeFit);

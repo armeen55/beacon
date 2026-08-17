@@ -19,11 +19,13 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { authorizedCorrections, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, correctionSeverity, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred
- *  and seventy two prose steps is not a deliverable; batches of this size are. */
+ *  and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE
+ *  CAP (Codex, 2026-08-18: 62 confirmed corrections vanished behind an alphabetical top 40): the card says
+ *  which batch it is, how many corrections remain, and orders by severity so the worst are never the ones cut. */
 const MAX_COMPONENTS = 40, BATCH = 10;
 
 const pathOf = (url: string): string => {
@@ -73,14 +75,19 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const page = owned.get(key);
       if (!page) continue; // a check for a page this account no longer owns is history, not work
       const path = pathOf(page.url);
-      const corrections = authorizedCorrections(rows).sort((a, b) => a.subject.localeCompare(b.subject));
+      // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats
+      // elsewhere on the page is the one to fix, and it must never be the one the cap drops.
+      const corrections = authorizedCorrections(rows)
+        .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");
       const unsupported = held.filter((r) => r.confidence === "unsupported");
       if (corrections.length === 0) continue; // nothing authorized: the findings live in the checks, not in a card
       const shown = corrections.slice(0, MAX_COMPONENTS);
+      const remaining = corrections.length - shown.length;
       const components = shown.map(componentOf);
       const batches = Math.ceil(shown.length / BATCH);
+      const totalBatches = Math.ceil(corrections.length / MAX_COMPONENTS);
       const checked = rows.length;
       const receipt = shown.map((c, i) => ({ key: `fact-${i + 1}`, kind: "independent_source" as const,
         fact: `The page says ${c.subject} means "${c.current}". ${c.sources[0]?.kind ?? "The source"} ${sourceLine(c)} gives ${c.proposed}.`,
@@ -89,7 +96,9 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       cards.push({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::factual_correction`, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
-        opportunityType: `Correct ${n(shown.length)} statements on ${path} that independent sources contradict`,
+        opportunityType: remaining > 0
+          ? `Correct ${n(shown.length)} statements on ${path} that independent sources contradict (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
+          : `Correct ${n(shown.length)} statements on ${path} that independent sources contradict`,
         changeFamily: "factual_correction", status: "needs_review",
         recommendedChange: { kind: "existing_edit", field: "section", before: null,
           after: `Replace the ${n(shown.length)} statements listed below with their corrected wording. Each one carries the source that establishes it.` },
@@ -106,21 +115,23 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
           risks: [`Each replacement changes published words, so check the corrected wording reads the way you want before pasting it.`,
             ...(disputed.length > 0 ? [`${n(disputed.length)} more entries are contested and deliberately not included here.`] : [])],
           confidenceReasons: [`Every correction here carries at least one scholarly, dictionary or encyclopedia source, and ${n(shown.filter((c) => c.agreement === "multiple_agree").length)} of ${n(shown.length)} have two or more independent sources agreeing.`],
-          measurementPlan: "The next check run reads the same statements against the same sources; a corrected entry drops off this card by itself.",
+          measurementPlan: "The next check run reads the page again and compares each statement with the wording this card objected to; whatever now reads correctly retires itself and the next batch moves up.",
         },
         whyItMatters: `${n(checked)} statements on ${path} were checked against independent sources. ${n(corrections.length)} are contradicted by a source of record and carry a supported replacement; ${n(disputed.length)} are contested and stay out of this list; ${n(unsupported.length)} have no credible source either way. Wrong meanings on a reference page are a trust problem on their own, whatever they do to rankings.`,
         operatorSteps: [`Open the site editor on ${path}`,
           `Work through the ${n(shown.length)} corrections below in ${n(batches)} ${batches === 1 ? "batch" : "batches"} of about ${BATCH}`,
           "Each one shows the exact current wording, the exact replacement and the source behind it",
-          "Mark it done here and the next check run re-reads the page"],
+          ...(remaining > 0 ? [`${n(remaining)} more confirmed corrections are waiting behind this batch; they arrive here once these are marked done`] : []),
+          "Mark it done here and the next check run re-reads the page and drops whatever you fixed"],
         estimatedEffortMinutes: Math.max(10, shown.length * 2), riskLevel: "medium", confidence: "high",
         limitations: [`Only corrections with a scholarly, dictionary or encyclopedia source behind them are listed; ${n(disputed.length + unsupported.length)} findings are held back deliberately.`,
+          ...(remaining > 0 ? [`${n(corrections.length)} corrections are authorized in total and ${n(shown.length)} are shown here, worst first; the other ${n(remaining)} are not lost and are not silently dropped.`] : []),
           "The page's own words were treated as evidence of what it says, never as proof they are true."],
         causeFinding: { cause: "factual_error", action: "section", evidenceKeys: receipt.map((r) => r.key).slice(0, 8),
           explanation: `${n(corrections.length)} statements on ${path} are contradicted by independent sources of record, each with a supported replacement on file. This is an accuracy defect in the page's own words; it is not measured as a ranking cause and claims no clicks.`,
           competingExplanations: [{ cause: "no_problem", reason: `${n(rows.filter((r) => r.verdict === "page_correct").length)} of ${n(checked)} checked statements are correct, so the page is not wholesale unreliable and only the named entries are being changed` }],
           notConsidered: [{ cause: "ranking_loss", missing: "whether these wrong meanings cost this page positions is a separate question with separate evidence, and no reading here ties the two together" }],
-          falsifier: "If the next check run finds the page already carries the corrected wording, this card retires itself." },
+          falsifier: "If the next check run finds the page already carries the corrected wording, that statement retires itself and this card shrinks to what is genuinely left." },
         diagnosisCause: "factual_error",
         evidence: { query: `${path} factual accuracy`, hints: receipt.slice(0, 6).map((r) => r.fact), evidenceRefCount: Math.min(receipt.length, 8) },
         impactScore: null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,

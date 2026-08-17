@@ -14,7 +14,9 @@ const PAGE = "https://x.example/persian-female-first-names";
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
 
 const check = (over: Record<string, unknown> = {}) => ({
-  page: "/persian-female-first-names", subject: "Afsaneh", current: "Goddess, divine and strong.",
+  page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
+  pageContentHash: "hash-1", evidenceBasis: "basis_x::d8",
+  subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend" },
     { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
@@ -52,6 +54,25 @@ describe("a page's own statements against their sources", () => {
     expect(card.causeFinding!.notConsidered.map((x) => x.cause)).toContain("ranking_loss");
     expect(card.bundle!.risks.join(" ")).toContain("1 more entries are contested");
     expect(card.bundle!.receipt.missing.join(" ")).toContain("Sholeen");
+  });
+
+  it("says how many corrections are waiting behind the batch instead of dropping them", async () => {
+    checks.rows = Array.from({ length: 55 }, (_, i) => check({ subject: `Name${String(i).padStart(2, "0")}` }));
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
+    expect(card.bundle!.components).toHaveLength(40);
+    expect(card.opportunityType).toContain("15 more confirmed after this");
+    expect((card.operatorSteps ?? []).join(" ")).toContain("15 more confirmed corrections are waiting");
+    expect(card.limitations.join(" ")).toContain("are not lost and are not silently dropped");
+  });
+
+  it("shows the worst first, never the alphabet", async () => {
+    checks.rows = [
+      check({ subject: "Zulu", verdict: "page_wrong", agreement: "multiple_agree", alsoAt: ["the FAQ"] }),
+      check({ subject: "Alpha", verdict: "page_imprecise", agreement: "single_source",
+        sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says: "x" }] }),
+    ];
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
+    expect(card.bundle!.components.map((c) => c.label)).toEqual(["Zulu", "Alpha"]);
   });
 
   it("mints nothing for a page this account does not own", async () => {
