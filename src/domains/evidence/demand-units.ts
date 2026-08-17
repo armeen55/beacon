@@ -88,3 +88,158 @@ export function demandUnitsOf(
 }
 
 const sum = (ms: readonly OwnedQuerySignal[]): number => ms.reduce((a, m) => a + m.impressions, 0);
+
+// ── THE CANONICAL DEMAND UNIT (account level) ────────────────────────────────
+// One audience need, joined across every stream of evidence this account holds: its current Google rows and
+// the pages earning them, its sixteen months of history (losses, page swaps), bought keyword volume and
+// intent, the stored results page, the tracked AI questions with their answers, mentions and cited rivals,
+// the fan-out searches engines ran while answering, the pages that win, and nothing invented anywhere. THIS
+// IS A RESOLUTION, NOT A CONCATENATION: a stream joins a unit only through an exact key or a subject-token
+// rule, and where two streams disagree about the need (Google moved the audience between pages, the keyword
+// provider grades it commercial while the tracked question asks a plain question, several owned pages split
+// it) the disagreement is written onto the unit as a tension instead of being averaged away. PURE builder;
+// the two bounded reads live in the loader below it.
+
+/** One query's two-window history, as the gsc_unit_history aggregate returns it. */
+export type UnitHistoryRow = {
+  query: string; earlyClicks: number; earlyImpressions: number; earlyPosition: number | null;
+  recentClicks: number; recentImpressions: number; recentPosition: number | null;
+  earlyTopPage: string | null; recentTopPage: string | null };
+
+export type CanonicalDemandUnit = {
+  label: string;
+  /** Searchers' and askers' own phrasings, demand-descending: queries first, joined prompt texts after. */
+  vocabulary: string[];
+  /** Current 90-day members, merged across the pages that earn them. */
+  queries: OwnedQuerySignal[];
+  /** Owned pages currently shown for member queries, biggest contributor first. */
+  pages: string[];
+  history: null | { earlyClicksPerDay: number; recentClicksPerDay: number; lostClicksPerMonth: number;
+    earlyImpressions: number; recentImpressions: number; priorTopPage: string | null;
+    currentTopPage: string | null; pageSwapped: boolean };
+  volume: null | { searchVolume: number | null; intent: string | null; difficulty: number | null };
+  serp: null | { winners: { rank: number; domain: string; url: string }[]; paa: string[]; related: string[]; observedAt: string | null };
+  prompts: { promptId: string; text: string; answers: number; credited: number;
+    citedRivals: { domain: string; url: string; count: number }[] }[];
+  /** Searches engines ran while answering the joined prompts. Evidence about how they look, never a topic. */
+  fanouts: string[];
+  /** Pages that win this audience somewhere (SERP or AI), deduplicated. */
+  winningPages: { url: string; domain: string }[];
+  /** The disagreements between streams, preserved in words instead of resolved by force. */
+  tensions: string[];
+  audience: { impressions90d: number; aiAnswers: number; lostClicksPerMonth: number };
+};
+
+export type CanonicalUnitInputs = {
+  pageQueries: readonly { page: string; rows: readonly OwnedQuerySignal[] }[];
+  history: readonly UnitHistoryRow[];
+  windows: { earlyDays: number; recentDays: number };
+  keywords: readonly { query: string; searchVolume: number | null; intent: string | null; difficulty: number | null }[];
+  serps: readonly { query: string; observedAt: string | null; organic: { rank: number; domain: string; url: string }[]; paa: string[]; related: string[] }[];
+  observations: readonly { promptId: string; promptText: string; creditedOwn: boolean;
+    citations: readonly { domain: string; url: string }[] | null; fanOutQueries: readonly string[] | null }[];
+  winning: readonly { url: string; domain: string; queries: readonly string[]; promptIds: readonly string[] }[];
+  expectedCtrAt: (position: number) => number;
+};
+
+const canon = (q: string): string => [...new Set(topicTokens(q))].sort().join("|");
+
+export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDemandUnit[] {
+  const { earlyDays, recentDays } = input.windows;
+  // CURRENT ROWS, MERGED ACROSS PAGES: one query earned on two pages is one audience with two doors. The
+  // key is the EXACT query, never its token set, so distinct phrasings survive into the clusterer and the
+  // vocabulary keeps every spelling searchers actually use ("list of persian girl names" included).
+  const merged = new Map<string, { query: string; impressions: number; clicks: number; posW: number; posI: number; pages: Map<string, number> }>();
+  for (const pq of input.pageQueries) for (const r of pq.rows) {
+    const k = r.query.trim().toLowerCase(); if (!k) continue;
+    const m = merged.get(k) ?? { query: r.query, impressions: 0, clicks: 0, posW: 0, posI: 0, pages: new Map() };
+    m.impressions += r.impressions; m.clicks += r.clicks;
+    if (r.position != null && Number.isFinite(r.position)) { m.posW += r.position * r.impressions; m.posI += r.impressions; }
+    m.pages.set(pq.page, (m.pages.get(pq.page) ?? 0) + r.impressions);
+    merged.set(k, m);
+  }
+  // LOST QUERIES SEED UNITS TOO: an audience that vanished has no current row, and the collapse story is
+  // exactly those. They enter the clustering weighted by a 90-day equivalent of what they USED to earn.
+  const hist = new Map<string, UnitHistoryRow>();
+  for (const h of input.history) { const k = canon(h.query); if (k && !hist.has(k)) hist.set(k, h); }
+  const currentCanons = new Set([...merged.values()].map((m) => canon(m.query)));
+  for (const [k, h] of hist) if (!currentCanons.has(k)) {
+    merged.set(h.query.trim().toLowerCase(), { query: h.query, impressions: Math.round((h.earlyImpressions / Math.max(1, earlyDays)) * 90),
+      clicks: 0, posW: 0, posI: 0, pages: new Map() });
+  }
+  const signals: OwnedQuerySignal[] = [...merged.values()].map((m) => ({
+    query: m.query, impressions: m.impressions, clicks: m.clicks,
+    position: m.posI > 0 ? m.posW / m.posI : null } as OwnedQuerySignal));
+  const units = demandUnitsOf(signals, input.expectedCtrAt);
+
+  const kw = new Map(input.keywords.map((k) => [canon(k.query), k] as const));
+  const serp = new Map(input.serps.map((s) => [canon(s.query), s] as const));
+  const promptTok = input.observations.map((o) => ({ o, tokens: new Set(topicTokens(o.promptText)) }));
+
+  return units.map((u) => {
+    // Deduplicated: two phrasings sharing one token set are ONE history row, never a double count.
+    const keys = [...new Set(u.queries.map((q) => canon(q.query)))];
+    const keySet = new Set(keys);
+    const unitTokens = new Set(u.queries.flatMap((q) => topicTokens(q.query)));
+    // Pages currently earning members, biggest contributor first.
+    const pageShare = new Map<string, number>();
+    for (const q of u.queries) for (const [pg, imp] of merged.get(q.query.trim().toLowerCase())?.pages ?? []) pageShare.set(pg, (pageShare.get(pg) ?? 0) + imp);
+    const pages = [...pageShare.entries()].sort((a, b) => b[1] - a[1]).map(([pg]) => pg);
+    // History: summed across members; the top member with history names the pages.
+    const hRows = keys.map((k) => hist.get(k)).filter((h): h is UnitHistoryRow => !!h);
+    const hSum = hRows.reduce((a, h) => ({ ec: a.ec + h.earlyClicks, ei: a.ei + h.earlyImpressions,
+      rc: a.rc + h.recentClicks, ri: a.ri + h.recentImpressions }), { ec: 0, ei: 0, rc: 0, ri: 0 });
+    const hTop = [...hRows].sort((a, b) => b.earlyClicks - a.earlyClicks)[0];
+    const perDayEarly = hSum.ec / Math.max(1, earlyDays), perDayRecent = hSum.rc / Math.max(1, recentDays);
+    const swapped = !!hTop?.earlyTopPage && !!hTop.recentTopPage
+      && hTop.earlyTopPage.replace(/^https?:\/\/(www\.)?/, "") !== hTop.recentTopPage.replace(/^https?:\/\/(www\.)?/, "");
+    const history = hRows.length === 0 ? null : {
+      earlyClicksPerDay: Math.round(perDayEarly * 100) / 100, recentClicksPerDay: Math.round(perDayRecent * 100) / 100,
+      lostClicksPerMonth: Math.max(0, Math.round((perDayEarly - perDayRecent) * 30)),
+      earlyImpressions: hSum.ei, recentImpressions: hSum.ri,
+      priorTopPage: hTop?.earlyTopPage ?? null, currentTopPage: hTop?.recentTopPage ?? null, pageSwapped: swapped };
+    // Volume: the biggest bought figure among members.
+    const kws = keys.map((k) => kw.get(k)).filter((x): x is NonNullable<typeof x> => !!x)
+      .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0));
+    const volume = kws[0] ? { searchVolume: kws[0].searchVolume, intent: kws[0].intent, difficulty: kws[0].difficulty } : null;
+    // SERP: the biggest member whose results page is on file.
+    const sr = keys.map((k) => serp.get(k)).find((x) => !!x) ?? null;
+    // Prompts: an exact-key member match, or at least two shared subject tokens with the unit's universe.
+    const joined = promptTok.filter(({ o, tokens }) => keySet.has(canon(o.promptText))
+      || [...tokens].filter((t) => unitTokens.has(t)).length >= 2);
+    const byPrompt = new Map<string, { text: string; answers: number; credited: number; rivals: Map<string, { url: string; count: number }> }>();
+    for (const { o } of joined) {
+      const p = byPrompt.get(o.promptId) ?? { text: o.promptText, answers: 0, credited: 0, rivals: new Map() };
+      p.answers += 1; if (o.creditedOwn) p.credited += 1;
+      if (!o.creditedOwn) for (const c of new Map((o.citations ?? []).map((c) => [c.domain, c])).values()) {
+        const r = p.rivals.get(c.domain) ?? { url: c.url, count: 0 }; r.count += 1; p.rivals.set(c.domain, r); }
+      byPrompt.set(o.promptId, p);
+    }
+    const prompts = [...byPrompt.entries()].map(([promptId, p]) => ({ promptId, text: p.text, answers: p.answers, credited: p.credited,
+      citedRivals: [...p.rivals.entries()].map(([domain, r]) => ({ domain, url: r.url, count: r.count }))
+        .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain)).slice(0, 5) }))
+      .sort((a, b) => b.answers - a.answers || a.promptId.localeCompare(b.promptId));
+    const fanouts = [...new Set(joined.flatMap(({ o }) => o.fanOutQueries ?? []))].slice(0, 20);
+    const promptIds = new Set(prompts.map((p) => p.promptId));
+    const winningPages = input.winning
+      .filter((w) => w.queries.some((q) => keySet.has(canon(q))) || w.promptIds.some((id) => promptIds.has(id)))
+      .map((w) => ({ url: w.url, domain: w.domain }));
+    // THE TENSIONS, said instead of averaged.
+    const tensions: string[] = [];
+    if (swapped) tensions.push(`Google moved this audience: ${hTop!.earlyTopPage} earned it before, ${hTop!.recentTopPage} is shown now.`);
+    const material = [...pageShare.values()].filter((v) => v >= Math.max(30, (u.impressions || 1) * 0.1)).length;
+    if (material >= 2) tensions.push(`${material} of your pages currently split this audience.`);
+    if (volume?.intent && /commercial|transactional/i.test(volume.intent) && prompts.some((p) => /^(what|how|why|when|where|who)\b/i.test(p.text)))
+      tensions.push(`The keyword provider grades this ${volume.intent} while the tracked question asks a plain question.`);
+    return {
+      label: u.label,
+      vocabulary: [...new Set([...u.vocabulary, ...prompts.map((p) => p.text)])],
+      queries: u.queries, pages, history, volume,
+      serp: sr ? { winners: sr.organic.slice(0, 10), paa: sr.paa.slice(0, 8), related: sr.related.slice(0, 8), observedAt: sr.observedAt } : null,
+      prompts, fanouts, winningPages, tensions,
+      audience: { impressions90d: u.impressions, aiAnswers: prompts.reduce((a, p) => a + p.answers, 0),
+        lostClicksPerMonth: history?.lostClicksPerMonth ?? 0 },
+    };
+  }).sort((a, b) => b.audience.lostClicksPerMonth - a.audience.lostClicksPerMonth
+    || b.audience.impressions90d - a.audience.impressions90d || a.label.localeCompare(b.label));
+}

@@ -220,7 +220,7 @@ const DEEP_BACKFILL_DAYS = 480;
  * progress table nothing had ever seeded, so 16 months of free history sat unpulled at Google
  * while every opportunity was scored against a post-collapse baseline.
  */
-export async function startDeepBackfill(tenantId: string, targetDays = DEEP_BACKFILL_DAYS): Promise<{ started: boolean; reason: string }> {
+async function startDeepBackfill(tenantId: string, targetDays = DEEP_BACKFILL_DAYS): Promise<{ started: boolean; reason: string }> {
   const property = await resolveKnownProperty(tenantId);
   if (property == null) return { started: false, reason: "no_synced_property" };
   const existing = await readBackfillProgress(tenantId, property);
@@ -239,16 +239,23 @@ export async function startDeepBackfill(tenantId: string, targetDays = DEEP_BACK
 }
 
 /**
- * Nightly continuation (cron-sync wires this beside the normal GSC sync): if a
- * backfill is in progress for this tenant, run exactly one more chunk. A no-op
- * (fail-soft, single try/catch) when no backfill was ever started - the deep
- * backfill is ALWAYS operator-triggered first via startDeepBackfill.
+ * THE ONE PRODUCTION ENTRY: start the backfill for any eligible connected account that never started
+ * one, then run exactly one more chunk of whichever backfill is open. "Continue if started" was the
+ * whole wiring for weeks while nothing in production ever STARTED one, so the continuation ran on
+ * every pass against a table nothing had seeded and 16 months of free history sat unpulled at Google.
+ * Eligibility is mechanical: a synced property with rows on file whose history is not already covered.
+ * Fail-soft, single try/catch; a start that cannot happen names its reason and costs nothing.
  */
-export async function continueDeepBackfillIfStarted(tenantId: string, now: Date = new Date()): Promise<DeepBackfillChunkResult> {
+export async function ensureDeepBackfill(tenantId: string, now: Date = new Date()): Promise<DeepBackfillChunkResult> {
   try {
     const property = await resolveKnownProperty(tenantId);
     if (property == null) return { ran: false, reason: "no_synced_property" };
-    const progress = await readBackfillProgress(tenantId, property);
+    let progress = await readBackfillProgress(tenantId, property);
+    if (progress == null) {
+      const started = await startDeepBackfill(tenantId);
+      if (!started.started) return { ran: false, reason: started.reason };
+      progress = await readBackfillProgress(tenantId, property);
+    }
     if (progress == null || progress.status === "complete") {
       return { ran: false, reason: progress == null ? "not_started" : "already_complete" };
     }

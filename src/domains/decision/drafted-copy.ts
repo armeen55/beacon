@@ -376,7 +376,7 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
 /** THE FINISHED BLOCK EACH FAMILY OWES, so a producer's brief and the editor that completes it agree by construction: a missing description gets its line, an answer gap and a thin page get their section, a duplicated heading gets its own H1, and a link brief gets the one sentence that carries the link. A family off this map is a family the editor does not finish. */
 type DraftKind = "description" | "answer" | "h1" | "link";
 const KIND_OF_SLUG: Partial<Record<string, DraftKind>> = { missing_description: "description", ai_answer_gap: "answer",
-  thin_page: "answer", duplicate_heading: "h1", internal_link: "link" };
+  thin_page: "answer", duplicate_heading: "h1", internal_link: "link", demand_recovery: "answer" };
 /** The destination an internal link card names, read off the card's own instruction line and nowhere else. */
 const linkDestOf = (c: ChangeProposal): string | null =>
   c.recommendedChange.kind === "existing_edit" ? (/pointing to (\S+?),/.exec(c.recommendedChange.after)?.[1] ?? null) : null;
@@ -518,7 +518,7 @@ const FIELD_OF_KIND: Partial<Record<string, EditorField>> = { title: "title", h1
 type HeldPage = { title: string | null; h1: string | null; metaDescription: string | null; outline?: readonly string[] | null };
 
 /** WHY BANKED ATOMIC COPY MAY NOT BE PRESERVED, or empty. Banking skips the drafter AND every gate, so copy accepted under an older boundary was served on for ever while the boundary moved under it: identity alone decided, and identity says nothing about whether the words still stand. The packet is rebuilt from what the ROW ITSELF banked (its claims and the exact words behind each id) plus the page as this pass holds it, and every deterministic rule is asked again on the evidence the copy actually leans on. No provider, no fresh read, and NO RE-JUDGING: the prior reading of sense stands while the material identity does. A row that banked no copy or no provenance answers empty, because there is nothing here to re-read; whether such a row may be preserved at all is preferFinished's question. */
-function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null): string[] {
+function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null, preserve: readonly string[] = []): string[] {
   const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? [];
   if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return [];
   const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
@@ -530,7 +530,17 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   const bankedVocab = facts.filter((f) => f.id.startsWith("demand-")).map((f) => (/"([^"]+)"/.exec(f.fact)?.[1] ?? "")).filter(Boolean);
   const packet: SourcePacket = { targetUrl: p.pageUrl ?? p.pagePath ?? "", title: held?.title ?? null, h1: held?.h1 ?? null, metaDescription: held?.metaDescription ?? null,
     bodyText: facts.map((f) => f.fact).join(" "), headings: [...(held?.outline ?? [])], evidence, trackedQuestion: p.primaryQuery, ownedPaths: [], bannedTerms,
-    demand: { preserve: [], vocabulary: bankedVocab } };
+    demand: { preserve, vocabulary: bankedVocab } };
+  // A BANKED TITLE OR HEADING IS RE-READ AGAINST WHAT THE PAGE EARNS TODAY, exactly as a fresh draft is: the
+  // girl-names rewrite that dropped "List" was banked under a generation with no earning gate and stayed
+  // visible for exactly that reason. Same rule, same words-as-spelled comparison, run on the banked strings.
+  if (preserve.length > 0 && (field === "title" || field === "h1") && held != null) {
+    const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after));
+    const line = field === "title" ? held.title : held.h1;
+    const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t));
+    if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
+  }
   out.push(...rereadableRefusals(c.after, packet));
   // WHAT THE COPY LEANS ON HAS TO STILL CARRY IT. Support reworded, re-pointed or dropped leaves banked words arguing from something nobody banked, and a stored claim cannot say that about itself.
   const ungrounded = ungroundedClaimWords(claims, evidence, c.after), uncovered = unheld(`${flat(claims.map((x) => x.text).join(" "))} ${flat(facts.map((f) => f.fact).join(" "))}`.replace(/[^a-z0-9]+/g, " "), c.after);
@@ -550,9 +560,11 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
 }
 
 /** WHY A STORED CHANGE MAY NOT BE SERVED AGAIN AS IT STANDS, or empty. Stored work is REUSED without being redrafted, so every gate added after it was written simply never ran on it: a bundle's pieces that narrowed a page off its own subject sat in a live queue through three passes, and a banked description kept a figure that had walked away from the qualifier its own sentence carried. This is the ONE re-read, for both shapes. It runs ONLY the gates that need no model and no fresh evidence, so a re-read can never invent a failure the producer would not have made, and it is $0 by construction. What it cannot hold it SKIPS rather than fails, for an ordinary re-validation pass: a page whose words are not in hand, and a row that banked no provenance, are withheld from this question, never destroyed by it. `strict` is the ONE door that may not skip: the promotion door asks the operator's yes to stand for the exact row it is confirming, so there absence of provenance and a body the door does not hold each become the refusal instead, never a silent pass. Whether the change still treats its own diagnosed cause is asked once, by the caller, on every row on its way to the store. PURE. */
-export function staleCopyReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[], page?: HeldPage | null, strict = false): string[] {
+export function staleCopyReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[], page?: HeldPage | null, strict = false,
+  /** THE WORDS THIS PAGE IS PAID FOR TODAY, from the caller's own live search rows. Banked titles and headings are re-read against them, so a rewrite that drops an earning word cannot outlive the generation whose gate it predates. Absent = the caller holds no rows, and the check is skipped rather than guessed. */
+  preserve: readonly string[] = []): string[] {
   const parts = p.bundle?.components ?? [];
-  if (parts.length === 0) return strict && (!p.claims?.length || !p.supportFacts?.length) ? ["this copy carries no record of what it stands on, so it is held rather than promoted"] : bankedCopyReasons(p, bannedTerms, page ?? null);
+  if (parts.length === 0) return strict && (!p.claims?.length || !p.supportFacts?.length) ? ["this copy carries no record of what it stands on, so it is held rather than promoted"] : bankedCopyReasons(p, bannedTerms, page ?? null, preserve);
   const held = [...bodies.values()], owned = held.map((b) => pathOf(b.url)), out: string[] = [];
   const bodyFor = (page: string): OwnedPageBody | null => held.find((b) => pathOf(b.url).toLowerCase() === page.toLowerCase() || canonicalUrlKey(b.url) === canonicalUrlKey(page)) ?? null;
   for (const c of parts) {

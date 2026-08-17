@@ -10,6 +10,7 @@ import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/fo
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
+import { journeyLabel, readAnswerJourneys } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 
@@ -160,12 +161,12 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   // page was never cited on a day the same stored rows credited the site in 31 of 47. Every answer that reported
   // its sources is counted here, the ones crediting this site are counted SEPARATELY through the one canonical
   // predicate every reading of this fact now uses, and one of those is enough to retire the whole claim.
-  type Group = { prompt: string; answers: number; credited: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
+  type Group = { prompt: string; promptId: string; answers: number; credited: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
   const byPrompt = new Map<string, Group>();
   for (const o of snapshot.research.aiObservations) {
     const cites = o.citations ?? [];
     if (cites.length === 0) continue;
-    const key = canonicalQueryKey(o.promptText), g = byPrompt.get(key) ?? { prompt: plain(o.promptText), answers: 0, credited: 0, engines: new Set<string>(), domains: new Map() };
+    const key = canonicalQueryKey(o.promptText), g = byPrompt.get(key) ?? { prompt: plain(o.promptText), promptId: o.promptId, answers: 0, credited: 0, engines: new Set<string>(), domains: new Map() };
     g.answers += 1; g.engines.add(o.engine);
     byPrompt.set(key, g);
     if (citesOwnSite(cites, site)) { g.credited += 1; continue; }
@@ -184,6 +185,10 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
     const top = [...g.domains.entries()].sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]))[0];
     if (!match || !top) continue;
     const [domain, cite] = top;
+    // THE ANSWER ITSELF, for the top cards only: what the assistant actually said around the rival's citation, quoted onto the card so the drafted treatment answers the REAL answer rather than a citation count.
+    const journeys = out.length < 2 ? await readAnswerJourneys(tenantId, g.promptId, domain, 2) : [];
+    const passages = journeys.filter((j) => j.citedPassage != null).slice(0, 2).map((j) => `The ${journeyLabel(j)} answer drew on ${domain}: "${j.citedPassage}"`);
+    const linkOnly = journeys.length > 0 && passages.length === 0 ? [`The stored answers cite ${domain} in their source list without quoting it in prose, so the opening to win is being the page an engine can lift a direct answer from.`] : [];
     const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", ");
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
@@ -193,6 +198,7 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
       steps: [`Open the site editor on ${pathOf(match.page.url)}`, `Add a section that answers "${g.prompt}"`,
         "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],
       hints: [`${cite.engine} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
+        ...passages, ...linkOnly,
         `${count(g.answers, "stored answer")} to this question from ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // Every stored answer to this question is one row this card stands on, and there are as many as there are.

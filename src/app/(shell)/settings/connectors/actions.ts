@@ -30,7 +30,7 @@ import { revalidatePath } from "next/cache";
 // existing per-tenant sync engines (HTTP + Supabase, Vercel-safe) must be
 // triggerable from the product. Each "Sync now" action wraps one.
 import { syncGscSearchAnalyticsForTenant } from "@/lib/connectors/gsc/sync-search-analytics";
-import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { ensureDeepBackfill } from "@/lib/connectors/gsc/deep-backfill";
 import { syncGa4UrlTrafficForTenant } from "@/lib/connectors/ga4/sync-url-traffic";
 import { syncClarityDailyMetricsForTenant } from "@/lib/connectors/clarity/sync-daily-metrics";
 import { recordSourceRefresh } from "@/domains/runtime";
@@ -669,7 +669,7 @@ export async function syncGscNow(): Promise<ConnectorSyncNowResult> {
     "syncGscNow",
     async (tenantId) => {
       const r = await syncGscSearchAnalyticsForTenant({ tenantId });
-      await continueDeepBackfillIfStarted(tenantId).catch(() => null);
+      await ensureDeepBackfill(tenantId).catch(() => null);
       return r;
     },
     "google_gsc",

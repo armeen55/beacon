@@ -28,19 +28,36 @@ const SNAPSHOT_SCAN = 400; // newest snapshot rows scanned to find the latest-pe
 
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
-/** The account's own pages whose NEWEST snapshot is a zero-word 200, with the demand riding on each. */
+/** Under this many raw words, a page with real search demand is IMPLAUSIBLY thin: a CMS body the raw fetch
+ *  half-missed reads the same as a genuine stub, and only a rendered look can tell them apart. One render
+ *  settles it either way: much more content replaces the capture, about the same confirms the stub. */
+const IMPLAUSIBLY_THIN_WORDS = 50;
+/** Demand floor before a thin page earns its one rendered look. */
+const THIN_RENDER_MIN_IMPRESSIONS = 200;
+
+/** The account's own pages whose NEWEST snapshot the raw fetch cannot be trusted on: a zero-word 200 (a
+ *  javascript body, always eligible), or an implausibly thin capture on a page with real demand that has
+ *  never had its one rendered look. A page whose newest row already came from a rendered read is settled. */
 export async function unreadOwnedPages(tenantId: string): Promise<{ url: string; impressions: number }[]> {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb.from("page_snapshots")
-    .select("url, word_count, http_status, fetched_at")
+    .select("url, word_count, http_status, fetched_at, structural_warnings")
     .eq("tenant_id", tenantId).order("fetched_at", { ascending: false }).limit(SNAPSHOT_SCAN);
   if (error != null) return [];
-  const newest = new Map<string, { url: string; word_count: number; http_status: number }>();
-  for (const r of (data ?? []) as { url: string; word_count: number; http_status: number }[]) {
+  type Row = { url: string; word_count: number; http_status: number; structural_warnings: string[] | null };
+  const newest = new Map<string, Row>();
+  const everRendered = new Set<string>();
+  for (const r of (data ?? []) as Row[]) {
     const k = canonicalUrlKey(r.url);
-    if (k && !newest.has(k)) newest.set(k, r);
+    if (!k) continue;
+    if (!newest.has(k)) newest.set(k, r);
+    if ((r.structural_warnings ?? []).some((w) => w.startsWith("rendered_read"))) everRendered.add(k);
   }
-  const blank = [...newest.values()].filter((r) => r.word_count === 0 && r.http_status === 200);
+  const blank = [...newest.values()].filter((r) => {
+    const k = canonicalUrlKey(r.url);
+    if (r.http_status !== 200 || everRendered.has(k)) return false;
+    return r.word_count === 0 || r.word_count < IMPLAUSIBLY_THIN_WORDS;
+  });
   if (blank.length === 0) return [];
   const since = new Date(Date.now() - DEMAND_DAYS * 86_400_000).toISOString().slice(0, 10);
   const { data: demand } = await sb.from("gsc_daily_page_totals")
@@ -52,6 +69,8 @@ export async function unreadOwnedPages(tenantId: string): Promise<{ url: string;
     per.set(k, (per.get(k) ?? 0) + (d.impressions ?? 0));
   }
   return blank.map((b) => ({ url: b.url, impressions: per.get(canonicalUrlKey(b.url)) ?? 0 }))
+    // A zero-word page is blind whatever its audience; a merely thin one earns its render only with one.
+    .filter((b) => newest.get(canonicalUrlKey(b.url))!.word_count === 0 || b.impressions >= THIN_RENDER_MIN_IMPRESSIONS)
     .sort((a, b) => b.impressions - a.impressions);
 }
 
@@ -68,9 +87,11 @@ export async function renderUnreadOwnedPages(tenantId: string, cap = RENDERED_RE
     }
     const got = parseCapability("onpage_content_parsing", r.payload as never);
     const body = (got?.bodyText ?? "").trim();
-    if (!got || body.split(/\s+/).filter(Boolean).length < 20) {
-      // A rendered read that still shows almost nothing proves nothing; the blank record stays honest.
-      log.info("[rendered-read] the rendered body is still empty", { tenantId, url: t.url });
+    const words0 = body.split(/\s+/).filter(Boolean).length;
+    if (!got || words0 < 20) {
+      // A rendered read that still shows almost nothing settles a THIN page (the stub is real: store the
+      // rendered confirmation so it is never re-bought) and proves nothing about a BLANK one.
+      log.info("[rendered-read] the rendered body is still nearly empty", { tenantId, url: t.url, words: words0 });
       continue;
     }
     const nowIso = new Date().toISOString();

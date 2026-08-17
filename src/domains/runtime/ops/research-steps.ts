@@ -22,7 +22,7 @@ import { renderUnreadOwnedPages } from "@/domains/evidence/pages/rendered-read";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { synthesizeCases } from "@/domains/decision/case-synthesis";
 import { buildTopicInvestigations, reconcileResearchCases } from "@/domains/evidence/topic-investigation";
-import { continueDeepBackfillIfStarted } from "@/lib/connectors/gsc/deep-backfill";
+import { ensureDeepBackfill } from "@/lib/connectors/gsc/deep-backfill";
 import { continueColdStartCrawlIfStarted, startColdStartCrawl } from "@/domains/evidence/scanning/crawl-frontier";
 import { nextCrawlCandidates } from "@/domains/evidence/scanning/owned-pages-store";
 import { loadGscDecaySignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
@@ -173,8 +173,8 @@ export const defaultSteps: ResearchCycleSteps = {
   },
   async backfillChunk(tenantId, now) {
     // No deadline race: the chunk is bounded by design and its GSC fetch has no AbortSignal, so a race would release the lease while live side-effecting work
-    // kept running. continueDeepBackfillIfStarted converts a thrown error into { ran:false, reason }, so a non-benign reason here is a real failure.
-    const result = await continueDeepBackfillIfStarted(tenantId, now);
+    // kept running. ensureDeepBackfill converts a thrown error into { ran:false, reason }, so a non-benign reason here is a real failure.
+    const result = await ensureDeepBackfill(tenantId, now);
     if (result.ran) {
       log.info("[research-run] gsc deep backfill chunk advanced", { tenantId, daysPulled: result.daysPulled, complete: result.complete });
       return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
