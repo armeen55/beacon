@@ -416,7 +416,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
       "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused.",
       `The section heading must NOT repeat "${card.primaryQuery}" back word for word; name what the section delivers in different words.`,
-      "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either."] : []),
+      "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
+      "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused."] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line
       // that earning searches carry (each must survive the rewrite), and the exact words the account bans.
