@@ -152,8 +152,15 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
 /** THE CANONICAL PAGE EVIDENCE AS ONE BAG OF WORDS: everything stored about this page plus every evidence line this card names. "The evidence carries this" is a lookup against exactly this and nothing wider. */
 const corpusOf = (p: SourcePacket): string =>
   flat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? "", p.metaDescription ?? "", Object.values(p.evidence).join(" ")].join(" ")).replace(/[^a-z0-9]+/g, " ");
+/** THE GRAMMAR OF STATING A LIST IS NOT A FACT ABOUT THE PAGE. This gate is deliberately not a vocabulary
+ *  test, yet finished sections were refused for the words "include", "means" and "also": carrier verbs and
+ *  scaffolding that any faithful paraphrase of a list must use and no page's stored copy reliably prints.
+ *  This closed set names exactly that grammar and nothing else; every noun, adjective and meaning the copy
+ *  states still has to be carried by a declared claim and the passage it cites (operator, 2026-08-17). */
+const CARRIER = new Set(["include", "includes", "including", "cover", "covers", "carry", "carries", "list", "lists",
+  "mean", "means", "meaning", "also", "such", "offer", "offers", "use", "uses", "used", "refer", "refers", "state", "states"]);
 /** Every content word of a phrase that the canonical page evidence does not carry. Singularized and stripped of  universal words by the ONE tokenizer this codebase already uses, so a faithful paraphrase passes and an invented member does not. Substring containment on purpose: it errs toward letting real copy through. */
-const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase).filter((w) => !corpus.includes(w));
+const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase).filter((w) => !CARRIER.has(w) && !corpus.includes(w));
 /** SUPPORT ENTAILMENT, and it used to be nobody's question: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself ("These shoes are waterproof", declared word for word against a page title silent about waterproofing). A CLAIM IS NEVER PART OF ITS OWN SUPPORT: each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, because a claim word the copy never prints cannot make the copy false and an editor's bookkeeping ("the page subject is") is not a page claim. EXACT NORMALIZED TOKEN MEMBERSHIP, never substring: `held.includes(w)` let a claim word ride inside a longer evidence word, so a page whose evidence said "credit" was held to support copy saying "red". A WHOLE WORD, matched whole, after both sides go through the ONE tokenizer. THIS IS SPELLING AND NOTHING MORE: meaning stays the judge's. PURE, so a stored row is re-read exactly as a fresh draft is checked. */
 /** THE TOKENIZER'S ONE OVER-TRIM, UNDONE, AND NOTHING ELSE. Its plural rule takes two letters off a word ending in "ses", so "showcases" comes back as "showcas" beside the singular "showcase" and one word failed to match itself; only that exact spelling is repaired here. NO SILENT E IS DROPPED and NO TRAILING PLURAL IS STRIPPED: dropping a final e made "rate" and "rat" the same token, so a page whose evidence said "rat" was read as carrying copy that says "rate" (and the reverse), and a bare trailing-s strip aliases unrelated words the same way ("does" and "doe", "news" and "new"). The plural is already handled where it belongs, by the ONE tokenizer, on both sides. */
 const fold = (w: string): string => w.replace(/se$/, "s");
@@ -163,7 +170,7 @@ function ungroundedClaimWords(claims: EditorDeliverable["claims"], evidence: Rea
   const inCopy = new Set(words2(copy).map(fold));
   return [...new Set(claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => evidence[id] ?? "").join(" ").replace(/([a-z])([A-Z])/g, "$1 $2")).replace(/[^a-z0-9]+/g, " ");
     const held = new Set([...q.split(" ").filter(Boolean), ...topicTokens(q)].map(fold));
-    return words2(c.text).filter((w) => inCopy.has(fold(w)) && !held.has(fold(w))); }))];
+    return words2(c.text).filter((w) => !CARRIER.has(w.toLowerCase()) && inCopy.has(fold(w)) && !held.has(fold(w))); }))];
 }
 
 /** WHY THIS DELIVERABLE IS NOT FINISHED, or empty. PURE, and no line here is an opinion about whether the copy is any good. */
