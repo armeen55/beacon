@@ -176,12 +176,7 @@ const RULES: Rule[] = [
       if (!group && !kw) return { fired: false, reason: "only one page of yours comes up for that search, so nothing of yours is taking the click from it" };
       // WHAT THIS PROVES IS THAT BOTH PAGES COME UP, never that the clicks are being divided: the comparison decides the survivor or nobody does.
       const comparison = splitComparison(c.snapshot, c.query);
-      // A COMPETITOR MUST MATERIALLY APPEAR. Two addresses were called fighters "every time somebody searches"
-      // when one carried a couple of impressions: a page with a KNOWN negligible share is not dividing anything.
-      // A page whose share is unknown (null) is kept, because absence of a number rules nothing out.
-      // AND A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no
-      // current group there are no two pages to compare, and a card minted off that flag kept accusing a page
-      // whose own rows show it owning the search outright. Today's own rows overrule yesterday's judgment.
+      // A COMPETITOR MUST MATERIALLY APPEAR: a page with a KNOWN negligible share is not dividing anything, and a share unknown (null) is kept, because absence of a number rules nothing out. AND A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no current group there are no two pages to compare, so today's own rows overrule yesterday's judgment.
       if (comparison.length < 2) return { fired: false, reason: `no two pages of yours materially appear for ${quote(c.query)} in your own current rows, so nothing is dividing the clicks now` };
       const knownTotal = comparison.reduce((a, r) => a + (r.impressions ?? 0), 0);
       const floor = Math.max(30, Math.round(knownTotal * 0.1));
