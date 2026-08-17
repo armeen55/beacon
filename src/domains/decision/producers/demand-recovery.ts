@@ -35,17 +35,25 @@ export type DemandRecoveryRun = { cards: ChangeProposal[]; complete: boolean;
 
 type Decomposed = { cause: "ranking_loss" | "ctr_snippet" | null; field: "section" | "title"; line: string };
 
-/** WHY the audience left, off the two windows alone. Null cause = the windows cannot separate it, and the
- *  card that follows claims research, never a treatment. */
-function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandUnits>>["units"][number]["history"]>): Decomposed {
+/** WHY the audience left. A slid position is its own evidence and owes content. A held position with a
+ *  collapsed click rate names the snippet ONLY when the current results page for this audience is on file,
+ *  because arithmetic alone cannot tell a weak line from a results page that changed shape around it
+ *  (operator, 2026-08-17: a query in a title is not automatically the remedy for low CTR); without that
+ *  read the fall is the TRIGGER for buying it, and the card claims research, never a treatment. */
+function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandUnits>>["units"][number]["history"]>,
+  hasSerp: boolean): Decomposed {
   const dPos = h.earlyPosition != null && h.recentPosition != null ? h.recentPosition - h.earlyPosition : null;
   const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / Math.max(1, 13)) : null;
   const ctrNow = h.recentImpressions > 0 ? (h.recentClicksPerDay * 30) / (h.recentImpressions / 3) : null;
   if (dPos != null && dPos >= POSITION_SLIP) return { cause: "ranking_loss", field: "section",
     line: `The page slid from position ${h.earlyPosition!.toFixed(1)} to ${h.recentPosition!.toFixed(1)} on this audience's searches, so something better took its ground: the treatment is content, not a sharper line.` };
-  if (dPos != null && Math.abs(dPos) < POSITION_SLIP && ctrEarly != null && ctrNow != null && ctrNow < ctrEarly * (1 - CTR_FALL))
+  const ctrFell = dPos != null && Math.abs(dPos) < POSITION_SLIP && ctrEarly != null && ctrNow != null && ctrNow < ctrEarly * (1 - CTR_FALL);
+  if (ctrFell && hasSerp)
     return { cause: "ctr_snippet", field: "title",
-      line: `The page holds its position (${h.earlyPosition!.toFixed(1)} then, ${h.recentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, so the line a searcher reads is what changed.` };
+      line: `The page holds its position (${h.earlyPosition!.toFixed(1)} then, ${h.recentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.` };
+  if (ctrFell)
+    return { cause: null, field: "section",
+      line: `The page holds its position (${h.earlyPosition!.toFixed(1)} then, ${h.recentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and no current results page for this audience is on file: what searchers see there today decides whether the line, the results page shape or the demand itself changed, so nothing is treated until that read lands.` };
   return { cause: null, field: "section",
     line: "The two windows cannot separate a ranking slide from a snippet change on their own numbers, so the cause is not named until the current results page is read." };
 }
@@ -70,14 +78,16 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       const home = h.currentTopPage ?? h.priorTopPage;
       if (!home || !owned.has(canonicalUrlKey(home))) continue;
       const path = pathOf(home);
-      const d = decompose(h);
+      const d = decompose(h, u.serp != null);
       const phrasings = u.vocabulary.slice(0, 6).map((v) => `"${v}"`).join(", ");
       const windowLine = `${historyWindow.earlyFrom} to ${historyWindow.earlyTo}`;
       const story = `Searches for ${u.label} earned this site about ${n(h.earlyClicksPerDay * 30)} clicks a month over ${windowLine} and earn about ${n(h.recentClicksPerDay * 30)} now: ${n(h.lostClicksPerMonth)} clicks a month were LOST.`;
       const moved = h.pageSwapped ? ` Google moved the audience: ${pathOf(h.priorTopPage!)} earned it then, ${pathOf(h.currentTopPage ?? home)} is shown now.` : "";
       const recoverable = Math.max(0, Math.round(u.recoverableClicks));
       const hints = [story.trim() + moved, d.line,
-        `At today's own demand and positions, about ${n(recoverable)} clicks a month of that are supported as recoverable; the rest depends on winning back ground and is not promised.`,
+        d.cause != null
+          ? `At today's own demand and positions, about ${n(recoverable)} clicks a month of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.`
+          : `About ${n(recoverable)} clicks a month is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.`,
         `People search this as: ${phrasings}`,
         ...(u.volume?.searchVolume ? [`"${u.label}" carries ${n(u.volume.searchVolume)} searches a month${u.volume.intent ? ` (${u.volume.intent})` : ""}`] : []),
         ...(u.serp ? [`The pages winning it now: ${u.serp.winners.slice(0, 3).map((w) => w.domain).join(", ")}`] : []),

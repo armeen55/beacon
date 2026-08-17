@@ -200,6 +200,10 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
       const after = new Set(wordsOf(d.finalCopy));
       const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t));
       if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
+      // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting
+      // "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.
+      const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))];
+      if (reps.length > 0) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(", ")} more than once, which is a keyword list rather than a line a person would write`);
     }
   } else {
     if (d.beforeText != null && !stored.includes(flat(d.beforeText))) out.push("the words it says it replaces are not on the stored page");
@@ -263,7 +267,15 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   card.evidence.hints.forEach((h, i) => { evidence[`card-${i + 1}`] = h; });
   if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
   (page.content?.outline ?? []).slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
-  (body?.passages ?? []).slice(0, 6).forEach((t, i) => { evidence[`page-copy-${i + 1}`] = t; });
+  // THE SIX PASSAGES MOST ABOUT THIS CARD'S QUESTION, in page order, never simply the first six the crawler
+  // stored: a claim can only cite words the packet carries, and the words that ground an answer about
+  // "persian rugs known for" live wherever the page talks about it, not necessarily in its opening.
+  const qTokens = new Set(topicTokens(`${card.primaryQuery} ${card.evidence.query ?? ""}`));
+  const scored = (body?.passages ?? []).map((t, i) => ({ t, i,
+    score: topicTokens(t).filter((w) => qTokens.has(w)).length }));
+  const picked = scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6)
+    .sort((a, b) => a.i - b.i);
+  (picked.length > 0 ? picked : scored.slice(0, 6)).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
   // THE PAGE'S OWN DEMAND, off its stored search rows: what it earns (never to be dropped) and how searchers
   // actually phrase it (legal vocabulary, each entry a citable demand-N fact carrying its own numbers).
   const rows = page.search?.topQueries ?? [];
@@ -408,7 +420,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (kind === "link" && !dest) return refuse("the destination this link names cannot be read off the card");
   // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
-  const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, 400)}`),
+  const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, id.startsWith("page-copy") ? 700 : 400)}`),
     ...(spec ? [card.researchOnly === true
       ? `The brief for this edit: "${spec.slice(0, 600)}". Write the finished copy that fulfils it; the brief itself is never the copy.`
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
@@ -426,7 +438,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       const earning = new Set(packet.demand.preserve.flatMap(wordsOf));
       const held = kind === "title" ? packet.title : packet.h1;
       const keep = [...new Set(wordsOf(held ?? ""))].filter((w) => earning.has(w));
-      return [`Rewrite the line, but every one of these words must still appear in it, spelled as given: ${keep.join(", ") || "(none)"}. Add the higher-demand phrase alongside them; NEVER replace them with it.${packet.bannedTerms.length > 0 ? ` These words are banned and must not appear at all: ${packet.bannedTerms.join(", ")}.` : ""}`];
+      return [`Rewrite the line, but every one of these words must still appear in it, spelled as given: ${keep.join(", ") || "(none)"}. Add the higher-demand phrase alongside them; NEVER replace them with it. No word may appear twice: write ONE natural line a person would publish, never a comma list of search phrasings.${packet.bannedTerms.length > 0 ? ` These words are banned and must not appear at all: ${packet.bannedTerms.join(", ")}.` : ""}`];
     })() : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused.",
     "Return sources as an empty array; never send a source entry with blank fields. evidenceRefs is DIFFERENT and required: cite at least one of the evidence ids handed to you above. A claim's supportedBy lists at most 8 ids."];
