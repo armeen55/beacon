@@ -138,7 +138,11 @@ function decode(payload: unknown): ChangeProposal | null {
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
   // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT, so its stamp clears here and the next release build gives it a fresh position. A paged lane can never serve a change that has moved on.
-  status: p.status, terminal_disposition: null, superseded_by: null, queue_lane: null, queue_rank: null,
+  // AND A ROW THAT LIVES AGAIN IS NO LONGER RETIRED: the retirement reason clears with the disposition,
+  // because a live row wearing "withdrawn: ..." is two states at once (operator, 2026-08-17: never
+  // Ready plus a withdrawal reason). The objection it recorded survives where it belongs, on the
+  // limitations of whatever draft answered it.
+  status: p.status, terminal_disposition: null, superseded_by: null, queue_lane: null, queue_rank: null, withdrawn_reason: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
 });
