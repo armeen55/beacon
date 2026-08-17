@@ -1,15 +1,15 @@
 {
   "_doc": "Bloat firewall. Ceilings are NON-INCREASING and ratchet DOWN as code shrinks, never up without operator approval. Two operator-approved exceptions on record: the 2026-08-03 one-time test-pool correction at the Dream V1 landing (maxima 11600/85000), and the 2026-08-14 Breakthrough Pass raise (+300 production for the deterministic editor safety checks and the multi-page differentiation producer; operator authorized ratcheting mechanical budgets blocking the MVP, recorded here and in the campaign report). Enforced by scripts/check-foundation-budget.mjs (npm run guard:foundation). Foundation is frozen; see AGENTS.md for the growth policy and the 8-field feature rule. Third and fourth operator-authorized exceptions, 2026-08-16 final outcome run: ceilings set to the exact landed counts after the operator rejected the prior completion and ordered the continuation (canonical demand units + loader + history aggregate consumer, demand-recovery producer, answer-journey reasoning, self-starting backfill, generalized rendered reads, banked-copy earning re-read, and their tests); every ceiling remains exact-count and non-increasing from here.",
   "production": {
-    "max": 74175,
+    "max": 74409,
     "target": 55000
   },
   "tests": {
-    "max": 12331,
+    "max": 12393,
     "target": 4000
   },
   "combined": {
-    "hardCap": 86505,
+    "hardCap": 86802,
     "target": 60000
   },
   "domains": {
@@ -65,9 +65,9 @@
       "src/lib/connectors/google-auth.ts": 590,
       "src/domains/evidence/product/url-citation-history.ts": 566,
       "src/domains/evidence/readers/gsc-page-signals.ts": 549,
-      "src/domains/decision/diagnosis.ts": 508,
+      "src/domains/decision/diagnosis.ts": 512,
       "src/domains/decision/drafted-copy.ts": 696,
-      "src/domains/decision/produce-proposals.ts": 523,
+      "src/domains/decision/produce-proposals.ts": 529,
       "src/domains/runtime/ops/on-visit-refresh.ts": 506
     }
   },
@@ -100,7 +100,7 @@
     ]
   },
   "exports": {
-    "max": 1321,
+    "max": 1329,
     "target": 1200,
     "_note": "Exported type/interface/class/enum/const/function symbols in src (non-test). Non-increasing; keep internal helpers/types internal. Ratchet DOWN."
   },

@@ -296,6 +296,10 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   // Both AI causes are about what an engine did with a page it already read. Nothing on the page is proven wrong by either, so a rewrite here would be a guess dressed as a fix.
   retrieved_not_cited: produceSourceExpansion,
   ai_citation_gap: produceSourceExpansion,
+  // A FACTUAL DEFECT IS MINTED FROM BANKED RESEARCH, never written here: the correction is only as strong as
+  // the independent source under it, so the producer that owns it reads the fact-check store and this path
+  // stays out of the way rather than drafting a replacement from a page that is itself the thing in doubt.
+  factual_error: { reason: "The banked fact checks own this cause: a correction ships with its source, or it does not ship." },
   // A change of yours is still being measured: the whole point is to add nothing on top of it.
   measuring_change: { reason: "A change here is still being measured, and stacking another one on top would make the first unreadable." },
   // Fewer people searching is not a page defect, so nothing on the page is written for it and saying so is the honest answer. A FALL IS DIFFERENT: it is a size, and rankingLoss asks every lever by name.

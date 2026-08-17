@@ -17,6 +17,10 @@ type CandidateCause =
   | "ctr_snippet" | "competitor_content_gap" | "incomplete_coverage" | "weak_opening"
   | "serp_shape_shift" | "intent_shift" | "internal_link_weakness" | "ai_citation_gap"
   | "demand_decline" | "ranking_loss" | "retrieved_not_cited" | "technical_indexability"
+  // A PAGE THAT STATES SOMETHING UNTRUE IS ITS OWN DEFECT, never a ranking story wearing a correction
+  // (operator, 2026-08-17): "the page contains factual errors" and "the page lost rankings" are separate
+  // findings, and attaching one to the other lets a correction inherit a loss no evidence ties it to.
+  | "factual_error"
   | "measuring_change" | "no_problem";
 
 /** WHAT THE CAUSE WAS READ OFF, KEPT: the SAME values the explanation is written from, so a cause that can explain a loss can also produce work. Absent = no structure worth keeping, never "the reading failed". */
@@ -489,6 +493,7 @@ const LABEL: Record<CandidateCause, string> = {
   intent_shift: "what people searching this actually want",
   internal_link_weakness: "where this page sends a reader next",
   ai_citation_gap: "AI answers citing everybody but this page",
+  factual_error: "statements on this page that independent sources contradict",
   demand_decline: "demand for this search falling",
   ranking_loss: "this page slipping down the results",
   retrieved_not_cited: "an engine reading this page and citing somebody else",

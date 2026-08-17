@@ -323,7 +323,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence on
     // a page the paid bound never reached is a real withdrawal; shielding it kept thirty-five titles minted
     // under a boundary that no longer exists alive for days (operator, 2026-08-17: the cheetah card).
-    const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery"].join("|")})$`);
+    const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})$`);
     let taken = 0;
     for (const [id, row] of existing) {
       if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue;
@@ -473,6 +473,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     .then((m) => m.loadCanonicalDemandUnits(tenantId, snapshot, curve, opts.now ?? new Date())).catch(() => null);
   const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, ...(unitLoad ? { preloaded: unitLoad } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
+  // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks and nothing else, so a
+  // correction is reproducible instead of typed into the store once (operator, 2026-08-17).
+  const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
+    .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
   const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, ...(unitLoad ? { units: unitLoad.units } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
@@ -484,7 +488,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // measurement rejects every new draft at save time, and drafting one anyway spent up to four charged calls
   // per pass on copy that could never land while the cards behind it starved.
   const measuringPages = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));
-  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
+  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...factual.cards, ...extra.cards]) {
     if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
     if (await admit(c)) allowed.push(c); }
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor
@@ -507,6 +511,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // Per-family precision: a dead evidence source holds ITS families out of the sweep without freezing the rest.
   await sweepStale([suggested, { families: (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES], complete: extra.complete },
     { families: ["demand_recovery"], complete: recovery.complete },
+    // A page whose corrected words are live checks out on the next run, so its card retires itself here.
+    { families: ["factual_correction"], complete: factual.complete },
     { families: ["ownership", "researching"], complete: gscComplete }]);
   // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
   const outcome: ProducerOutcome =

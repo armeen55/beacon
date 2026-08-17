@@ -41,6 +41,9 @@ export const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
   internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links", "section"]),
   ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack", "section"]),
   retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack", "section"]),
+  // Only the levers that REPLACE the untrue words. A new section beside a wrong sentence leaves the wrong
+  // sentence on the page, so section kinds are deliberately absent here.
+  factual_error: new Set(["factual_correction", "paragraph_correction", "source_update"]),
   technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
   // FEWER PEOPLE RUNNING THE SEARCH IS NOT A PAGE DEFECT. Nothing you can write on the page brings the searches
   // back, so this one stays deliberately empty: it matches nothing, discounts nothing, and those cards rank on
