@@ -50,6 +50,10 @@ export async function loadUnitHistory(tenantId: string, now: Date = new Date()):
       recentClicks: Number(r.recent_clicks ?? 0), recentImpressions: Number(r.recent_impressions ?? 0),
       recentPosition: r.recent_position == null ? null : Number(r.recent_position),
       earlyTopPage: (r.early_top_page as string | null) ?? null, recentTopPage: (r.recent_top_page as string | null) ?? null,
+      earlyPagePosition: r.early_page_position == null ? null : Number(r.early_page_position),
+      recentPagePosition: r.recent_page_position == null ? null : Number(r.recent_page_position),
+      earlyPageShare: r.early_page_share == null ? null : Number(r.early_page_share),
+      recentPageShare: r.recent_page_share == null ? null : Number(r.recent_page_share),
     })).filter((r) => r.query.length > 0);
     return { rows, earlyDays, recentDays: RECENT_DAYS, earlyFrom, earlyTo };
   } catch (e) {

@@ -42,18 +42,31 @@ type Decomposed = { cause: "ranking_loss" | "ctr_snippet" | null; field: "sectio
  *  read the fall is the TRIGGER for buying it, and the card claims research, never a treatment. */
 function decompose(h: NonNullable<Awaited<ReturnType<typeof loadCanonicalDemandUnits>>["units"][number]["history"]>,
   hasSerp: boolean): Decomposed {
-  const dPos = h.earlyPosition != null && h.recentPosition != null ? h.recentPosition - h.earlyPosition : null;
+  // ONLY THE TREATED PAGE'S OWN HISTORY MAY NAME A PAGE-SPECIFIC CAUSE (operator, 2026-08-17): the unit's
+  // blended position averages every page the site ranks with, and a second owned page entering the results
+  // manufactures an apparent slide with no page having moved. A swapped page or a material share shift is
+  // COMPOSITION, its own story, and claims no cause until the page split is decided.
+  if (h.pageSwapped) return { cause: null, field: "section",
+    line: `Google changed which of this site's pages it shows for these searches, so no single page's two-window history exists to compare: the page split is decided before any cause is claimed.` };
+  const shareShift = h.pageShareEarly != null && h.pageShareRecent != null ? h.pageShareEarly - h.pageShareRecent : null;
+  const dPos = h.pageEarlyPosition != null && h.pageRecentPosition != null ? h.pageRecentPosition - h.pageEarlyPosition : null;
   const ctrEarly = h.earlyImpressions > 0 ? (h.earlyClicksPerDay * 30) / (h.earlyImpressions / Math.max(1, 13)) : null;
   const ctrNow = h.recentImpressions > 0 ? (h.recentClicksPerDay * 30) / (h.recentImpressions / 3) : null;
   if (dPos != null && dPos >= POSITION_SLIP) return { cause: "ranking_loss", field: "section",
-    line: `The page slid from position ${h.earlyPosition!.toFixed(1)} to ${h.recentPosition!.toFixed(1)} on this audience's searches, so something better took its ground: the treatment is content, not a sharper line.` };
+    line: `The page itself slid from position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)} on its own results for this audience's searches, so something better took its ground: the treatment is content, not a sharper line.` };
+  if (dPos == null && h.earlyPosition != null && h.recentPosition != null && h.recentPosition - h.earlyPosition >= POSITION_SLIP)
+    return { cause: null, field: "section",
+      line: `The blended position across this site's pages slid, but the page now shown lacks its own two-window history, so the slide cannot be pinned on any one page: nothing is treated on an average across pages.` };
   const ctrFell = dPos != null && Math.abs(dPos) < POSITION_SLIP && ctrEarly != null && ctrNow != null && ctrNow < ctrEarly * (1 - CTR_FALL);
+  if (ctrFell && shareShift != null && shareShift >= 0.2)
+    return { cause: null, field: "section",
+      line: `The click rate fell while another of this site's own pages absorbed part of these impressions, so the fall is at least partly composition between owned pages, not the line one page shows: the page split is decided before any wording is blamed.` };
   if (ctrFell && hasSerp)
     return { cause: "ctr_snippet", field: "title",
-      line: `The page holds its position (${h.earlyPosition!.toFixed(1)} then, ${h.recentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.` };
+      line: `The page holds its own position (${h.pageEarlyPosition!.toFixed(1)} then, ${h.pageRecentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and the stored results page shows what searchers now read, so the line is the diagnosed cause.` };
   if (ctrFell)
     return { cause: null, field: "section",
-      line: `The page holds its position (${h.earlyPosition!.toFixed(1)} then, ${h.recentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and no current results page for this audience is on file: what searchers see there today decides whether the line, the results page shape or the demand itself changed, so nothing is treated until that read lands.` };
+      line: `The page holds its own position (${h.pageEarlyPosition!.toFixed(1)} then, ${h.pageRecentPosition!.toFixed(1)} now) while the share of searchers clicking it fell by more than ${Math.round(CTR_FALL * 100)} percent, and no current results page for this audience is on file: what searchers see there today decides whether the line, the results page shape or the demand itself changed, so nothing is treated until that read lands.` };
   return { cause: null, field: "section",
     line: "The two windows cannot separate a ranking slide from a snippet change on their own numbers, so the cause is not named until the current results page is read." };
 }
@@ -124,7 +137,7 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
         // THE HEADLINE NEVER SELLS THE HISTORICAL LOSS AS WIN-BACK (operator, 2026-08-17): the lost figure is
         // labeled lost, and the only number offered as recoverable is the current window's own shortfall.
         opportunityType: d.cause === "ranking_loss"
-          ? `Rebuild the ground "${u.label}" lost on ${path}: position ${h.earlyPosition!.toFixed(1)} to ${h.recentPosition!.toFixed(1)}, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
+          ? `Rebuild the ground "${u.label}" lost on ${path}: this page's own position ${h.pageEarlyPosition!.toFixed(1)} to ${h.pageRecentPosition!.toFixed(1)}, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
           : d.cause === "ctr_snippet"
             ? `Rewrite the line searchers read for "${u.label}" on ${path}: position held while the click rate collapsed, ${n(h.lostClicksPerMonth)} clicks a month LOST, about ${n(recoverable)} supported as recoverable today`
             : `Explain the "${u.label}" decline on ${path}: ${n(h.lostClicksPerMonth)} clicks a month LOST and the cause is not yet separable`,

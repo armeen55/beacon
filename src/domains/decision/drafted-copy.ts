@@ -104,6 +104,27 @@ const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replac
 const JUDGE_SYSTEM = 'You are a senior SEO and AEO editor reviewing ONE finished edit before it is handed to a paying customer. You are given the edit and the exact stored evidence it names. Return ONLY a JSON object with seven booleans and "notes" (one sentence naming what decided it): '
   + '"pageFit" (does this belong on THIS page), "claimsEntailed" (check EVERY material claim against the quoted evidence one at a time: the evidence must carry it, with no fact added that the evidence does not show. ANY claim about what the page itself contains, lists or shows must be verifiable in the stored page excerpt below; a page that merely mentions a subject does not list it. When in doubt on any claim, answer false), "usefulAndNatural" (does it read as a person wrote it and tell a reader something), "placementCorrect" (does it belong exactly where it says it lands), '
   + '"implementableNow" (could an operator paste this today with no further decisions), "improvesPage" (does it improve the page rather than repeat the search back, and does an answer answer rather than point at its own page), "wouldHandToCustomer" (would you personally hand this to a customer). Judge only what you are given. When in doubt on any field, answer false.';
+/** THE FINAL ADVERSARIAL REVIEWER, and it is part of PROMOTION, never prose in a report (operator,
+ *  2026-08-17, after a verbless phrase list shipped at rank 1): a second, hostile reading with the same
+ *  typed verdict. Any false field is a blocking finding, the row stays at needs_review, and the reviewer's
+ *  own sentence lands on the card as the reason. Absent or unaffordable means NOT promoted, never promoted
+ *  unreviewed. */
+const ADVERSARY_SYSTEM = 'You are the FINAL ADVERSARIAL REVIEWER of one finished website edit, the last reading before a paying customer sees a Ready badge. Your job is to REFUSE anything a serious human editor would not ship; when in doubt on any field, answer false. Return ONLY a JSON object with seven booleans and "notes" (one sentence naming the single worst defect, or what earned the pass): '
+  + '"pageFit", "claimsEntailed" (also answer false when any stated fact is one you independently doubt is TRUE in the world, even if the page itself says it: a page can be wrong, and repeating its error is a defect), '
+  + '"usefulAndNatural" (answer false for any verbless list of phrases, any non-English expression not paired with its English meaning, and any sentence without a grammatical purpose: a reader who asked the tracked question must be able to ACT on every sentence), '
+  + '"placementCorrect" (answer false when the new heading pointlessly duplicates the page\'s existing title or H1, or the anchor is not a string a person could find on the rendered page), '
+  + '"implementableNow", "improvesPage" (answer false when the copy merely restates what the stored page already says without adding mapping, structure, definitions or facts the page lacks), "wouldHandToCustomer".';
+const adversaryReview = (tenantId: string, now: Date): JudgeFn => async (d, p) => {
+  const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`,
+    `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`, `Edit type: ${d.actionType}`,
+    `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "",
+    `THE COPY: ${d.finalCopy}`,
+    `What the stored page already says (first ${BODY_TO_JUDGE} characters): ${p.bodyText.slice(0, BODY_TO_JUDGE)}`,
+    "", "Return the JSON now."].filter(Boolean).join("\n");
+  const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: ADVERSARY_SYSTEM, user, grounded: user, projectedCostUsd: 0.01, maxTokens: 2000, timeoutMs: 95_000, now }).catch(() => null);
+  return r?.status === "drafted" ? (r.value as JudgeVerdict) : null;
+};
+
 const liveJudge = (tenantId: string, now: Date): JudgeFn => async (d, p) => {
   const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`, `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`,
     `Edit type: ${d.actionType}`, `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "", d.beforeText ? `It replaces: ${d.beforeText}` : "It replaces nothing.",
@@ -230,6 +251,8 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     out.push("it points at the page instead of answering"); }
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
   if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
+  if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)))
+    out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
   if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
   if (d.actionType === "internal_link") {
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
@@ -472,9 +495,28 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     before: deliverable.beforeText, after: deliverable.finalCopy } },
   // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
-  // THE PROMOTION IS THE VERDICT, NOT A HABIT. Every card these producers mint is born `needs_review`, and nothing ever moved one to `ready`: copy that had passed the drafter, the deterministic contract, the judge AND this validator still sat in the same lane as a card nobody had written, and the screen offered both of them Copy and Mark done. A deliverable that cleared all four is ready; anything else stays for a human.
-  return verdict.verdict === "rejected" ? refuse(verdict.reasons[0] ?? "canon refused it")
-    : { d: deliverable, ready: verdict.verdict === "ready" };
+  if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
+  // THE PROMOTION IS THE VERDICT, NOT A HABIT, AND THE FINAL ADVERSARIAL REVIEWER IS PART OF IT (operator,
+  // 2026-08-17): copy that cleared the drafter, the deterministic contract, the sense judge and the canon
+  // validator STILL faces one hostile reading before it may wear Ready. Any false field is a blocking
+  // finding; the row stays at needs_review and the reviewer's sentence lands on the card as the reason.
+  // Unaffordable or unreadable means NOT promoted, never promoted unreviewed.
+  let ready = verdict.verdict === "ready";
+  if (ready) {
+    if (opts.attempts && (opts.attempts.left -= 1) < 0) {
+      deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, "The final reviewer could not be afforded this pass, so this stays for a human look."];
+      ready = false;
+    } else {
+      const a = await adversaryReview(opts.tenantId, opts.now)(deliverable, packet).catch(() => null);
+      const blocked = !a || Object.entries(a).some(([k, v]) => k !== "notes" && v !== true);
+      if (blocked) {
+        deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, `The final reviewer refused to promote this: ${a?.notes ?? "the review could not be read"}`];
+        log.info("[drafted-copy] the final reviewer blocked promotion", { tenantId: opts.tenantId, path: card.pagePath, notes: a?.notes ?? null });
+        ready = false;
+      }
+    }
+  }
+  return { d: deliverable, ready };
 }
 
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */

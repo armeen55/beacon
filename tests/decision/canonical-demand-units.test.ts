@@ -15,7 +15,8 @@ describe("one audience need across every stream", () => {
         { page: "https://x.example/names", rows: [{ query: "persian girl names", impressions: 2000, clicks: 60, position: 9 }] }],
       history: [{ query: "persian girl names", earlyClicks: 9000, earlyImpressions: 200000, earlyPosition: 3,
         recentClicks: 1200, recentImpressions: 40000, recentPosition: 6,
-        earlyTopPage: "https://x.example/names", recentTopPage: "https://x.example/girl-names" }],
+        earlyTopPage: "https://x.example/names", recentTopPage: "https://x.example/girl-names",
+        earlyPagePosition: 3.2, recentPagePosition: 7.1, earlyPageShare: 0.5, recentPageShare: 0.95 }],
       keywords: [{ query: "persian girl names", searchVolume: 8100, intent: "commercial", difficulty: 20 }],
       serps: [{ query: "persian girl names", observedAt: "2026-08-01", organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/names" }], paa: ["What are rare Persian girl names?"], related: ["persian female names"] }],
       observations: [

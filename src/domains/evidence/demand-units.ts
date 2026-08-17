@@ -100,11 +100,15 @@ const sum = (ms: readonly OwnedQuerySignal[]): number => ms.reduce((a, m) => a +
 // it) the disagreement is written onto the unit as a tension instead of being averaged away. PURE builder;
 // the two bounded reads live in the loader below it.
 
-/** One query's two-window history, as the gsc_unit_history aggregate returns it. */
+/** One query's two-window history, as the gsc_unit_history aggregate returns it. The page-true fields are
+ *  the CURRENT top page's own position and impressions share per window; the plain positions blend every
+ *  page the site ranks with, and a second owned page entering the results moves that blend on its own. */
 export type UnitHistoryRow = {
   query: string; earlyClicks: number; earlyImpressions: number; earlyPosition: number | null;
   recentClicks: number; recentImpressions: number; recentPosition: number | null;
-  earlyTopPage: string | null; recentTopPage: string | null };
+  earlyTopPage: string | null; recentTopPage: string | null;
+  earlyPagePosition?: number | null; recentPagePosition?: number | null;
+  earlyPageShare?: number | null; recentPageShare?: number | null };
 
 export type CanonicalDemandUnit = {
   label: string;
@@ -117,8 +121,14 @@ export type CanonicalDemandUnit = {
   history: null | { earlyClicksPerDay: number; recentClicksPerDay: number; lostClicksPerMonth: number;
     earlyImpressions: number; recentImpressions: number; priorTopPage: string | null;
     currentTopPage: string | null; pageSwapped: boolean;
-    /** Impressions-weighted positions per window, for decomposing a decline into ranking versus snippet. */
-    earlyPosition: number | null; recentPosition: number | null };
+    /** Impressions-weighted positions per window, blended across every page the site ranks with. */
+    earlyPosition: number | null; recentPosition: number | null;
+    /** The current top page's OWN positions per window: the only positions a page-specific diagnosis may
+     *  read, because the blend above moves when a second owned page enters or leaves the results. */
+    pageEarlyPosition: number | null; pageRecentPosition: number | null;
+    /** That page's impressions share of the unit per window; a material fall means the site's own second
+     *  page absorbed part of this audience, which is composition, not a ranking story. */
+    pageShareEarly: number | null; pageShareRecent: number | null };
   volume: null | { searchVolume: number | null; intent: string | null; difficulty: number | null };
   serp: null | { winners: { rank: number; domain: string; url: string }[]; paa: string[]; related: string[]; observedAt: string | null };
   prompts: { promptId: string; text: string; answers: number; credited: number;
@@ -203,12 +213,28 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
       if (w <= 0) return null;
       const t = rows2.reduce((a, h) => a + (side === "early" ? (h.earlyPosition ?? 0) * (h.earlyPosition != null ? h.earlyImpressions : 0) : (h.recentPosition ?? 0) * (h.recentPosition != null ? h.recentImpressions : 0)), 0);
       return Math.round((t / w) * 100) / 100; };
+    // PAGE-TRUE AGGREGATES: each member's current-top-page position weighted by that page's own impressions
+    // (share times the window's impressions), and the impressions-weighted share itself per window.
+    const pageAgg = (side: "early" | "recent"): { pos: number | null; share: number | null } => {
+      let pw = 0, pt = 0, sw = 0, st = 0;
+      for (const h of hRows) {
+        const imp = side === "early" ? h.earlyImpressions : h.recentImpressions;
+        const pos = side === "early" ? h.earlyPagePosition : h.recentPagePosition;
+        const share = side === "early" ? h.earlyPageShare : h.recentPageShare;
+        if (share != null && imp > 0) { sw += share * imp; st += imp;
+          if (pos != null) { pw += pos * share * imp; pt += share * imp; } }
+      }
+      return { pos: pt > 0 ? Math.round((pw / pt) * 100) / 100 : null, share: st > 0 ? Math.round((sw / st) * 100) / 100 : null };
+    };
+    const pgEarly = pageAgg("early"), pgRecent = pageAgg("recent");
     const history = hRows.length === 0 ? null : {
       earlyClicksPerDay: Math.round(perDayEarly * 100) / 100, recentClicksPerDay: Math.round(perDayRecent * 100) / 100,
       lostClicksPerMonth: Math.max(0, Math.round((perDayEarly - perDayRecent) * 30)),
       earlyImpressions: hSum.ei, recentImpressions: hSum.ri,
       priorTopPage: hTop?.earlyTopPage ?? null, currentTopPage: hTop?.recentTopPage ?? null, pageSwapped: swapped,
-      earlyPosition: posOf(hRows, "early"), recentPosition: posOf(hRows, "recent") };
+      earlyPosition: posOf(hRows, "early"), recentPosition: posOf(hRows, "recent"),
+      pageEarlyPosition: pgEarly.pos, pageRecentPosition: pgRecent.pos,
+      pageShareEarly: pgEarly.share, pageShareRecent: pgRecent.share };
     // Volume: the biggest bought figure among members.
     const kws = keys.map((k) => kw.get(k)).filter((x): x is NonNullable<typeof x> => !!x)
       .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0));
@@ -239,6 +265,8 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
     // THE TENSIONS, said instead of averaged.
     const tensions: string[] = [];
     if (swapped) tensions.push(`Google moved this audience: ${hTop!.earlyTopPage} earned it before, ${hTop!.recentTopPage} is shown now.`);
+    if (history?.pageShareEarly != null && history.pageShareRecent != null && history.pageShareEarly - history.pageShareRecent >= 0.2)
+      tensions.push(`Another of your own pages absorbed part of this audience: the page now shown carried ${Math.round(history.pageShareEarly * 100)} percent of its impressions before and carries ${Math.round(history.pageShareRecent * 100)} percent now.`);
     const material = [...pageShare.values()].filter((v) => v >= Math.max(30, (u.impressions || 1) * 0.1)).length;
     if (material >= 2) tensions.push(`${material} of your pages currently split this audience.`);
     if (volume?.intent && /commercial|transactional/i.test(volume.intent) && prompts.some((p) => /^(what|how|why|when|where|who)\b/i.test(p.text)))

@@ -82,6 +82,23 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       if (opened != null) { log.info("[research-run] today's checks were left short, so I opened one more pass", { tenantId: t.tenantId, due: t.due }); return opened; }
     }
     return undefined; };
+  /** The stale-surface republish a paused or failed account still owes its customer: a bounded, zero-dollar
+   *  release rebuild, only when the held release is stale, fail-soft with its own log line. */
+  const republished = new Set<string>();
+  const republishStale = async (tenantId: string): Promise<void> => {
+    if (republished.has(tenantId)) return;
+    republished.add(tenantId);
+    try {
+      const { readCustomerSurface, isCustomerSurfaceStale, refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
+      const held = await runWithTenant(tenantId, () => readCustomerSurface(tenantId));
+      if (!held || isCustomerSurfaceStale(held.computedAt, nowFn().getTime())) {
+        await runWithTenant(tenantId, () => refreshCustomerSurface(tenantId, { maxDrafts: 0 }));
+        log.info("[research-run] a paused day still publishes: the stale surface was rebuilt at zero dollars", { tenantId });
+      }
+    } catch (error) {
+      log.warn("[research-run] the stale surface could not republish on this tick", { tenantId, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
+    }
+  };
   let claiming = true; // the claim comes first; once it drains, or hands back an account already worked, the rest of this dispatch belongs to the probe
   while (endsAt - nowFn().getTime() >= MIN_ACCOUNT_SLICE_MS) {
     let run = claiming ? (await claimDueRuns(ownerToken, 1) as Array<ResearchRun | undefined>)[0] : undefined;
@@ -117,13 +134,18 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       return "failed" as const;
     });
     if (outcome === "completed") { succeeded += 1; continue; }
-    if (outcome === "paused") { paused += 1; continue; } // the pause landed durably, which released the lease with it
+    // A PAUSED DAY STILL PUBLISHES WHAT IT HOLDS (operator, 2026-08-17: the customer surface trailed the store
+    // by ten hours while every tick succeeded). publish_surface is a late phase, so a run paused on the cap
+    // never reached it and Today and Changes served yesterday's release all day. A pause now republishes a
+    // STALE surface at zero dollars before the tick moves on; fresh releases and failures cost nothing extra.
+    if (outcome === "paused") { paused += 1; await republishStale(run.tenant_id); continue; } // the pause landed durably, which released the lease with it
     // A THROW LEAVES A LIVE LEASE the cycle never finished. Returning it is what lets the next dispatch, or the operator's own visit, pick the account up
     // instead of waiting out the lease. A lease another instance already recovered is not mine to hand back, and reporting its expiry would be a second lie.
     failed += 1;
     if (outcome !== "lost_lease" && await handBack(run)) released += 1;
   }
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
+  else for (const t of worked) if (nowFn().getTime() < endsAt) await republishStale(t);
   else log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
   return receipt();
 }
