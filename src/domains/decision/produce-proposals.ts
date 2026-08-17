@@ -480,7 +480,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
   if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
   // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize is not worth paying to write.
-  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) if (await admit(c)) allowed.push(c);
+  // AND NEITHER IS A CARD THE STORE WILL REFUSE TO SAVE: a page holding an implemented change under
+  // measurement rejects every new draft at save time, and drafting one anyway spent up to four charged calls
+  // per pass on copy that could never land while the cards behind it starved.
+  const measuringPages = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));
+  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
+    if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
+    if (await admit(c)) allowed.push(c); }
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }
