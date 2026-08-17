@@ -179,6 +179,10 @@ const RULES: Rule[] = [
       // A COMPETITOR MUST MATERIALLY APPEAR. Two addresses were called fighters "every time somebody searches"
       // when one carried a couple of impressions: a page with a KNOWN negligible share is not dividing anything.
       // A page whose share is unknown (null) is kept, because absence of a number rules nothing out.
+      // AND A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no
+      // current group there are no two pages to compare, and a card minted off that flag kept accusing a page
+      // whose own rows show it owning the search outright. Today's own rows overrule yesterday's judgment.
+      if (comparison.length < 2) return { fired: false, reason: `no two pages of yours materially appear for ${quote(c.query)} in your own current rows, so nothing is dividing the clicks now` };
       const knownTotal = comparison.reduce((a, r) => a + (r.impressions ?? 0), 0);
       const floor = Math.max(30, Math.round(knownTotal * 0.1));
       const material = comparison.filter((r) => r.impressions == null || r.impressions >= floor);

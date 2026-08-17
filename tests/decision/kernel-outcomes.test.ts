@@ -489,7 +489,9 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(c.cause.competingExplanations.map((x) => x.cause)).toContain("ctr_snippet"); // the wording read fired and lost to the stronger evidence
     expect(c.reason).toContain('2 of your own pages come up for "iranian actors"'); expect(snapshotToEvidenceInputs(world)).toEqual([]); // self-competition is never a copy rewrite
     const supported = { ...ACTORS_SEEN(), research: { ...actorsSerp("Persian Screen | Iranopedia"), retainedKeywords: [{ query: "iranian actors", searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, supports: "consolidation" as const }] } };
-    expect(compileCandidates(supported)[0]!.cause.cause).toBe("cannibalization"); }); // my own keyword research reaches the same answer on its own
+    // A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no current
+    // group there are no two pages to compare, and today's own rows overrule yesterday's judgment.
+    expect(compileCandidates(supported)[0]!.cause.cause).not.toBe("cannibalization"); });
   it("names what the winning pages do that mine does not, citing the verdict's own receipt lines", async () => {
     const world = snap([GAP], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
     const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern: PATTERN_HELD } });
