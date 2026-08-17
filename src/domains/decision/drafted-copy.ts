@@ -394,7 +394,12 @@ const kindFor = (c: ChangeProposal): DraftKind | null => {
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
   opts: DraftedCopyOptions, kind: DraftKind): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
   const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []), outline = (page.content?.outline ?? []).slice(0, 8);
+  // THE REFUSAL IS FEEDBACK, NOT ONLY A LOG LINE. The deterministic contract's reasons are exact and
+  // repeatable, and a pass that never repeats them to the writer buys the same refusal every time; the last
+  // refusal's reasons are kept so ONE bounded second attempt can be told precisely what to fix.
+  let refusedFor = "";
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
+    refusedFor = [why, ...((extra.reasons as string[] | undefined) ?? [])].filter(Boolean).join("; ").slice(0, 500);
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
     return null; };
   // A LINK DELIVERABLE IS ONE SENTENCE, and both its facts are the card's own: the destination off its
@@ -423,8 +428,17 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     })() : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused.",
     "Return sources as an empty array; never send a source entry with blank fields. evidenceRefs is DIFFERENT and required: cite at least one of the evidence ids handed to you above. A claim's supportedBy lists at most 8 ids."];
-  const deliverable = await runEditor(packet, kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block", card.pageLabel, hints,
+  const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
+  let deliverable = await runEditor(packet, field, card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
+  if (!deliverable && refusedFor) {
+    // ONE fed-back attempt: same packet, same gates, plus the refusal said verbatim. The editor decrements
+    // the pass's shared attempt budget before the call, so this is counted work, never free work.
+    const why = refusedFor; refusedFor = "";
+    deliverable = await runEditor(packet, field, card.pageLabel,
+      [...hints, `A previous attempt at this exact deliverable was refused for exactly this: ${why}. Fix precisely what that names and change nothing else about the approach.`],
+      card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
+  }
   if (!deliverable) return null;
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
