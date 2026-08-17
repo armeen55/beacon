@@ -374,12 +374,21 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
 }
 
 /** THE FINISHED BLOCK EACH FAMILY OWES, so a producer's brief and the editor that completes it agree by construction: a missing description gets its line, an answer gap and a thin page get their section, a duplicated heading gets its own H1, and a link brief gets the one sentence that carries the link. A family off this map is a family the editor does not finish. */
-type DraftKind = "description" | "answer" | "h1" | "link";
+type DraftKind = "description" | "answer" | "h1" | "link" | "title";
 const KIND_OF_SLUG: Partial<Record<string, DraftKind>> = { missing_description: "description", ai_answer_gap: "answer",
   thin_page: "answer", duplicate_heading: "h1", internal_link: "link", demand_recovery: "answer" };
 /** The destination an internal link card names, read off the card's own instruction line and nowhere else. */
 const linkDestOf = (c: ChangeProposal): string | null =>
   c.recommendedChange.kind === "existing_edit" ? (/pointing to (\S+?),/.exec(c.recommendedChange.after)?.[1] ?? null) : null;
+/** The block a card owes, its family's entry, EXCEPT that a recovery card owes whatever its own DIAGNOSIS
+ *  named: a slipped ranking owes content, a collapsed click rate owes the title the searcher reads, and an
+ *  undiagnosed decline owes nothing here, because drafting for an unnamed cause is the guess the causal
+ *  boundary exists to refuse. */
+const kindFor = (c: ChangeProposal): DraftKind | null => {
+  const slug = slugOf(c);
+  if (slug === "demand_recovery") return c.diagnosisCause == null ? null
+    : c.recommendedChange.kind === "existing_edit" && c.recommendedChange.field === "title" ? "title" : "answer";
+  return KIND_OF_SLUG[slug] ?? null; };
 
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
@@ -400,11 +409,11 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused."];
-  const deliverable = await runEditor(packet, kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "link" ? "internal_link" : "answer_block", card.pageLabel, hints,
+  const deliverable = await runEditor(packet, kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block", card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
   if (!deliverable) return null;
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
-  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : "section",
+  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
     before: deliverable.beforeText, after: deliverable.finalCopy } },
   // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
@@ -441,17 +450,17 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   const attempts = opts.attempts ?? { left: MAX_PAID_CALLS };
   if (!opts.attempts) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own attempts", { tenantId: opts.tenantId, left: attempts.left });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
-  const drafting = cards.filter((c) => KIND_OF_SLUG[slugOf(c)] != null)
+  const drafting = cards.filter((c) => kindFor(c) != null)
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
   const bodies = drafting.length > 0 ? await loadOwnedPageBodies(opts.tenantId, drafting).catch(() => new Map<string, OwnedPageBody>()) : new Map<string, OwnedPageBody>();
   for (const card of cards) {
-    const slug = slugOf(card), wants = KIND_OF_SLUG[slug] ?? null;
+    const slug = slugOf(card), wants = kindFor(card);
     const page = wants ? pageFor(opts.snapshot, card) : null;
     if (!page) { out.push(card); continue; }
     // AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names
     // the rendered read as the next step, and no body-dependent copy may stand on words nobody holds.
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
-    const meta = wants === "description", h1 = wants === "h1", link = wants === "link";
+    const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
     if (attempts.left <= 0) log.info("[drafted-copy] paid work stopped: the pass has spent its whole attempt budget", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = attempts.left > 0 ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, opts, wants!) : null;
     const drafted = done?.d;
@@ -464,15 +473,18 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
         claims: drafted.claims.map((c) => ({ text: c.text, supportedBy: [...c.supportedBy] })),
         // AND THE WORDS EACH ID STANDS FOR, so the detail page can quote the evidence instead of printing its symbol.
         supportFacts: drafted.supportFacts.map((f) => ({ id: f.id, fact: f.fact })),
-        recommendedChange: { kind: "existing_edit", field: meta ? "meta" : h1 ? "h1" : "section",
+        recommendedChange: { kind: "existing_edit", field: meta ? "meta" : h1 ? "h1" : title ? "title" : "section",
           before: drafted.beforeText, after: drafted.finalCopy,
           // WHERE IT GOES, IN THE PAGE'S OWN WORDS: the anchor the editor found in the stored copy, checked against that copy before it got here. A field edit replaces its own line and names no place.
-          where: meta || h1 ? null : link
+          where: meta || h1 || title ? null : link
             ? `One sentence placed after "${drafted.placementAnchor}", with "${card.primaryQuery}" linked to ${dest ?? "the page it names"}`
             : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
         operatorSteps: meta
           ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
             "Mark it done here and the click rate gets read again"]
+          : title
+            ? [`Open the site editor on ${card.pagePath}`, "Replace the page title with the copy above, exactly as written",
+              "Mark it done here and the click rate gets read again"]
           : h1
             ? [`Open the site editor on ${card.pagePath}`, "Replace the page heading with the copy above, exactly as written",
               "Mark it done here and the positions get read again"]
@@ -486,6 +498,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
                 "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
         limitations: [...card.limitations, ...drafted.uncertaintyOrOmitted, meta
           ? "This line is written off the page's own title, headings and stored copy as last read, so check it still describes the page before you publish it."
+          : title
+            ? "This title is written off the page's own stored copy and the searches it still earns clicks on, so check it still names what the page delivers before you publish it."
           : h1
             ? "This heading is written off the page's own stored copy and search rows as last read, so check it still names what the page covers before you publish it."
             : link
@@ -506,7 +520,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
         limitations: [...card.limitations, `Those subjects are the headings ${AGREEING_WINNERS} or more of the pages Google ranks for this search share, read off the copies on file, and they are what those pages cover rather than a plan written for this one.`] });
       continue;
     }
-    out.push({ ...card, limitations: [...card.limitations, owedNote(meta ? "description" : h1 ? "heading" : link ? "link sentence" : "answer")] });
+    out.push({ ...card, limitations: [...card.limitations, owedNote(meta ? "description" : title ? "title" : h1 ? "heading" : link ? "link sentence" : "answer")] });
   }
   log.info("[drafted-copy] paid attempts left after this pass", { tenantId: opts.tenantId, left: Math.max(0, attempts.left) });
   return out;

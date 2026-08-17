@@ -116,7 +116,9 @@ export type CanonicalDemandUnit = {
   pages: string[];
   history: null | { earlyClicksPerDay: number; recentClicksPerDay: number; lostClicksPerMonth: number;
     earlyImpressions: number; recentImpressions: number; priorTopPage: string | null;
-    currentTopPage: string | null; pageSwapped: boolean };
+    currentTopPage: string | null; pageSwapped: boolean;
+    /** Impressions-weighted positions per window, for decomposing a decline into ranking versus snippet. */
+    earlyPosition: number | null; recentPosition: number | null };
   volume: null | { searchVolume: number | null; intent: string | null; difficulty: number | null };
   serp: null | { winners: { rank: number; domain: string; url: string }[]; paa: string[]; related: string[]; observedAt: string | null };
   prompts: { promptId: string; text: string; answers: number; credited: number;
@@ -125,6 +127,9 @@ export type CanonicalDemandUnit = {
   fanouts: string[];
   /** Pages that win this audience somewhere (SERP or AI), deduplicated. */
   winningPages: { url: string; domain: string }[];
+  /** What the CURRENT window's own positions still pay that the unit is not collecting: the only figure that
+   *  may ever be called recoverable, and only once a cause is diagnosed. Never the historical delta. */
+  recoverableClicks: number;
   /** The disagreements between streams, preserved in words instead of resolved by force. */
   tensions: string[];
   audience: { impressions90d: number; aiAnswers: number; lostClicksPerMonth: number };
@@ -193,20 +198,27 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
     const perDayEarly = hSum.ec / Math.max(1, earlyDays), perDayRecent = hSum.rc / Math.max(1, recentDays);
     const swapped = !!hTop?.earlyTopPage && !!hTop.recentTopPage
       && hTop.earlyTopPage.replace(/^https?:\/\/(www\.)?/, "") !== hTop.recentTopPage.replace(/^https?:\/\/(www\.)?/, "");
+    const posOf = (rows2: UnitHistoryRow[], side: "early" | "recent"): number | null => {
+      const w = rows2.reduce((a, h) => a + (side === "early" ? (h.earlyPosition != null ? h.earlyImpressions : 0) : (h.recentPosition != null ? h.recentImpressions : 0)), 0);
+      if (w <= 0) return null;
+      const t = rows2.reduce((a, h) => a + (side === "early" ? (h.earlyPosition ?? 0) * (h.earlyPosition != null ? h.earlyImpressions : 0) : (h.recentPosition ?? 0) * (h.recentPosition != null ? h.recentImpressions : 0)), 0);
+      return Math.round((t / w) * 100) / 100; };
     const history = hRows.length === 0 ? null : {
       earlyClicksPerDay: Math.round(perDayEarly * 100) / 100, recentClicksPerDay: Math.round(perDayRecent * 100) / 100,
       lostClicksPerMonth: Math.max(0, Math.round((perDayEarly - perDayRecent) * 30)),
       earlyImpressions: hSum.ei, recentImpressions: hSum.ri,
-      priorTopPage: hTop?.earlyTopPage ?? null, currentTopPage: hTop?.recentTopPage ?? null, pageSwapped: swapped };
+      priorTopPage: hTop?.earlyTopPage ?? null, currentTopPage: hTop?.recentTopPage ?? null, pageSwapped: swapped,
+      earlyPosition: posOf(hRows, "early"), recentPosition: posOf(hRows, "recent") };
     // Volume: the biggest bought figure among members.
     const kws = keys.map((k) => kw.get(k)).filter((x): x is NonNullable<typeof x> => !!x)
       .sort((a, b) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0));
     const volume = kws[0] ? { searchVolume: kws[0].searchVolume, intent: kws[0].intent, difficulty: kws[0].difficulty } : null;
     // SERP: the biggest member whose results page is on file.
     const sr = keys.map((k) => serp.get(k)).find((x) => !!x) ?? null;
-    // Prompts: an exact-key member match, or at least two shared subject tokens with the unit's universe.
+    // Prompts: an exact-key member match, or at least THREE shared subject tokens with the unit's universe.
+    // Two was enough for a coincidence ("iranian" plus one more on a site about Iran); three is a claim.
     const joined = promptTok.filter(({ o, tokens }) => keySet.has(canon(o.promptText))
-      || [...tokens].filter((t) => unitTokens.has(t)).length >= 2);
+      || [...tokens].filter((t) => unitTokens.has(t)).length >= 3);
     const byPrompt = new Map<string, { text: string; answers: number; credited: number; rivals: Map<string, { url: string; count: number }> }>();
     for (const { o } of joined) {
       const p = byPrompt.get(o.promptId) ?? { text: o.promptText, answers: 0, credited: 0, rivals: new Map() };
@@ -236,7 +248,7 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
       vocabulary: [...new Set([...u.vocabulary, ...prompts.map((p) => p.text)])],
       queries: u.queries, pages, history, volume,
       serp: sr ? { winners: sr.organic.slice(0, 10), paa: sr.paa.slice(0, 8), related: sr.related.slice(0, 8), observedAt: sr.observedAt } : null,
-      prompts, fanouts, winningPages, tensions,
+      prompts, fanouts, winningPages, recoverableClicks: u.recoverableClicks, tensions,
       audience: { impressions90d: u.impressions, aiAnswers: prompts.reduce((a, p) => a + p.answers, 0),
         lostClicksPerMonth: history?.lostClicksPerMonth ?? 0 },
     };

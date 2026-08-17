@@ -101,7 +101,7 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
+    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
@@ -165,17 +165,24 @@ describe("what a receipt will and will not accept", () => { it("takes the result
 }); describe("one pass, one row per change", () => { it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
     // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result.
-    expect(res.proposals.map((p) => [p.id, p.status]).sort()).toEqual([[`${TENANT}::/compost::existing_edit::title`, "needs_review"], [`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"]]);
+    // A MEASURED GAP WITH NO DIAGNOSED CAUSE MINTS NO TITLE GUESS (operator, 2026-08-17): the compost page's
+    // 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest
+    // output is the investigation path plus the page's real defects, never a rewrite nobody can justify.
+    expect(res.proposals.map((p) => [p.id, p.status]).sort()).toEqual([[`${TENANT}::/compost::existing_edit::missing_description`, "needs_review"], [`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"]]);
     expect(res.held.some((h) => h.pageUrl.includes("/rain-barrels"))).toBe(true);
     // FIVE GUARDS ON ONE PASS: host and path key the page (two hosts share /compost and the weak row must carry ITS OWN title), an em dash in a brand tail is never pasted, a page the strict path covered takes no second weaker row, a page beating its own curve on its ONE measured search is refused even through the AEO clause that waives the click test, and a search whose results page I never bought still earns ONE best-guess card, at the lowest confidence I have, rather than the silence that left a losing page with nothing to do.
     const twin = { ...topicSnapshot().ownedPages[1]!, url: "https://other.example/compost", content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Twin Compost Page", h1: "Twin Compost Page" } };
     const dashed = { ...topicSnapshot().ownedPages[1]!, content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Compost | Green \u2014 Co", h1: null } }; // the title is the only line there is, so the dash decides
-    const only = (s: EvidenceSnapshot) => suggestedEdits(s, compileCandidates(s), { now: OPTS.now!, basis: "b" }); // the twin is LAST below, so keying on the path alone would hand that page the twin's words
+    // The guards below are exercised under a FORGED treatable cause: with the real (unknown) cause the boundary
+    // refuses the card outright, which is pinned separately right here.
+    expect(suggestedEdits(topicSnapshot(), compileCandidates(topicSnapshot()), { now: OPTS.now!, basis: "b" })).toEqual([]);
+    const treatably = (s: EvidenceSnapshot) => compileCandidates(s).map((c) => ({ ...c, cause: { ...c.cause, cause: "ctr_snippet" as const }, diagnosis: undefined }));
+    const only = (s: EvidenceSnapshot) => suggestedEdits(s, treatably(s), { now: OPTS.now!, basis: "b" }); // the twin is LAST below, so keying on the path alone would hand that page the twin's words
     const looked = (s: EvidenceSnapshot): EvidenceSnapshot => ({ ...s, research: { ...s.research, serpEvidence: [...s.research.serpEvidence, { observedAt: null, query: "compost bin sizing", organic: [{ rank: 1, domain: "compostpro.example", url: "https://compostpro.example/a", title: "C" }], aiOverview: [], aiMode: [], paa: [], related: [] }] } });
-    const two = looked({ ...topicSnapshot(), ownedPages: [topicSnapshot().ownedPages[1]!, twin] }); const one = only(two)[0]!; expect(only(topicSnapshot()).map((p) => [p.pagePath, p.confidence])).toEqual([["/compost", "low"]]); // never looked up: a labelled guess, never silence
+    const two = looked({ ...topicSnapshot(), ownedPages: [topicSnapshot().ownedPages[1]!, twin] }); const one = only(two)[0]!; expect(only(topicSnapshot()).map((p) => [p.pagePath, p.confidence])).toEqual([["/compost", "low"]]); // under a treatable cause, a never-looked merge is a labelled low-confidence guess
     expect([only(two).length, one.pagePath, (one.recommendedChange as { before: string }).before, one.confidence]).toEqual([1, "/compost", "Rain Barrels", "medium"]); // the twin host's title never leaks onto this page
     expect([one.opportunityType, one.operatorSteps]).toEqual(['Lead the title with "compost bin sizing" and keep the words this page already earns on', ["Open your site editor on /compost", "Replace the title with the copy above", "Come back here and mark it done, and measurement starts"]]); // the exact move, where it happens, what I do next
-    expect([only(looked({ ...topicSnapshot(), ownedPages: [dashed] })), suggestedEdits(looked(topicSnapshot()), compileCandidates(looked(topicSnapshot())), { now: OPTS.now!, basis: "b", skip: new Set(["/compost"]) })]).toEqual([[], []]); // the dash refuses the paste, and the strict path already owns that page
+    expect([only(looked({ ...topicSnapshot(), ownedPages: [dashed] })), suggestedEdits(looked(topicSnapshot()), treatably(looked(topicSnapshot())), { now: OPTS.now!, basis: "b", skip: new Set(["/compost"]) })]).toEqual([[], []]); // the dash refuses the paste, and the strict path already owns that page
     const winner = { ...topicSnapshot().ownedPages[1]!, search: { clicks90d: 240, impressions90d: 1200, ctr90d: 0.2, position90d: 4, topQueries: [{ query: "compost bin sizing", impressions: 1200, clicks: 240, position: 4 }] } };
     const asked = { ...TOPIC_RESEARCH, aiObservations: [canonObs({ promptId: "pc", promptText: "compost bin sizing", citations: [{ url: "https://compostpro.example/a", domain: "compostpro.example", title: "C" }], analysis: { competitors: [{ name: "compostpro", position: 1 }] }, observedAt: "2026-07-22T00:00:00.000Z" })] };
     const aeo = looked({ ...topicSnapshot(), ownedPages: [winner], research: asked }); expect([compileCandidates(aeo)[0]!.cause.cause, only(aeo)]).toEqual(["ai_citation_gap", []]); // an assistant naming everybody else waives my CLICK test, never the fact that this page beats its own curve
@@ -184,7 +191,7 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const quiet = looked({ ...topicSnapshot(), ownedPages: [soft], research: asked }); const soften = compileCandidates(quiet)[0]!; const frame = "That is under the bar for a proven change, so this is a quick test, and what it does will be measured.";
     expect(soften.reason).toContain("that search is worth about 25 clicks, under the 50 clicks that earn a change. Watching it rather than asking for work.");
     expect(["and that is only about 7 clicks, under the 50 I act on.", "and that gap is 1.5 percent, under the 2.0 percent I act on.", "and that is too little search to act on yet (I want 500 impressions on one query)."]
-      .map((t) => suggestedEdits(quiet, [{ ...soften, reason: `Scope. Rates, ${t} Watching it rather than asking for work.` }], { now: OPTS.now!, basis: "b" })[0]!.whyItMatters.split(" This line leads")[0]!))
+      .map((t) => suggestedEdits(quiet, [{ ...soften, cause: { ...soften.cause, cause: "ctr_snippet" as const }, diagnosis: undefined, reason: `Scope. Rates, ${t} Watching it rather than asking for work.` }], { now: OPTS.now!, basis: "b" })[0]!.whyItMatters.split(" This line leads")[0]!))
       .toEqual([`Scope. Rates, and that is only about 7 clicks. ${frame}`, `Scope. Rates, and that gap is 1.5 percent. ${frame}`, `Scope. Rates. ${frame}`]);
     // The AI side of the same search only where the answers already joined it, a suggestion ranked like every other row, and the one proof number a ledger row can print.
     const ranked = rankProposals([res.proposals[0]!, one]); expect(only(quiet)[0]!.whyItMatters).toContain("AI answers about this topic credit compostpro, never this site.");
@@ -613,7 +620,9 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
     const ranked = rankProposals([owed, finished]); expect(ranked.map((p) => p.id)).toEqual(["owed", "finished"]);
-    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[0]!, "readiness"), factorOf(ranked[1]!, "readiness")]).toEqual([47.6, 0, 0]);
+    // No diagnosed cause on the owed card: its 2,000-click figure rides the MEASURED-SHORTFALL band (half the
+    // proven reach), never "proven recoverable". 60 × 0.595 = 35.7; the order still holds.
+    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[0]!, "readiness"), factorOf(ranked[1]!, "readiness")]).toEqual([35.7, 0, 0]);
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at 60 percent because the copy is still owed and confidence is medium");
     // A PAGE LOSING GROUND ON A SEARCH PEOPLE STILL RUN has levers; a search fewer people run has none, and saying otherwise would score a decline card for a fix that is not one.
     expect([factorOf(rankProposals([prop({ diagnosisCause: "ranking_loss", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit"),
@@ -646,8 +655,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
     expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]);
     expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
-    const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([false, 19.38]);
-    expect(sized!.rankingReceipt!.basis).toContain("about 570 clicks proven recoverable"); });
+    // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the
+    // receipt never claims a proven recovery for a gap nobody has explained.
+    const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([true, 19.38]);
+    expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall, cause not yet diagnosed");
+    const [causal] = rankProposals([prop({ impactScore: 570, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) })]);
+    expect([causal!.rankingReceipt!.directional, causal!.rankingReceipt!.basis.includes("about 570 clicks proven recoverable")]).toEqual([false, true]); });
   it("decodes and ranks a stored row that predates every field this ranking added", () => {
     const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
     void _r; void _w; void _c; void _b;

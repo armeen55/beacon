@@ -18,6 +18,7 @@ import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
 import { observationJoinsCase } from "./membership";
 import { effortForFamily, type ChangeProposal } from "./contracts";
+import { CAUSE_LEVERS, withholdReason } from "./authorization";
 import type { QualifiedCandidate } from "./opportunities";
 
 /** How many hand-testable suggestions one pass may put in front of one operator. */
@@ -205,10 +206,15 @@ function creditLine(snapshot: EvidenceSnapshot, query: string): string {
 }
 
 /** A page that already carries a change under measurement, a split no wording touches, or plumbing that keeps
- *  it out of search altogether: none of those is answered by a sharper line, so none of them earns one here. */
+ *  it out of search altogether: none of those is answered by a sharper line, so none of them earns one here.
+ *  AND A CAUSE THAT AUTHORIZES NO LEVER AUTHORIZES NO CARD: "the gap is measured and nothing on file names a
+ *  cause yet" minted a rank-1 title rewrite whose own receipt read "nothing you can write on the page fixes
+ *  the cause named here". A measurable gap is not a cause, and a card may exist only when its diagnosed cause
+ *  names at least one thing somebody could write; the gap itself still reaches the queue as an investigation. */
 function eligible(c: QualifiedCandidate): boolean {
   return !!c.pageUrl && !!c.query && c.action !== "act_existing_page" && c.action !== "do_nothing"
-    && !NEVER.has(c.cause.cause) && (c.recoverableClicks > 0 || AEO.has(c.cause.cause));
+    && !NEVER.has(c.cause.cause) && (CAUSE_LEVERS[c.cause.cause]?.size ?? 0) > 0
+    && (c.recoverableClicks > 0 || AEO.has(c.cause.cause));
 }
 
 // A below-bar reason ends in the WATCH lane's own sentence, and a card asking for a minute of work may not claim it
@@ -254,6 +260,10 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
   const out: ChangeProposal[] = [];
   const file = (c: Card, page: OwnedPageEvidence, url: string, path: string, query: string, cand: QualifiedCandidate | null): boolean => {
     if (skip.has(c.id) || skip.has(path.toLowerCase()) || out.some((p) => p.id === c.id)) return false;
+    // THE TREATMENT MUST ADDRESS THE CAUSE OR THE CARD DOES NOT EXIST: the same permission the ready door and
+    // the ranking read, asked at the mint. A field the cause's levers do not name files nothing here; the gap
+    // itself still reaches the queue through the investigation path, which is the honest shape of that work.
+    if (cand && withholdReason({ recommendedChange: { kind: "existing_edit", field: c.field, before: c.before, after: c.after } } as ChangeProposal, cand.cause.cause) != null) return false;
     const content = page.content;
     out.push({
       id: c.id, tenantId, kind: "existing_edit", pagePath: path, pageUrl: url,

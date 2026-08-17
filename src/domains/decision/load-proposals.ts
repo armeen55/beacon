@@ -23,7 +23,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
-import { unsettledCause } from "./authorization";
+import { unsettledCause, withholdReason } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
 /**
@@ -188,7 +188,12 @@ export async function loadProposalQueue(
   const ready: ChangeProposal[] = [], toDo: ChangeProposal[] = [], research: ChangeProposal[] = [];
   for (const p of ranked) {
     const hold = openHold(p);
-    if (hold.lane === "research") research.push(p);
+    // A CARD WHOSE OWN RECEIPT SAYS ITS ACTION CANNOT FIX ITS CAUSE IS NOT A DRAFT (operator, 2026-08-17: a
+    // title rewrite sat at rank 2 in the drafts lane with causeFit reading "this change does not touch two of
+    // your own pages splitting one search"). The opportunity stays visible in the research lane, where its
+    // evidence still argues; it returns as a draft only when a pass writes the treatment its cause authorizes.
+    const mismatched = p.researchOnly !== true && withholdReason(p, p.causeFinding?.cause ?? p.diagnosisCause) != null;
+    if (hold.lane === "research" || mismatched) research.push(p);
     // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
     // stamped by an older door, and this queue has already shipped what an older door waved through. The
     // opportunity stays ranked and visible either way; only the paste-ready claim waits for the current

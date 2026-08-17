@@ -117,17 +117,23 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const cause = p.diagnosisCause;
   // A cause I do not recognise (a hand-edited row, or one written under an older ladder) is treated exactly like no cause at all: it matches nothing and it punishes nothing.
   const levers = cause ? CAUSE_LEVERS[cause] : undefined;
-  const addressed = withholdReason(p, cause) == null;
+  // PROVEN RECOVERY REQUIRES A DIAGNOSED, TREATABLE CAUSE. "The gap is measured and nothing names a cause
+  // yet" rode the proven band as "167 clicks proven recoverable" on a card whose own receipt said nothing
+  // written on the page fixes it. A recovery belongs to a cause somebody can treat; a gap with no cause, or
+  // a cause with no lever, is a MEASURED SHORTFALL and is said as one, at half the proven band's reach.
+  const treatable = !!levers && levers.size > 0;
+  const addressed = treatable && withholdReason(p, cause) == null;
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;
   const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
   const directional = !(addressed && clicks != null && clicks > 0);
-  const proven = !addressed ? null
-    : clicks != null && clicks > 0
-      ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
-      : upside != null && upside > 0
-        ? { input: `about ${num(upside)} clicks a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
+  const proven = addressed && clicks != null && clicks > 0
+    ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
+    : addressed && upside != null && upside > 0
+      ? { input: `about ${num(upside)} clicks a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
+      : !treatable && clicks != null && clicks > 0
+        ? { input: `about ${num(clicks)} clicks a month of measured shortfall, cause not yet diagnosed`, value: Math.min(MAX.visibility / 2, clicks / 25) }
         : null;
   // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
   // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
@@ -166,7 +172,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   else add("causeFit", addressed ? `this change works on ${LEVER_WORD[cause] ?? "the cause named here"}`
     : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`, addressed ? MAX.causeFit : -MAX.causeFit, MAX.causeFit);
 
-  const prompts = p.bundle?.scope.prompts.length ?? 0;
+  // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. The deep bundles carry the joined
+  // prompts on their scope; an AI absence card carries the same fact as its stored answers, and reading only
+  // the bundle scored the one producer that exists BECAUSE customers ask the question as strategically inert.
+  const prompts = p.bundle?.scope.prompts.length ?? (p.aiImpact && p.aiImpact.answers > 0 ? 1 : 0);
   add("strategic", `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`, Math.min(MAX.strategic, prompts * 5), MAX.strategic);
 
   const minutes = Math.max(0, p.estimatedEffortMinutes);

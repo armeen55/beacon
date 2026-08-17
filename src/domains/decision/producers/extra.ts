@@ -8,6 +8,8 @@ import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-cita
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
+import type { CauseFinding } from "@/domains/decision/diagnosis";
+import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
 import { journeyLabel, readAnswerJourneys } from "@/domains/evidence/ai-visibility/answer-journeys";
@@ -25,7 +27,11 @@ type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "se
   /** The question this card came out of. ONE QUESTION, ONE CARD: an answer and the follow-up search an engine ran while writing it are the same question, so the strongest of them is the only one filed. */
   asked?: string;
   /** What happens next for this brief, when the default "the wording lands next pass" is not the truth. */
-  next?: string };
+  next?: string;
+  /** THE DIAGNOSED CAUSE, on the cards whose evidence names one. An AI absence card exists because a tracked
+   *  question's stored answers credit rivals and never this site: that is a citation gap by name, and the card
+   *  says so in the same currency the boundary and the ranking read everywhere else. */
+  cause?: CauseFinding };
 
 /** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
 const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
@@ -146,13 +152,15 @@ function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     // WHAT IS RIDING ON IT, off this page's own rows: the clicks it is measurably leaving behind, and the audience it is shown to. Either one absent stays null, never a zero the ranking would believe.
     impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.page.search?.impressions90d ?? null,
     ...(d.aiImpact ? { aiImpact: d.aiImpact } : {}),
+    ...(d.cause ? { causeFinding: d.cause, diagnosisCause: d.cause.cause } : {}),
     publish: "manual", createdAt: now.toISOString(),
   };
 }
 
 /** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE, grouped by the question they answered. Recurrence across answers is the claim, so the question the most answers skipped comes first. */
 async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
-  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string): Promise<Draft[]> {
+  earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
+  units: readonly CanonicalDemandUnit[]): Promise<Draft[]> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return [];
   // "NEVER YOU" IS A CLAIM ABOUT EVERY ANSWER, SO IT IS COUNTED OVER EVERY ANSWER. Answers that DID credit this
@@ -178,7 +186,29 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
   const out: Draft[] = [];
   for (const g of [...byPrompt.values()].sort((a, b) => b.answers - a.answers || b.engines.size - a.engines.size || a.prompt.localeCompare(b.prompt))) {
     if (!askable(g.prompt) || g.credited > 0) continue;
-    const fit = await bestPageFor(g.prompt, pages, weak, earned, children, u);
+    // THE CANONICAL UNIT GOVERNS THE LANDING PAGE. When this question joined a demand unit, the pages that
+    // ALREADY EARN that audience on Google are where its answer belongs, before any word-overlap search: the
+    // unit ties the tracked question, the searches and the owning pages into one audience, and a card that
+    // ignores it lands answers on whichever page shares the most words. Unit pages still pass the same
+    // reading gate; a unit page whose job refuses the question falls through to the word-overlap path.
+    const unit = units.find((un) => un.prompts.some((pr) => pr.promptId === g.promptId)) ?? null;
+    let fit: Fit | null = null;
+    if (unit) {
+      const byKey = new Map(pages.map((pg) => [canonicalUrlKey(pg.url), pg]));
+      const words = subjectWords(g.prompt, weak);
+      for (const addr of unit.pages) {
+        const page = byKey.get(canonicalUrlKey(addr));
+        const path = page ? pathOf(page.url) : "/";
+        if (!page || path === "/" || STOREFRONT.test(path)) continue;
+        const read = await u.of(page);
+        if (!read.job) { u.hold(page.url, `${read.reason} for "${g.prompt}"`); continue; }
+        if (sectionFit(read.job, words, u.corpus, g.prompt) !== "fits") continue;
+        const has = pageWords(page, weak);
+        fit = { match: { page, hits: words.filter((w) => has.has(w)), missing: words.filter((w) => !has.has(w)) }, verdict: "fits" };
+        break;
+      }
+    }
+    fit ??= await bestPageFor(g.prompt, pages, weak, earned, children, u);
     if (fit.verdict === "needs_own_page") noteNeedsOwnPage(tenantId, g.prompt, bank, fit.refused);
     if (fit.verdict === "held") { u.hold(fit.match!.page.url, `${fit.reason} for "${g.prompt}"`); continue; }
     const match = fit.match;
@@ -207,6 +237,10 @@ async function aiAbsenceCards(bank: { query: string; refusedPages?: string[] }[]
       // audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click.
       aiImpact: { answers: g.answers, mentionRate: 0, citedRivals: g.domains.size,
         audienceWeight: match.page.search?.impressions90d ?? null },
+      cause: { cause: "ai_citation_gap", action: "section", evidenceKeys: [],
+        explanation: `Every one of ${count(g.answers, "stored answer")} to the tracked question "${g.prompt}" cites other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, while ${pathOf(match.page.url)} already covers ${covers}: the page engines can lift a direct answer from does not exist here yet, and that is the gap by name.`,
+        competingExplanations: [], notConsidered: [],
+        falsifier: "If newly stored answers to this question credit this site before the section ships, the gap was already closing and this card retires itself." },
       minutes: 30, confidence: g.answers >= 3 ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
@@ -412,7 +446,9 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to the industry table, a far more generous bar, so a caller that can fit one should. */
   curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
   /** THE PASS'S PAGE-READING BUDGET, the second of the two named budgets a production pass owns. Handed in so the one paid read this file makes is counted where every other paid call is counted. */
-  reads?: { left: number } }): Promise<ExtraQueueRun> {
+  reads?: { left: number };
+  /** THE CANONICAL DEMAND UNITS, loaded once by the pass and handed to every producer that joins audiences. */
+  units?: readonly CanonicalDemandUnit[] }): Promise<ExtraQueueRun> {
   const { tenantId, snapshot, now } = input;
   const expectedCtrAt = input.curve?.expectedCtrAt ?? defaultExpectedCtrAt;
   // WHICH SOURCE EACH FAMILY IS JUDGED ON. The two answer producers read stored AI answers and nothing else, so an answer read that failed must not let the sweep retire their cards as ones nobody re-emitted.
@@ -438,7 +474,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
   const links = await linkCards(tenantId, pages, weak, u);
-  const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId)),
+  const drafts = [...(await aiAbsenceCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [])),
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
   const out: ChangeProposal[] = [];
   // ONE QUESTION, ONE CARD: the answer an engine wrote and the follow-up search it ran to write it are one question, so only the strongest reading of it is filed.

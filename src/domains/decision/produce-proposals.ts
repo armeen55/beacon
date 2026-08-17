@@ -463,10 +463,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // THE COLLAPSE PRODUCER: the largest losses this account's own sixteen months of history can PROVE become
   // cards before any defect sweep fills the queue. Guarded like every producer: absent or throwing narrows
   // the pass, and a failed history read sweeps nothing.
-  const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve }))
+  // THE UNITS ARE LOADED ONCE FOR THE PASS: the collapse producer and the AI producer join the SAME audiences
+  // or the canonical unit is canonical in name only. A failed load narrows both, never fails the pass.
+  const unitLoad = await import("@/domains/evidence/demand-unit-loader")
+    .then((m) => m.loadCanonicalDemandUnits(tenantId, snapshot, curve, opts.now ?? new Date())).catch(() => null);
+  const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, ...(unitLoad ? { preloaded: unitLoad } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
-  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads }))
+  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, ...(unitLoad ? { units: unitLoad.units } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the producers own the verdict, the coverage walk owns what happens next, and it happens only once the search has earned it. Read defensively, so a producer not surfacing them yet banks nothing. THEN THE WORDS GO ON THE CARDS, after the $0 producers and never inside one, so a budget block changes which cards CARRY COPY, never which exist or which are swept.
   const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
