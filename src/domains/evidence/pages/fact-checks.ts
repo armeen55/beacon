@@ -103,17 +103,17 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
   return rows.length;
 }
 
-/** HOW MANY CLAIMS THIS ACCOUNT STILL OWES A SOURCE CHECK, and whether it has ever checked one. The scheduler
- *  reads this to decide a pass is owed: without it the phase was reachable only on a fresh daily cycle, so a
- *  page of forty statements would have taken forty days. Null = the read failed, which is never "nothing owed". */
+/** HOW MANY CLAIMS THIS ACCOUNT STILL OWES A SOURCE CHECK, and whether THIS ENGINE has ever landed one. The
+ *  scheduler reads it to decide a pass is owed: without it the phase was reachable only on a fresh daily cycle,
+ *  so a page of forty statements would have taken forty days. `everChecked` counts `checked` rows and nothing
+ *  else, because superseded history is exactly the state that must not read as work already done. Null = the
+ *  read failed, which is never "nothing owed". */
 export async function owedClaimDebt(tenantId: string): Promise<{ owed: number; everChecked: boolean } | null> {
-  const [owed, any] = await Promise.all([
-    getSupabaseAdmin().from(TABLE).select("statement_key", { count: "exact", head: true })
-      .eq("tenant_id", tenantId).eq("claim_state", "owed"),
-    getSupabaseAdmin().from(TABLE).select("statement_key", { count: "exact", head: true }).eq("tenant_id", tenantId),
-  ]);
-  if (owed.error || any.error) return null;
-  return { owed: owed.count ?? 0, everChecked: (any.count ?? 0) > 0 };
+  const count = async (state: ClaimState) => getSupabaseAdmin().from(TABLE)
+    .select("statement_key", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("claim_state", state);
+  const [owed, checked] = await Promise.all([count("owed"), count("checked")]);
+  if (owed.error || checked.error) return null;
+  return { owed: owed.count ?? 0, everChecked: (checked.count ?? 0) > 0 };
 }
 
 /** THE PAGE'S WHOLE CLAIM INVENTORY, banked as `owed` rows BEFORE one is researched: THIS IS THE RESUME CURSOR
