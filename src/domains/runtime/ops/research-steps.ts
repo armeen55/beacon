@@ -322,7 +322,6 @@ export const defaultSteps: ResearchCycleSteps = {
         const env = call && (call.state === "hit" || call.state === "ok") ? call.envelope : null;
         return env ? take(parseCapability(cap, env)) : null;
       };
-      /** Rows this pass has banked itself, so a second claim on the same page sees the first one landed. */
       const fresh: Awaited<ReturnType<typeof readFactChecks>> = [];
       for (const page of ranked.slice(0, PAGES_PER_PASS)) {
         const path = pathOf(page.url);
@@ -334,9 +333,11 @@ export const defaultSteps: ResearchCycleSteps = {
         for (let n = 0; n < CLAIMS_PER_PASS; n += 1) {
           // THE LEASE IS RE-EARNED BEFORE EVERY CLAIM: money is about to be spent under it.
           if (renew && !(await renew().catch(() => false))) return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, reason: "the lease was lost, so nothing further was researched" };
-          const mine = [...held.filter((h) => h.page === path), ...fresh.filter((h) => h.page === path)];
+          // THE FRESH COPY WINS: `held` was read before this pass banked anything, so keeping both copies would leave the pre-pass `owed` row beside its own result and research it again.
+          const byKey = new Map(held.filter((h) => h.page === path).map((h) => [h.statementKey, h]));
+          for (const f of fresh) if (f.page === path) byKey.set(f.statementKey, f);
           const out = await runFactCheckUnit({
-            tenantId, now: new Date(), basis, deadlineAt, held: mine,
+            tenantId, now: new Date(), basis, deadlineAt, held: [...byKey.values()],
             page: { url: page.url, path, body },
             read,
             searchSources: async (query) => bought("serp_organic", { keyword: query }, `serp:${query}`.slice(0, 80),
@@ -351,9 +352,8 @@ export const defaultSteps: ResearchCycleSteps = {
           });
           if (out.status === "advanced") {
             banked += out.banked;
-            // Re-read the store so this page's next claim is the next OWED one, never the one just researched.
             const back = await readFactChecks(tenantId, path).catch(() => null);
-            if (back) fresh.push(...back.filter((r) => !fresh.some((f) => f.statementKey === r.statementKey && f.page === r.page)));
+            if (back) { fresh.length = 0; fresh.push(...back); }
             if (out.cursor?.pageComplete) { pagesComplete += 1; break; }
             continue;
           }
