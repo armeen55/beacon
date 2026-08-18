@@ -316,10 +316,12 @@ export const defaultSteps: ResearchCycleSteps = {
           timeoutMs: Math.max(5_000, Math.min(60_000, left)), now: new Date() }).catch(() => null);
         return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
       };
-      const { providerCall, parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
+      const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
       const bought = async <T,>(cap: "serp_organic" | "onpage_content_parsing", input: Record<string, unknown>, key: string, take: (p: unknown) => T | null): Promise<T | null> => {
         if (Date.now() >= deadlineAt) return null;
-        const call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);
+        let call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);
+        // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING. The source search posts a provider task and answers on the free task_get; without that collection its row sat pending for eight hours and every pass reported the same claim still owed.
+        if (call?.state === "waiting" && call.cacheKey) call = await collectCapability(call.cacheKey).catch(() => null);
         const env = call && (call.state === "hit" || call.state === "ok") ? call.envelope : null;
         return env ? take(parseCapability(cap, env)) : null;
       };
@@ -334,7 +336,6 @@ export const defaultSteps: ResearchCycleSteps = {
         for (let n = 0; n < CLAIMS_PER_PASS; n += 1) {
           // THE LEASE IS RE-EARNED BEFORE EVERY CLAIM: money is about to be spent under it.
           if (renew && !(await renew().catch(() => false))) return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, reason: "the lease was lost, so nothing further was researched" };
-          // THE FRESH COPY WINS: `held` was read before this pass banked anything, so keeping both copies would leave the pre-pass `owed` row beside its own result and research it again.
           const byKey = new Map(held.filter((h) => h.page === path).map((h) => [h.statementKey, h]));
           for (const f of fresh) if (f.page === path) byKey.set(f.statementKey, f);
           const out = await runFactCheckUnit({

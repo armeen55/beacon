@@ -173,7 +173,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       checkedAt: now.toISOString() }));
   }
 
-  // 2. THE NEXT CLAIM THIS PAGE VERSION STILL OWES.
   const owed = inventory.filter((h) => h.state === "owed");
   const progress = { page: page.path, pageContentHash: hash, evidenceBasis: d.basis,
     checked: inventory.length - owed.length, total: inventory.length };
