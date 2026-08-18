@@ -123,7 +123,7 @@ const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }), crawlPages: async () => 0, investigationFocus: async () => null,
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
-  currentBasis: async () => "basis_test", publishSurface: async () => {}, surfaceStale: async () => false, // the account basis the funnel scopes to
+  currentBasis: async () => "basis_test", publishSurface: async () => {}, surfaceStale: async () => false, factCheck: async () => ({ banked: 0 }), // the account basis the funnel scopes to
   analyzeAnswers: async () => NO_READING, // no new answers to read back in these lease/truth tests
   verifyShipments: async () => 0, measureShipments: async () => 0, // nothing marked implemented is waiting on a live check or a reading in these tests
 };
@@ -264,7 +264,7 @@ describe("research-run resume + status projection", () => {
       progress: { state: { checksDone: 12, checksTotal: 40, casesActive: 1, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" } } });
     const dead = await RR.researchRunStatus(T, new Date(NOW)); rows[0]!.lease_expires_at = iso(NOW + LEASE); // the SAME row, a fresh lease
     const live = await RR.researchRunStatus(T, new Date(NOW)); expect(dead).toEqual(live); // THE pin: a transient lease change moves no number and no state
-    expect([live.state, live.phaseLabel, live.stepsTotal]).toEqual(["running", "refreshing your connected data", 8]);
+    expect([live.state, live.phaseLabel, live.stepsTotal]).toEqual(["running", "refreshing your connected data", 9]);
     expect([live.counters.aiChecksDone, live.counters.aiChecksIntended, live.cases, live.nextDueAt]) .toEqual([12, 40, { active: 1, parked: 2 }, "2026-08-02T00:00:00.000Z"]); });  // Every number comes off the persisted row, never from a per-render computation.
 });
 describe("research-run frozen investigation: ONE topic, and the lease the comparison spends under", () => {
@@ -335,7 +335,7 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
 });
 describe("research-run Today copy", () => {
   const view = (o: Partial<RR.ResearchRunStatusView>): RR.ResearchRunStatusView => ({
-    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 8, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
+    state: "none", phaseLabel: "", stepsDone: 0, stepsTotal: 9, counters: {}, updatedAt: null, completedAt: null, pauseReason: null, ...o,
   });
   const NOON_PT = Date.parse("2026-07-23T19:00:00Z"); // noon Pacific on Jul 23
   it("never says 'current': same-day completion shows today, an older pass shows its date, none is silent", () => {
@@ -366,7 +366,7 @@ describe("research-run Today copy", () => {
       progress: { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } } });
     expect(RR.researchStatusLine(RR.projectStatusView(later, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
     const stuck = mk({ status: "paused", current_phase: "keyword_discovery", last_error: { phase: "keyword_discovery", message: "I need your confirmed business basics before I can research keywords.", at: iso() } });  // A pause the operator must clear names its reason instead of reading as ordinary progress.
-    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 3 of 8 steps. I need your confirmed business basics before I can research keywords.");
+    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 3 of 9 steps. I need your confirmed business basics before I can research keywords.");
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });  // A reason recorded by an already-passed phase never resurrects on the current one.
     expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
   });
@@ -375,7 +375,7 @@ describe("research-run Today copy", () => {
     expect(RR.researchStatusLine(RR.projectStatusView(fresh, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
     const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);  // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
     expect([dead.state, dead.pauseReason]).toEqual(["paused", "I was interrupted mid research. My next daily round picks this back up."]);
-    expect(RR.researchStatusLine(dead)).toBe("Research paused after 5 of 8 steps. I was interrupted mid research. My next daily round picks this back up.");
+    expect(RR.researchStatusLine(dead)).toBe("Research paused after 5 of 9 steps. I was interrupted mid research. My next daily round picks this back up.");
     expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)).toEqual(RR.projectStatusView(fresh, NOW)); });  // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
   it("says whether research is alive at all: what the last pass produced, a day that owed nothing, and a silence with the press that ends it", () => {
     const at = new Date(NOON_PT).toISOString(), seen = (o: Partial<RR.ResearchRun>, ms = NOON_PT + 3_600_000) => RR.projectStatusView(mk({ status: "completed", updated_at: at, completed_at: at, ...o }), ms).liveness;

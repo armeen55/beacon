@@ -39,9 +39,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "llm-budget", // per-account file cap backstop (the durable Supabase ledger is authoritative)
   // Searches this account shares words with and owns no page FOR, banked until the coverage walk takes them.
   "coverage-needs",
-  // Statements a page makes that independent sources contradict, with the source and the confidence behind
-  // each one. The durable half of a factual correction: the producer mints from THIS, never from a script.
-  "page-fact-checks",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([

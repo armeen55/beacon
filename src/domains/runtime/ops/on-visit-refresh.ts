@@ -117,6 +117,13 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     const result = await steps.backfillChunk(tenantId, now, attemptKey);
     return { progress: { ...progress, backfill: result.kind === "advanced" ? { ran: true, complete: result.complete, daysPulled: result.daysPulled } : { ran: false } } };
   }
+  // fact_check - one page's own claims against sources outside it. FAIL-SOFT BY CONSTRUCTION: the phase
+  // answers with a count and a reason and never throws, because a page whose statements could not be checked
+  // today is not an outage and must not pause a run that has real work behind it.
+  if (phase === "fact_check") {
+    const checked = await steps.factCheck(tenantId, 60_000);
+    return { progress: { ...progress, factsChecked: checked.banked } };
+  }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish = (progress.sourcesRefreshed ?? 0) >= 1 || progress.backfill?.ran === true || (await steps.surfaceStale(tenantId, now.getTime()));
   // surfacePublished is true ONLY after publishSurface RESOLVES; a throw pauses here. When there is nothing to publish, advance with surfacePublished:false.

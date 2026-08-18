@@ -363,12 +363,27 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")]));
   const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
+  /** Pages already carrying a change under measurement: a second change on one of them cannot be saved. */
+  const measuringPagesEarly = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   const consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
+  // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks and nothing else, so a
+  // correction is reproducible instead of typed into the store once (operator, 2026-08-17). READ BEFORE THE
+  // QUIET-DAY RETURN: this producer costs nothing and reads only stored evidence, and leaving it below the
+  // early exit meant a day when no page earned a paid draft could never regenerate a correction bundle at
+  // all (Codex, 2026-08-18: two ordinary passes must reproduce it).
+  const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
+    .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
+  for (const c of factual.cards) {
+    if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase())) continue;
+    if (!(await admit(c))) continue;
+    const p = { ...c, ...(basis ? { basis } : {}) };
+    if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); await persistIfChanged(p); }
+  }
   if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     // A proven gap with no explanation yet is NOT a quiet day, and neither is one that cannot be drafted.
-    await sweepStale([await withSuggestions(proposals)]);
+    await sweepStale([await withSuggestions(proposals), { families: ["factual_correction"], complete: factual.complete }]);
     return { proposals: await rankAndStamp(proposals), candidates: runReceipt(),
       outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating"
         : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
@@ -487,10 +502,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     .then((m) => m.loadCanonicalDemandUnits(tenantId, snapshot, curve, opts.now ?? new Date())).catch(() => null);
   const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, ...(unitLoad ? { preloaded: unitLoad } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
-  // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks and nothing else, so a
-  // correction is reproducible instead of typed into the store once (operator, 2026-08-17).
-  const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
-    .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
   const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, ...(unitLoad ? { units: unitLoad.units } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
@@ -501,8 +512,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // AND NEITHER IS A CARD THE STORE WILL REFUSE TO SAVE: a page holding an implemented change under
   // measurement rejects every new draft at save time, and drafting one anyway spent up to four charged calls
   // per pass on copy that could never land while the cards behind it starved.
-  const measuringPages = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));
-  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...factual.cards, ...extra.cards]) {
+  const measuringPages = measuringPagesEarly;
+  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
     if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
     if (await admit(c)) allowed.push(c); }
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor

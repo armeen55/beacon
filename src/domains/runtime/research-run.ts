@@ -28,6 +28,10 @@ export type ResearchPhase =
   | "prompt_observations"
   | "serp_analysis"
   | "winning_pages"
+  // CHECKING WHAT THIS ACCOUNT'S OWN PAGES CLAIM against sources outside them. A real phase because a
+  // correction whose research nothing in production can acquire, refresh or retire is a demonstration
+  // (Codex, 2026-08-18), and a phase is what gives it an owner, a budget and a place in the run.
+  | "fact_check"
   | "publish_surface"
   | "done";
 
@@ -51,6 +55,8 @@ export type ResearchRunProgress = {
    *  cannot be judged without: Decision NAMES it and never fetches it, one read per run under this lease. */
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   surfacePublished?: boolean;
+  /** How many of this page's statements the fact-check phase banked against outside sources. */
+  factsChecked?: number;
   /** WHY THIS PASS WAS OPENED, and therefore WHAT IT OWES. Due-work decides whether another pass runs; without
    *  its answer on the row the executor traversed the whole cycle whatever the debt was, so a pass opened to
    *  read stored answers re-ran keyword discovery, results pages, winner reads, a crawl and a publication and

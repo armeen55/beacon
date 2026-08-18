@@ -14,12 +14,12 @@ import "server-only";
 
 import type { ResearchPhase, ResearchRun } from "./research-run";
 
-/** The eight operator-visible steps, in order. `done` is terminal (not a step). */
+/** The nine operator-visible steps, in order. `done` is terminal (not a step). */
 const STEP_ORDER: ResearchPhase[] = [
   "refresh_sources", "gsc_backfill_chunk", "crawl_pages", "keyword_discovery",
-  "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
+  "prompt_observations", "serp_analysis", "winning_pages", "fact_check", "publish_surface",
 ];
-const RESEARCH_RUN_STEPS_TOTAL = 8 as const;
+const RESEARCH_RUN_STEPS_TOTAL = 9 as const;
 
 /** The next phase after `phase` in THE one canonical order, or the terminal `done`. */
 export function nextPhase(phase: ResearchPhase): ResearchPhase {
@@ -33,7 +33,7 @@ export type ResearchRunStatusView = {
   state: "running" | "paused" | "completed" | "none";
   phaseLabel: string;
   stepsDone: number;
-  stepsTotal: 8;
+  stepsTotal: 9;
   counters: { sourcesRefreshed?: number; backfillDaysPulled?: number; aiChecksDone?: number; aiChecksIntended?: number;
     /** How the settled checks landed: an answer, an engine that had nothing to give, an engine I cannot ask. */
     aiChecksAnswered?: number; aiChecksUnavailable?: number; aiChecksUnsupported?: number;
@@ -129,6 +129,7 @@ const PHASE_LABEL: Record<ResearchPhase, string> = {
   prompt_observations: "checking how AI assistants answer your questions",
   serp_analysis: "reading the results pages for your strongest topics",
   winning_pages: "studying the pages that win those results",
+  fact_check: "checking what your pages claim against outside sources",
   publish_surface: "updating your ranked changes",
   done: "updating your ranked changes",
 };

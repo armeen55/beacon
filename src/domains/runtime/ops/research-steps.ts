@@ -76,6 +76,9 @@ export type ResearchCycleSteps = {
    *  whether a reading may still be attempted at all this run, and `mark`, called at the instant one is attempted so the runner can persist that fact. */
   reconcileCases: (tenantId: string, basis: string, plan: CaseReconcilePlan) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
+  /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase
+   *  never blocks a run, because a page whose statements could not be checked today is not an outage. */
+  factCheck: (tenantId: string, budgetMs: number) => Promise<{ banked: number; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many
    *  ended with a durable verdict, how many of those were a non-reading, and how many real readings landed, so a run row can say what a pass actually did instead
@@ -266,6 +269,53 @@ export const defaultSteps: ResearchCycleSteps = {
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
+  // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a
+  // pass, statements it has not already checked at this version of the page, and every finding banked as a
+  // row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run.
+  async factCheck(tenantId, budgetMs) {
+    try {
+      const [{ runFactCheckPass }, { readFactChecks }, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+        import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
+        import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
+      ]);
+      const snapshot = await loadEvidenceSnapshot(tenantId);
+      const page = [...snapshot.ownedPages].sort((a, b) => (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0))[0];
+      if (!page) return { banked: 0, reason: "this account holds no page to check" };
+      const bodies = await loadOwnedPageBodies(tenantId, [page.url]).catch(() => null);
+      const held0 = bodies?.get?.(page.url); const body = held0 ? [held0.title, held0.h1, ...held0.headings, ...held0.passages].filter(Boolean).join("\n") : "";
+      const held = await readFactChecks(tenantId, new URL(page.url.startsWith("http") ? page.url : `https://${page.url}`).pathname.replace(/\/+$/, "") || "/");
+      const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
+      return await runFactCheckPass({
+        tenantId, now: new Date(), basis: null,
+        page: { url: page.url, path: new URL(page.url.startsWith("http") ? page.url : `https://${page.url}`).pathname.replace(/\/+$/, "") || "/", body },
+        alreadyChecked: new Set(held.map((h) => h.statementKey)),
+        read: async (input) => {
+          const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: input.system, user: input.user,
+            grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
+            timeoutMs: Math.min(95_000, Math.max(10_000, budgetMs)), now: new Date() }).catch(() => null);
+          return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
+        },
+        // SOURCE ACQUISITION rides the capability this account already buys results pages with, so the phase
+        // spends inside the same budget and cache as every other bought read. Absent = this pass banks nothing.
+        serpFor: async (query) => {
+          const { providerCall, collectCapability, parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
+          const call = await providerCall("serp_organic", { keyword: query }, { tenantId, unitKey: `fact-check:${tenantId}` }).catch(() => null);
+          // hit = already bought and cached, ok = bought now. waiting/capped/error all mean no source list
+          // this pass, which the runner reports as a reason rather than treating as "no sources exist".
+          const envelope = call && (call.state === "hit" || call.state === "ok") ? call.envelope
+            : call && call.state === "waiting" && call.cacheKey
+              ? await collectCapability(call.cacheKey).then((c) => (c.state === "hit" || c.state === "ok" ? c.envelope : null)).catch(() => null)
+              : null;
+          if (!envelope) return null;
+          const parsed = parseCapability("serp_organic", envelope);
+          return parsed ? { organic: parsed.organic.map((o) => ({ domain: o.domain, url: o.url, title: o.title })) } : null;
+        },
+      });
+    } catch (e) {
+      log.warn("[research-steps] the fact check could not run this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });
+      return { banked: 0, reason: "the fact check could not run this pass" };
+    }
+  },
   async surfaceStale(tenantId, nowMs) {
     const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
     const surface = await readCustomerSurface(tenantId).catch(() => null);
