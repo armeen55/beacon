@@ -43,7 +43,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
 
 export const SINGLETON_STORES = new Set<string>([
   "robots-state",
-  "url-daily-citations",
 ]);
 
 export const GLOBAL_STORES = new Set<string>([

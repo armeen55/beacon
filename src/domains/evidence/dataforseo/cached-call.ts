@@ -54,9 +54,9 @@ export type ResolvedCall = {
   publicInput: Record<string, unknown>; locationCode: number; languageCode: string;
   device: string | null; modelRequested: string | null;
   payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
+  purpose: "fact_check" | "bulk"; // the daily gate holds the fact-check reserve against bulk buying
 };
-// ── seams ────────────────────────────────────────────────────────────────────
-type EvidenceCacheClaim = {
+type EvidenceCacheClaim = { // ── seams ──────────────────────────────────────
   outcome: "ready" | "claimed" | "pending"; payload: unknown | null; providerTaskId: string | null;
   modelServed: string | null; readyAt: string | null; costUsd: number;
 };
@@ -84,7 +84,7 @@ export type CachedCallDeps = {
   now: () => Date;
   fetchImpl: typeof fetch;
   claimEvidenceFetch: (p: ClaimArgs) => Promise<EvidenceCacheClaim>;
-  reserveProviderSpend: (tenantId: string, platform: string, amount: number, monthlyCap: number) => Promise<boolean>;
+  reserveProviderSpend: (tenantId: string, platform: string, amount: number, monthlyCap: number, purpose: "fact_check" | "bulk") => Promise<boolean>;
   adjustProviderSpend: (tenantId: string, platform: string, delta: number) => Promise<boolean>;
   cacheRead: (cacheKey: string) => Promise<EvidenceCacheRow | null>;
   cacheWrite: (cacheKey: string, patch: Record<string, unknown>) => Promise<void>;
@@ -141,7 +141,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
 
   let reserved: boolean;
   try {
-    reserved = await d.reserveProviderSpend(r.tenantId, PLATFORM, r.estCostUsd, monthlyCapUsd(d.env));
+    reserved = await d.reserveProviderSpend(r.tenantId, PLATFORM, r.estCostUsd, monthlyCapUsd(d.env), r.purpose);
   } catch (err) {
     await releaseClaim(d, cacheKey, now, "reserve_error");
     return { state: "error", cacheKey, disposition: "none", detail: `I could not set aside budget for this (${short(err)}); I made no provider call and will try again.` };

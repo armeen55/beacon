@@ -79,7 +79,37 @@ export async function readFactChecks(tenantId: string, page?: string): Promise<F
   if (page) q = q.eq("page_key", page);
   const { data, error } = await q.order("statement_key", { ascending: true }).limit(5000);
   if (error) throw new Error(`[fact-checks] read failed: ${error.message}`);
-  return ((data ?? []) as Row[]).map(decode).filter((f) => !!f.page && !!f.statementKey);
+  // Rows under a reserved '#' key are bookkeeping (inventory coverage), never statements.
+  return ((data ?? []) as Row[]).map(decode).filter((f) => !!f.page && !!f.statementKey && !f.statementKey.startsWith("#"));
+}
+
+/** HOW MUCH OF THE STORED BODY HAS BEEN INVENTORIED for a page version. Its own row under a reserved key:
+ *  `owed` while incomplete so the scheduler keeps the page due, `superseded` once every section was read. A
+ *  truncated first section may never be called the whole page (Codex, 2026-08-18). */
+export type InventoryCoverage = { pageContentHash: string; coveredChars: number; totalChars: number };
+
+export async function readInventoryCoverage(tenantId: string, page: string): Promise<InventoryCoverage | null> {
+  const { data, error } = await getSupabaseAdmin().from(TABLE).select("page_content_hash,current_wording")
+    .eq("tenant_id", tenantId).eq("page_key", page).eq("statement_key", "#coverage").maybeSingle();
+  if (error) throw new Error(`[fact-checks] coverage read failed: ${error.message}`);
+  if (!data?.page_content_hash) return null;
+  const [c, t] = String(data.current_wording ?? "").split("/").map(Number);
+  return Number.isFinite(c) && Number.isFinite(t)
+    ? { pageContentHash: String(data.page_content_hash), coveredChars: c!, totalChars: t! } : null;
+}
+
+export async function recordInventoryCoverage(tenantId: string, page: string, cov: InventoryCoverage): Promise<boolean> {
+  const at = new Date().toISOString();
+  const { error } = await getSupabaseAdmin().from(TABLE).upsert([{
+    tenant_id: tenantId, page_key: page, statement_key: "#coverage", page_content_hash: cov.pageContentHash,
+    subject: "#coverage", current_wording: `${cov.coveredChars}/${cov.totalChars}`,
+    sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable", also_at: [],
+    note: "How much of the stored body has been inventoried for this page version.",
+    claim_state: cov.coveredChars >= cov.totalChars ? "superseded" : "owed",
+    checked_at: at, updated_at: at,
+  }], { onConflict: "tenant_id,page_key,statement_key" });
+  if (error) { log.warn("[fact-checks] coverage was not stored", { tenantId, page, error: error.message }); return false; }
+  return true;
 }
 
 /** Bank one check run. ROW-WISE AND IDEMPOTENT: each statement upserts on its own key, so a rerun updates

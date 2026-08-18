@@ -56,7 +56,7 @@ export type ResearchRunProgress = {
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   surfacePublished?: boolean;
   /** What the fact check banked, and its own receipt: zero is three different answers and only the reason tells them apart. */
-  factsChecked?: number; factCheck?: { status: string; banked: number; pagesComplete: number; reason: string | null };
+  factsChecked?: number; factCheck?: { status: string; banked: number; pagesComplete: number; failure?: string | null; reason: string | null };
   /** WHY THIS PASS WAS OPENED, and therefore WHAT IT OWES. Due-work decides whether another pass runs; without
    *  its answer on the row the executor traversed the whole cycle whatever the debt was, so a pass opened to
    *  read stored answers re-ran keyword discovery, results pages, winner reads, a crawl and a publication and

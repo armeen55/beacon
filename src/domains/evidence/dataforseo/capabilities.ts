@@ -18,8 +18,7 @@ import type {
  *  page_intersection and on_page content_parsing, 2026-08-02 for the llm_responses annotation spans and token/money receipt. */
 
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
-const LOCATION_US = 2840;
-const LANG_EN = "en";
+const LOCATION_US = 2840, LANG_EN = "en";
 const DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** serp_competitors documents the SAME 200-keyword ceiling and a limit defaulting to 100, maxing at 1000. Beacon asks for 50: a case wants the handful of domains that keep coming up, not a directory. (docs: serp_competitors/live, 2026-07-31) */
@@ -251,6 +250,7 @@ export async function providerCall<K extends CapabilityKey>(
     tasksReadyPath: route.tasksReady,
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
+    purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
   };
   const result = await runResolvedCall(resolved, deps);
   // Stamp the requested model back so the executor records it without re-resolving.

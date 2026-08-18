@@ -28,5 +28,14 @@ export async function dailyCapReason(tenantId: string, now: Date = new Date(), s
   return today >= cap ? `Today's budget for this kind of work is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
 }
 
-/** What bulk evidence buying may take of the day: the rest is reserved for the editor that finishes the work. */
+/** What search buying may take of the day: the rest is reserved for the editor that finishes the work. */
 export const SEARCH_SHARE = 0.85;
+/** RESERVED FOR ONE FACT UNIT A DAY, inside the search share. Bulk observations ran first and consumed the
+ *  whole search allowance, so at the operator's real cap the fact check never bought its first call (Codex,
+ *  2026-08-18). Bulk stops early; fact-check buys may use the full search share. At the $1 floor this holds
+ *  $0.08 for fact sources, ~20 provider calls, far above one unit's search + two reads. Raising the cap is
+ *  never the fix for reachability. */
+export const FACT_RESERVE_SHARE = 0.08;
+/** PURE: the share of the day's budget one search buy may draw, by what the buy is FOR. */
+export const searchShareFor = (purpose: "fact_check" | "bulk"): number =>
+  purpose === "fact_check" ? SEARCH_SHARE : SEARCH_SHARE - FACT_RESERVE_SHARE;

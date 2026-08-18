@@ -116,12 +116,12 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     const result = await steps.backfillChunk(tenantId, now, attemptKey);
     return { progress: { ...progress, backfill: result.kind === "advanced" ? { ran: true, complete: result.complete, daysPulled: result.daysPulled } : { ran: false } } };
   }
-  // fact_check - one page's own claims against sources outside it. FAIL-SOFT: a page that could not be checked today is not an outage.
+  // fact_check - one page's claims against outside sources, on what is LEFT of this drive and under its lease. A FAILED CHECK NEVER PUBLISHES (Codex, 2026-08-18): failed with nothing banked pauses AT this phase, typed. Partial advancement moves on; owed rows keep the rest resumable.
   if (phase === "fact_check") {
-    // WHAT IS LEFT OF THIS DRIVE, never a fresh allowance of its own, and the lease with it: the step spends money between claims.
     const checked = await steps.factCheck(tenantId, lease.remainingMs(), lease.renew);
     log.info("[research-run] checked what your pages claim against sources outside them", { tenantId, ...checked });
-    return { progress: { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked, factCheck: { ...checked, reason: checked.reason ?? null } } };
+    const moved = { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked, factCheck: { status: checked.status, banked: checked.banked, pagesComplete: checked.pagesComplete, failure: checked.failure ?? null, reason: checked.reason ?? null } };
+    return checked.status === "failed" && checked.banked === 0 ? { progress: moved, pause: { phase: "fact_check", at: now.toISOString(), message: `fact check ${checked.failure ?? "failed"}: ${checked.reason ?? "nothing advanced"}`.slice(0, 300) } } : { progress: moved };
   }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish = (progress.sourcesRefreshed ?? 0) >= 1 || progress.backfill?.ran === true || (await steps.surfaceStale(tenantId, now.getTime()));

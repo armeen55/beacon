@@ -32,6 +32,7 @@ import "server-only";
  */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { reportingDay } from "@/lib/reporting-day";
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -75,9 +76,11 @@ type RecordSpendDualWriteInput = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-function todayUtcDate(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
-}
+/** THE LEDGER DAY IS THE REPORTING DAY. It was a UTC slice while research ran on Pacific, so the two rolled
+ *  over seven hours apart: a new Pacific day opened against a budget the UTC day had already spent, and one
+ *  Pacific day could draw parts of two UTC allowances (Codex, 2026-08-18). The RPCs stamp the same zone
+ *  (migration 2026-08-18c); the column keeps its historical name. Exported so a test can PIN the identity. */
+export const ledgerDay = (now: Date = new Date()): string => reportingDay(now);
 
 // ─── Public API ──────────────────────────────────────────────────────────
 
@@ -195,7 +198,7 @@ export async function getTenantSpentTodayUsd(tenantId: string, now: Date = new D
   try {
     const { data, error } = await getSupabaseAdmin()
       .from("llm_budget_ledger").select("spent_usd")
-      .eq("tenant_id", tenantId).eq("date_utc", todayUtcDate(now));
+      .eq("tenant_id", tenantId).eq("date_utc", ledgerDay(now));
     if (error || !Array.isArray(data)) return null;
     let total = 0;
     for (const row of data as Array<{ spent_usd?: number }>) {
@@ -214,7 +217,7 @@ export async function getTenantSpentThisMonthUsd(
   if (platform !== undefined && !VALID_PLATFORMS.has(platform)) return null;
   try {
     const supabase = getSupabaseAdmin();
-    const monthStart = `${todayUtcDate(now).slice(0, 7)}-01`; // YYYY-MM-01
+    const monthStart = `${ledgerDay(now).slice(0, 7)}-01`; // YYYY-MM-01
     let query = supabase
       .from("llm_budget_ledger")
       .select("spent_usd")

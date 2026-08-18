@@ -169,6 +169,17 @@ describe("research-run phase truth", () => { it("counts only synced sources as r
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" }); await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } }); expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase, backfill[0]!.progress.surfacePublished]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk", undefined]); // same window retries next visit, and publish was never reached
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } }); expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); }); });
+describe("a failed fact check never publishes", () => { it("pauses the run AT fact_check with the typed failure and publish is not called; a banked claim advances normally", async () => {
+    const rows = withRun({ current_phase: "fact_check" }); const touched: string[] = [];
+    await run({ ...BENIGN, factCheck: async () => ({ status: "failed" as const, banked: 0, pagesComplete: 0, failure: "search_capped", reason: "the source search is capped" }),
+      surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
+    expect(touched).toEqual([]); // failed with nothing banked does not publish and does not complete
+    expect([rows[0]!.status, rows[0]!.current_phase, rows[0]!.completed_at]).toEqual(["paused", "fact_check", null]);
+    expect([rows[0]!.progress.factCheck?.failure, rows[0]!.last_error?.phase]).toEqual(["search_capped", "fact_check"]);
+    const ok = withRun({ current_phase: "fact_check" }); const published: string[] = [];
+    await run({ ...BENIGN, factCheck: async () => ({ status: "advanced" as const, banked: 1, pagesComplete: 0 }),
+      surfaceStale: async () => true, publishSurface: async () => void published.push("publish") });
+    expect([ok[0]!.status, ok[0]!.progress.factsChecked, published]).toEqual(["completed", 1, ["publish"]]); }); });
 describe("research-run partial-success durability + deduped refreshed providers", () => { it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
     const rows = withRun(); let firstAttempt = true;
     const steps: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (firstAttempt

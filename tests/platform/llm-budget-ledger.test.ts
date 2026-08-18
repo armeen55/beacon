@@ -31,3 +31,37 @@ describe("the durable per-account LLM spend writer", () => {
       await recordSpendSupabase(input as Parameters<typeof recordSpendSupabase>[0]);
       expect(db.tables).toEqual([]); });
 });
+
+describe("one canonical day for money and research", () => {
+  it("the ledger day IS the reporting day, including across the seven-hour gap where UTC has already rolled", async () => {
+    const { ledgerDay } = await import("@/lib/cost/budget-ledger-supabase");
+    const { reportingDay } = await import("@/lib/reporting-day");
+    // 06:59Z is still YESTERDAY in Pacific; a UTC slice called it today and let the two budgets roll apart.
+    for (const instant of ["2026-08-18T06:59:00.000Z", "2026-08-18T07:01:00.000Z", "2026-08-19T00:30:00.000Z", "2026-12-15T07:59:00.000Z", "2026-12-15T08:01:00.000Z"]) {
+      const at = new Date(instant);
+      expect(ledgerDay(at)).toBe(reportingDay(at));
+    }
+    expect(ledgerDay(new Date("2026-08-18T06:59:00.000Z"))).toBe("2026-08-17"); // not the UTC label
+  });
+
+  it("bulk search stops short of the fact-check reserve, so one fact unit fits under the operator's real cap", async () => {
+    const { searchShareFor, SEARCH_SHARE, FACT_RESERVE_SHARE } = await import("@/lib/cost/daily-cap");
+    expect(searchShareFor("bulk")).toBeCloseTo(SEARCH_SHARE - FACT_RESERVE_SHARE, 10);
+    expect(searchShareFor("fact_check")).toBe(SEARCH_SHARE);
+    // At the $1 floor, after bulk saturates its own ceiling a fact unit still holds this much for its
+    // search and two source reads: one serp task (~$0.002) + two content parses (~$0.002) fit many times over.
+    const roomAtOneDollar = 1 * (searchShareFor("fact_check") - searchShareFor("bulk"));
+    expect(roomAtOneDollar).toBeGreaterThanOrEqual(0.05);
+  });
+});
+
+describe("migration history is immutable", () => {
+  it("the applied 2026-08-18 migration keeps its committed bytes and the later moves live in their own files", async () => {
+    const { readFileSync, existsSync } = await import("node:fs");
+    const original = readFileSync("migrations/2026-08-18_page_source_facts_and_fact_check_phase.sql");
+    const { createHash } = await import("node:crypto");
+    expect(createHash("sha256").update(original).digest("hex")).toBe("75862d2956f861aa0d5f66cd38f0d4d098d24264505bb3be8196f76b92564a1c");
+    expect(existsSync("migrations/2026-08-18b_claim_lifecycle.sql")).toBe(true); // claim_state, superseded_at, index, reconciliation
+    expect(existsSync("migrations/2026-08-18c_ledger_reporting_day.sql")).toBe(true); // the three ledger functions on the reporting day
+  });
+});

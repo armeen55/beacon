@@ -11,7 +11,7 @@ const NOW = new Date("2026-07-25T12:00:00.000Z"); const FUTURE = new Date(NOW.ge
 const PATHS = { getPath: (_e: string, id: string) => `${SERP}/task_get/advanced/${id}`, tasksReadyPath: () => `${SERP}/tasks_ready`, ttlMsFor: () => 86_400_000 };
 function resolved(over: Partial<ResolvedCall> = {}): ResolvedCall {
   const base: ResolvedCall = { cacheKey: "", endpoint: `${SERP}/live/advanced`, endpointVersion: "v3", postPath: `${SERP}/live/advanced`, getPath: null, tasksReadyPath: null, device: null,
-    publicInput: { keyword: "koobideh", depth: 10 }, locationCode: 2840, languageCode: "en", modelRequested: null, payload: [{ keyword: "koobideh" }], ttlMs: 60_000, estCostUsd: 0.01, mode: "live", tenantId: "tenant-a", ...over };
+    publicInput: { keyword: "koobideh", depth: 10 }, locationCode: 2840, languageCode: "en", modelRequested: null, payload: [{ keyword: "koobideh" }], ttlMs: 60_000, estCostUsd: 0.01, mode: "live", tenantId: "tenant-a", purpose: "bulk", ...over };
   base.cacheKey = base.cacheKey || identityCacheKey(base); return base;
 }
 const taskCall = () => resolved({ endpoint: `${SERP}/task_post`, postPath: `${SERP}/task_post`, getPath: (id) => `${SERP}/task_get/advanced/${id}`, tasksReadyPath: `${SERP}/tasks_ready`, mode: "task" });
