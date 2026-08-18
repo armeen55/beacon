@@ -272,45 +272,67 @@ export const defaultSteps: ResearchCycleSteps = {
   // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a
   // pass, statements it has not already checked at this version of the page, and every finding banked as a
   // row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run.
+  // ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took
+  // the single most-shown page, so once that page was exhausted every later pass took it again and page two was
+  // unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT
+  // content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
   async factCheck(tenantId, budgetMs) {
+    const deadlineAt = Date.now() + Math.max(15_000, budgetMs);
     try {
-      const [{ runFactCheckPass }, { readFactChecks }, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+      const [{ runFactCheckUnit, pageHashOf, claimIdentity, isCurrentCheck }, { readFactChecks }, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
       const snapshot = await loadEvidenceSnapshot(tenantId);
-      const page = [...snapshot.ownedPages].sort((a, b) => (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0))[0];
-      if (!page) return { banked: 0, reason: "this account holds no page to check" };
-      const bodies = await loadOwnedPageBodies(tenantId, [page.url]).catch(() => null);
-      const held0 = bodies?.get?.(page.url); const body = held0 ? [held0.title, held0.h1, ...held0.headings, ...held0.passages].filter(Boolean).join("\n") : "";
-      const held = await readFactChecks(tenantId, new URL(page.url.startsWith("http") ? page.url : `https://${page.url}`).pathname.replace(/\/+$/, "") || "/");
+      const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
+      const held = await readFactChecks(tenantId);
+      const coverage = new Map<string, number>();
+      for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
+      // Biggest audience first among pages never covered, then the page whose coverage is oldest.
+      const ranked = [...snapshot.ownedPages]
+        .sort((a, b) => (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1)
+          || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
+      const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
-      return await runFactCheckPass({
-        tenantId, now: new Date(), basis: null,
-        page: { url: page.url, path: new URL(page.url.startsWith("http") ? page.url : `https://${page.url}`).pathname.replace(/\/+$/, "") || "/", body },
-        alreadyChecked: new Set(held.map((h) => h.statementKey)),
-        read: async (input) => {
-          const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: input.system, user: input.user,
-            grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
-            timeoutMs: Math.min(95_000, Math.max(10_000, budgetMs)), now: new Date() }).catch(() => null);
-          return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
-        },
-        // SOURCE ACQUISITION rides the capability this account already buys results pages with, so the phase
-        // spends inside the same budget and cache as every other bought read. Absent = this pass banks nothing.
-        serpFor: async (query) => {
-          const { providerCall, collectCapability, parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
-          const call = await providerCall("serp_organic", { keyword: query }, { tenantId, unitKey: `fact-check:${tenantId}` }).catch(() => null);
-          // hit = already bought and cached, ok = bought now. waiting/capped/error all mean no source list
-          // this pass, which the runner reports as a reason rather than treating as "no sources exist".
-          const envelope = call && (call.state === "hit" || call.state === "ok") ? call.envelope
-            : call && call.state === "waiting" && call.cacheKey
-              ? await collectCapability(call.cacheKey).then((c) => (c.state === "hit" || c.state === "ok" ? c.envelope : null)).catch(() => null)
-              : null;
-          if (!envelope) return null;
-          const parsed = parseCapability("serp_organic", envelope);
-          return parsed ? { organic: parsed.organic.map((o) => ({ domain: o.domain, url: o.url, title: o.title })) } : null;
-        },
-      });
+      const read = async (input: { system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
+        const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: input.system, user: input.user,
+          grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
+          timeoutMs: Math.max(10_000, Math.min(60_000, deadlineAt - Date.now())), now: new Date() }).catch(() => null);
+        return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
+      };
+      const { providerCall, parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
+      const bought = async <T,>(cap: "serp_organic" | "onpage_content_parsing", input: Record<string, unknown>, key: string, take: (p: unknown) => T | null): Promise<T | null> => {
+        const call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);
+        const env = call && (call.state === "hit" || call.state === "ok") ? call.envelope : null;
+        return env ? take(parseCapability(cap, env)) : null;
+      };
+      for (const page of ranked.slice(0, 3)) {
+        const path = pathOf(page.url);
+        const bodies = await loadOwnedPageBodies(tenantId, [page.url]).catch(() => null);
+        const b = bodies?.get?.(page.url);
+        const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
+        if (!body.trim()) continue;
+        const mine = held.filter((h) => h.page === path);
+        const hash = pageHashOf(body);
+        // A page is DONE only when every claim on file is current at this hash; an empty page is never done.
+        const allCurrent = mine.length > 0 && mine.every((h) => isCurrentCheck(h, { pageContentHash: hash, current: h.current, evidenceBasis: basis }));
+        if (allCurrent) continue;
+        void claimIdentity;
+        const out = await runFactCheckUnit({
+          tenantId, now: new Date(), basis, deadlineAt, held: mine,
+          page: { url: page.url, path, body },
+          read,
+          searchSources: async (query) => bought("serp_organic", { keyword: query }, `serp:${query}`.slice(0, 80),
+            (p) => { const parsed = p as { organic?: { domain: string; url: string; title: string | null }[] } | null;
+              return parsed?.organic ? { organic: parsed.organic } : null; }),
+          fetchSource: async (url) => bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80),
+            (p) => { const parsed = p as { text?: string | null; passages?: string[] } | null;
+              const text = parsed?.text ?? (parsed?.passages ?? []).join("\n");
+              return text && text.trim() ? { text } : null; }),
+        });
+        if (out.banked > 0 || out.reason) return { banked: out.banked, ...(out.reason ? { reason: out.reason } : {}) };
+      }
+      return { banked: 0, reason: "every page this account holds is current at its stored version" };
     } catch (e) {
       log.warn("[research-steps] the fact check could not run this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });
       return { banked: 0, reason: "the fact check could not run this pass" };
