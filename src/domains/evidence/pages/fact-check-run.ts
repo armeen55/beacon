@@ -13,11 +13,12 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
-import { recordFactChecks, recordOwedClaims, supersedeStaleFacts, statementKeyOf,
-  type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
+  VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
-  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
+  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null,
+  rulesVersion: VERIFICATION_RULES_VERSION };
 
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
@@ -91,10 +92,11 @@ export function claimIdentity(subject: string, current: string, locator?: string
   return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;
 }
 
-/** THE PROPOSITION'S OWN FINGERPRINT: the sorted content tokens of subject + wording. Two reformulations of
- *  one fact (the live /ahvaz inventory carried the population and the heat record several ways each) share a
- *  key and are researched ONCE; the duplicates are superseded for free (Codex, 2026-08-18). */
-export function dedupeKeyOf(subject: string, current: string): string {
+/** THE CLAIM'S CONTENT-TOKEN FINGERPRINT: subject + wording reduced to its content words, sorted. Two
+ *  statements with the SAME content words in any order are one proposition reworded, and the second is
+ *  superseded free instead of researched twice. Deliberately NOT semantic: a reformulation that swaps in
+ *  different words is a different fingerprint and is researched on its own (Codex, 2026-08-18). */
+export function tokenFingerprintOf(subject: string, current: string): string {
   const toks = `${subject} ${current}`.toLowerCase().replace(/[^\p{L}\p{N}° ]+/gu, " ").split(/\s+/)
     .filter((t) => t.length > 0 && (/[\d°]/.test(t) || (t.length >= 4 && !STOP.has(t))));
   return [...new Set(toks)].sort().join(" ");
@@ -116,23 +118,27 @@ type Extracted = { statements: { subject: string; current: string; locator?: str
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
   agreement: FactCheck["agreement"]; confidence: FactCheck["confidence"]; supportingQuote: string; note: string };
 
+/** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
+ *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
+ *  not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
+export type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
+
 /** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so
  *  a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
 export type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judgement";
   system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
-  => Promise<Record<string, unknown> | null>;
+  => Promise<{ value: Record<string, unknown> } | { hold: ProviderHold }>;
 
 /** WHY A UNIT FAILED, as an identity a later reader can act on: a cap, a queue wait, a timeout and a schema
  *  refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting
  *  (Codex, 2026-08-18). Every failure leaves the claim OWED. */
-type UnitFailure = "no_page_body" | "lease_exhausted" | "extraction_unavailable" | "inventory_write_failed"
-  | "search_capped" | "search_waiting" | "search_unavailable" | "fetch_unavailable" | "judge_unavailable"
-  | "store_write_failed" | "lease_lost";
+type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed" | "store_write_failed"
+  | "lease_lost" | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
 
-/** A search answer: readable results, a TYPED provider hold, or null (transport failure). Only the readable
- *  shape may ever settle a claim. */
-export type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] }
-  | { hold: "capped" | "waiting" | "unavailable" };
+/** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
+export type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
+/** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
+export type SourceAnswer = { text: string } | { hold: ProviderHold };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
 export type FactCheckCursor = {
@@ -145,9 +151,9 @@ export type FactCheckCursor = {
 
 type FactCheckUnitDeps = {
   read: StructuredRead;
-  searchSources?: (query: string) => Promise<SearchAnswer | null>;
-  /** THE SOURCE ITSELF: fetch and parse one URL. Absent, or answering null, means nothing may be confirmed. */
-  fetchSource?: (url: string) => Promise<{ text: string } | null>;
+  searchSources?: (query: string) => Promise<SearchAnswer>;
+  /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
+  fetchSource?: (url: string) => Promise<SourceAnswer>;
   page: { url: string; path: string; body: string };
   tenantId: string; now: Date; basis: string | null;
   /** Checks already on file for this page, so a current one is skipped and a stale one is redone. */
@@ -184,21 +190,30 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   let cov: InventoryCoverage = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
 
+  // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
+  // researched by a query built from the subject alone, and reading it as current would have made the engine
+  // skip for ever the exact claim it was repaired to research. Its evidence is archived and the claim re-opens.
+  const obsolete = inventory.filter((h) => h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION);
+  if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
+    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));
+  }
+
   let owed = inventory.filter((h) => h.state === "owed");
   if (owed.length === 0 && cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION. Only when nothing already inventoried is owed: research first, read on.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
-    const extracted = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
+    const answer = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
       user: `Page: ${page.url}\n\nIts stored words (section starting at character ${cov.coveredChars}):\n${chunk}\n\nReturn the JSON now.`,
-      grounded: chunk, projectedCostUsd: 0.02, maxTokens: 3000 }).catch(() => null);
-    if (!extracted) return fail("extraction_unavailable", null, "the page's checkable statements could not be read");
+      grounded: chunk, projectedCostUsd: 0.02, maxTokens: 3000 }).catch(() => ({ hold: "unavailable" as const }));
+    if ("hold" in answer) return fail(`extraction_${answer.hold}`, null, `the page's checkable statements are ${answer.hold}, so nothing was inventoried`);
+    const extracted = answer.value;
     const knownIds = new Set(inventory.map((h) => h.statementKey));
-    const knownProps = new Set(inventory.map((h) => dedupeKeyOf(h.subject, h.current)));
+    const knownProps = new Set(inventory.map((h) => tokenFingerprintOf(h.subject, h.current)));
     const claims = ((extracted as unknown as Extracted).statements ?? [])
       .filter((s) => s.subject?.trim() && s.current?.trim())
       .map((s) => ({ subject: s.subject.trim(), current: s.current.trim(), locator: s.locator?.trim() || null }))
-      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator), prop: dedupeKeyOf(c.subject, c.current) }))
+      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator), prop: tokenFingerprintOf(c.subject, c.current) }))
       // One row per identity AND one per proposition: reformulations of one fact are researched once.
       .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i)
       .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
@@ -225,10 +240,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
 
   // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is
   // superseded for free, never researched and paid for again.
-  const settled = new Set(inventory.filter((h) => h.state === "checked").map((h) => dedupeKeyOf(h.subject, h.current)));
+  const settled = new Set(inventory.filter((h) => h.state === "checked").map((h) => tokenFingerprintOf(h.subject, h.current)));
   let next: FactCheck | null = null;
   for (const o of owed) {
-    if (!settled.has(dedupeKeyOf(o.subject, o.current))) { next = o; break; }
+    if (!settled.has(tokenFingerprintOf(o.subject, o.current))) { next = o; break; }
     const ok = await recordFactChecks(tenantId, page.path, [{ ...o, state: "superseded",
       note: "Duplicate of a proposition already checked at this page version." }]).catch(() => 0);
     if (ok > 0) owed = owed.filter((x) => x !== o);
@@ -253,17 +268,17 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     return banked > 0 ? { status: "advanced", banked, cursor: advance }
       : fail("store_write_failed", cursor, "the result could not be stored, so this claim is still owed");
   };
-  const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, subject: claim.subject, current: claim.current,
+  const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, rulesVersion: VERIFICATION_RULES_VERSION, subject: claim.subject, current: claim.current,
     literal: null, usage: null, alsoAt: claim.locator ? [claim.locator] : [],
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
     evidenceBasis: d.basis, checkedAt: now.toISOString() };
 
   // 3. ACQUIRE candidates by searching THE PROPOSITION, shaped but never erased by the claim type.
   if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
-  const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current)).catch(() => null);
-  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting or failed leaves the claim
-  // OWED under its own name, and only a readable answer with no qualifying source banks `none_found`.
-  if (found == null) return fail("search_unavailable", cursor, "the source search did not answer, so this claim is still owed");
+  const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current)).catch(() => ({ hold: "unavailable" as const }));
+  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable
+  // each leave the claim OWED under their own name, and only a readable answer with no qualifying source
+  // banks `none_found`.
   if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`);
   // ONE CANDIDATE PER PUBLISHER: agreement must mean independent publishers, never one site twice.
   const seenDomains = new Set<string>();
@@ -285,22 +300,24 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could
   // not read the evidence" are different answers (Codex, 2026-08-18).
   const passages: { url: string; kind: SourceKind; text: string; readAt: string }[] = [];
+  let lastHold: ProviderHold = "unavailable";
   for (const c of picks) {
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
-    const got = await d.fetchSource(c.url).catch(() => null);
-    if (got?.text?.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });
+    const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
+    if ("hold" in got) { lastHold = got.hold; continue; }
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });
   }
-  if (passages.length === 0) return fail("fetch_unavailable", cursor, "sources were found but none could be read, so this claim is still owed");
+  if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`);
 
   // 5. JUDGE against the passages only.
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
-  const judged = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
+  const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`, `The page says: "${claim.current}"`,
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}\n${p.text}`), "", "Return the JSON now."].join("\n"),
-    grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => null);
-  if (!judged) return fail("judge_unavailable", cursor, "the claim could not be judged this pass, so it is still owed");
-  const v = judged as unknown as Judged;
+    grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
+  if ("hold" in verdict) return fail(`judge_${verdict.hold}`, cursor, `judging this claim is ${verdict.hold}, so it is still owed`);
+  const v = verdict.value as unknown as Judged;
   const quote = (v.supportingQuote ?? "").trim();
   // A QUOTE MAY NOT BORROW ANOTHER SOURCE'S AUTHORITY: the WHOLE normalized quote must appear in one passage
   // and is credited to THAT source alone (Codex, 2026-08-18).
@@ -334,8 +351,8 @@ export type FactCheckPassDeps = {
   /** The lease, re-earned before every attempt: money is about to be spent under it. */
   renew?: () => Promise<boolean>;
   read: StructuredRead;
-  searchSources: (query: string) => Promise<SearchAnswer | null>;
-  fetchSource: (url: string) => Promise<{ text: string } | null>;
+  searchSources: (query: string) => Promise<SearchAnswer>;
+  fetchSource: (url: string) => Promise<SourceAnswer>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;
 };
@@ -347,12 +364,13 @@ export type FactCheckPassResult = { status: "advanced" | "done" | "failed"; bank
  *  ends the pass with its typed identity, because a cap or an outage repeats on the next attempt and burning
  *  the remaining allowance against it proves nothing. */
 export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckPassResult> {
-  let banked = 0, pagesComplete = 0, attempts = 0, progressed = false;
+  let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0;
   let held = d.held;
   for (const page of d.pages) {
     if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
     const body = await page.loadBody().catch(() => "");
-    if (!body.trim()) continue;
+    if (!body.trim()) continue; // never crawled: nothing is owed on words nobody has stored
+    opened += 1;
     while (attempts < ATTEMPTS_PER_PASS && Date.now() < d.deadlineAt) {
       if (d.renew && !(await d.renew().catch(() => false)))
         return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
@@ -371,6 +389,9 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       if (out.status === "done" || out.cursor?.pageComplete) { pagesComplete += 1; break; }
     }
   }
+  // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
+  // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
+  if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
   return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts,
     ...(progressed || pagesComplete > 0 ? {} : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };
 }

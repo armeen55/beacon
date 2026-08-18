@@ -26,7 +26,8 @@ const DURABLE = new Map<string, number>();
 const durableWrites: Array<{ tenantId: string; costUsd: number }> = [];
 vi.mock("@/lib/persistence/supabase", () => ({ isSupabaseConfigured: () => true }));
 // The operator's daily cap has its own module and its own tests; this suite is about per-account isolation.
-vi.mock("@/lib/cost/daily-cap", () => ({ dailyCapReason: vi.fn(async () => null) }));
+vi.mock("@/lib/cost/daily-cap", () => ({ dailyCapReason: vi.fn(async () => null),
+  shareFor: (_d: string, p: string) => (p === "fact_check" ? 1 : 0.92) }));
 vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
   getTenantSpentThisMonthUsd: vi.fn(async (tenantId: string) => DURABLE.get(tenantId) ?? 0),
   recordSpendSupabase: vi.fn(async (a: { tenantId: string; costUsd: number }) => {

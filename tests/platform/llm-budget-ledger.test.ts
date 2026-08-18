@@ -4,13 +4,18 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
 
-const db = vi.hoisted(() => ({ readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[] }));
+const db = vi.hoisted(() => ({ readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[], spentToday: 0 }));
 // THE WRITE IS ONE ATOMIC INCREMENT IN THE DATABASE, never a total this process computed. Reading the row, adding the cost here and writing the absolute value back lost one of any two concurrent charges outright, and the
 // cap that fails closed then read a total lower than what was spent. The mock is the RPC, and what it is handed is a DELTA: two charges send two deltas and neither one depends on what the other read.
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => {
   db.tables.push(fn);
   if (db.readError) return { data: null, error: db.readError };
-  db.wrote.push(args); return { data: true, error: null }; } }) }));
+  db.wrote.push(args); return { data: true, error: null }; },
+  // The daily gate reads today's rows through this same client, so the cap test exercises the real read path.
+  from: () => { const chain = { select: () => chain, eq: () => chain,
+    then: (r: (v: unknown) => unknown) => r({ data: [{ spent_usd: db.spentToday }], error: null }) }; return chain; } }),
+  isSupabaseConfigured: () => true }));
+vi.mock("@/domains/account", () => ({ getTenant: async () => ({ daily_budget_usd: 1 }) }));
 
 beforeEach(() => { db.readError = null; db.wrote = []; db.tables = []; vi.spyOn(console, "warn").mockImplementation(() => {}); });
 
@@ -37,31 +42,33 @@ describe("one canonical day for money and research", () => {
     const { ledgerDay } = await import("@/lib/cost/budget-ledger-supabase");
     const { reportingDay } = await import("@/lib/reporting-day");
     // 06:59Z is still YESTERDAY in Pacific; a UTC slice called it today and let the two budgets roll apart.
-    for (const instant of ["2026-08-18T06:59:00.000Z", "2026-08-18T07:01:00.000Z", "2026-08-19T00:30:00.000Z", "2026-12-15T07:59:00.000Z", "2026-12-15T08:01:00.000Z"]) {
-      const at = new Date(instant);
-      expect(ledgerDay(at)).toBe(reportingDay(at));
-    }
+    for (const at of ["2026-08-18T06:59:00.000Z", "2026-08-18T07:01:00.000Z", "2026-08-19T00:30:00.000Z", "2026-12-15T07:59:00.000Z", "2026-12-15T08:01:00.000Z"].map((i) => new Date(i))) expect(ledgerDay(at)).toBe(reportingDay(at));
     expect(ledgerDay(new Date("2026-08-18T06:59:00.000Z"))).toBe("2026-08-17"); // not the UTC label
   });
-
-  it("bulk search stops short of the fact-check reserve, so one fact unit fits under the operator's real cap", async () => {
-    const { searchShareFor, SEARCH_SHARE, FACT_RESERVE_SHARE } = await import("@/lib/cost/daily-cap");
-    expect(searchShareFor("bulk")).toBeCloseTo(SEARCH_SHARE - FACT_RESERVE_SHARE, 10);
-    expect(searchShareFor("fact_check")).toBe(SEARCH_SHARE);
-    // At the $1 floor, after bulk saturates its own ceiling a fact unit still holds this much for its
-    // search and two source reads: one serp task (~$0.002) + two content parses (~$0.002) fit many times over.
-    const roomAtOneDollar = 1 * (searchShareFor("fact_check") - searchShareFor("bulk"));
-    expect(roomAtOneDollar).toBeGreaterThanOrEqual(0.05);
+  it("holds the fact reserve on BOTH doors and counts the call about to be made", async () => {
+    const { shareFor, SEARCH_SHARE, FACT_RESERVE_SHARE, dailyCapReason } = await import("@/lib/cost/daily-cap");
+    expect(shareFor("search", "bulk")).toBeCloseTo(SEARCH_SHARE - FACT_RESERVE_SHARE, 10);
+    expect(shareFor("model", "bulk")).toBeCloseTo(1 - FACT_RESERVE_SHARE, 10); // non-fact OpenAI is held back too
+    expect([shareFor("search", "fact_check"), shareFor("model", "fact_check")]).toEqual([1, 1]);
+    // THE COUNTEREXAMPLE: $0.769 spent of a $1 day. A $0.21 bulk buy would land at $0.979 and eat the reserve.
+    db.spentToday = 0.769;
+    expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0.21)).toContain("budget");
+    expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0)).toBeNull(); // what the old check saw
+    expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21)).toBeNull(); // the reserve is still there
+    db.spentToday = 0.93; // non-fact model work stops at 0.92, leaving the fact reserve intact
+    expect(await dailyCapReason("t", new Date(), shareFor("model", "bulk"), 0.01)).toContain("budget");
+    expect(await dailyCapReason("t", new Date(), shareFor("model", "fact_check"), 0.02)).toBeNull();
+    db.spentToday = 0;
   });
 });
 
 describe("migration history is immutable", () => {
-  it("the applied 2026-08-18 migration keeps its committed bytes and the later moves live in their own files", async () => {
+  it("the applied 2026-08-18 migration keeps its committed bytes and later moves live in their own files", async () => {
     const { readFileSync, existsSync } = await import("node:fs");
-    const original = readFileSync("migrations/2026-08-18_page_source_facts_and_fact_check_phase.sql");
     const { createHash } = await import("node:crypto");
+    const original = readFileSync("migrations/2026-08-18_page_source_facts_and_fact_check_phase.sql");
     expect(createHash("sha256").update(original).digest("hex")).toBe("75862d2956f861aa0d5f66cd38f0d4d098d24264505bb3be8196f76b92564a1c");
-    expect(existsSync("migrations/2026-08-18b_claim_lifecycle.sql")).toBe(true); // claim_state, superseded_at, index, reconciliation
-    expect(existsSync("migrations/2026-08-18c_ledger_reporting_day.sql")).toBe(true); // the three ledger functions on the reporting day
+    // the lifecycle, the ledger day and the rules version each got their own immutable file
+    for (const f of ["2026-08-18b_claim_lifecycle", "2026-08-18c_ledger_reporting_day", "2026-08-18d_verification_rules_version"]) expect(existsSync(`migrations/${f}.sql`)).toBe(true);
   });
 });

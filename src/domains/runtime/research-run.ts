@@ -24,14 +24,14 @@ export type ResearchPhase =
   | "refresh_sources"
   | "gsc_backfill_chunk"
   | "crawl_pages"
+  // CHECKING WHAT THIS ACCOUNT'S OWN PAGES CLAIM against sources outside them, AHEAD OF EVERY PAID PHASE and
+  // behind only the free ones that feed it. A money reserve alone could not make it reachable: bulk buying
+  // spent the day's dollar before its turn arrived (Codex, 2026-08-18), so the run order gives it the turn.
+  | "fact_check"
   | "keyword_discovery"
   | "prompt_observations"
   | "serp_analysis"
   | "winning_pages"
-  // CHECKING WHAT THIS ACCOUNT'S OWN PAGES CLAIM against sources outside them. A real phase because a
-  // correction whose research nothing in production can acquire, refresh or retire is a demonstration
-  // (Codex, 2026-08-18), and a phase is what gives it an owner, a budget and a place in the run.
-  | "fact_check"
   | "publish_surface"
   | "done";
 

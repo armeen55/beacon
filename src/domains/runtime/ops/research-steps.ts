@@ -307,13 +307,16 @@ export const defaultSteps: ResearchCycleSteps = {
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
       // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns seven booleans for ever.
+      // THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine
+      // that could not be reached are three different debts, and the unit names each one on the run row.
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
         const left = deadlineAt - Date.now();
-        if (left <= 0) return null;
+        if (left <= 0) return { hold: "unavailable" as const };
         const r = await callStructuredLLM({ kind: input.kind, tenantId, system: input.system, user: input.user,
           grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
           timeoutMs: Math.max(5_000, Math.min(60_000, left)), now: new Date() }).catch(() => null);
-        return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
+        if (r?.status === "drafted") return { value: r.value as Record<string, unknown> };
+        return { hold: r?.status === "blocked_budget" ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const };
       };
       const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
       // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING, and a provider hold keeps its NAME: capped, waiting
@@ -339,19 +342,17 @@ export const defaultSteps: ResearchCycleSteps = {
         writeCoverage: (page, cov) => facts.recordInventoryCoverage(tenantId, page, cov),
         searchSources: async (query) => {
           const r = await bought("serp_organic", { keyword: query }, `serp:${query}`.slice(0, 80));
-          if (r == null) return null;
-          if ("hold" in r && r.hold) return { hold: r.hold };
-          if ("hold" in r) return null;
+          if (r == null || "hold" in r) return { hold: r?.hold ?? "unavailable" };
           const parsed = r.parsed as { organic?: { domain: string; url: string; title: string | null }[] } | null;
-          return parsed?.organic ? { organic: parsed.organic } : null;
+          return parsed?.organic ? { organic: parsed.organic } : { hold: "refused" as const };
         },
         // THE PARSER'S OWN SHAPE: bodyText, openingSample and headings.
         fetchSource: async (url) => {
           const r = await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));
-          if (r == null || "hold" in r) return null;
+          if (r == null || "hold" in r) return { hold: r?.hold ?? "unavailable" };
           const parsed = r.parsed as { bodyText?: string | null; openingSample?: string | null; headings?: string[] } | null;
           const text = [parsed?.bodyText, parsed?.openingSample, ...(parsed?.headings ?? [])].filter(Boolean).join("\n");
-          return text.trim() ? { text } : null;
+          return text.trim() ? { text } : { hold: "refused" as const };
         },
       });
       return { status: out.status, banked: out.banked, pagesComplete: out.pagesComplete, failure: out.failure, reason: out.reason };

@@ -42,22 +42,3 @@ function citationShardPath(date: string): string {
   return join(CITATION_DIR, `${date}.json`);
 }
 
-export function getCitationsForDate(date: string): CitationObservation[] {
-  if (_citationShardCache.has(date)) {
-    return _citationShardCache.get(date)!;
-  }
-  const path = citationShardPath(date);
-  if (!existsSync(path)) return [];
-  const raw = readFileSync(path, "utf-8");
-  const data = JSON.parse(raw) as CitationObservation[];
-  _citationShardCache.set(date, data);
-  return data;
-}
-
-export function getAllCitationDates(): string[] {
-  if (!existsSync(CITATION_DIR)) return [];
-  return readdirSync(CITATION_DIR)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(".json", ""))
-    .sort();
-}

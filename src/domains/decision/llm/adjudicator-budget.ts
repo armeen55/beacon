@@ -25,7 +25,7 @@ import {
   getTenantSpentThisMonthUsd,
   recordSpendSupabase,
 } from "@/lib/cost/budget-ledger-supabase";
-import { dailyCapReason } from "@/lib/cost/daily-cap";
+import { dailyCapReason, shareFor } from "@/lib/cost/daily-cap";
 import { log } from "@/lib/logger";
 
 const STORE_NAME = "llm-budget";
@@ -130,7 +130,7 @@ function isOverAdjudicatorBudget(
 }
 
 export async function checkBudget(
-  opts: { tenantId: string; now?: Date; projectedCostUsd?: number },
+  opts: { tenantId: string; now?: Date; projectedCostUsd?: number; purpose?: "fact_check" | "bulk" },
 ): Promise<BudgetCheckResult> {
   const tenantId = requireTenant(opts.tenantId, "checkBudget");
   const now = opts.now ?? new Date();
@@ -150,7 +150,9 @@ export async function checkBudget(
   // THE OPERATOR'S DAILY CAP RIDES THIS DOOR TOO (lib/cost/daily-cap): one day-total across every
   // platform on the ledger, held under the account's own daily_budget_usd, failing closed on an
   // unreadable ledger.
-  const daily = await dailyCapReason(tenantId, now);
+  // NON-FACT MODEL WORK MAY NOT SPEND THE FACT RESERVE, and the call about to be made counts against the
+  // ceiling it asks to cross: twenty-nine answer analyses ran before fact_check ever got a turn.
+  const daily = await dailyCapReason(tenantId, now, shareFor("model", opts.purpose ?? "bulk"), projected);
   if (daily) return { allowed: false, reason: daily };
   return { allowed: true, remaining: state.capUsd - effectiveSpend };
 }

@@ -20,22 +20,26 @@ const DEFAULT_DAILY_CAP_USD = 5;
  *  `share` is the fraction of the day's budget THIS DOOR may consume: the search-buy door passes
  *  SEARCH_SHARE so bulk evidence can never spend the whole day and starve the drafting that turns the
  *  evidence into work. On 17 August 105 observation calls consumed the full dollar before one draft ran. */
-export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1): Promise<string | null> {
+export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1, projectedUsd = 0): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
   const cap = ((await getTenant(tenantId).catch(() => null))?.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD) * share;
   const today = await getTenantSpentTodayUsd(tenantId, now);
   if (today == null) return "Today's spend could not be read, so no more is spent today.";
-  return today >= cap ? `Today's budget for this kind of work is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
+  // THE CALL ABOUT TO BE MADE COUNTS. Comparing only money already spent admitted the reservation that crossed
+  // the line: at 0.769 spent, a 0.21 buy passed a 0.77 ceiling and took the reserve with it (Codex,
+  // 2026-08-18). The door asks whether the day can afford THIS call, not whether it could afford the last one.
+  return today + Math.max(0, projectedUsd) > cap
+    ? `Today's budget for this kind of work is spent (${today.toFixed(2)} of ${cap.toFixed(2)} USD). Paid work resumes tomorrow.` : null;
 }
 
 /** What search buying may take of the day: the rest is reserved for the editor that finishes the work. */
 export const SEARCH_SHARE = 0.85;
-/** RESERVED FOR ONE FACT UNIT A DAY, inside the search share. Bulk observations ran first and consumed the
- *  whole search allowance, so at the operator's real cap the fact check never bought its first call (Codex,
- *  2026-08-18). Bulk stops early; fact-check buys may use the full search share. At the $1 floor this holds
- *  $0.08 for fact sources, ~20 provider calls, far above one unit's search + two reads. Raising the cap is
- *  never the fix for reachability. */
+/** HELD BACK FROM EVERY BULK DOOR for the day's fact checking. The run order gives fact_check its TURN ahead
+ *  of every paid phase; this holds its MONEY on BOTH doors, so neither bulk search nor non-fact model work can
+ *  spend the last of the day before it. At the $1 floor that is $0.08, far above one unit's search and two
+ *  source reads. Raising the operator's cap is never the fix for reachability (Codex, 2026-08-18). */
 export const FACT_RESERVE_SHARE = 0.08;
-/** PURE: the share of the day's budget one search buy may draw, by what the buy is FOR. */
-export const searchShareFor = (purpose: "fact_check" | "bulk"): number =>
-  purpose === "fact_check" ? SEARCH_SHARE : SEARCH_SHARE - FACT_RESERVE_SHARE;
+/** PURE: the share of the day one call may draw, by the door it knocks on and what it is FOR. Fact checking
+ *  may draw the whole cap; bulk search keeps its 0.85 ceiling and bulk model work the rest, each less the reserve. */
+export const shareFor = (door: "search" | "model", purpose: "fact_check" | "bulk"): number =>
+  purpose === "fact_check" ? 1 : (door === "search" ? SEARCH_SHARE : 1) - FACT_RESERVE_SHARE;

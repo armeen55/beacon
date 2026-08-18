@@ -8,11 +8,8 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
 
 // THE PAGE AS DECISION CAN SEE IT. A correction is only work while the page still says what it objected to,
 // so the producer recomputes the version hash from the same stored words the check ran against.
-vi.mock("@/domains/evidence/pages/owned-context", async (orig) => {
-  const real = await orig<typeof import("@/domains/evidence/pages/owned-context")>();
-  return { ...real, loadOwnedPageBodies: async () => new Map([[PAGE, { title: "Persian female names",
-    h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]) };
-});
+vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()),
+  loadOwnedPageBodies: async () => new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]) }));
 
 import { factualDefectCards } from "@/domains/decision/producers/factual-defects";
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
@@ -25,9 +22,8 @@ const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, searc
 
 const check = (over: Record<string, unknown> = {}) => ({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
-  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked",
-  sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null,
-  subject: "Afsaneh", current: "Goddess, divine and strong.",
+  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: 2,
+  sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend" },
     { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
@@ -36,7 +32,6 @@ const check = (over: Record<string, unknown> = {}) => ({
 
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; });
-
   it("mints the same card twice from the same banked checks, so a pass never overwrites the last one", async () => {
     checks.rows = [check()];
     const a = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
@@ -46,16 +41,11 @@ describe("a page's own statements against their sources", () => {
     expect(a.cards[0]!.id).toBe("t::/persian-female-first-names::existing_edit::factual_correction");
     expect(a.cards[0]!.bundle!.components[0]).toMatchObject({ kind: "factual_correction", before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
   });
-
-  it("mints nothing off a page version it can no longer see, so a stale correction never sits beside its replacement", async () => {
-    checks.rows = [check({ pageContentHash: "hash-of-a-page-that-has-since-changed" })];
-    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
-    checks.rows = [check({ sourceReadAt: null })]; // a source nobody opened authorizes nothing
-    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
-    checks.rows = [check({ state: "superseded" })]; // history, never a live instruction
-    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
+  it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
+    const cards = async () => (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
+    for (const over of [{ pageContentHash: "hash-of-a-page-that-has-since-changed" }, { sourceReadAt: null },
+      { state: "superseded" }, { rulesVersion: 1 }]) { checks.rows = [check(over)]; expect(await cards()).toHaveLength(0); }
   });
-
   it("refuses to replace published words on anything less than a confirmed, source-backed contradiction", async () => {
     checks.rows = [check({ confidence: "likely" }), check({ subject: "Ava", confidence: "disputed" }),
       check({ subject: "Sholeen", confidence: "unsupported", proposed: null }),
@@ -64,7 +54,6 @@ describe("a page's own statements against their sources", () => {
     const run = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(run.cards).toHaveLength(0); // nothing authorized is nothing minted, never a card with a guess on it
   });
-
   it("says what it is holding back and never claims the loss belongs to it", async () => {
     checks.rows = [check(), check({ subject: "Ava", confidence: "disputed", proposed: "Voice, sound" }),
       check({ subject: "Sholeen", confidence: "unsupported", proposed: null })];
@@ -75,7 +64,6 @@ describe("a page's own statements against their sources", () => {
     expect(card.bundle!.risks.join(" ")).toContain("1 more entries are contested");
     expect(card.bundle!.receipt.missing.join(" ")).toContain("Sholeen");
   });
-
   it("says how many corrections are waiting behind the batch instead of dropping them", async () => {
     checks.rows = Array.from({ length: 55 }, (_, i) => check({ subject: `Name${String(i).padStart(2, "0")}` }));
     const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
@@ -84,7 +72,6 @@ describe("a page's own statements against their sources", () => {
     expect((card.operatorSteps ?? []).join(" ")).toContain("15 more confirmed corrections are waiting");
     expect(card.limitations.join(" ")).toContain("are not lost and are not silently dropped");
   });
-
   it("shows the worst first, never the alphabet", async () => {
     checks.rows = [
       check({ subject: "Zulu", verdict: "page_wrong", agreement: "multiple_agree", alsoAt: ["the FAQ"] }),
@@ -94,7 +81,6 @@ describe("a page's own statements against their sources", () => {
     const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
     expect(card.bundle!.components.map((c) => c.label)).toEqual(["Zulu", "Alpha"]);
   });
-
   it("mints nothing for a page this account does not own", async () => {
     checks.rows = [check({ page: "/not-mine" })];
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);

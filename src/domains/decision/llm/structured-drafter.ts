@@ -663,7 +663,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const isOnboarding = req.budgetPlatform === "onboarding-openai";
   // B82: fail CLOSED on unknown budget; onboarding reserves per real attempt (D10) instead of this pre-loop check.
   if (!isOnboarding) {
-    const budget = await checkBudget({ tenantId, projectedCostUsd }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
+    // The kind names what the call is FOR: fact checking draws on its own reserve, everything else on bulk.
+    const budget = await checkBudget({ tenantId, projectedCostUsd, purpose: req.kind.startsWith("fact_claim_") ? "fact_check" : "bulk" }).catch(() => ({ allowed: false as const, reason: "budget check unavailable; failing closed" }));
     if (budget.allowed === false) return { status: "blocked_budget", reason: (budget as { reason?: string }).reason ?? "cap reached" };
   }
 

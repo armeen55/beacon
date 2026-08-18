@@ -10,13 +10,3 @@
 
 import type { ObservationMode } from "@/domains/evidence/funnel/research-evidence";
 
-/** Slice 6I - a raw row's retrieval mode. `observationMode` is authoritative; `scraper` true is
- *  the consumer look. NEITHER marker = legacy (null), counted exactly as before 6I: pre-6I rows
- *  wrote `scraper: false` on every standardized ask, so scraper false alone must NEVER reclassify
- *  history as auxiliary (that would silently drop every historical ChatGPT citation from presence
- *  and proof windows). */
-export function observationModeOf(metadata: Record<string, unknown> | null | undefined): ObservationMode | null {
-  const explicit = metadata?.["observationMode"];
-  if (explicit === "consumer_search" || explicit === "standardized_response") return explicit;
-  return metadata?.["scraper"] === true ? "consumer_search" : null;
-}

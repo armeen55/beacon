@@ -25,6 +25,12 @@ export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "referenc
  *  it yet. `checked` = researched at this version. `superseded` = history, kept, never deleted, never work. */
 export type ClaimState = "owed" | "checked" | "superseded";
 
+/** WHICH RULES PRODUCED A VERDICT. Version 1 is everything researched before 2026-08-18: it searched the
+ *  SUBJECT alone, and it banked `checked` on sources it never managed to read. Version 2 searches the whole
+ *  proposition and leaves an unread source owed. A row from an older version is not current evidence, so
+ *  Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1. */
+export const VERIFICATION_RULES_VERSION = 2;
+
 export type FactCheck = {
   page: string;
   /** The subject this statement is about, canonicalized: the row's identity within its page. */
@@ -48,6 +54,8 @@ export type FactCheck = {
   sourceReadAt: string | null;
   /** Where this claim is in its own life. Only `checked` may ever become customer work; see ClaimState. */
   state: ClaimState;
+  /** The verification rules that produced this verdict. Older than current = not current evidence. */
+  rulesVersion: number;
   evidenceBasis: string | null;
   checkedAt: string;
 };
@@ -69,6 +77,7 @@ const decode = (r: Row): FactCheck => ({
   pageLocator: (r.page_locator as string | null) ?? null,
   sourceReadAt: (r.source_read_at as string | null) ?? null,
   state: (r.claim_state as ClaimState) ?? "checked",
+  rulesVersion: typeof r.rules_version === "number" ? r.rules_version : 1,
   evidenceBasis: (r.evidence_basis as string | null) ?? null,
   checkedAt: String(r.checked_at ?? ""),
 });
@@ -124,6 +133,7 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
     sources: c.sources, agreement: c.agreement, confidence: c.confidence, verdict: c.verdict,
     also_at: c.alsoAt, note: c.note.slice(0, 800), evidence_basis: c.evidenceBasis,
     page_locator: c.pageLocator, source_read_at: c.sourceReadAt, claim_state: c.state ?? "checked", superseded_at: null,
+    rules_version: c.rulesVersion ?? VERIFICATION_RULES_VERSION,
     checked_at: c.checkedAt || new Date().toISOString(), updated_at: new Date().toISOString(),
   }));
   if (rows.length === 0) return 0;
@@ -156,7 +166,8 @@ export async function recordOwedClaims(tenantId: string, page: string,
     subject: c.subject.trim(), current_wording: c.current, page_locator: c.locator,
     sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable",
     also_at: [], note: "Owed: this page version makes this claim and no source has been read for it yet.",
-    evidence_basis: evidenceBasis, claim_state: "owed", checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    evidence_basis: evidenceBasis, claim_state: "owed", rules_version: VERIFICATION_RULES_VERSION,
+    checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }));
   if (rows.length === 0) return 0;
   const { error } = await getSupabaseAdmin().from(TABLE)
@@ -185,7 +196,33 @@ export async function supersedeStaleFacts(tenantId: string, page: string, pageCo
   return stale.length;
 }
 
-/** PURE: the checks that may authorize replacing published words. Confirmed, contradicting the page, carrying
+/** A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE. Each stale row is ARCHIVED under its own key with
+ *  its evidence intact, then the live claim goes back to `owed` so the repaired engine researches it again.
+ *  Returns how many were re-opened. Nothing is deleted and no wording is rewritten. */
+export async function reopenObsoleteChecks(tenantId: string, page: string, stale: readonly FactCheck[]): Promise<number> {
+  if (stale.length === 0) return 0;
+  const at = new Date().toISOString();
+  const rows = stale.flatMap((g) => [
+    { tenant_id: tenantId, page_key: page, statement_key: `${g.statementKey}~rv${g.rulesVersion}`,
+      subject: g.subject, current_wording: g.current, proposed: g.proposed, sources: g.sources,
+      agreement: g.agreement, confidence: g.confidence, verdict: g.verdict, page_content_hash: g.pageContentHash,
+      source_read_at: g.sourceReadAt, evidence_basis: g.evidenceBasis, rules_version: g.rulesVersion,
+      note: `Checked under verification rules ${g.rulesVersion}, kept as history when those rules were replaced.`,
+      claim_state: "superseded", superseded_at: at, checked_at: g.checkedAt || at, updated_at: at },
+    { tenant_id: tenantId, page_key: page, statement_key: g.statementKey, subject: g.subject,
+      current_wording: g.current, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
+      verdict: "undecidable", page_content_hash: g.pageContentHash, page_locator: g.pageLocator,
+      source_read_at: null, evidence_basis: g.evidenceBasis, rules_version: VERIFICATION_RULES_VERSION,
+      note: "Owed again: the rules that produced the earlier verdict were replaced.",
+      claim_state: "owed", superseded_at: null, checked_at: at, updated_at: at },
+  ]);
+  const { error } = await getSupabaseAdmin().from(TABLE).upsert(rows, { onConflict: "tenant_id,page_key,statement_key" });
+  if (error) { log.warn("[fact-checks] obsolete checks were not re-opened", { tenantId, page, error: error.message }); return 0; }
+  log.info("[fact-checks] checks from obsolete rules re-opened", { tenantId, page, reopened: stale.length });
+  return stale.length;
+}
+
+/** PURE: the checks that may authorize replacing published words./** PURE: the checks that may authorize replacing published words. Confirmed, contradicting the page, carrying
  *  a replacement, at least one source of real authority, AND A RECORD THAT THE SOURCE WAS ACTUALLY READ.
  *
  *  THE READ IS THE WHOLE POINT (Codex, 2026-08-18). Without `sourceReadAt` the row says an authority exists,
@@ -197,6 +234,7 @@ export async function supersedeStaleFacts(tenantId: string, page: string, pageCo
 export function authorizedCorrections(checks: readonly FactCheck[],
   current?: { pageContentHash: string | null; evidenceBasis?: string | null }): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
+    && c.rulesVersion === VERIFICATION_RULES_VERSION
     && c.confidence === "confirmed"
     && (c.verdict === "page_wrong" || c.verdict === "page_imprecise")
     && !!c.proposed?.trim()
