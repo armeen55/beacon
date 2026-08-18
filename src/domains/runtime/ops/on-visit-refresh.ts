@@ -121,7 +121,7 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     // WHAT IS LEFT OF THIS DRIVE, never a fresh allowance of its own, and the lease with it: the step spends money between claims.
     const checked = await steps.factCheck(tenantId, lease.remainingMs(), lease.renew);
     log.info("[research-run] checked what your pages claim against sources outside them", { tenantId, ...checked });
-    return { progress: { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked } };
+    return { progress: { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked, factCheck: { ...checked, reason: checked.reason ?? null } } };
   }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish = (progress.sourcesRefreshed ?? 0) >= 1 || progress.backfill?.ran === true || (await steps.surfaceStale(tenantId, now.getTime()));

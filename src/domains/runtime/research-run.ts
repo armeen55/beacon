@@ -55,8 +55,8 @@ export type ResearchRunProgress = {
    *  cannot be judged without: Decision NAMES it and never fetches it, one read per run under this lease. */
   focus?: { basis: string | null; topics: Array<{ topicKey: string | null; query: string | null; requirement: string | null; retryAfter?: string | null; ownedUrl?: string | null }> };
   surfacePublished?: boolean;
-  /** How many of this page's statements the fact-check phase banked against outside sources. */
-  factsChecked?: number;
+  /** What the fact check banked, and its own receipt: zero is three different answers and only the reason tells them apart. */
+  factsChecked?: number; factCheck?: { status: string; banked: number; pagesComplete: number; reason: string | null };
   /** WHY THIS PASS WAS OPENED, and therefore WHAT IT OWES. Due-work decides whether another pass runs; without
    *  its answer on the row the executor traversed the whole cycle whatever the debt was, so a pass opened to
    *  read stored answers re-ran keyword discovery, results pages, winner reads, a crawl and a publication and
