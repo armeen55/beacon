@@ -298,10 +298,11 @@ export const defaultSteps: ResearchCycleSteps = {
       const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
       const held = await readFactChecks(tenantId);
       const coverage = new Map<string, number>();
-      for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
-      // Biggest audience first among pages never covered, then the page whose coverage is oldest.
+      for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));      // FINISH WHAT IS ALREADY BOUGHT FIRST: the source search posts a provider TASK and answers on a LATER pass, so always opening the next uncovered page paid to read a page every half hour and never came back for the search it had just bought.
+      const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page));
       const ranked = [...snapshot.ownedPages]
-        .sort((a, b) => (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1)
+        .sort((a, b) => (owedPage.has(pathOf(b.url)) ? 1 : 0) - (owedPage.has(pathOf(a.url)) ? 1 : 0)
+          || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1)
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");

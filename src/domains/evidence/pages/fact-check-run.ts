@@ -202,8 +202,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // 3. ACQUIRE candidates with a query derived from the claim type.
   if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return { status: "failed", banked: 0, cursor, reason: "no lease left to look for sources" };
   const found = await d.searchSources(sourceQueryFor(type, claim.subject)).catch(() => null);
-  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES (Codex, 2026-08-18): capped, waiting or
-  // failed leaves the claim OWED. Only a readable answer carrying no qualifying source banks `none_found`.
+  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES (Codex, 2026-08-18): capped, waiting or failed leaves the claim OWED, and only a readable answer with no qualifying source banks `none_found`.
   if (found == null) return { status: "failed", banked: 0, cursor, reason: "the source search did not answer, so this claim is still owed" };
   const candidates = (found.organic ?? []).slice(0, CANDIDATES)
     .map((o) => ({ url: o.url, kind: sourceClassOf(o.domain), title: o.title ?? "" }))
