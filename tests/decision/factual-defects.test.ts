@@ -80,3 +80,14 @@ describe("a page's own statements against their sources", () => {
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
   });
 });
+
+describe("a correction bundle survives the round trip", () => {
+  it("decodes back out of the store, so a new receipt kind can never make a ghost row", async () => {
+    const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
+    checks.rows = [check()];
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
+    expect(card.bundle!.receipt.items[0]!.kind).toBe("independent_source");
+    const back = deserializeChangeProposal(serializeChangeProposal(card));
+    expect(back?.bundle?.receipt.items[0]!.kind).toBe("independent_source");
+  });
+});

@@ -363,7 +363,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
     entries: z.array(z.object({ kind: KIND_SCHEMA, label: z.string().min(1), disposition: z.enum(["change", "add"]) })) }).optional(),
   receipt: z.object({
     items: z.array(z.object({ key: z.string().min(1), fact: z.string().min(1), observedAt: z.string().nullable(), observationId: z.string().optional(), observationIds: z.array(z.string().min(1)).min(1).optional(), // the WHOLE support survives the round trip, or persistence quietly turns an aggregate back into one answer's word
-      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis"]) }).refine((i) => !(i.observationId && i.observationIds), { message: "one_answer_or_several_never_both" })),
+      kind: z.enum(["gsc_demand", "keyword", "serp", "ai_observation", "winning_page", "page_extract", "competitor", "internal_link", "diagnosis", "independent_source"]) }).refine((i) => !(i.observationId && i.observationIds), { message: "one_answer_or_several_never_both" })),
     missing: z.array(z.string()),
     freshestObservedAt: z.string().nullable(),
   }),

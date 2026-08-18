@@ -5,11 +5,11 @@
     "target": 55000
   },
   "tests": {
-    "max": 12414,
+    "max": 12425,
     "target": 4000
   },
   "combined": {
-    "hardCap": 87143,
+    "hardCap": 87154,
     "target": 60000
   },
   "domains": {
