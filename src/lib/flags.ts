@@ -33,7 +33,3 @@ import "server-only";
  * then flip `BEACON_LIFECYCLE_VERDICT_ENABLED=1` and compare /changes
  * verdicts before/after.
  */
-export function isLifecycleVerdictEnabled(): boolean {
-  return process.env.BEACON_LIFECYCLE_VERDICT_ENABLED === "1";
-}
-

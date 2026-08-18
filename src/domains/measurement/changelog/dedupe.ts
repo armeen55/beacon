@@ -93,17 +93,3 @@ const KEYWORD_RULES: Array<{ tokens: EditToken[]; patterns: RegExp[] }> = [
   },
 ];
 
-export function extractEditTokens(text: string): Set<EditToken> {
-  const out = new Set<EditToken>();
-  if (!text) return out;
-  for (const rule of KEYWORD_RULES) {
-    for (const pat of rule.patterns) {
-      if (pat.test(text)) {
-        for (const t of rule.tokens) out.add(t);
-        break;
-      }
-    }
-  }
-  return out;
-}
-

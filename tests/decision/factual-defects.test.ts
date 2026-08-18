@@ -6,16 +6,27 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   return { ...real, readFactChecks: async () => checks.rows };
 });
 
+// THE PAGE AS DECISION CAN SEE IT. A correction is only work while the page still says what it objected to,
+// so the producer recomputes the version hash from the same stored words the check ran against.
+vi.mock("@/domains/evidence/pages/owned-context", async (orig) => {
+  const real = await orig<typeof import("@/domains/evidence/pages/owned-context")>();
+  return { ...real, loadOwnedPageBodies: async () => new Map([[PAGE, { title: "Persian female names",
+    h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]) };
+});
+
 import { factualDefectCards } from "@/domains/decision/producers/factual-defects";
+import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
+const LIVE_HASH = pageHashOf(["Persian female names", "Afsaneh means Goddess, divine and strong."].join("\n"));
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
 
 const check = (over: Record<string, unknown> = {}) => ({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
-  pageContentHash: "hash-1", evidenceBasis: "basis_x::d8",
+  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked",
+  sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null,
   subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend" },
@@ -34,6 +45,15 @@ describe("a page's own statements against their sources", () => {
     expect(JSON.stringify(a.cards)).toBe(JSON.stringify(b.cards)); // deterministic: the store is the author
     expect(a.cards[0]!.id).toBe("t::/persian-female-first-names::existing_edit::factual_correction");
     expect(a.cards[0]!.bundle!.components[0]).toMatchObject({ kind: "factual_correction", before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
+  });
+
+  it("mints nothing off a page version it can no longer see, so a stale correction never sits beside its replacement", async () => {
+    checks.rows = [check({ pageContentHash: "hash-of-a-page-that-has-since-changed" })];
+    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
+    checks.rows = [check({ sourceReadAt: null })]; // a source nobody opened authorizes nothing
+    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
+    checks.rows = [check({ state: "superseded" })]; // history, never a live instruction
+    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
   });
 
   it("refuses to replace published words on anything less than a confirmed, source-backed contradiction", async () => {

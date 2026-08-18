@@ -406,26 +406,30 @@ export type StructuredDraftKind =
   | "section_draft"
   | "outreach_pitch"
   | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
-  | "business_profile_inference" | "business_profile_patch" | "prompt_candidates";
+  | "business_profile_inference" | "business_profile_patch" | "prompt_candidates"
+  | "fact_claim_extraction" | "fact_claim_judgement";
 
 /** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, and the one sentence that decided it. Every field is owed, so a body missing one is a refusal rather than a pass. */
 const EditorJudgementSchema = z.object({ pageFit: z.boolean(), claimsEntailed: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(),
   implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300) });
 
+/** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because
+ *  Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns seven
+ *  booleans and reads zero statements forever (Codex, 2026-08-18). */
+const FactClaimExtractionSchema = z.object({ statements: z.array(z.object({ subject: z.string().min(1).max(200), current: z.string().min(1).max(600), locator: z.string().max(200) })).max(40) });
+const FactClaimJudgementSchema = z.object({
+  verdict: z.enum(["page_correct", "page_wrong", "page_imprecise", "undecidable"]), confidence: z.enum(["confirmed", "likely", "disputed", "unsupported"]),
+  proposed: z.string().max(600), literal: z.string().max(400), usage: z.string().max(400),
+  supportingQuote: z.string().max(600), quotedFrom: z.string().max(400), note: z.string().max(400) });
+
 export const SCHEMA_BY_KIND = {
   editor_judgement: EditorJudgementSchema,
-  answer_block: AnswerBlockDraftSchema,
-  atomic_edit: AtomicEditDraftSchema,
-  tool_asset: ToolAssetSpecSchema,
-  commerce_asset: CommerceAssetSpecSchema,
-  internal_link: InternalLinkDraftSchema,
-  experiment_plan: ExperimentPlanSchema,
-  batch_adjudication: BatchAdjudicationSchema,
-  strategy_review: StrategyReviewSchema,
-  section_draft: SectionDraftSchema,
-  outreach_pitch: OutreachPitchSchema,
-  coverage_adjudication: CoverageAdjudicationSchema,
-  new_page_brief: NewPageBriefSchema,
+  fact_claim_extraction: FactClaimExtractionSchema,
+  fact_claim_judgement: FactClaimJudgementSchema,
+  answer_block: AnswerBlockDraftSchema, atomic_edit: AtomicEditDraftSchema, tool_asset: ToolAssetSpecSchema,
+  commerce_asset: CommerceAssetSpecSchema, internal_link: InternalLinkDraftSchema, experiment_plan: ExperimentPlanSchema,
+  batch_adjudication: BatchAdjudicationSchema, strategy_review: StrategyReviewSchema, section_draft: SectionDraftSchema,
+  outreach_pitch: OutreachPitchSchema, coverage_adjudication: CoverageAdjudicationSchema, new_page_brief: NewPageBriefSchema,
   answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
   page_job: PageJobSchema,
   business_profile_inference: BusinessProfileInferenceSchema,
@@ -433,12 +437,10 @@ export const SCHEMA_BY_KIND = {
   prompt_candidates: PromptCandidatesSchema,
 } as const satisfies Record<StructuredDraftKind, z.ZodTypeAny>;
 
-// ── R16 (P6 LLM engine pack): the FULL output-shape registry ───────────────── Every structured LLM output shape
-// used ANYWHERE in the product, as a named entry - including the shapes whose production parsers are hand-rolled and
-// pinned (judge, strategist, critic, SERP hypothesis) and the deterministic title-lab variants. The gateway
-// (callStructuredLLM) dispatches on SCHEMA_BY_KIND above (validate -> retry once -> fail closed); the extra entries
-// below are the canonical contract each hand-rolled parser must keep producing. The recorded-fixture harness that once
-// pinned every entry is gone: the gateway's validate-retry-fail-closed path and each consumer's own test hold it now.
+// ── the FULL output-shape registry ─────────────────────────────────────────── Every structured LLM output shape
+// used ANYWHERE in the product, including the shapes whose production parsers are hand-rolled and pinned (judge,
+// strategist, critic, SERP hypothesis). The gateway dispatches on SCHEMA_BY_KIND above (validate -> retry once ->
+// fail closed); the extra entries below are the contract each hand-rolled parser must keep producing.
 
 /** Every CUSTOMER-FACING PROSE string in a parsed draft, flattened - fed to the
  *  content firewalls (numeric-fidelity / placeholder / em-dash / superlative) at

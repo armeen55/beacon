@@ -70,6 +70,21 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const key = canonicalUrlKey(c.page.startsWith("http") ? c.page : `${snapshot.scope.site ?? ""}${c.page}`);
       const list = byPage.get(key) ?? []; list.push(c); byPage.set(key, list);
     }
+    // THE PAGE VERSION DECISION CAN ACTUALLY SEE: a correction is work only while the page still says what it
+    // objected to, so the hash is recomputed from the same stored words. Bounded to pages holding one.
+    const candidateUrls = [...byPage].filter(([k, rows]) => owned.has(k) && authorizedCorrections(rows).length > 0)
+      .map(([k]) => owned.get(k)!.url);
+    const pageHashes = new Map<string, string>();
+    if (candidateUrls.length > 0) {
+      const [{ loadOwnedPageBodies }, { pageHashOf }] = await Promise.all([
+        import("@/domains/evidence/pages/owned-context"), import("@/domains/evidence/pages/fact-check-run")]);
+      const bodies = await loadOwnedPageBodies(tenantId, candidateUrls).catch(() => null);
+      for (const url of candidateUrls) {
+        const b = bodies?.get?.(url);
+        const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
+        if (body.trim()) pageHashes.set(canonicalUrlKey(url), pageHashOf(body));
+      }
+    }
     const cards: ChangeProposal[] = [];
     for (const [key, rows] of byPage) {
       const page = owned.get(key);
@@ -77,7 +92,9 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const path = pathOf(page.url);
       // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats
       // elsewhere on the page is the one to fix, and it must never be the one the cap drops.
-      const corrections = authorizedCorrections(rows)
+      // ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK (Codex, 2026-08-18): an older version, or a
+      // source nobody recorded reading, is a finding and never a live instruction.
+      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null })
         .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");

@@ -2,20 +2,17 @@ import "server-only";
 
 /** evidence/pages/fact-checks - STATEMENTS A PAGE MAKES, CHECKED AGAINST SOURCES OUTSIDE IT, ONE ROW PER
  *  STATEMENT. THE PAGE'S OWN WORDS ARE EVIDENCE OF WHAT IT SAYS, NEVER PROOF THAT IT IS TRUE (operator,
- *  2026-08-17), so a correction is only ever as strong as the independent source under it, and this is where
- *  that source lives durably.
+ *  2026-08-17), so a correction is only ever as strong as the independent source under it.
  *
- *  ROW-WISE ON PURPOSE. The first version banked a whole array in one JSON blob, which failed three ways at
- *  once (Codex, 2026-08-18): the blob store was not even mirrored to Supabase so production held nothing, a
- *  failed read degraded to `[]` and the next write would have erased every other page's facts, and two pages
- *  checked at the same time would lose each other. A natural key of (tenant, page, statement) makes every
- *  write idempotent and independent, and a read that fails THROWS, because an empty list would say this
- *  account's pages check out, which is a different and false claim.
+ *  ROW-WISE ON PURPOSE. The first version banked an array in one JSON blob, which failed three ways at once
+ *  (Codex, 2026-08-18): the blob store was not mirrored to Supabase so production held nothing, a failed read
+ *  degraded to `[]` and the next write would have erased every other page's facts, and two pages checked at
+ *  once lost each other. A natural key of (tenant, page, statement) makes every write idempotent and
+ *  independent, and a read that fails THROWS, because an empty list would say this account's pages check out.
  *
- *  CONFIDENCE IS PART OF THE FACT. Only `confirmed` may ever authorize replacing published words; `likely`
- *  and `disputed` are real findings that stay in review; `unsupported` names the missing source and proposes
- *  NOTHING. THE PAGE AS IT READ IS PART OF THE FACT TOO: `pageContentHash` is what lets a later pass tell a
- *  statement somebody has since corrected from one nobody has touched. */
+ *  CONFIDENCE IS PART OF THE FACT. Only `confirmed` may authorize replacing published words; `likely` and
+ *  `disputed` stay in review; `unsupported` names the missing source and proposes NOTHING. THE PAGE AS IT READ
+ *  IS PART OF THE FACT TOO: `pageContentHash` is what tells a corrected statement from an untouched one. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
@@ -23,6 +20,10 @@ import { log } from "@/lib/logger";
 const TABLE = "page_source_facts";
 
 export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "reference" | "community" | "babyname";
+
+/** THE CLAIM'S OWN LIFECYCLE, which is also the resume cursor. `owed` = the page makes it and nobody checked
+ *  it yet. `checked` = researched at this version. `superseded` = history, kept, never deleted, never work. */
+export type ClaimState = "owed" | "checked" | "superseded";
 
 export type FactCheck = {
   page: string;
@@ -41,6 +42,12 @@ export type FactCheck = {
   note: string;
   /** The page as it read when this was checked. A different hash means the statement owes a recheck. */
   pageContentHash: string | null;
+  /** Where on the page the statement sits: part of its identity, so two claims about one subject coexist. */
+  pageLocator: string | null;
+  /** When the SOURCE ITSELF was fetched and read. Null = nobody opened it, which may never authorize copy. */
+  sourceReadAt: string | null;
+  /** Where this claim is in its own life. Only `checked` may ever become customer work; see ClaimState. */
+  state: ClaimState;
   evidenceBasis: string | null;
   checkedAt: string;
 };
@@ -59,6 +66,9 @@ const decode = (r: Row): FactCheck => ({
   verdict: (r.verdict as FactCheck["verdict"]) ?? "undecidable",
   alsoAt: Array.isArray(r.also_at) ? (r.also_at as string[]) : [],
   note: String(r.note ?? ""), pageContentHash: (r.page_content_hash as string | null) ?? null,
+  pageLocator: (r.page_locator as string | null) ?? null,
+  sourceReadAt: (r.source_read_at as string | null) ?? null,
+  state: (r.claim_state as ClaimState) ?? "checked",
   evidenceBasis: (r.evidence_basis as string | null) ?? null,
   checkedAt: String(r.checked_at ?? ""),
 });
@@ -83,6 +93,7 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
     source_url: c.sources[0]?.url ?? null, source_quote: c.sources[0]?.says ?? null, source_class: c.sources[0]?.kind ?? null,
     sources: c.sources, agreement: c.agreement, confidence: c.confidence, verdict: c.verdict,
     also_at: c.alsoAt, note: c.note.slice(0, 800), evidence_basis: c.evidenceBasis,
+    page_locator: c.pageLocator, source_read_at: c.sourceReadAt, claim_state: c.state ?? "checked", superseded_at: null,
     checked_at: c.checkedAt || new Date().toISOString(), updated_at: new Date().toISOString(),
   }));
   if (rows.length === 0) return 0;
@@ -92,32 +103,77 @@ export async function recordFactChecks(tenantId: string, page: string, checks: r
   return rows.length;
 }
 
-/** A statement the operator has since corrected: the page no longer carries the wording this row objected to.
- *  Retired rather than deleted, so the history of what was wrong survives the fix. */
-export async function retireCorrectedFacts(tenantId: string, page: string, stillPresent: (current: string) => boolean,
-  pageContentHash: string | null): Promise<number> {
+/** HOW MANY CLAIMS THIS ACCOUNT STILL OWES A SOURCE CHECK, and whether it has ever checked one. The scheduler
+ *  reads this to decide a pass is owed: without it the phase was reachable only on a fresh daily cycle, so a
+ *  page of forty statements would have taken forty days. Null = the read failed, which is never "nothing owed". */
+export async function owedClaimDebt(tenantId: string): Promise<{ owed: number; everChecked: boolean } | null> {
+  const [owed, any] = await Promise.all([
+    getSupabaseAdmin().from(TABLE).select("statement_key", { count: "exact", head: true })
+      .eq("tenant_id", tenantId).eq("claim_state", "owed"),
+    getSupabaseAdmin().from(TABLE).select("statement_key", { count: "exact", head: true }).eq("tenant_id", tenantId),
+  ]);
+  if (owed.error || any.error) return null;
+  return { owed: owed.count ?? 0, everChecked: (any.count ?? 0) > 0 };
+}
+
+/** THE PAGE'S WHOLE CLAIM INVENTORY, banked as `owed` rows BEFORE one is researched: THIS IS THE RESUME CURSOR
+ *  (Codex, 2026-08-18). Existing rows are untouched, so an inventory write cannot reset a researched claim. */
+export async function recordOwedClaims(tenantId: string, page: string,
+  claims: readonly { statementKey: string; subject: string; current: string; locator: string | null }[],
+  pageContentHash: string, evidenceBasis: string | null): Promise<number> {
+  const rows = claims.filter((c) => c.subject.trim() && c.statementKey).map((c) => ({
+    tenant_id: tenantId, page_key: page, statement_key: c.statementKey, page_content_hash: pageContentHash,
+    subject: c.subject.trim(), current_wording: c.current, page_locator: c.locator,
+    sources: [], agreement: "none_found", confidence: "unsupported", verdict: "undecidable",
+    also_at: [], note: "Owed: this page version makes this claim and no source has been read for it yet.",
+    evidence_basis: evidenceBasis, claim_state: "owed", checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  }));
+  if (rows.length === 0) return 0;
+  const { error } = await getSupabaseAdmin().from(TABLE)
+    .upsert(rows, { onConflict: "tenant_id,page_key,statement_key", ignoreDuplicates: true });
+  if (error) throw new Error(`[fact-checks] the claim inventory did not land: ${error.message}`);
+  return rows.length;
+}
+
+/** THE PAGE MOVED ON. Every row held for another version, and every row whose objectionable wording is gone,
+ *  becomes `superseded`: history, never a live instruction. Nothing is deleted and no wording is rewritten. */
+export async function supersedeStaleFacts(tenantId: string, page: string, pageContentHash: string,
+  stillPresent: (current: string) => boolean): Promise<number> {
   const held = await readFactChecks(tenantId, page);
-  const gone = held.filter((h) => (h.verdict === "page_wrong" || h.verdict === "page_imprecise") && !stillPresent(h.current));
-  if (gone.length === 0) return 0;
-  const { error } = await getSupabaseAdmin().from(TABLE).upsert(gone.map((g) => ({
+  const stale = held.filter((h) => h.state !== "superseded"
+    && (h.pageContentHash !== pageContentHash || !stillPresent(h.current)));
+  if (stale.length === 0) return 0;
+  const at = new Date().toISOString();
+  const { error } = await getSupabaseAdmin().from(TABLE).upsert(stale.map((g) => ({
     tenant_id: tenantId, page_key: page, statement_key: g.statementKey,
-    subject: g.subject, current_wording: g.current, proposed: g.proposed,
-    sources: g.sources, agreement: g.agreement, confidence: g.confidence,
-    verdict: "page_correct", note: `${g.note} Corrected on the page: the wording this objected to is gone.`.trim(),
-    page_content_hash: pageContentHash, checked_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    subject: g.subject, current_wording: g.current, proposed: g.proposed, sources: g.sources,
+    agreement: g.agreement, confidence: g.confidence, verdict: g.verdict, note: g.note,
+    page_content_hash: g.pageContentHash, claim_state: "superseded", superseded_at: at, updated_at: at,
   })), { onConflict: "tenant_id,page_key,statement_key" });
-  if (error) { log.warn("[fact-checks] corrected statements were not retired", { tenantId, page, error: error.message }); return 0; }
-  log.info("[fact-checks] corrected statements retired", { tenantId, page, retired: gone.length });
-  return gone.length;
+  if (error) { log.warn("[fact-checks] stale claims were not retired", { tenantId, page, error: error.message }); return 0; }
+  log.info("[fact-checks] stale claims retired", { tenantId, page, superseded: stale.length });
+  return stale.length;
 }
 
 /** PURE: the checks that may authorize replacing published words. Confirmed, contradicting the page, carrying
- *  a replacement AND at least one source of real authority. Everything else is a finding, not an instruction. */
-export function authorizedCorrections(checks: readonly FactCheck[]): FactCheck[] {
-  return checks.filter((c) => c.confidence === "confirmed"
+ *  a replacement, at least one source of real authority, AND A RECORD THAT THE SOURCE WAS ACTUALLY READ.
+ *
+ *  THE READ IS THE WHOLE POINT (Codex, 2026-08-18). Without `sourceReadAt` the row says an authority exists,
+ *  not that anybody opened it, and the migration that created this table says in its own words that such a row
+ *  may not authorize replacement. It was authorizing 40 of them into a live customer card. A row researched
+ *  outside the runtime is real work and still cannot attest to itself here: it stays a finding until the
+ *  engine reads its source and says so. `current` binds the row to the page version and basis it was checked
+ *  against, so a stale fact can never sit beside its own replacement as a second live instruction. */
+export function authorizedCorrections(checks: readonly FactCheck[],
+  current?: { pageContentHash: string | null; evidenceBasis?: string | null }): FactCheck[] {
+  return checks.filter((c) => c.state === "checked"
+    && c.confidence === "confirmed"
     && (c.verdict === "page_wrong" || c.verdict === "page_imprecise")
     && !!c.proposed?.trim()
-    && c.sources.some((s) => s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia"));
+    && !!c.sourceReadAt
+    && c.sources.some((s) => s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")
+    && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
+      && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
 }
 
 /** WHICH CORRECTION MATTERS MOST, so a bundle that cannot show everything shows the worst first and never an

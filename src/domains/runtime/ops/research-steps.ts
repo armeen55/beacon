@@ -78,7 +78,12 @@ export type ResearchCycleSteps = {
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
   /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase
    *  never blocks a run, because a page whose statements could not be checked today is not an outage. */
-  factCheck: (tenantId: string, budgetMs: number) => Promise<{ banked: number; reason?: string }>;
+  /** ONE RESEARCH UNIT'S WORTH of source checking. `budgetMs` is what is LEFT of the drive's own deadline, not
+   *  a fresh allowance of its own, and `renew` is the caller's lease: a claim is only ever started while the
+   *  lease is genuinely held. Answers in the run's vocabulary (advanced / done / failed) so a pass that
+   *  checked one claim cannot be read as a page, or an account, that is finished. */
+  factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>)
+    => Promise<{ status: "advanced" | "done" | "failed"; banked: number; pagesComplete: number; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
   /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many
    *  ended with a durable verdict, how many of those were a non-reading, and how many real readings landed, so a run row can say what a pass actually did instead
@@ -105,6 +110,9 @@ export type ResearchCycleSteps = {
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
 };
+
+/** How much source checking one pass may do. One claim a visit is not research; an unbounded page is not a pass. */
+const PAGES_PER_PASS = 3, CLAIMS_PER_PASS = 4;
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
@@ -276,10 +284,13 @@ export const defaultSteps: ResearchCycleSteps = {
   // the single most-shown page, so once that page was exhausted every later pass took it again and page two was
   // unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT
   // content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
-  async factCheck(tenantId, budgetMs) {
-    const deadlineAt = Date.now() + Math.max(15_000, budgetMs);
+  async factCheck(tenantId, budgetMs, renew) {
+    // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: a fixed sixty seconds would outlive a drive with ten
+    // left (Codex, 2026-08-18). Every call inside is bounded by what remains of THIS number.
+    const deadlineAt = Date.now() + Math.max(0, budgetMs);
+    let banked = 0, pagesComplete = 0;
     try {
-      const [{ runFactCheckUnit, pageHashOf, claimIdentity, isCurrentCheck }, { readFactChecks }, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
+      const [{ runFactCheckUnit }, { readFactChecks }, { loadEvidenceSnapshot }, { loadOwnedPageBodies }] = await Promise.all([
         import("@/domains/evidence/pages/fact-check-run"), import("@/domains/evidence/pages/fact-checks"),
         import("@/domains/evidence/snapshot-loader"), import("@/domains/evidence/pages/owned-context"),
       ]);
@@ -294,48 +305,69 @@ export const defaultSteps: ResearchCycleSteps = {
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
-      const read = async (input: { system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
-        const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: input.system, user: input.user,
+      // THE KIND IS THE SCHEMA. Asking editor_judgement for a claim list returns seven booleans, so extraction
+      // read zero statements every time and the loop finished harmlessly having researched nothing.
+      const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
+        const left = deadlineAt - Date.now();
+        if (left <= 0) return null;
+        const r = await callStructuredLLM({ kind: input.kind, tenantId, system: input.system, user: input.user,
           grounded: input.grounded, projectedCostUsd: input.projectedCostUsd, maxTokens: input.maxTokens,
-          timeoutMs: Math.max(10_000, Math.min(60_000, deadlineAt - Date.now())), now: new Date() }).catch(() => null);
+          timeoutMs: Math.max(5_000, Math.min(60_000, left)), now: new Date() }).catch(() => null);
         return r?.status === "drafted" ? (r.value as Record<string, unknown>) : null;
       };
       const { providerCall, parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
       const bought = async <T,>(cap: "serp_organic" | "onpage_content_parsing", input: Record<string, unknown>, key: string, take: (p: unknown) => T | null): Promise<T | null> => {
+        if (Date.now() >= deadlineAt) return null;
         const call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);
         const env = call && (call.state === "hit" || call.state === "ok") ? call.envelope : null;
         return env ? take(parseCapability(cap, env)) : null;
       };
-      for (const page of ranked.slice(0, 3)) {
+      /** Rows this pass has banked itself, so a second claim on the same page sees the first one landed. */
+      const fresh: Awaited<ReturnType<typeof readFactChecks>> = [];
+      for (const page of ranked.slice(0, PAGES_PER_PASS)) {
         const path = pathOf(page.url);
         const bodies = await loadOwnedPageBodies(tenantId, [page.url]).catch(() => null);
         const b = bodies?.get?.(page.url);
         const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         if (!body.trim()) continue;
-        const mine = held.filter((h) => h.page === path);
-        const hash = pageHashOf(body);
-        // A page is DONE only when every claim on file is current at this hash; an empty page is never done.
-        const allCurrent = mine.length > 0 && mine.every((h) => isCurrentCheck(h, { pageContentHash: hash, current: h.current, evidenceBasis: basis }));
-        if (allCurrent) continue;
-        void claimIdentity;
-        const out = await runFactCheckUnit({
-          tenantId, now: new Date(), basis, deadlineAt, held: mine,
-          page: { url: page.url, path, body },
-          read,
-          searchSources: async (query) => bought("serp_organic", { keyword: query }, `serp:${query}`.slice(0, 80),
-            (p) => { const parsed = p as { organic?: { domain: string; url: string; title: string | null }[] } | null;
-              return parsed?.organic ? { organic: parsed.organic } : null; }),
-          fetchSource: async (url) => bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80),
-            (p) => { const parsed = p as { text?: string | null; passages?: string[] } | null;
-              const text = parsed?.text ?? (parsed?.passages ?? []).join("\n");
-              return text && text.trim() ? { text } : null; }),
-        });
-        if (out.banked > 0 || out.reason) return { banked: out.banked, ...(out.reason ? { reason: out.reason } : {}) };
+        // MORE THAN ONE CLAIM PER PASS, BOUNDED: one claim a visit would take forty passes on a forty-claim page.
+        for (let n = 0; n < CLAIMS_PER_PASS; n += 1) {
+          // THE LEASE IS RE-EARNED BEFORE EVERY CLAIM: money is about to be spent under it.
+          if (renew && !(await renew().catch(() => false))) return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, reason: "the lease was lost, so nothing further was researched" };
+          const mine = [...held.filter((h) => h.page === path), ...fresh.filter((h) => h.page === path)];
+          const out = await runFactCheckUnit({
+            tenantId, now: new Date(), basis, deadlineAt, held: mine,
+            page: { url: page.url, path, body },
+            read,
+            searchSources: async (query) => bought("serp_organic", { keyword: query }, `serp:${query}`.slice(0, 80),
+              (p) => { const parsed = p as { organic?: { domain: string; url: string; title: string | null }[] } | null;
+                return parsed?.organic ? { organic: parsed.organic } : null; }),
+            // THE PARSER'S OWN SHAPE. It returns bodyText, openingSample and headings; reading `text`/`passages`
+            // meant every successfully fetched source looked unreadable (Codex, 2026-08-18).
+            fetchSource: async (url) => bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80),
+              (p) => { const parsed = p as { bodyText?: string | null; openingSample?: string | null; headings?: string[] } | null;
+                const text = [parsed?.bodyText, parsed?.openingSample, ...(parsed?.headings ?? [])].filter(Boolean).join("\n");
+                return text.trim() ? { text } : null; }),
+          });
+          if (out.status === "advanced") {
+            banked += out.banked;
+            // Re-read the store so this page's next claim is the next OWED one, never the one just researched.
+            const back = await readFactChecks(tenantId, path).catch(() => null);
+            if (back) fresh.push(...back.filter((r) => !fresh.some((f) => f.statementKey === r.statementKey && f.page === r.page)));
+            if (out.cursor?.pageComplete) { pagesComplete += 1; break; }
+            continue;
+          }
+          if (out.status === "done") { pagesComplete += 1; break; }
+          // FAILED IS NOT FINISHED: a claim still owed leaves the page owed and the account not current.
+          return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, reason: out.reason };
+        }
+        if (Date.now() >= deadlineAt) break;
       }
-      return { banked: 0, reason: "every page this account holds is current at its stored version" };
+      return { status: banked > 0 ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete,
+        reason: banked > 0 ? undefined : pagesComplete > 0 ? "every page read this pass is current at its stored version" : "no page could be read this pass" };
     } catch (e) {
       log.warn("[research-steps] the fact check could not run this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });
-      return { banked: 0, reason: "the fact check could not run this pass" };
+      return { status: "failed", banked, pagesComplete, reason: "the fact check could not run this pass" };
     }
   },
   async surfaceStale(tenantId, nowMs) {

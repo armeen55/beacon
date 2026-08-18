@@ -1,24 +1,26 @@
 import "server-only";
 
 /** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first version was a
- *  Persian-name prototype wearing the word "loop" (Codex, 2026-08-18): it always picked the most-shown page so
- *  it could never reach page two, it judged claims from search-result TITLES without ever reading a source, it
- *  searched "meaning origin etymology" for dates and statistics alike, it treated `budgetMs` as a per-call
- *  timeout so one pass could make twenty-five sequential provider calls, and it keyed a statement by subject
- *  alone so two claims about one subject overwrote each other.
+ *  Persian-name prototype wearing the word "loop" (Codex, 2026-08-18): it could never reach page two, it judged
+ *  claims from search-result TITLES without reading a source, it asked for etymology when the claim was a date,
+ *  it read `budgetMs` as a per-call timeout, and it keyed a statement by subject alone so two claims about one
+ *  subject overwrote each other.
  *
- *  WHAT IT IS NOW. A unit is: take the page and claim the cursor names, ACQUIRE candidate sources with a query
- *  derived from the CLAIM TYPE, FETCH the best candidate's actual text, extract the passage that addresses the
- *  claim, judge the claim against THAT PASSAGE, bank one row, advance the cursor. At most one claim reaches
- *  judgment per unit, and every call is preceded by asking whether enough of the absolute deadline remains to
- *  persist its result. A claim nobody could read a source for banks `unsupported` and proposes nothing.
+ *  WHAT IT IS NOW. Take the claim the persisted inventory says is owed, ACQUIRE candidates with a query derived
+ *  from the CLAIM TYPE, FETCH the best candidate's actual text, judge the claim against THAT PASSAGE, bank one
+ *  row. Every call is preceded by asking whether enough of the absolute deadline remains to persist its result.
  *
- *  `confirmed` REQUIRES A READ SOURCE. Not a title, not a domain, not the model's recollection: a stored
- *  passage from a fetched authoritative page. Everything weaker stays a finding that never authorizes an edit. */
+ *  `confirmed` REQUIRES A READ SOURCE: not a title, not a domain, not the model's recollection. Everything
+ *  weaker stays a finding that never authorizes an edit. */
 
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
-import { recordFactChecks, statementKeyOf, type FactCheck, type SourceKind } from "./fact-checks";
+import { recordFactChecks, recordOwedClaims, supersedeStaleFacts, statementKeyOf,
+  type FactCheck, type SourceKind } from "./fact-checks";
+
+/** An inventory row as it stands before anybody has researched it: owed, sourceless, proposing nothing. */
+const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
+  confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 
 /** How many candidate sources one claim weighs, and how many it will actually fetch. */
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
@@ -80,16 +82,6 @@ export function claimIdentity(subject: string, current: string, locator?: string
   return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;
 }
 
-/** IS THIS CHECK STILL CURRENT? Only when the page identity, the page's content hash, the exact claim wording
- *  and the evidence basis all still hold. A changed page makes its facts STALE and owed a recheck; it never
- *  makes them correct, and the disappearance of a string is not proof anybody fixed anything. */
-export function isCurrentCheck(held: Pick<FactCheck, "pageContentHash" | "current" | "evidenceBasis">,
-  now: { pageContentHash: string | null; current: string; evidenceBasis: string | null }): boolean {
-  return held.pageContentHash != null && held.pageContentHash === now.pageContentHash
-    && held.current.trim() === now.current.trim()
-    && (held.evidenceBasis ?? null) === (now.evidenceBasis ?? null);
-}
-
 const CLAIM_SYSTEM = 'You read one web page and list the statements on it that an outside source could confirm or contradict. '
   + 'Return ONLY {"statements":[{"subject","current","locator"}]}: `subject` is what the statement is about as the page writes it; '
   + '`current` is the page\'s own wording, quoted exactly; `locator` is where it sits (the heading or section it is under). '
@@ -106,15 +98,17 @@ type Extracted = { statements: { subject: string; current: string; locator?: str
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
   agreement: FactCheck["agreement"]; confidence: FactCheck["confidence"]; supportingQuote: string; note: string };
 
-export type StructuredRead = (input: { system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
+/** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so
+ *  a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
+export type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judgement";
+  system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
   => Promise<Record<string, unknown> | null>;
 
-/** WHERE ONE UNIT LEFT OFF, persisted by the caller so the next lease resumes instead of restarting. */
+/** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
 export type FactCheckCursor = {
   page: string; pageContentHash: string | null; evidenceBasis: string | null;
-  /** Claims extracted for THIS page version, in order, with the one being worked on next. */
-  claims: { subject: string; current: string; locator: string | null }[];
-  nextIndex: number;
+  /** How many of this page version's claims are researched, out of how many the page makes. */
+  checked: number; total: number;
   /** True once every claim for this page version has been checked: the caller may advance to another page. */
   pageComplete: boolean;
 };
@@ -129,65 +123,89 @@ export type FactCheckUnitDeps = {
   tenantId: string; now: Date; basis: string | null;
   /** Checks already on file for this page, so a current one is skipped and a stale one is redone. */
   held?: readonly FactCheck[];
-  cursor?: FactCheckCursor | null;
   /** The absolute instant this unit must be finished by. */
   deadlineAt: number;
 };
 
-export type FactCheckUnitResult = { banked: number; cursor: FactCheckCursor | null; reason?: string };
+/** WHAT ONE UNIT DID, in the run's own vocabulary. `advanced` = one claim researched and STORED. `done` =
+ *  this page version owes nothing. `failed` = nothing advanced and the claim is still owed, which is not the
+ *  same answer and must never move a run on to publishing. */
+export type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
+  cursor: FactCheckCursor | null; reason?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
 
 /** ONE unit: at most one claim researched, one row banked, and a cursor to resume from. */
 export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckUnitResult> {
   const { tenantId, page, now } = d;
-  if (!page.body.trim()) return { banked: 0, cursor: null, reason: "no stored words for this page" };
+  if (!page.body.trim()) return { status: "failed", banked: 0, cursor: null, reason: "no stored words for this page" };
   const hash = pageHashOf(page.body);
 
-  // 1. CLAIMS FOR THIS PAGE VERSION. Re-extracted only when the cursor is for another page or another version.
-  let cursor = d.cursor && d.cursor.page === page.path && d.cursor.pageContentHash === hash ? d.cursor : null;
-  if (!cursor) {
-    if (!enough(d.deadlineAt, 20_000)) return { banked: 0, cursor: d.cursor ?? null, reason: "not enough of this lease remains to read the page" };
-    const extracted = await d.read({ system: CLAIM_SYSTEM,
+  // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION, READ BACK FROM THE STORE: a lease lost mid page resumes
+  // where it stopped instead of paying to extract the same claims again, and completeness outlives the pass.
+  const mine = (d.held ?? []).filter((h) => h.page === page.path);
+  let inventory = mine.filter((h) => h.pageContentHash === hash && h.state !== "superseded");
+  if (inventory.length === 0) {
+    if (!enough(d.deadlineAt, 20_000)) return { status: "failed", banked: 0, cursor: null, reason: "not enough of this lease remains to read the page" };
+    const extracted = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
       user: `Page: ${page.url}\n\nIts stored words:\n${page.body.slice(0, 12_000)}\n\nReturn the JSON now.`,
       grounded: page.body.slice(0, 12_000), projectedCostUsd: 0.02, maxTokens: 3000 }).catch(() => null);
-    if (!extracted) return { banked: 0, cursor: null, reason: "the page's checkable statements could not be read" };
+    if (!extracted) return { status: "failed", banked: 0, cursor: null, reason: "the page's checkable statements could not be read" };
     const claims = ((extracted as unknown as Extracted).statements ?? [])
       .filter((s) => s.subject?.trim() && s.current?.trim())
-      .map((s) => ({ subject: s.subject.trim(), current: s.current.trim(), locator: s.locator?.trim() || null }));
-    cursor = { page: page.path, pageContentHash: hash, evidenceBasis: d.basis, claims, nextIndex: 0, pageComplete: claims.length === 0 };
+      .map((s) => ({ subject: s.subject.trim(), current: s.current.trim(), locator: s.locator?.trim() || null }))
+      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator) }));
+    // THE PAGE MOVED ON: whatever was held against an older version, or objects to wording this version no
+    // longer carries, becomes history now rather than a second live instruction beside its own replacement.
+    const body = page.body.toLowerCase();
+    await supersedeStaleFacts(tenantId, page.path, hash, (current) => body.includes(current.trim().toLowerCase()))
+      .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });
+    if (claims.length === 0) {
+      return { status: "done", banked: 0, cursor: { page: page.path, pageContentHash: hash, evidenceBasis: d.basis, checked: 0, total: 0, pageComplete: true },
+        reason: "this page makes no checkable statement" };
+    }
+    // THE INVENTORY IS THE CURSOR, stored BEFORE one claim is researched: researching against an inventory
+    // nobody stored is how page two stayed unreachable.
+    const wrote = await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
+    if (wrote < 0) return { status: "failed", banked: 0, cursor: null, reason: "the page's claim inventory could not be stored, so nothing was researched" };
+    inventory = claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey, subject: c.subject,
+      current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis: d.basis, state: "owed" as const,
+      checkedAt: now.toISOString() }));
   }
 
-  // 2. THE NEXT CLAIM THAT IS NOT ALREADY CURRENT. A held check for changed wording or a changed page is stale.
-  const heldBy = new Map((d.held ?? []).map((h) => [h.statementKey, h]));
-  let i = cursor.nextIndex;
-  for (; i < cursor.claims.length; i += 1) {
-    const c = cursor.claims[i]!;
-    const key = claimIdentity(c.subject, c.current, c.locator);
-    const prior = heldBy.get(key);
-    if (!prior || !isCurrentCheck(prior, { pageContentHash: hash, current: c.current, evidenceBasis: d.basis })) break;
+  // 2. THE NEXT CLAIM THIS PAGE VERSION STILL OWES.
+  const owed = inventory.filter((h) => h.state === "owed");
+  const progress = { page: page.path, pageContentHash: hash, evidenceBasis: d.basis,
+    checked: inventory.length - owed.length, total: inventory.length };
+  if (owed.length === 0) {
+    return { status: "done", banked: 0, cursor: { ...progress, pageComplete: true }, reason: "every claim on this page version is current" };
   }
-  if (i >= cursor.claims.length) {
-    return { banked: 0, cursor: { ...cursor, nextIndex: cursor.claims.length, pageComplete: true }, reason: "every claim on this page version is current" };
-  }
-  const claim = cursor.claims[i]!;
-  const advance = { ...cursor, nextIndex: i + 1, pageComplete: i + 1 >= cursor.claims.length };
-  const key = claimIdentity(claim.subject, claim.current, claim.locator);
+  const next = owed[0]!;
+  const claim = { subject: next.subject, current: next.current, locator: next.pageLocator };
+  const cursor: FactCheckCursor = { ...progress, pageComplete: false };
+  const advance: FactCheckCursor = { ...progress, checked: progress.checked + 1, pageComplete: owed.length === 1 };
+  const key = next.statementKey;
   const type = claimTypeOf(claim.subject, claim.current);
 
   const bank = async (row: FactCheck): Promise<FactCheckUnitResult> => {
     const banked = await recordFactChecks(tenantId, page.path, [row]);
     log.info("[fact-check] one claim researched", { tenantId, page: page.path, subject: claim.subject, type, confidence: row.confidence, banked });
-    return { banked, cursor: advance };
+    // A WRITE THAT DID NOT LAND IS A FAILED UNIT: advancing past a claim nothing stored would skip it forever.
+    return banked > 0 ? { status: "advanced", banked, cursor: advance }
+      : { status: "failed", banked: 0, cursor, reason: "the result could not be stored, so this claim is still owed" };
   };
-  const base = { page: page.path, statementKey: key, subject: claim.subject, current: claim.current,
+  const base = { page: page.path, statementKey: key, state: "checked" as const, subject: claim.subject, current: claim.current,
     literal: null, usage: null, alsoAt: claim.locator ? [claim.locator] : [],
-    pageContentHash: hash, evidenceBasis: d.basis, checkedAt: now.toISOString() };
+    pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
+    evidenceBasis: d.basis, checkedAt: now.toISOString() };
 
   // 3. ACQUIRE candidates with a query derived from the claim type.
-  if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return { banked: 0, cursor, reason: "no lease left to look for sources" };
+  if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return { status: "failed", banked: 0, cursor, reason: "no lease left to look for sources" };
   const found = await d.searchSources(sourceQueryFor(type, claim.subject)).catch(() => null);
-  const candidates = (found?.organic ?? []).slice(0, CANDIDATES)
+  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES (Codex, 2026-08-18): capped, waiting or
+  // failed leaves the claim OWED. Only a readable answer carrying no qualifying source banks `none_found`.
+  if (found == null) return { status: "failed", banked: 0, cursor, reason: "the source search did not answer, so this claim is still owed" };
+  const candidates = (found.organic ?? []).slice(0, CANDIDATES)
     .map((o) => ({ url: o.url, kind: sourceClassOf(o.domain), title: o.title ?? "" }))
     .filter((c) => c.kind !== "community" && c.kind !== "babyname")
     .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0));
@@ -197,11 +215,11 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   }
 
   // 4. READ THE SOURCES. A title is not a fact: without a fetched passage nothing may be confirmed.
-  const passages: { url: string; kind: SourceKind; text: string }[] = [];
+  const passages: { url: string; kind: SourceKind; text: string; readAt: string }[] = [];
   for (const c of candidates.slice(0, FETCH_PER_CLAIM)) {
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
     const got = await d.fetchSource(c.url).catch(() => null);
-    if (got?.text?.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000) });
+    if (got?.text?.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });
   }
   if (passages.length === 0) {
     return bank({ ...base, proposed: null,
@@ -211,25 +229,32 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   }
 
   // 5. JUDGE against the passages only.
-  if (!enough(d.deadlineAt, 20_000)) return { banked: 0, cursor, reason: "no lease left to judge this claim" };
-  const judged = await d.read({ system: JUDGE_SYSTEM,
+  if (!enough(d.deadlineAt, 20_000)) return { status: "failed", banked: 0, cursor, reason: "no lease left to judge this claim" };
+  const judged = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`, `The page says: "${claim.current}"`,
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => null);
-  if (!judged) return { banked: 0, cursor, reason: "the claim could not be judged this pass" };
+  if (!judged) return { status: "failed", banked: 0, cursor, reason: "the claim could not be judged this pass" };
   const v = judged as unknown as Judged;
   const quote = (v.supportingQuote ?? "").trim();
-  // THE QUOTE MUST REALLY BE IN A PASSAGE. A judge that cannot point at the words it relied on has not read
-  // them, and its verdict may not license anything: it is downgraded here rather than trusted.
-  const quoted = quote.length > 0 && passages.some((p) => p.text.includes(quote.slice(0, Math.min(60, quote.length))));
-  const readAuthority = passages.some((p) => AUTHORITATIVE.has(p.kind));
-  const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && quoted && readAuthority ? "confirmed"
+  // A QUOTE MAY NOT BORROW ANOTHER SOURCE'S AUTHORITY: the WHOLE normalized quote must appear in one passage
+  // and is credited to THAT source alone (Codex, 2026-08-18).
+  const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
+  const owner = quote.length > 0 ? passages.find((p) => norm(p.text).includes(norm(quote))) ?? null : null;
+  // AGREEMENT IS COUNTED, never accepted from the model: how many fetched sources carry the supporting words.
+  const carriers = quote.length > 0 ? passages.filter((p) => norm(p.text).includes(norm(quote))) : [];
+  const agreement: FactCheck["agreement"] = carriers.length > 1 ? "multiple_agree"
+    : carriers.length === 1 ? "single_source" : "none_found";
+  const confirmable = owner != null && AUTHORITATIVE.has(owner.kind);
+  const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
     proposed: confidence === "unsupported" ? null : (v.proposed?.trim() || null),
     literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
-    sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: quoted ? quote.slice(0, 600) : "" })),
-    agreement: v.agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${quoted ? "" : " No passage could be quoted back, so this is held below confirmed."}`.trim() });
+    // Only the source that actually carried the words is credited with them.
+    sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: carriers.includes(p) ? quote.slice(0, 600) : "" })),
+    sourceReadAt: owner?.readAt ?? null,
+    agreement, confidence, verdict: v.verdict,
+    note: `${v.note ?? ""}${owner ? "" : " No fetched passage carries the quote it relied on, so this is held below confirmed."}`.trim() });
 }

@@ -495,18 +495,6 @@ export async function persistUrlCitationHistory(
 }
 
 /**
- * Retrieve the series for a single URL (convenience).
- */
-export function getSeriesForUrl(
-  history: UrlCitationHistory,
-  url: string,
-): UrlCitationSeries | null {
-  const norm = normalizeUrl(url);
-  if (!norm) return null;
-  return history.series.find((s) => s.url === norm) ?? null;
-}
-
-/**
  * Expand a series into a dense day-by-day array (zero-filled).
  * The Z-score engine wants explicit zeros, not gaps.
  *

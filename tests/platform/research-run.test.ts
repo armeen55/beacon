@@ -123,7 +123,7 @@ const BENIGN: ResearchCycleSteps = {
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
   backfillChunk: async () => ({ kind: "no_work" }), crawlPages: async () => 0, investigationFocus: async () => null,
   funnelUnit: async () => ({ status: "done", cursor: null, progress: {} }), // evidence phases no-op in these lease/truth tests
-  currentBasis: async () => "basis_test", publishSurface: async () => {}, surfaceStale: async () => false, factCheck: async () => ({ banked: 0 }), // the account basis the funnel scopes to
+  currentBasis: async () => "basis_test", publishSurface: async () => {}, surfaceStale: async () => false, factCheck: async () => ({ status: "done" as const, banked: 0, pagesComplete: 0 }), // the account basis the funnel scopes to
   analyzeAnswers: async () => NO_READING, // no new answers to read back in these lease/truth tests
   verifyShipments: async () => 0, measureShipments: async () => 0, // nothing marked implemented is waiting on a live check or a reading in these tests
 };

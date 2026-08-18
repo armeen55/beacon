@@ -38,6 +38,7 @@ export type DuePhase =
   | "consume_analyses"
   | "plan_cases"
   | "acquire_case_evidence"
+  | "check_page_facts"
   | "decide_and_prepare"
   | "verify_and_measure"
   | "publish_surfaces";
@@ -239,7 +240,14 @@ type DueWorkDeps = {
   answersToAnalyze?: (tenantId: string, fromDay: string, toDay: string) => Promise<boolean>;
   analysisFingerprint?: (tenantId: string) => Promise<string | null>;
   consumedAnalyses?: (tenantId: string, basis: string) => Promise<string | null>;
+  factDebt?: (tenantId: string) => Promise<{ owed: number; everChecked: boolean } | null>;
 };
+
+/** CLAIMS THE PAGES MAKE THAT NOBODY HAS CHECKED against a source outside them. */
+async function factDebt(tenantId: string): Promise<{ owed: number; everChecked: boolean } | null> {
+  const { owedClaimDebt } = await import("@/domains/evidence/pages/fact-checks");
+  return owedClaimDebt(tenantId);
+}
 
 const settled = async <T,>(p: Promise<T>, fallback: T): Promise<{ value: T; ok: boolean }> =>
   p.then((value) => ({ value, ok: true })).catch(() => ({ value: fallback, ok: false }));
@@ -266,7 +274,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.basis ?? accountBasis)(tenantId), null as string | null),
   ]);
 
-  const [version, surface, debt, pages, unread, analyses, consumed] = await Promise.all([
+  const [version, surface, debt, pages, unread, analyses, consumed, facts] = await Promise.all([
     // No basis is not a failed read: nothing was asked, so nothing failed, and the basis read above is what says whether it resolved at all.
     basis.value ? settled((deps.evidenceVersion ?? evidenceRowVersion)(tenantId, basis.value), null as number | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.surfaceStale ?? surfaceIsStale)(tenantId, nowMs), false),
@@ -276,6 +284,7 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     settled((deps.analysisFingerprint ?? analysisFingerprint)(tenantId), null as string | null),
     // The watermark is basis-scoped like every other derived row, so with no basis there is nothing to compare against and nothing was asked.
     basis.value ? settled((deps.consumedAnalyses ?? consumedAnalyses)(tenantId, basis.value), null as string | null) : Promise.resolve({ value: null, ok: true }),
+    settled((deps.factDebt ?? factDebt)(tenantId), null as { owed: number; everChecked: boolean } | null),
   ]);
 
   const progress = run.value?.progress ?? {};
@@ -319,6 +328,10 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // owes one. An idle account with no plan owes nothing, because re-planning unchanged notes reaches the identical answer at the same price.
   if (notesMoved || (openRun && !bound)) due.push("plan_cases");
   if (active.length > 0) due.push("acquire_case_evidence");
+  // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
+  // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth
+  // of statements a day at best. An unreadable count is never a quiet "nothing owed": it says nothing here.
+  if (facts.value && (facts.value.owed > 0 || !facts.value.everChecked)) due.push("check_page_facts");
   if (notesMoved) due.push("decide_and_prepare");
   // TWO SEPARATE DEBTS UNDER ONE NAME, and the first one gates the second: a change I have never checked on
   // the live page cannot be measured at all (isDueForMeasure refuses it), and a change whose window has

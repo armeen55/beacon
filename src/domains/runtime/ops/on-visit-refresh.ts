@@ -71,7 +71,7 @@ const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
   // changed. No results page, no winner read, no crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
   consume_analyses: ["keyword_discovery", "publish_surface"],
   plan_cases: ["keyword_discovery", "serp_analysis"],
-  acquire_case_evidence: ["serp_analysis", "winning_pages"],
+  acquire_case_evidence: ["serp_analysis", "winning_pages"], check_page_facts: ["fact_check"],
   decide_and_prepare: ["publish_surface"],
   verify_and_measure: ["publish_surface"],
   publish_surfaces: ["publish_surface"],
@@ -97,8 +97,7 @@ type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Par
  *  connector refresh). A thrown error is handled separately by the cycle loop, which records the error and pauses. */
 type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
 
-/** Run one phase's body, returning the merged progress (and any returned-failure pause). */
-async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps): Promise<PhaseOutcome> {
+async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps, lease: { remainingMs: () => number; renew: () => Promise<boolean> }): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
     // Union the freshly-synced provider identities with any that synced on an earlier attempt of this same cycle, so a provider that failed once and later
@@ -117,12 +116,12 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     const result = await steps.backfillChunk(tenantId, now, attemptKey);
     return { progress: { ...progress, backfill: result.kind === "advanced" ? { ran: true, complete: result.complete, daysPulled: result.daysPulled } : { ran: false } } };
   }
-  // fact_check - one page's own claims against sources outside it. FAIL-SOFT BY CONSTRUCTION: the phase
-  // answers with a count and a reason and never throws, because a page whose statements could not be checked
-  // today is not an outage and must not pause a run that has real work behind it.
+  // fact_check - one page's own claims against sources outside it. FAIL-SOFT: a page that could not be checked today is not an outage.
   if (phase === "fact_check") {
-    const checked = await steps.factCheck(tenantId, 60_000);
-    return { progress: { ...progress, factsChecked: checked.banked } };
+    // WHAT IS LEFT OF THIS DRIVE, never a fresh allowance of its own, and the lease with it: the step spends money between claims.
+    const checked = await steps.factCheck(tenantId, lease.remainingMs(), lease.renew);
+    log.info("[research-run] checked what your pages claim against sources outside them", { tenantId, ...checked });
+    return { progress: { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked } };
   }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish = (progress.sourcesRefreshed ?? 0) >= 1 || progress.backfill?.ran === true || (await steps.surfaceStale(tenantId, now.getTime()));
@@ -366,7 +365,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
     let outcome: PhaseOutcome;
     try {
-      outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps);
+      outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps, { remainingMs: () => Math.max(0, deadline - nowFn().getTime()),
+        renew: () => renewLease(tenantId, run.id, ownerToken, attemptCursor).then((h) => !!h).catch(() => false) });
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       log.warn("[research-run] phase threw; pausing (recoverable)", { tenantId, phase, error: message });
