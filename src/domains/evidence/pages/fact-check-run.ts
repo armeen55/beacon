@@ -18,7 +18,6 @@ import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, supersedeStaleFacts, statementKeyOf,
   type FactCheck, type SourceKind } from "./fact-checks";
 
-/** An inventory row as it stands before anybody has researched it: owed, sourceless, proposing nothing. */
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
   confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null };
 
@@ -154,7 +153,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const claims = ((extracted as unknown as Extracted).statements ?? [])
       .filter((s) => s.subject?.trim() && s.current?.trim())
       .map((s) => ({ subject: s.subject.trim(), current: s.current.trim(), locator: s.locator?.trim() || null }))
-      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator) }));
+      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator) }))
+      .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i);
     // THE PAGE MOVED ON: whatever was held against an older version, or objects to wording this version no
     // longer carries, becomes history now rather than a second live instruction beside its own replacement.
     const body = page.body.toLowerCase();
