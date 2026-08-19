@@ -6,8 +6,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   return { ...real, readFactChecks: async () => checks.rows };
 });
 
-// THE PAGE AS DECISION CAN SEE IT. A correction is only work while the page still says what it objected to,
-// so the producer recomputes the version hash from the same stored words the check ran against.
+// THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()),
   loadOwnedPageBodies: async () => new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]) }));
 

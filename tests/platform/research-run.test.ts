@@ -175,12 +175,21 @@ describe("the canonical run order is the RUNTIME order", () => { it("walks fact_
     for (let i = 0; i < 12 && p !== "done"; i += 1) { walked.push(p); p = nextPhase(p); }
     expect(walked).toEqual(["refresh_sources", "gsc_backfill_chunk", "crawl_pages", "fact_check", "keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages", "publish_surface"]);
     for (const paid of ["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]) expect(walked.indexOf("fact_check")).toBeLessThan(walked.indexOf(paid)); }); });
-describe("a failed fact check never publishes", () => { it("pauses AT fact_check with the typed failure and publish is not called; a banked claim advances normally", async () => {
+describe("a fact check that cannot finish withholds that correction, not Beacon", () => { // a pass opened for fact checking AND the growth work
+  const held = (failure: string) => ({ ...BENIGN, factCheck: async () => ({ status: "failed" as const, banked: 0, pagesComplete: 0, failure, reason: `the source search is ${failure}` }),
+    dueWork: async (): Promise<DueWork> => ({ ...SOMETHING_DUE, due: ["check_page_facts", "daily_observations", "plan_cases", "publish_surfaces"] }) });
+  it.each(["search_waiting", "source_quality_unresolved"])("keeps the claim owed on %s and still runs the growth phases and publishes", async (failure) => {
+    const rows = withRun({ current_phase: "fact_check" }); const ran: string[] = [];
+    await run({ ...held(failure), surfaceStale: async () => true, publishSurface: async () => void ran.push("publish"),
+      funnelUnit: async (phase) => (ran.push(phase), { status: "done", cursor: null, progress: {} }) });
+    // The typed fact debt is persisted and no correction comes of it, but nothing else is held hostage.
+    expect([rows[0]!.progress.factCheck?.failure, rows[0]!.progress.factsChecked, rows[0]!.status, rows[0]!.current_phase]).toEqual([failure, 0, "completed", "done"]);
+    for (const growth of ["keyword_discovery", "prompt_observations", "serp_analysis", "publish"]) expect(ran).toContain(growth); });
+  it("still STOPS the run when the failure means it can no longer safely write", async () => {
     const rows = withRun({ current_phase: "fact_check" }); const touched: string[] = [];
-    await run({ ...BENIGN, factCheck: async () => ({ status: "failed" as const, banked: 0, pagesComplete: 0, failure: "search_capped", reason: "the source search is capped" }), surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
-    expect([touched, rows[0]!.status, rows[0]!.current_phase, rows[0]!.completed_at]).toEqual([[], "paused", "fact_check", null]); // nothing banked: no publish, no completion
-    expect([rows[0]!.progress.factCheck?.failure, rows[0]!.last_error?.phase]).toEqual(["search_capped", "fact_check"]);
-    const ok = withRun({ current_phase: "fact_check" }); const published: string[] = [];
+    await run({ ...held("store_write_failed"), surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
+    expect([touched, rows[0]!.status, rows[0]!.current_phase, rows[0]!.completed_at, rows[0]!.progress.factCheck?.failure, rows[0]!.last_error?.phase]).toEqual([[], "paused", "fact_check", null, "store_write_failed", "fact_check"]);
+    const ok = withRun({ current_phase: "fact_check" }); const published: string[] = []; // a banked claim advances normally
     await run({ ...BENIGN, factCheck: async () => ({ status: "advanced" as const, banked: 1, pagesComplete: 0 }), surfaceStale: async () => true, publishSurface: async () => void published.push("publish") });
     expect([ok[0]!.status, ok[0]!.progress.factsChecked, published]).toEqual(["completed", 1, ["publish"]]); }); });
 describe("research-run partial-success durability + deduped refreshed providers", () => { it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {

@@ -71,8 +71,7 @@ const PHASES_FOR: Record<DuePhase, readonly ResearchPhase[]> = {
   // changed. No results page, no winner read, no crawl, no refresh, no measurement, and above all no second answer bought to read an answer already in hand.
   consume_analyses: ["keyword_discovery", "publish_surface"],
   plan_cases: ["keyword_discovery", "serp_analysis"],
-  acquire_case_evidence: ["serp_analysis", "winning_pages"], check_page_facts: ["fact_check"],
-  decide_and_prepare: ["publish_surface"],
+  acquire_case_evidence: ["serp_analysis", "winning_pages"], check_page_facts: ["fact_check"], decide_and_prepare: ["publish_surface"],
   verify_and_measure: ["publish_surface"],
   publish_surfaces: ["publish_surface"],
 };
@@ -97,7 +96,8 @@ type ResearchCycleOptions = { now?: () => Date; deadlineMs?: number; steps?: Par
  *  connector refresh). A thrown error is handled separately by the cycle loop, which records the error and pauses. */
 type PhaseOutcome = { progress: ResearchRunProgress; pause?: ResearchRunError };
 
-async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps, lease: { remainingMs: () => number; renew: () => Promise<boolean> }): Promise<PhaseOutcome> {
+/** THE ONLY FACT-CHECK FAILURES THAT STOP A RUN: a lost or spent lease, a write that did not land, a thrown step. Everything else owes one more claim. */
+const FACT_CHECK_HARD_STOP = new Set(["lease_lost", "lease_exhausted", "inventory_write_failed", "store_write_failed", "step_error"]);async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progress: ResearchRunProgress, attemptKey: string, steps: ResearchCycleSteps, lease: { remainingMs: () => number; renew: () => Promise<boolean> }): Promise<PhaseOutcome> {
   if (phase === "refresh_sources") {
     const result = await steps.refreshSources(tenantId, now, attemptKey);
     // Union the freshly-synced provider identities with any that synced on an earlier attempt of this same cycle, so a provider that failed once and later
@@ -116,12 +116,13 @@ async function runPhase(phase: ResearchPhase, tenantId: string, now: Date, progr
     const result = await steps.backfillChunk(tenantId, now, attemptKey);
     return { progress: { ...progress, backfill: result.kind === "advanced" ? { ran: true, complete: result.complete, daysPulled: result.daysPulled } : { ran: false } } };
   }
-  // fact_check - one page's claims against outside sources, on what is LEFT of this drive and under its lease. A FAILED CHECK NEVER PUBLISHES (Codex, 2026-08-18): failed with nothing banked pauses AT this phase, typed. Partial advancement moves on; owed rows keep the rest resumable.
+  // fact_check - one page's claims against outside sources, under this drive's lease. A FACT CHECK THAT CANNOT FINISH WITHHOLDS THAT CORRECTION, NOT BEACON (Codex, 2026-08-19): pausing the run on ordinary incompleteness let one waiting search stop every growth phase. The receipt persists either way.
   if (phase === "fact_check") {
     const checked = await steps.factCheck(tenantId, lease.remainingMs(), lease.renew);
     log.info("[research-run] checked what your pages claim against sources outside them", { tenantId, ...checked });
     const moved = { ...progress, factsChecked: (progress.factsChecked ?? 0) + checked.banked, factCheck: { status: checked.status, banked: checked.banked, pagesComplete: checked.pagesComplete, failure: checked.failure ?? null, reason: checked.reason ?? null } };
-    return checked.status === "failed" && checked.banked === 0 ? { progress: moved, pause: { phase: "fact_check", at: now.toISOString(), message: `fact check ${checked.failure ?? "failed"}: ${checked.reason ?? "nothing advanced"}`.slice(0, 300) } } : { progress: moved };
+    return checked.status === "failed" && checked.banked === 0 && FACT_CHECK_HARD_STOP.has(checked.failure ?? "")
+      ? { progress: moved, pause: { phase: "fact_check", at: now.toISOString(), message: `fact check ${checked.failure ?? "failed"}: ${checked.reason ?? "nothing advanced"}`.slice(0, 300) } } : { progress: moved };
   }
   // publish_surface - evidence-conditioned, never day-gated, never every visit.
   const shouldPublish = (progress.sourcesRefreshed ?? 0) >= 1 || progress.backfill?.ran === true || (await steps.surfaceStale(tenantId, now.getTime()));
@@ -365,8 +366,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
     let outcome: PhaseOutcome;
     try {
-      outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps, { remainingMs: () => Math.max(0, deadline - nowFn().getTime()),
-        renew: () => renewLease(tenantId, run.id, ownerToken, attemptCursor).then((h) => !!h).catch(() => false) });
+      outcome = await runPhase(phase, tenantId, nowFn(), progress, attemptKey, steps, { remainingMs: () => Math.max(0, deadline - nowFn().getTime()), renew: () => renewLease(tenantId, run.id, ownerToken, attemptCursor).then((h) => !!h).catch(() => false) });
     } catch (error) {
       const message = (error instanceof Error ? error.message : String(error)).slice(0, 300);
       log.warn("[research-run] phase threw; pausing (recoverable)", { tenantId, phase, error: message });

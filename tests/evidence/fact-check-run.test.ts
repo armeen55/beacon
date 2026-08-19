@@ -64,8 +64,7 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect([out.status, out.failure, out.cursor?.checked, db.rows.length]).toEqual(["failed", "fetch_capped", 0, 0]); }); // unread evidence never clears a claim
   it("every provider hold keeps its own name, against the stage that took it", async () => {
     const held = [row({ statementKey: "k1" })];
-    for (const hold of ["capped", "waiting", "unavailable"] as const)
-      expect((await unit({ held, searchSources: async () => ({ hold }) })).failure).toBe(`search_${hold}`);
+    for (const hold of ["capped", "waiting", "unavailable"] as const) expect((await unit({ held, searchSources: async () => ({ hold }) })).failure).toBe(`search_${hold}`);
     expect((await unit({ held, read: reader({ claims: CLAIMS, judge: null }) })).failure).toBe("judge_unavailable");
     expect((await unit({ held, read: async () => ({ hold: "refused" as const }) })).failure).toBe("judge_refused"); // refused is not unavailable
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
@@ -84,7 +83,7 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
 
 describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("a page longer than one section is NOT complete after its first chunk", async () => {
-    const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) };
+    const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
     const first = await unit({ page: long, read: reader({ claims: CLAIMS, judge: CONFIRMS }) });
     // coverage persisted BEFORE any claim research, and one section is never the whole page
     expect([(db.cov as { coveredChars: number }).coveredChars, first.cursor?.pageComplete]).toEqual([EXTRACT_CHUNK, false]);
@@ -93,23 +92,19 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
       pageContentHash: pageHashOf(long.body), state: "checked" })];
     const second = await unit({ page: long, held, read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     // Completion arrives only once the LAST section has been inventoried too, and coverage says so durably.
-    expect((db.cov as { coveredChars: number }).coveredChars).toBe(long.body.length);
-    expect(second.status).toBe("done");
+    expect([(db.cov as { coveredChars: number }).coveredChars, second.status]).toEqual([long.body.length, "done"]);
   });
   it("one proposition reworded with the same content words is not acquired twice", async () => {
     const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C"); expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
-    // NOT semantic, and the name says so: different content words are a different claim, researched on its own.
-    expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat);
+    expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat); // not semantic: different words, different claim
     // A duplicate of an already-checked proposition is superseded for free, never researched again.
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
-    let searches = 0;
-    const held = [
-      row({ statementKey: "a", subject: "Ahvaz", current: "hottest day record 54 °C", state: "checked" }),
-      row({ statementKey: "b", subject: "Ahvaz", current: "The hottest day record, 54 °C, is held by Ahvaz", state: "owed" })];
-    const out = await unit({ held, searchSources: async () => { searches += 1; return SOURCE; } });
-    expect(searches).toBe(0); // no paid call for the reformulation
-    expect(db.superseded).toContain("Ahvaz");
-    expect(out.status).toBe("done");
+    let searches = 0; // a duplicate proposition is superseded free, never researched again
+    const out = await unit({ searchSources: async () => { searches += 1; return SOURCE; },
+      held: [row({ statementKey: "a", subject: "Ahvaz", current: "hottest day record 54 °C", state: "checked" }),
+        row({ statementKey: "b", subject: "Ahvaz", current: "The hottest day record, 54 °C, is held by Ahvaz", state: "owed" })] });
+    // no paid call for the reformulation
+    expect([searches, db.superseded.includes("Ahvaz"), out.status]).toEqual([0, true, "done"]);
   });
   it("agreement means independent publishers, so the second fetch prefers a different source class", async () => {
     const fetched: string[] = [];
@@ -166,8 +161,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(ok.sourceReadAt).not.toBeNull(); });
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
-    const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked",
-      pageContentHash: "h1", sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "new" }] });
+    const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",
+      sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "new" }] });
     expect(authorizedCorrections([{ ...c, sourceReadAt: null }])).toHaveLength(0);
     const read = { ...c, sourceReadAt: NOW.toISOString() };
     expect(authorizedCorrections([read], { pageContentHash: "h2" })).toHaveLength(0); // stale page version
@@ -179,8 +174,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
     expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
-    expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed",
-      proposed: "Legend", literal: "legend", usage: "",
+    expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "" }).success).toBe(true);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);
   });
@@ -189,11 +183,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
     const p = parseCapability("onpage_content_parsing", envelope as never) as { bodyText: string | null; openingSample: string | null; headings: string[] };
     const text = [p.bodyText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
-    expect(text).toContain("fable");
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) });
-    expect((db.rows[0] as FactCheck).confidence).toBe("confirmed");
-  });
-});
+    expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
 
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
