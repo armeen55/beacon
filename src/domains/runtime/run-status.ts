@@ -14,10 +14,14 @@ import "server-only";
 
 import type { ResearchPhase, ResearchRun } from "./research-run";
 
-/** The nine operator-visible steps, in order. `done` is terminal (not a step). */
+/** THE nine operator-visible steps, in THE canonical order, and the ONE runtime definition of it: `nextPhase`
+ *  walks this array and nothing else. `fact_check` sits AHEAD OF EVERY PAID PHASE and behind only the free
+ *  ones that feed it, because a money reserve alone could not make it reachable (Codex, 2026-08-18). Editing
+ *  the ResearchPhase union alone changes documentation and no behavior: the live run of 2026-08-19 walked
+ *  straight past a "moved" phase and spent 0.162086 USD on the phases that were still ahead of it. */
 const STEP_ORDER: ResearchPhase[] = [
-  "refresh_sources", "gsc_backfill_chunk", "crawl_pages", "keyword_discovery",
-  "prompt_observations", "serp_analysis", "winning_pages", "fact_check", "publish_surface",
+  "refresh_sources", "gsc_backfill_chunk", "crawl_pages", "fact_check", "keyword_discovery",
+  "prompt_observations", "serp_analysis", "winning_pages", "publish_surface",
 ];
 const RESEARCH_RUN_STEPS_TOTAL = 9 as const;
 

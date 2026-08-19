@@ -57,8 +57,7 @@ describe("the search is the proposition", () => {
   });
 });
 
-describe("every failure is typed and leaves the claim owed", () => {
-  beforeEach(reset);
+describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
     expect([out.status, out.failure, out.cursor?.checked]).toEqual(["failed", "fetch_capped", 0]); // the fetch keeps ITS own hold
@@ -79,8 +78,7 @@ describe("every failure is typed and leaves the claim owed", () => {
     expect(out.status).toBe("advanced"); // a readable, empty world IS an answer
     const r = db.rows[0] as FactCheck;
     expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
-    db.writeFails = true;
-    expect((await unit({ held: [row({ statementKey: "k1" })] })).failure).toBe("store_write_failed");
+    db.writeFails = true; expect((await unit({ held: [row({ statementKey: "k1" })] })).failure).toBe("store_write_failed");
   });
 });
 
@@ -99,8 +97,7 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
     expect(second.status).toBe("done");
   });
   it("one proposition reworded with the same content words is not acquired twice", async () => {
-    const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C");
-    expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
+    const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C"); expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
     // NOT semantic, and the name says so: different content words are a different claim, researched on its own.
     expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat);
     // A duplicate of an already-checked proposition is superseded for free, never researched again.
@@ -127,8 +124,7 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   });
 });
 
-describe("one pass, one global claim allowance", () => {
-  beforeEach(reset);
+describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
     let units = 0;
     const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
@@ -167,8 +163,7 @@ describe("one pass, one global claim allowance", () => {
   });
 });
 
-describe("what may authorize replacing published words", () => {
-  beforeEach(reset);
+describe("what may authorize replacing published words", () => { beforeEach(reset);
   it("confirms only with a real quote from a fetched authority, and credits only its carrier", async () => {
     const weak = "Afsaneh is a lovely name for a girl.";
     await unit({ held: [row({ statementKey: "k1" })], read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supportingQuote: weak } }),
@@ -216,8 +211,7 @@ describe("what may authorize replacing published words", () => {
   });
 });
 
-describe("a verdict from obsolete rules is not current evidence", () => {
-  beforeEach(reset);
+describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
     const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)";
     const page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };

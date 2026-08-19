@@ -169,6 +169,12 @@ describe("research-run phase truth", () => { it("counts only synced sources as r
     const backfill = withRun({ current_phase: "gsc_backfill_chunk" }); await run({ ...BENIGN, backfillChunk: async () => { throw new Error("gsc backfill chunk did not advance: 429"); } }); expect([backfill[0]!.status, backfill[0]!.current_phase, backfill[0]!.last_error?.phase, backfill[0]!.progress.surfacePublished]).toEqual(["paused", "gsc_backfill_chunk", "gsc_backfill_chunk", undefined]); // same window retries next visit, and publish was never reached
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } }); expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); }); });
+describe("the canonical run order is the RUNTIME order", () => { it("walks fact_check ahead of every paid phase, so a type-union edit alone can never move it", async () => {
+    const { nextPhase } = await import("@/domains/runtime/research-run");
+    const walked: string[] = []; let p = "refresh_sources" as Parameters<typeof nextPhase>[0];
+    for (let i = 0; i < 12 && p !== "done"; i += 1) { walked.push(p); p = nextPhase(p); }
+    expect(walked).toEqual(["refresh_sources", "gsc_backfill_chunk", "crawl_pages", "fact_check", "keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages", "publish_surface"]);
+    for (const paid of ["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]) expect(walked.indexOf("fact_check")).toBeLessThan(walked.indexOf(paid)); }); });
 describe("a failed fact check never publishes", () => { it("pauses AT fact_check with the typed failure and publish is not called; a banked claim advances normally", async () => {
     const rows = withRun({ current_phase: "fact_check" }); const touched: string[] = [];
     await run({ ...BENIGN, factCheck: async () => ({ status: "failed" as const, banked: 0, pagesComplete: 0, failure: "search_capped", reason: "the source search is capped" }), surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
@@ -374,7 +380,7 @@ describe("research-run Today copy", () => {
       progress: { funnel: { promptsChecked: 35, enginePairsDone: 40, enginePairsIntended: 140 } } });
     expect(RR.researchStatusLine(RR.projectStatusView(later, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
     const stuck = mk({ status: "paused", current_phase: "keyword_discovery", last_error: { phase: "keyword_discovery", message: "I need your confirmed business basics before I can research keywords.", at: iso() } });  // A pause the operator must clear names its reason instead of reading as ordinary progress.
-    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 3 of 9 steps. I need your confirmed business basics before I can research keywords.");
+    expect(RR.researchStatusLine(RR.projectStatusView(stuck, NOW))).toBe("Research paused after 4 of 9 steps. I need your confirmed business basics before I can research keywords."); // fact_check now precedes keyword_discovery
     const stale = mk({ ...stuck, current_phase: "serp_analysis" });  // A reason recorded by an already-passed phase never resurrects on the current one.
     expect(RR.researchStatusLine(RR.projectStatusView(stale, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
   });
@@ -383,7 +389,7 @@ describe("research-run Today copy", () => {
     expect(RR.researchStatusLine(RR.projectStatusView(fresh, NOW))).toBe("Research in progress: reading the results pages for your strongest topics.");
     const dead = RR.projectStatusView(mk({ ...fresh, updated_at: iso(NOW - 11 * 60_000) }), NOW);  // The SAME row, untouched past the stale bound: the owner died, and saying so is the honest read.
     expect([dead.state, dead.pauseReason]).toEqual(["paused", "I was interrupted mid research. My next daily round picks this back up."]);
-    expect(RR.researchStatusLine(dead)).toBe("Research paused after 5 of 9 steps. I was interrupted mid research. My next daily round picks this back up.");
+    expect(RR.researchStatusLine(dead)).toBe("Research paused after 6 of 9 steps. I was interrupted mid research. My next daily round picks this back up.");
     expect(RR.projectStatusView(mk({ ...fresh, lease_owner: "o", lease_expires_at: iso(NOW - LEASE) }), NOW)).toEqual(RR.projectStatusView(fresh, NOW)); });  // It reads off updated_at alone, so a lease that lived or died still moves nothing: no flicker.
   it("says whether research is alive at all: what the last pass produced, a day that owed nothing, and a silence with the press that ends it", () => {
     const at = new Date(NOON_PT).toISOString(), seen = (o: Partial<RR.ResearchRun>, ms = NOON_PT + 3_600_000) => RR.projectStatusView(mk({ status: "completed", updated_at: at, completed_at: at, ...o }), ms).liveness;
