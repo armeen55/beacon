@@ -419,8 +419,8 @@ const EditorJudgementSchema = z.object({ pageFit: z.boolean(), claimsEntailed: z
 const FactClaimExtractionSchema = z.object({ statements: z.array(z.object({ subject: z.string().min(1).max(200), current: z.string().min(1).max(600), locator: z.string().max(200) })).max(40) });
 const FactClaimJudgementSchema = z.object({
   verdict: z.enum(["page_correct", "page_wrong", "page_imprecise", "undecidable"]), confidence: z.enum(["confirmed", "likely", "disputed", "unsupported"]),
-  proposed: z.string().max(600), literal: z.string().max(400), usage: z.string().max(400),
-  supportingQuote: z.string().max(600), quotedFrom: z.string().max(400), note: z.string().max(400) });
+  proposed: z.string().max(600), literal: z.string().max(400), usage: z.string().max(400), note: z.string().max(400),
+  supporting: z.array(z.object({ url: z.string().max(400), quote: z.string().max(600) })).max(6) }); // one quote per source: independent publishers never carry the identical sentence
 
 export const SCHEMA_BY_KIND = {
   editor_judgement: EditorJudgementSchema,

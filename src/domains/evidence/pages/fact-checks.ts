@@ -19,7 +19,11 @@ import { log } from "@/lib/logger";
 
 const TABLE = "page_source_facts";
 
-export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "reference" | "community" | "babyname";
+/** WHAT KIND OF PUBLISHER A SOURCE IS. `news` is a credible journalistic publisher, `publisher` an ordinary
+ *  one nobody has vouched for, and `community` is user-generated: social, forums, video, baby-name mills.
+ *  UNKNOWN IS NOT COMMUNITY (Codex, 2026-08-19): defaulting every unfamiliar domain to community rejected the
+ *  Washington Post, CNBC and four more on a results page plainly about the claim. */
+export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "reference" | "news" | "publisher" | "community" | "babyname";
 
 /** THE CLAIM'S OWN LIFECYCLE, which is also the resume cursor. `owed` = the page makes it and nobody checked
  *  it yet. `checked` = researched at this version. `superseded` = history, kept, never deleted, never work. */
@@ -29,7 +33,7 @@ export type ClaimState = "owed" | "checked" | "superseded";
  *  SUBJECT alone, and it banked `checked` on sources it never managed to read. Version 2 searches the whole
  *  proposition and leaves an unread source owed. A row from an older version is not current evidence, so
  *  Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1. */
-export const VERIFICATION_RULES_VERSION = 2;
+export const VERIFICATION_RULES_VERSION = 3;
 
 export type FactCheck = {
   page: string;

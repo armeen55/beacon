@@ -28,7 +28,8 @@ const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input:
   const a = input.system.startsWith("You read one web page") ? byStage.claims : byStage.judge;
   return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] };
-const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", supportingQuote: "tale, story, fable", agreement: "multiple_agree", note: "" };
+const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
+  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] };
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] };
 const PASSAGE = "Persian افسانه: tale, story, fable, legend.";
 const coverage = () => ({ readCoverage: async () => db.cov as InventoryCoverage | null,
@@ -60,9 +61,7 @@ describe("the search is the proposition", () => {
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
-    expect([out.status, out.failure, out.cursor?.checked]).toEqual(["failed", "fetch_capped", 0]); // the fetch keeps ITS own hold
-    expect(db.rows).toHaveLength(0); // NOTHING banked: unread evidence never clears the claim
-  });
+    expect([out.status, out.failure, out.cursor?.checked, db.rows.length]).toEqual(["failed", "fetch_capped", 0, 0]); }); // unread evidence never clears a claim
   it("every provider hold keeps its own name, against the stage that took it", async () => {
     const held = [row({ statementKey: "k1" })];
     for (const hold of ["capped", "waiting", "unavailable"] as const)
@@ -72,13 +71,14 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
   });
-  it("a readable search with zero qualifying sources settles the claim, and a lost write does not", async () => {
-    const out = await unit({ held: [row({ statementKey: "k1" })],
-      searchSources: async () => ({ organic: [{ domain: "babynames.example", url: "https://babynames.example/x", title: "x" }] }) });
-    expect(out.status).toBe("advanced"); // a readable, empty world IS an answer
+  it("only an EMPTY results page is none_found; results that fail the policy leave the claim owed", async () => {
+    const held = [row({ statementKey: "k1" })]; // a page of results none of which clears the policy is unresolved, never an empty world
+    const bad = await unit({ held, searchSources: async () => ({ organic: [{ domain: "babynames.example", url: "https://babynames.example/x", title: "x" }] }) });
+    expect([bad.status, bad.failure, db.rows.length]).toEqual(["failed", "source_quality_unresolved", 0]);
+    expect((await unit({ held, searchSources: async () => ({ organic: [] }) })).status).toBe("advanced"); // truly empty
     const r = db.rows[0] as FactCheck;
     expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
-    db.writeFails = true; expect((await unit({ held: [row({ statementKey: "k1" })] })).failure).toBe("store_write_failed");
+    db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");
   });
 });
 
@@ -113,73 +113,57 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   });
   it("agreement means independent publishers, so the second fetch prefers a different source class", async () => {
     const fetched: string[] = [];
-    await unit({ held: [row({ statementKey: "k1" })],
-      searchSources: async () => ({ organic: [
-        { domain: "en.wikipedia.org", url: "https://en.wikipedia.org/a", title: "A" },
-        { domain: "www.britannica.com", url: "https://britannica.com/a", title: "A" },
-        { domain: "behindthename.com", url: "https://behindthename.com/a", title: "A" }] }),
-      fetchSource: async (url: string) => { fetched.push(url); return { text: PASSAGE }; } });
+    await unit({ held: [row({ statementKey: "k1" })], fetchSource: async (url: string) => { fetched.push(url); return { text: PASSAGE }; },
+      searchSources: async () => ({ organic: [["en.wikipedia.org", "en.wikipedia.org/a"], ["www.britannica.com", "britannica.com/a"],
+        ["behindthename.com", "behindthename.com/a"]].map(([d, u]) => ({ domain: d!, url: `https://${u}`, title: "A" })) }) });
     // not the second encyclopedia that merely ranked next
-    expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]);
-  });
+    expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]); });
 });
 
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
     let units = 0;
     const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
-    const out = await runFactCheckPass({
-      tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages, held: [],
-      refreshHeld: async () => null,
-      readCoverage: async () => null, writeCoverage: async () => true,
-      read: async (i: { kind: string }) => { if (i.kind === "fact_claim_extraction") units += 1;
-        return { value: (i.kind === "fact_claim_extraction"
-          ? { statements: Array.from({ length: 5 }, (_, n) => ({ subject: `S${units}${n}`, current: `claim ${units} ${n}`, locator: `L${n}` })) }
-          : CONFIRMS) as Record<string, unknown> }; },
-      searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }),
-    });
-    expect(out.attempts).toBe(ATTEMPTS_PER_PASS); // 4 TOTAL, not 4 per page
-    expect(out.attempts).toBeLessThanOrEqual(4);
-  });
+    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages, held: [],
+      refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
+      read: async (i: { kind: string }) => ({ value: (i.kind === "fact_claim_extraction"
+        ? (units += 1, { statements: Array.from({ length: 5 }, (_, n) => ({ subject: `S${units}${n}`, current: `claim ${units} ${n}`, locator: `L${n}` })) })
+        : CONFIRMS) as Record<string, unknown> }),
+      searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }) });
+    expect(out.attempts).toBe(ATTEMPTS_PER_PASS); }); // 4 TOTAL, not 4 per page
   it("an account whose pages have no stored words owes nothing here, and never pauses a fresh account", async () => {
     const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: [],
       pages: [{ url: "https://x.example/new", path: "/new", loadBody: async () => "" }],
       refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
       read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }) });
-    expect([out.status, out.attempts, out.failure]).toEqual(["done", 0, undefined]);
-  });
+    expect([out.status, out.attempts, out.failure]).toEqual(["done", 0, undefined]); });
   it("a failed unit ends the pass with its typed identity instead of burning the allowance", async () => {
-    const pages = [{ url: "https://x.example/a", path: "/a", loadBody: async () => "A body." }];
-    const out = await runFactCheckPass({
-      tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages,
+    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000,
+      pages: [{ url: "https://x.example/a", path: "/a", loadBody: async () => "A body." }],
       held: [row({ page: "/a", pageContentHash: pageHashOf("A body.") })],
       refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
-      read: reader({ claims: CLAIMS, judge: CONFIRMS }),
-      searchSources: async () => ({ hold: "capped" }), fetchSource: async () => ({ text: PASSAGE }),
-    });
-    expect(out.status).toBe("failed");
-    expect(out.failure).toBe("search_capped");
-    expect(out.attempts).toBe(1);
-  });
+      read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => ({ hold: "capped" }), fetchSource: async () => ({ text: PASSAGE }) });
+    expect([out.status, out.failure, out.attempts]).toEqual(["failed", "search_capped", 1]); });
 });
 
 describe("what may authorize replacing published words", () => { beforeEach(reset);
-  it("confirms only with a real quote from a fetched authority, and credits only its carrier", async () => {
-    const weak = "Afsaneh is a lovely name for a girl.";
-    await unit({ held: [row({ statementKey: "k1" })], read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supportingQuote: weak } }),
-      searchSources: async () => ({ organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] }),
-      fetchSource: async (url: string) => ({ text: url.includes("wiktionary") ? PASSAGE : weak }) });
-    const r = db.rows[0] as FactCheck;
-    expect(r.confidence).not.toBe("confirmed"); // the weak page cannot confirm through the strong one's name
-    expect(r.sources.find((s) => s.url.includes("wiktionary"))!.says).toBe("");
-    expect(r.agreement).toBe("single_source"); // counted, not taken from the model's label
-
+  it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
+    const weak = "Afsaneh is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
+    const split = async (url: string) => ({ text: url.includes("wiktionary") ? PASSAGE : weak });
+    // The model says the dictionary supports it, quoting a sentence only the weaker page carries.
+    await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://en.wiktionary.org/x", quote: weak }] } }) });
+    const bad = db.rows[0] as FactCheck;
+    expect([bad.agreement, bad.confidence === "confirmed", bad.sources.find((x) => x.url.includes("wiktionary"))!.says]).toEqual(["none_found", false, ""]);
+    db.rows = []; // attributed honestly, the weaker page supports it alone and still cannot confirm it
+    await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://behindthename.com/x", quote: weak }] } }) });
+    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]);
     db.rows = [];
-    await unit({ held: [row({ statementKey: "k1" })] });
+    await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck;
     expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
-    expect(ok.sourceReadAt).not.toBeNull();
-  });
+    expect(ok.sourceReadAt).not.toBeNull(); });
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked",
@@ -196,8 +180,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
     expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed",
-      proposed: "Legend", literal: "legend", usage: "", supportingQuote: "tale, story, fable",
-      quotedFrom: "https://en.wiktionary.org/x", note: "" }).success).toBe(true);
+      proposed: "Legend", literal: "legend", usage: "",
+      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "" }).success).toBe(true);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);
   });
   it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
@@ -213,8 +197,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
-    const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)";
-    const page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
+    const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
     const done = { pageContentHash: pageHashOf(page.body), coveredChars: page.body.length, totalChars: page.body.length }; db.cov = done;
     // The real live row: checked/undecidable, produced by "Ahvaz, Iran definition reference" under rules 1.
     const old = row({ page: "/ahvaz", statementKey: "ahvaz, iran#fdbdbbc407", subject: "Ahvaz, Iran", current: AHVAZ,
@@ -223,13 +206,30 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
     const out = await unit({ page, held: [old], searchSources: async (q: string) => { asked = q; return SOURCE; } });
     expect([db.reopened, out.status]).toEqual([["ahvaz, iran#fdbdbbc407"], "advanced"]); // archived, owed, researched
     for (const must of ["Ahvaz", "54", "°C", "Asia", "hottest"]) expect(asked).toContain(must);
-    expect(asked).not.toContain("definition reference");
-    expect((db.rows[0] as FactCheck).rulesVersion).toBe(VERIFICATION_RULES_VERSION);
+    expect([asked.includes("definition reference"), (db.rows[0] as FactCheck).rulesVersion]).toEqual([false, VERIFICATION_RULES_VERSION]);
     // A check produced under the CURRENT rules stays settled and is never re-researched.
     reset(); db.cov = done; let searches = 0;
     const settled = await unit({ page, held: [{ ...old, rulesVersion: VERIFICATION_RULES_VERSION }],
       searchSources: async () => { searches += 1; return SOURCE; } });
-    expect([db.reopened, searches, settled.status]).toEqual([[], 0, "done"]);
-  });
-});
+    expect([db.reopened, searches, settled.status]).toEqual([[], 0, "done"]); }); });
 
+
+describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the organic results the already-paid SERP returned, in order
+  const LIVE = { organic: [["www.washingtonpost.com", "washingtonpost.com/a"], ["mashable.com", "mashable.com/a"],
+    ["www.newarab.com", "newarab.com/a"], ["www.cnbc.com", "cnbc.com/a"], ["www.globalcitizen.org", "globalcitizen.org/a"],
+    ["www.youtube.com", "youtube.com/watch"]].map(([domain, u]) => ({ domain: domain!, url: `https://${u}`, title: "Ahvaz 129F" })) };
+  const WAPO = "Ahvaz, Iran reached 129 degrees Fahrenheit, a record for Asia.", CNBC = "The Iranian city recorded 54 degrees Celsius on Thursday.", split = async (url: string) => ({ text: url.includes("washingtonpost") ? WAPO : CNBC });
+  it("is never an empty world, excludes the video result, and one publisher alone cannot confirm", async () => {
+    const fetched: string[] = [];
+    const out = await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE,
+      fetchSource: async (url: string) => { fetched.push(url); return split(url); },
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }] } }) });
+    expect(out.status).toBe("advanced"); // NOT none_found and NOT source_quality_unresolved
+    expect([fetched.length, fetched.some((u) => u.includes("youtube"))]).toEqual([2, false]); // video excluded
+    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
+  it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
+    await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE, fetchSource: split,
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }] } }) });
+    const r = db.rows[0] as FactCheck;
+    expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
+    expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence

@@ -22,7 +22,7 @@ const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, searc
 
 const check = (over: Record<string, unknown> = {}) => ({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
-  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: 2,
+  pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: 3,
   sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
   sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend" },
@@ -44,7 +44,7 @@ describe("a page's own statements against their sources", () => {
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
     const cards = async () => (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
     for (const over of [{ pageContentHash: "hash-of-a-page-that-has-since-changed" }, { sourceReadAt: null },
-      { state: "superseded" }, { rulesVersion: 1 }]) { checks.rows = [check(over)]; expect(await cards()).toHaveLength(0); }
+      { state: "superseded" }, { rulesVersion: 2 }]) { checks.rows = [check(over)]; expect(await cards()).toHaveLength(0); }
   });
   it("refuses to replace published words on anything less than a confirmed, source-backed contradiction", async () => {
     checks.rows = [check({ confidence: "likely" }), check({ subject: "Ava", confidence: "disputed" }),

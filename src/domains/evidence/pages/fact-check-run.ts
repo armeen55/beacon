@@ -36,6 +36,10 @@ const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhod
 const ENCYCLOPEDIA = /(^|\.)(wikipedia\.org|britannica\.com|encyclopedia\.com)$/i;
 const REFERENCE = /(^|\.)(behindthename\.com|nameberry\.com|ethnologue\.com|statista\.com|census\.gov)$/i;
 const BABYNAME = /(baby|names?)[-.]?(names?|meaning|central|nology)|(^|\.)(momjunction|pampers|thebump|babycenter|parents)\./i;
+/** USER-GENERATED AND VIDEO, named explicitly. This is the reject list; everything not on it is a publisher. */
+const COMMUNITY = /(^|\.)(youtube\.com|youtu\.be|tiktok\.com|instagram\.com|facebook\.com|x\.com|twitter\.com|reddit\.com|quora\.com|pinterest\.com|medium\.com|substack\.com|tumblr\.com|blogspot\.com|wordpress\.com|linkedin\.com|vimeo\.com|dailymotion\.com|answers\.com|stackexchange\.com|stackoverflow\.com|fandom\.com|wikihow\.com)$/i;
+/** CREDIBLE JOURNALISTIC PUBLISHERS. Two independent ones may support a confirmation; one supports `likely`. */
+const NEWS = /(^|\.)(washingtonpost|nytimes|wsj|bbc|cnn|cnbc|reuters|apnews|theguardian|guardian|aljazeera|newarab|alaraby|npr|time|forbes|wired|axios|bloomberg|ft|economist|independent|telegraph|dw|france24|euronews|abcnews|nbcnews|cbsnews|usatoday|latimes|newsweek|mashable|globalcitizen|scientificamerican|nationalgeographic|livescience|weather|accuweather|smithsonianmag|phys)\.(com|org|net|co\.uk|uk|de|fr|qa)$/i;
 
 function sourceClassOf(domain: string): SourceKind {
   const d = domain.replace(/^www\./, "").toLowerCase();
@@ -44,9 +48,16 @@ function sourceClassOf(domain: string): SourceKind {
   if (ENCYCLOPEDIA.test(d)) return "encyclopedia";
   if (REFERENCE.test(d)) return "reference";
   if (BABYNAME.test(d)) return "babyname";
-  return "community";
+  if (COMMUNITY.test(d)) return "community";
+  if (NEWS.test(d)) return "news";
+  return "publisher"; // unknown, ordinary: worth reading, never enough on its own
 }
+/** One of these alone may carry a confirmation. */
 const AUTHORITATIVE = new Set<SourceKind>(["scholarly", "dictionary", "encyclopedia"]);
+/** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
+const CREDIBLE = new Set<SourceKind>(["news"]);
+/** Never read at all: user-generated, video and baby-name mills. */
+const REJECTED = new Set<SourceKind>(["community", "babyname"]);
 
 export const pageHashOf = (body: string): string => createHash("sha256").update(body).digest("hex").slice(0, 16);
 
@@ -108,15 +119,15 @@ const CLAIM_SYSTEM = 'You read one web page and list the statements on it that a
   + 'Only statements of FACT about the world. Never marketing copy, navigation, or anything about the page itself. At most 40.';
 
 const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGES QUOTED FROM SOURCES THAT WERE ACTUALLY FETCHED. '
-  + 'Return ONLY {"verdict","proposed","literal","usage","agreement","confidence","supportingQuote","note"}. '
+  + 'Return ONLY {"verdict","proposed","literal","usage","confidence","supporting","note"}. '
   + 'verdict: page_correct | page_wrong | page_imprecise | undecidable. confidence: confirmed | likely | disputed | unsupported. '
-  + 'You may answer "confirmed" ONLY when the passages you were given state the corrected fact plainly and at least one is from a scholarly, dictionary or encyclopedia source. '
-  + '`supportingQuote` MUST be copied verbatim from one of the passages; if you cannot quote one, answer unsupported and propose nothing. '
+  + '`supporting` is one entry PER SOURCE that actually supports your answer: {"url": the source URL exactly as given, "quote": a sentence copied VERBATIM from THAT source\'s own passage}. '
+  + 'Never repeat one sentence across sources, and never list a source you cannot quote. If you can quote none, answer unsupported and propose nothing. '
   + 'Distinguish literal etymology from modern usage: a page recording a live usage is not automatically wrong. Never invent a replacement.';
 
 type Extracted = { statements: { subject: string; current: string; locator?: string }[] };
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
-  agreement: FactCheck["agreement"]; confidence: FactCheck["confidence"]; supportingQuote: string; note: string };
+  confidence: FactCheck["confidence"]; supporting: { url: string; quote: string }[]; note: string };
 
 /** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
  *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
@@ -133,7 +144,8 @@ export type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_cla
  *  refusal are different debts, and one generic sentence hid which of them repeated paid attempts were hitting
  *  (Codex, 2026-08-18). Every failure leaves the claim OWED. */
 type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed" | "store_write_failed"
-  | "lease_lost" | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
+  | "lease_lost" | "source_quality_unresolved"
+  | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
 
 /** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
 export type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
@@ -280,17 +292,26 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // each leave the claim OWED under their own name, and only a readable answer with no qualifying source
   // banks `none_found`.
   if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`);
-  // ONE CANDIDATE PER PUBLISHER: agreement must mean independent publishers, never one site twice.
+  // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and
+  // filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever
+  // saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts
+  // QUALIFYING candidates.
+  const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
-  const candidates = (found.organic ?? []).slice(0, CANDIDATES)
+  const candidates = organic
     .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" }))
-    .filter((c) => c.kind !== "community" && c.kind !== "babyname")
+    .filter((c) => !REJECTED.has(c.kind))
     .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
-    .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0));
-  if (candidates.length === 0) {
+    .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0))
+    .slice(0, CANDIDATES);
+  // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of
+  // results none of which clears the policy is an unresolved question, and the claim stays owed.
+  if (organic.length === 0) {
     return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
-      verdict: "undecidable", note: "The search was readable and no source of any authority came back for this claim, so nothing is proposed." });
+      verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });
   }
+  if (candidates.length === 0) return fail("source_quality_unresolved", cursor,
+    `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`);
   // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia
   // pages are not taken merely because they rank first (Codex, 2026-08-18).
   const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
@@ -318,26 +339,33 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
   if ("hold" in verdict) return fail(`judge_${verdict.hold}`, cursor, `judging this claim is ${verdict.hold}, so it is still owed`);
   const v = verdict.value as unknown as Judged;
-  const quote = (v.supportingQuote ?? "").trim();
-  // A QUOTE MAY NOT BORROW ANOTHER SOURCE'S AUTHORITY: the WHOLE normalized quote must appear in one passage
-  // and is credited to THAT source alone (Codex, 2026-08-18).
+  // EVERY CLAIMED SUPPORT IS VERIFIED IN ITS OWN SOURCE. A quote is credited only to the passage that actually
+  // contains it, so one sentence attributed to several publishers supports exactly the one it came from.
   const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
-  const owner = quote.length > 0 ? passages.find((p) => norm(p.text).includes(norm(quote))) ?? null : null;
-  // AGREEMENT IS COUNTED, never accepted from the model: how many fetched publishers carry the supporting words.
-  const carriers = quote.length > 0 ? passages.filter((p) => norm(p.text).includes(norm(quote))) : [];
-  const agreement: FactCheck["agreement"] = carriers.length > 1 ? "multiple_agree"
-    : carriers.length === 1 ? "single_source" : "none_found";
-  const confirmable = owner != null && AUTHORITATIVE.has(owner.kind);
+  const verified = new Map<string, string>(); // passage url -> its own verified quote
+  for (const sup of v.supporting ?? []) {
+    const quote = (sup.quote ?? "").trim();
+    if (quote.length === 0) continue;
+    const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
+    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) verified.set(p.url, quote);
+  }
+  const supporters = passages.filter((p) => verified.has(p.url));
+  // AGREEMENT IS DISTINCT PUBLISHERS, counted, never accepted from the model.
+  const agreement: FactCheck["agreement"] = supporters.length > 1 ? "multiple_agree"
+    : supporters.length === 1 ? "single_source" : "none_found";
+  // ONE AUTHORITY, OR TWO INDEPENDENT CREDIBLE PUBLISHERS. An ordinary publisher supports `likely` and never
+  // authorizes replacing published words on its own (Codex, 2026-08-19).
+  const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
+    || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
     proposed: confidence === "unsupported" ? null : (v.proposed?.trim() || null),
     literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
-    // Only the source that actually carried the words is credited with them.
-    sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: carriers.includes(p) ? quote.slice(0, 600) : "" })),
-    sourceReadAt: owner?.readAt ?? null,
+    sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
+    sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${owner ? "" : " No fetched passage carries the quote it relied on, so this is held below confirmed."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}`.trim() });
 }
 
 export type FactCheckPassDeps = {
