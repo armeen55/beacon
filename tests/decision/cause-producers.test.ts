@@ -174,19 +174,18 @@ describe("a named cause produces the change that fixes it", () => {
     expect([out.status, bought, out.status === "none" && out.reason.includes("The results page for that search has not been read yet")]).toEqual(["none", [], true]); }); });
 /** A DOOR ANSWERS FOR ITS OWN CASE: a page selected because an engine skipped it, whose answer I no longer hold, is refused in that door's words. The wrong reason is worse than no reason, and neither is drafted. */
 describe("every door answers for its own evidence", () => {
-  const DOOR = { door: "ai_absence" as "ai_absence" | "coverage_verdict" | "cannibalization" | "recent_decline", entry: "I gave this page my deepest read because an assistant answered around it.",
-    evidence: { query: "rain barrel sizing", engine: "ChatGPT", promptText: "what size rain barrel do I need", competingUrls: [] as string[], window: null as string | null } };
+  const DOOR = { door: "cannibalization" as "coverage_verdict" | "cannibalization" | "recent_decline", entry: "I gave this page my deepest read because two of your own pages come up for it.",
+    evidence: { query: "rain barrel sizing", engine: null as string | null, promptText: null as string | null, competingUrls: [] as string[], window: null as string | null } };
   const refused = async (over: Partial<typeof DOOR>): Promise<string> => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), door: { ...DOOR, ...over } });
     return out.status === "none" ? out.reason : `expected a refusal, got ${JSON.stringify(out)}`;
   };
   it("names what THAT door is missing and never falls back to the click sentence", async () => {
-    expect(await refused({})).toContain('Watch "rain barrel sizing" again and what the assistant said comes back here.');
     expect(await refused({ door: "cannibalization" })).toContain("which pages those are is not settled");
     expect(await refused({ door: "recent_decline" })).toContain("one 90 day total");
     expect(await refused({ door: "coverage_verdict" })).toContain("named it as the page of yours to improve");
     expect(await refused({ evidence: { ...DOOR.evidence, query: " " } })).toContain("no longer names the search it was about");
-    for (const door of ["ai_absence", "cannibalization", "recent_decline", "coverage_verdict"] as const) {
+    for (const door of ["cannibalization", "recent_decline", "coverage_verdict"] as const) {
       expect(await refused({ door })).not.toMatch(/losing enough clicks|[–—]|experiment|control group|baseline|SERP/i);
     }
     expect(bought).toEqual([]); // a door that cannot show its own case never reaches a drafter

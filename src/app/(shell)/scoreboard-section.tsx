@@ -10,7 +10,7 @@ import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { loadShippedChanges } from "@/domains/measurement";
 import { buildScoreboard, buildMoneyLine, type Scoreboard } from "@/domains/measurement";
 import { loadRevenueByDayForTenant } from "@/domains/measurement";
-import { loadOwnCitationsByDay } from "@/domains/decision";
+import { visibilitySeries } from "@/domains/measurement";
 import { currentTenantSlug } from "@/lib/tenant-context";
 import { ScoreboardChartTabs } from "./scoreboard-chart-tabs";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
@@ -177,10 +177,14 @@ export async function ScoreboardSection({ tenantId }: { tenantId: string }) {
     );
     if (raced.timedOut) return <HonestDelay />;
     const [daily, ledger, slug, revenueDays] = raced.data;
-    // Item 9 - your own domain's citations per day, the chart's AI tab. Deadline-bounded like the
-    // reads above so one slow follow-up read cannot re-strand the section; fail-soft to no tab.
-    const none = { daily: [] as Array<{ date: string; clicks: number }>, total: 0 };
-    const citations = slug ? await valueWithDeadline(loadOwnCitationsByDay(tenantId, slug).catch(() => none), none) : none;
+    // YOUR OWN CITATIONS PER DAY, off the ONE canonical AI truth every surface reads (measurement/ai-outcomes
+    // over ai_observations). This band read the deleted Profound-era table while Visibility read canonical
+    // rows, so the two surfaces could tell two different AEO stories (operator, 2026-08-19). Days whose
+    // engines never reported their sources are OMITTED, never drawn as zero. Deadline-bounded; fail-soft.
+    void slug;
+    const segments = await valueWithDeadline(visibilitySeries(tenantId, 30).catch(() => []), [] as Awaited<ReturnType<typeof visibilitySeries>>);
+    const citations = { daily: segments.flatMap((seg) => seg.days.filter((d) => d.citationSample > 0)
+      .map((d) => ({ date: d.day, clicks: d.ownedCiting }))) };
     // Wave 3A: pass the FULL ledger rows (windows + baseline), not a slim verdict-string
     // projection, so buildScoreboard tones each chart marker through the canonical lifecycle
     // rule (splitLedgerLifecycle). The measuring count and next-read date are NOT read here:

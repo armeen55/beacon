@@ -333,3 +333,15 @@ describe("the recording seam", () => {
     expect((await repair()).measurement).toBe("insufficient_comparison");
   });
 });
+
+describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
+  it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
+    const scope = { promptIds: ["p1"], engines: ["chatgpt", "gemini"], fanouts: ["haft seen table items list"], stage: "owned_retrieved_not_cited" };
+    await recordShipment({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family",
+      before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], basis: null, caseId: null,
+      judgedMetric: "ai_mentions", aiScope: scope, now: new Date("2026-07-15T00:00:00.000Z") } as Parameters<typeof recordShipment>[0]);
+    const row = (await loadShippedChangesForTenant(T))[0]!;
+    expect(row.aiScope).toEqual(scope); // exactly what the card claimed, remeasurable
+    expect(row.targetQueries).toEqual(["nowruz traditions"]); // and the Google scope is untouched by it
+  });
+});

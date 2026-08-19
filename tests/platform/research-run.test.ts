@@ -412,7 +412,7 @@ describe("research-run conflict-free research closure", () => {
     const pre = emptyFunnelState(T, "basis_test"); pre.cycle = { runId: "prev-run", cycleKey: "prev", spentUsd: 1.82, cacheHits: 0 }; // the PREVIOUS run's receipt
     const live = { state: structuredClone(pre), rowVersion: 18 }; const seen: Record<string, unknown>[] = []; const bought = new Set<string>(); let loads = 0, paid = 0;
     const answer = { answerText: "hi", modelServed: null, webSearchReported: null, citations: [], fanOutQueries: null, brands: null };
-    const deps: FunnelDeps = { syncHistory: async () => {}, recordObservation: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
+    const deps: FunnelDeps = { recordObservation: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
       loadState: async () => (loads++ < staleLoads ? { state: structuredClone(pre), rowVersion: 18 } : { state: structuredClone(live.state), rowVersion: live.rowVersion }),
       saveState: async (_t, _b, s, expected) => { if (expected !== live.rowVersion) return null; live.state = structuredClone(s); live.rowVersion = expected + 1; return live.rowVersion; },
       callProvider: async (cap) => (bought.has(cap) ? { state: "hit", envelope: answer as never, costUsd: 0, cacheKey: `ck-${cap}`, modelServed: null }  // Cache identity makes any retry $0: a capability already bought comes back as a hit, never a second paid post.
@@ -575,7 +575,7 @@ describe("what a stored observation says it cost", () => {
   /** One account's funnel document plus the two seams that matter here: what a PLACEMENT costs, and what the paid row already ON FILE says when the landing itself computed nothing. */
   const world = (postCost: number, onFile = 0) => {
     const wrote: AiObservationRecord[] = []; const held = { s: emptyFunnelState(T, "basis_test"), v: 1 }; let posts = 0, reads = 0;
-    const deps: FunnelDeps = { syncHistory: async () => {}, getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
+    const deps: FunnelDeps = { getAccount: async () => null, now: () => NOW, parse: ((_c: unknown, env: unknown) => env) as FunnelDeps["parse"],
       recordObservation: async (rec) => void wrote.push(rec), readObservationCost: async () => (reads += 1, onFile),
       loadState: async () => ({ state: structuredClone(held.s), rowVersion: held.v }),
       saveState: async (_t, _b, s, expected) => { if (expected !== held.v) return null; held.s = structuredClone(s); held.v += 1; return held.v; },

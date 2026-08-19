@@ -100,6 +100,10 @@ export type ShippedChangeRecord = {
   verification: ShipmentVerification | null;
   /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
   operatorNote: string | null;
+  /** THE EXACT AI SCOPE this change targets, preserved typed from the proposal: prompt ids, assistants and
+   *  the fan-out cluster, never flattened into the ten targetQueries strings. Null on pre-AEO rows and on
+   *  changes with no AI claim. Results remeasures exactly this. */
+  aiScope: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string } | null;
   /** WHAT THIS SHIPMENT IS JUDGED ON, declared at record time and never re-derived: the one metric the change was made to move ("clicks", "ai_mentions") and the primary window it is read over. Both sat as NULL columns for months, leaving Results free to judge on whatever it read first. Null only predates the write. */
   judgedMetric: string | null; primaryWindowDays: number | null;
   /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
@@ -139,6 +143,7 @@ type LedgerRow = {
   pre_change_hash_unavailable?: boolean | null; measurement_state?: string | null;
   shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null;
   operator_override_reason?: string | null;
+  ai_scope?: ShippedChangeRecord["aiScope"];
   pinned_read?: PinnedRead | null;
   created_at: string;
   updated_at: string;
@@ -161,7 +166,7 @@ const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost",
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
 const VALID_MEASUREMENT_STATES: ReadonlySet<string> = new Set(["measuring", "measurement_unavailable", "insufficient_comparison", "verification_needed"]);
 /** THE TWO COLUMNS ADDED AFTER THE FACT: a deploy that beats its migration still writes the Shipment. */
-const LATE_COLUMNS = ["pre_change_hash_unavailable", "measurement_state", "controls_receipt"] as const;
+const LATE_COLUMNS = ["pre_change_hash_unavailable", "measurement_state", "controls_receipt", "ai_scope"] as const;
 const ZERO_BASELINE: ProofBaseline = { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
 
 function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
@@ -177,7 +182,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
     pre_change_hash_unavailable: r.preChangeHashUnavailable, measurement_state: r.measurementState,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
-    operator_override_reason: r.operatorNote, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt, judged_metric: r.judgedMetric, primary_window_days: r.primaryWindowDays,
+    operator_override_reason: r.operatorNote, ai_scope: r.aiScope, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt, judged_metric: r.judgedMetric, primary_window_days: r.primaryWindowDays,
   };
 }
 
@@ -200,7 +205,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     preChangeHashUnavailable: row.pre_change_hash_unavailable === true,
     measurementState: VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? (row.measurement_state as MeasurementState) : null,
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
-    operatorNote: row.operator_override_reason ?? null, pinnedRead: row.pinned_read ?? null,
+    operatorNote: row.operator_override_reason ?? null, aiScope: row.ai_scope ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -254,7 +259,6 @@ async function loadShippedChangesUncached(): Promise<ShippedChangeRecord[]> {
   }
   return queryTenantLedger(admin, tid);
 }
-
 /** Tenant-EXPLICIT ledger read (background/after() scope where ambient is wrong). */
 export async function loadShippedChangesForTenant(tenantId: string): Promise<ShippedChangeRecord[]> {
   if (!tenantId) return [];
@@ -283,13 +287,11 @@ async function queryTenantLedger(
   }
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
 }
-
 /** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. Best-effort both ways. */
 async function invalidateResultsSurfaceSafe(): Promise<void> {
   try { await (await import("@/app/(shell)/results/results-surface-store")).invalidateResultsSurface(); } catch { /* best-effort */ }
   try { await (await import("@/app/(shell)/surface-release")).invalidateCoreSurfaces(); } catch { /* best-effort */ }
 }
-
 /** PURE. The stamp and the baseline are written ONCE. Every later writer arrives with the whole record, so
  *  without this a recompute could move where the window starts. What is on file wins, and the log says so. */
 type WriteOnce = { implemented_at?: string | null; shipment_baseline?: ShipmentBaseline | null };
@@ -304,7 +306,6 @@ function withHeldImmutables(held: WriteOnce | null, row: LedgerRow): LedgerRow {
   }
   return { ...row, implemented_at: held.implemented_at, shipment_baseline: held.shipment_baseline ?? row.shipment_baseline };
 }
-
 /** The two write-once columns already on file for this Shipment, or null. */
 async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: string, id: string): Promise<WriteOnce | null> {
   try {
@@ -315,7 +316,6 @@ async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: s
     return null;
   }
 }
-
 /** Upsert one record (by id). Durable + file mirror. The tenant is the ambient one unless a  background or repair caller, where ambient is wrong or absent, names it explicitly. */
 export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?: string): Promise<void> {
   let admin;
@@ -375,7 +375,6 @@ async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
     /* best-effort local parity */
   }
 }
-
 /** THE SEAM. Live verification calls this and nothing else: ONE column on ONE Shipment. The stamp and starting numbers are not in the
  *  update, so a later check can never move where the window starts. Fail-closed: false = nothing written, a foreign id matches no row. */
 export async function recordVerification(
@@ -402,7 +401,6 @@ export async function recordVerification(
     return false;
   }
 }
-
 /** THE SECOND SEAM, same shape as the verification one: ONE column on ONE Shipment, and ONLY while that
  *  column is still empty. A frozen reading is written once and never rewritten; a later recompute that
  *  disagrees is recorded BESIDE it (pinned-read withCorrection), never over it. False = nothing landed. */

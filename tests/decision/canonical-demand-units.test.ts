@@ -45,3 +45,28 @@ describe("one audience need across every stream", () => {
     expect([u!.volume, u!.serp, u!.prompts, u!.winningPages]).toEqual([null, null, [], []]);
   });
 });
+
+describe("AI can seed demand, and only exact identity ever joins it (AEO reconstruction, 2026-08-19)", () => {
+  const gsc = { pageQueries: [{ page: "https://x.example/girl-names", rows: [{ query: "persian girl names", impressions: 5000, clicks: 300, position: 5 }] }] };
+  it("never joins a tracked question onto a unit by shared words alone: the three-token join is deleted", () => {
+    const units = canonicalDemandUnits({ ...base, ...gsc, observations: [
+      { promptId: "p9", promptText: "persian girl cat names", creditedOwn: false, citations: [{ domain: "rival.example", url: "https://rival.example/c" }], fanOutQueries: null, engine: "chatgpt", day: "2026-08-01" }] });
+    const search = units.find((u) => u.label === "persian girl names")!;
+    expect(search.prompts).toEqual([]); // three shared words are not the same audience
+    const ai = units.find((u) => u.seededBy === "ai")!; // the unjoined question seeds ITS OWN unit instead of vanishing
+    expect([ai.label, ai.audience.impressions90d, ai.audience.aiAnswers]).toEqual(["persian girl cat names", 0, 1]); // unknown volume stays unknown, never borrowed
+  });
+  it("joins a question whose OWN fan-out is the search, and stamps who seeded what", () => {
+    const units = canonicalDemandUnits({ ...base, ...gsc, observations: [
+      { promptId: "p1", promptText: "What names do Persian families pick for daughters?", creditedOwn: false, citations: [{ domain: "rival.example", url: "https://rival.example/n" }], fanOutQueries: ["persian girl names"], engine: "chatgpt", day: "2026-08-01" }] });
+    const search = units.find((u) => u.label === "persian girl names")!;
+    expect([search.prompts.length, search.seededBy]).toEqual([1, "both"]); // the assistant itself ran this exact search while answering
+  });
+  it("seeds a unit from a fan-out that recurs across assistants with no Google rows at all", () => {
+    const units = canonicalDemandUnits({ ...base, observations: ["chatgpt", "gemini"].map((engine) => (
+      { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["haft seen table items list"], engine, day: "2026-08-02" })) });
+    const fan = units.find((u) => u.label === "haft seen table items list");
+    expect(fan).toBeDefined(); // two assistants ran the same search: recurring demand no Google row reports
+    expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);
+  });
+});

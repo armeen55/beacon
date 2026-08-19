@@ -13,7 +13,7 @@ import type { aiView } from "./visibility-view";
  */
 
 const RANGES = [7, 28];
-const SUBS = [{ key: "prompts", label: "Questions" }, { key: "citations", label: "Sites they credited" }, { key: "searches", label: "Searches they ran" }];
+const SUBS = [{ key: "prompts", label: "Questions" }, { key: "citations", label: "Sources and citations" }, { key: "searches", label: "Query fan-outs" }, { key: "pages", label: "Pages" }];
 
 function Choices({ options }: { options: Array<{ href: string; label: string; active: boolean }> }) {
   return (
@@ -114,7 +114,11 @@ export function AiWorkspace({ view, range, engine, sub, reading }: {
         <Panel title={SUBS.find((s) => s.key === sub)?.label ?? "Questions"}
           actions={<Choices options={SUBS.map((s) => ({ href: at({ sub: s.key }), label: s.label, active: sub === s.key }))} />}>
           {sub === "citations" && view.citations ? <DataTable columns={view.citations.columns} rows={view.citations.rows} empty={view.citations.empty} note={view.citations.note} tall />
-            : sub === "searches" && view.searches ? <DataTable columns={view.searches.columns} rows={view.searches.rows} empty={view.searches.empty} note={view.searches.note} tall />
+            : sub === "searches" && view.searches ? <div className="space-y-3">
+              <DataTable columns={view.searches.columns} rows={view.searches.rows} empty={view.searches.empty} note={view.searches.note} tall />
+              {view.promptIdeas && view.promptIdeas.length > 0 ? <Ranked title="Questions worth tracking" items={view.promptIdeas} empty="" /> : null}
+            </div>
+            : sub === "pages" && view.ownedPages ? <DataTable columns={view.ownedPages.columns} rows={view.ownedPages.rows} empty={view.ownedPages.empty} note={view.ownedPages.note} tall />
               : view.prompts ? <DataTable columns={view.prompts.columns} rows={view.prompts.rows} empty={view.prompts.empty} note={view.prompts.note} tall /> : null}
         </Panel>
       )}

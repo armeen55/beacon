@@ -14,6 +14,7 @@ vi.mock("@/domains/decision", () => ({ loadDailyTotalsForTenant: async () => [] 
 vi.mock("@/domains/runtime", () => ({ researchRunStatus: async () => null, researchPermission: async () => "running" }));
 vi.mock("@/domains/measurement", () => ({ visibilitySeries: async () => SEGMENTS }));
 import type { AiOutcomeReport } from "@/domains/measurement";
+import { buildFanoutEvidence, canonicalQueryKey } from "@/domains/evidence";
 import { aiView, answerDetail, googleView, type AnswerRow } from "@/app/(shell)/visibility/visibility-view";
 import VisibilityPage from "@/app/(shell)/visibility/page"; import type { ReactElement } from "react";
 
@@ -41,8 +42,12 @@ const ROW: AnswerRow = { id: "obs_7", day: DAY, promptId: "p1", promptText: "whe
   askedAt: "2026-08-02T16:02:11.482+00:00", answeredAt: "2026-08-02T16:02:24.000+00:00", receipt: "answer:9f3c1a2b7d", costUsd: 0.02, failureReason: null, reading: "read" };
 /** ONE reading from OUTSIDE the chosen stretch: the window read carries twice the stretch so the stretch before it can be compared, so every windowed number here has something it must exclude. */
 const OLDER: AnswerRow = { ...ROW, id: "obs_1", day: "2026-07-28", position: 9 };
+/** THE WINDOW AS THE ONE SHARED FAN-OUT PROJECTION SEES IT: the same rows, the same pure function Decision reads. */
+const FANOUT_OBS = [ROW, OLDER].map((r) => ({ observationId: r.id, promptId: r.promptId, promptText: r.promptText, engine: r.engine, reportingDay: r.day,
+  fanOutQueries: r.fanOuts, citations: r.citations?.map((c) => ({ url: c.url, domain: c.domain })) ?? null,
+  retrievedResults: (r.retrievedNotCited ?? []).map((u) => ({ url: u, domain: new URL(u).hostname })) }));
 const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segments: SEGMENTS, rangeDays: 3, engine: null, sub: "prompts", landscape: LANDSCAPE, intel: null,
-  checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], focus: null, ...over });
+  checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], focus: null, fanouts: buildFanoutEvidence(FANOUT_OBS, "own.example"), ownedPageRollup: null, trackedKeys: [canonicalQueryKey(ROW.promptText)], ...over });
 const decay = (page: string, now: number, prior: number, over = {}) => ({ page, clicksNow: now, clicksPrior: prior, positionNow: 12.4, positionPrior: 6.1,
   impressionsNow: 900, impressionsPrior: 1200, windowNowEnd: "2026-08-01", ...over });
 const DAYS = Array.from({ length: 28 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, clicks: 10 + i, impressions: 400 + i * 10 }));
@@ -110,8 +115,8 @@ describe("Visibility is a workspace, and every number on it names what it was co
   });
   it("never lists a question of mine as a search an assistant thought of, and links every question to the runs behind it", () => {
     const v = ai();
-    expect(v.searches!.rows.map((r) => r.id)).not.toContain("Where to buy a haft seen set?"); // a capital letter and a question mark are the SAME question
-    expect(v.searches!.rows.map((r) => r.id)).toContain("haft seen set delivery");
+    expect(v.searches!.rows.map((r) => r.cells[0]!.text)).not.toContain("Where to buy a haft seen set?"); // a capital letter and a question mark are the SAME question
+    expect(v.searches!.rows.map((r) => r.cells[0]!.text)).toContain("haft seen set delivery");
     expect(v.searches!.note).toContain("A tracked question is never listed here as a search the assistant thought of.");
     const q = v.prompts!.rows[0]!;
     expect(q.href).toBe("?view=ai&prompt=p1");

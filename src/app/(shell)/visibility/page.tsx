@@ -9,8 +9,9 @@ import { requireReadyAccount, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { visibilitySeries } from "@/domains/measurement";
 import { researchPermission, researchRunStatus } from "@/domains/runtime";
-import { answerIntelOf, canonicalPairOf, citesOwnSite, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
+import { answerIntelOf, canonicalPairOf, canonicalQueryKey, citesOwnSite, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
+  buildFanoutEvidence, ownedPageAiRollup,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
 import { GoogleWorkspace } from "./google-view";
 import { AiWorkspace } from "./ai-view";
@@ -135,7 +136,7 @@ async function landscapeFor(tenantId: string): Promise<ClassifiedDomain[]> {
 
 async function AiBody({ tenantId, params }: { tenantId: string; params: Params }) {
   const range = Number(one(params, "range")) === 28 ? 28 : 7;
-  const sub = (["prompts", "citations", "searches"] as const).find((s) => s === one(params, "sub")) ?? "prompts";
+  const sub = (["prompts", "citations", "searches", "pages"] as const).find((s) => s === one(params, "sub")) ?? "prompts";
   const engine = one(params, "engine"), prompt = one(params, "prompt"), openId = one(params, "reading");
   // A READ I COULD NOT MAKE COMES BACK NULL, NEVER EMPTY. Falling back to a bare empty list told an account
   // with seven hundred stored answers that I had never read one of them, and the view says so instead.
@@ -151,20 +152,29 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const allDays = (segments ?? []).flatMap((s) => s.days), observedDays = allDays.filter((d) => d.observed > 0);
   const latestDay = observedDays[observedDays.length - 1]?.day ?? reportingDay(new Date());
   const leanFrom = allDays.slice(-Math.min(range * 2, TREND_DAYS))[0]?.day ?? latestDay;
-  const [dayRows, windowRows, focusRows, opened] = await Promise.all([
+  const [dayRows, windowRows, fanoutRows, focusRows, opened] = await Promise.all([
     valueWithDeadline(readAiObservations(tenantId, { day: latestDay, limit: DAY_ROWS, projection: "list" }).catch(() => null), null as AiObservationRecord[] | null),
     valueWithDeadline(readAiObservations(tenantId, { fromDay: leanFrom, toDay: latestDay, slot: 0, projection: "outcome" }).catch(() => null), null as AiObservationRecord[] | null, 6000),
+    // THE FAN-OUT WINDOW: the whole range, lean (three journey lists, no answer text, no verdicts), so the
+    // Query fan-outs view aggregates the RANGE rather than presenting the latest day as a trend.
+    valueWithDeadline(readAiObservations(tenantId, { fromDay: leanFrom, toDay: latestDay, slot: 0, projection: "fanout" }).catch(() => null), null as AiObservationRecord[] | null, 6000),
     prompt ? valueWithDeadline(readAiObservations(tenantId, { promptId: prompt, limit: 200, projection: "list" }).catch(() => []), [] as AiObservationRecord[]) : Promise.resolve([]),
     openId ? valueWithDeadline(readAiObservations(tenantId, { id: openId, limit: 1 }).catch(() => []), [] as AiObservationRecord[]) : Promise.resolve([]),
   ]);
   // WHAT THE ENGINES' OWN ANSWERS SAID, off the canonical readings of the day I read last and nothing else.
   const intel = dayRows == null || dayRows.length === 0 ? null : answerIntelOf(dayRows.filter((r) => r.sample_slot === 0).map(canonicalPairOf));
+  // THE SHARED FAN-OUT PROJECTION: the same pure function Decision reads, over the same canonical rows.
+  const site = fanoutRows?.[0]?.site ?? dayRows?.[0]?.site ?? "";
+  const fanoutObs = fanoutRows?.map((r) => ({ ...canonicalPairOf(r), observationId: r.id })) ?? null;
+  const fanouts = fanoutObs ? buildFanoutEvidence(fanoutObs, site) : null;
+  const ownedPageRollup = fanoutObs ? ownedPageAiRollup(fanoutObs, site) : null;
+  const trackedKeys = fanoutObs ? [...new Set(fanoutObs.map((o) => canonicalQueryKey(o.promptText)).filter(Boolean))] : null;
   const view = aiView({
     segments, rangeDays: range, engine, sub, landscape, intel, day: observedDays.length > 0 ? latestDay : null,
     checks: { done: run?.counters.aiChecksDone, total: run?.counters.aiChecksIntended, answered: run?.counters.aiChecksAnswered,
       unavailable: run?.counters.aiChecksUnavailable, unsupported: run?.counters.aiChecksUnsupported },
     liveness: run?.liveness?.line ?? null, collecting,
-    dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null,
+    dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null, fanouts, ownedPageRollup, trackedKeys,
     focus: prompt ? { promptId: prompt, rows: focusRows.map(answerRow) } : null,
   });
   // THE WHOLE OF ONE RUN, and what it cost or that I cannot prove it: the row's own preserved receipt wins,

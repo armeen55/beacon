@@ -10,12 +10,12 @@
  */
 
 import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { readFactChecks, VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
 import type { CauseFinding } from "../diagnosis";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 import { produceDifferentiation } from "./differentiate";
-
 /** Two links is the whole budget, and a rebuild is earned by causes agreeing, never by one loud one. */
 const MAX_LINKS = 2, MAX_REQUIREMENTS = 4, MAX_HEADINGS = 6, MIN_STRUCTURAL_CAUSES = 2;
 /** A rebuild that names more losses than this is not a rebuild, it is a different page; a merge that lists more than MAX_MOVED is a rebuild of the page that survives. */
@@ -39,7 +39,6 @@ function evidenceKeysOf(ctx: ProducerCtx): string[] | null {
   const keys = ctx.finding.evidenceKeys.filter((k) => k.trim().length > 0);
   return keys.length > 0 ? keys : null;
 }
-
 // The ladder attaches a small structured payload so a producer never parses an operator sentence back into
 // numbers. Read by SHAPE, not by field name: a finding stored before that payload existed carries none of it, and the honest answer is a refusal naming what is missing.
 
@@ -82,7 +81,6 @@ function enginePrompt(f: CauseFinding): { engine: string; promptText: string } |
   }
   return null;
 }
-
 /** THE SPLIT AS THE LADDER READ IT: the pages, what each earns for that exact search, and the survivor its
  *  own comparison PROVED, which is null far more often than not. Read by SHAPE, like every payload here. */
 type Split = { paths: string[]; survivor: string | null; comparison: Array<{ url: string; clicks: number | null; position: number | null }> };
@@ -99,13 +97,11 @@ function competingPages(f: CauseFinding): Split | null {
   }
   return null;
 }
-
 // ── 1. internal links: somewhere for the reader to go next ───────────────────
 
 const WEAK_ANCHOR = /^(read more|learn more|click here|here|more|this page|link|details|see more|continue)$/i;
 
 type Target = { path: string; topic: string; score: number };
-
 /** Same site, same account, never the page itself. Anything I cannot resolve is not a page I will name. */
 function ownPath(href: string, pageUrl: string): string | null {
   const raw = href.trim();
@@ -121,12 +117,10 @@ function ownPath(href: string, pageUrl: string): string | null {
 
 const wantedTokens = (ctx: ProducerCtx): Set<string> =>
   new Set([...topicTokens(ctx.primary), ...(ctx.body?.entityNames ?? []).flatMap((e) => topicTokens(e))]);
-
 /** WHERE THIS PAGE ALREADY SENDS PEOPLE, by canonical path: a second link to a destination it already
  *  points at is not somewhere new to go. */
 const alreadyLinked = (ctx: ProducerCtx): Set<string> =>
   new Set((ctx.body?.internalLinks ?? []).map((l) => ownPath(l.href, ctx.page.url)).filter((p): p is string => !!p));
-
 /** DETERMINISTIC FIRST: the target comes from THE ACCOUNT'S OWN PAGE INVENTORY, scored on the words the
  *  search and the page's subjects share with the destination's address and name. No body, no link. */
 function candidateTargets(ctx: ProducerCtx): Target[] {
@@ -148,7 +142,6 @@ function candidateTargets(ctx: ProducerCtx): Target[] {
   }
   return out.sort((a, b) => b.score - a.score || a.topic.localeCompare(b.topic) || a.path.localeCompare(b.path));
 }
-
 /** THE ONE THING AN EXISTING LINK IS STILL GOOD FOR: words that tell a reader nothing, replaced only where
  *  the destination is a page of this account whose own name is on this page's subject. */
 function weakAnchorSwap(ctx: ProducerCtx): { anchor: string; path: string; name: string } | null {
@@ -172,7 +165,6 @@ function placeFor(ctx: ProducerCtx, target: Target): string {
   const heading = ctx.page.outline.find((h) => topicTokens(h).some((t) => tokens.has(t)));
   return heading ? `the section headed "${heading}"` : `the part of this page that talks about ${target.topic}`;
 }
-
 /** A drafted line's first word wears a capital because of where it sat, and the firewall reads a capital it
  *  cannot place as an invented name, so it keeps that capital only where the page itself uses the word. */
 function openLower(line: string, own: Set<string>): string {
@@ -237,7 +229,6 @@ export const produceInternalLinks: Producer = async (ctx) => {
   if (components.length === 0) return refuse("No link sentence for this page passed its own checks, so nothing is handed over rather than filler. Ask again and the next page down gets tried.");
   return { components, refusal: null };
 };
-
 // ── 2. source expansion: what an engine reads before it decides who to name ───
 
 function ownVocabulary(ctx: ProducerCtx): Set<string> {
@@ -255,7 +246,6 @@ function pageClaims(ctx: ProducerCtx): string[] {
     .map((s) => plain(s)).filter((s) => s.split(/\s+/).filter(Boolean).length >= 5);
   return [...new Set(said)];
 }
-
 /**
  * A SOURCE RECOMMENDATION EXISTS ONLY WITH ALL FIVE PIECES on file: a claim that belongs ON the page, the kind
  * of source that would back it, the exact line to add, where it belongs and why it improves the page. Any one
@@ -295,6 +285,20 @@ export const produceSourceExpansion: Producer = async (ctx) => {
     evidenceHints: [...claims, ...(ctx.pattern.commonHeadings ?? []).map((h) => h.heading), ...(ctx.pattern.questionsAnswered ?? [])],
   });
   if (!drafted) return refuse("No sourced line for this page passed its own checks, so nothing is handed over rather than filler.");
+  // THE VERIFIED FACTS ON FILE FOR THIS PAGE. A checked claim carries the exact source and what it says, read
+  // by the fact pass under the current rules, so a requirement can name THAT source. "You pick the exact
+  // page" was operator homework wearing a recommendation's clothes, and it is gone: a claim either stands on
+  // a verified source by url, or the requirement names the acquisition the fact pass still owes.
+  const pagePath = (() => { try { return new URL(ctx.page.url.startsWith("http") ? ctx.page.url : `https://${ctx.page.url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return ctx.page.url; } })();
+  const verified = (await readFactChecks(ctx.tenantId, pagePath).catch(() => []))
+    .filter((f) => f.state === "checked" && f.sourceReadAt != null && f.rulesVersion === VERIFICATION_RULES_VERSION && f.sources.length > 0);
+  const backing = (c: string): string => {
+    const tokens = new Set(topicTokens(c));
+    const fact = verified.find((f) => c.toLowerCase().includes(f.subject.toLowerCase()) || topicTokens(f.subject).filter((t) => tokens.has(t)).length >= 2) ?? null;
+    return fact?.sources[0]
+      ? `${c} stands on a verified source already on file: ${fact.sources[0].url} says "${fact.sources[0].says}". Cite that page.`
+      : `${c} has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "${ctx.primary}" point at (${publishers.join(", ")}) before this line ships. Nothing here asks anybody to pick a source.`;
+  };
   return {
     components: [{
       kind: expansion ? "entity_expansion" : "source_update",
@@ -311,17 +315,14 @@ export const produceSourceExpansion: Producer = async (ctx) => {
       mechanism: cause === "retrieved_not_cited"
         ? `${seen.engine} read this page while answering "${seen.promptText}" and named other sites instead, so the page was seen and passed over: what it is missing is something a reader can check, not a sharper line.`
         : `${seen.engine} answered "${seen.promptText}" naming other sites and never this page, so the fix is to carry what those answers are built on rather than to reword what is already here.`,
-      // ONLY PAGE CLAIMS, never a figure of mine. WHAT I HOLD HERE IS THE KIND OF SOURCE and never the source itself, so it says out loud that the operator picks it, and this component is held for review.
-      sourcePack: {
-        sourceRequirements: claims.map((c) => `${c} needs a source a reader can check, of the kind the pages being cited for "${ctx.primary}" point at: ${publishers.join(", ")}. You pick the exact page: what is on file is the kind of source this needs and not the source itself.`),
-        factRequirements: claims.map(sentence),
-      },
+      // ONLY PAGE CLAIMS, never a figure of mine. Each requirement either names the verified source on file,
+      // by url and what it says, or names the acquisition the fact pass owes. Held for review either way.
+      sourcePack: { sourceRequirements: claims.map(backing), factRequirements: claims.map(sentence), },
       measurementPlan: `How often "${seen.promptText}" names this page, and clicks for "${ctx.primary}", read at 7, 14 and 28 days after you publish it.`,
     }],
     refusal: null,
   };
 };
-
 // ── 3. consolidation: two of your own pages on one search ────────────────────
 
 export const produceConsolidation: Producer = async (ctx) => {
@@ -404,7 +405,6 @@ export const produceConsolidation: Producer = async (ctx) => {
     refusal: null,
   };
 };
-
 // ── 4. the full rebuild: only when the causes agree ──────────────────────────
 
 type Cause = CauseFinding["cause"];
@@ -428,7 +428,6 @@ const ARCHETYPE: Readonly<Record<string, string>> = {
   tool: "a page built around something a reader can use",
   forum: "a page of real answers from people who have done it",
 };
-
 /**
  * NOT registered to one cause: a rebuild is what the causes conclude TOGETHER, and it writes the WHOLE page or
  * nothing. Every heading the winners agree on is drafted through the section drafter, bounded at MAX_HEADINGS

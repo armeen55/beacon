@@ -24,7 +24,6 @@ import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -383,11 +382,7 @@ export const supabaseBackend: SeedDataRepository = {
     return (data ?? []) as unknown as RecommendedEditRow[];
   },
 
-  // Phase 3.5E — hero-surface data. Paged reads for the two large tables
-  // (prompt_answer_observations 11,996 rows, daily_metric_snapshots 24,085
-  // rows) to defeat PostgREST's default 1000-row cap.
-  getPromptAnswerObservations: async () =>
-    queryAllPaged<PromptAnswerObservation>("prompt_answer_observations"),
+  // Phase 3.5E — hero-surface data. Paged reads defeat PostgREST's default 1000-row cap.
   getDailyMetricSnapshots: async () =>
     queryAllPaged<DailyMetricSnapshot>("daily_metric_snapshots"),
   getTrackedEntities: async () =>
@@ -434,38 +429,6 @@ export const supabaseBackend: SeedDataRepository = {
       // so `/prompts/[id]` pushes the predicate down to Postgres
       // (`.eq("prompt_id", id)`) and the row count crossing the wire
       // drops from ~15k to typically <500.
-      getPromptAnswerObservations: (options) => {
-        const queryOpts:
-          | {
-              since?: string;
-              sinceColumn?: string;
-              eqColumn?: string;
-              eqValue?: string;
-              columns?: string;
-            }
-          | undefined =
-          options?.since || options?.promptId || options?.columns
-            ? {
-                ...(options?.since
-                  ? { since: options.since, sinceColumn: "observed_at" }
-                  : {}),
-                ...(options?.promptId
-                  ? { eqColumn: "prompt_id", eqValue: options.promptId }
-                  : {}),
-                // 2026-06-15 — lean projection pushdown (same as snapshots).
-                // /today omits the ~5.9 MB `metadata` + unused citation/
-                // search columns it never reads; the timeout-causing 17 MB
-                // observation read drops by ~45%. Callers MUST only read the
-                // columns they requested (file backend returns full rows).
-                ...(options?.columns ? { columns: options.columns } : {}),
-              }
-            : undefined;
-        return queryAllPagedScoped<PromptAnswerObservation>(
-          "prompt_answer_observations",
-          tenantId,
-          queryOpts,
-        );
-      },
       getDailyMetricSnapshots: (options) => {
         // Thread `since` (date-window, predicate pushdown) and `columns`
         // (lean projection) independently — /today passes `columns` alone

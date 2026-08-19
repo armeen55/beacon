@@ -49,7 +49,6 @@ import { aiObservationId, persistAnswerAnalysis, readAiObservations, readAiObser
 import { retrievedNotCitedLinks } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { emptyFunnelState, loadFunnelState, type FunnelPair, type FunnelState } from "@/domains/evidence/funnel/state";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { CachedCallResult, CapabilityKey } from "@/domains/evidence/dataforseo/funnel-boundary";
 import { promptObservationUnit } from "@/domains/evidence/funnel/observe";
 import { resolveDeps, type FunnelDeps } from "@/domains/evidence/funnel/shared";
@@ -83,7 +82,6 @@ function world(over: Partial<FunnelDeps> = {}, fail: CachedCallResult | null = n
 }
 const rowsFor = (table: string) => db.written.filter((w) => w.table === table).map((w) => w.row);
 const observations = () => rowsFor("ai_observations") as unknown as AiObservationRecord[];
-const history = () => rowsFor("prompt_answer_observations") as unknown as PromptAnswerObservation[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
 beforeEach(() => { db.written = []; db.read = []; db.updated = null; db.matched = []; db.error = null; db.filters = {}; db.selected = []; db.pages = []; db.onPage = null; });
 describe("one canonical identity per observation", () => {
@@ -177,20 +175,12 @@ describe("tenant isolation and the derived history row", () => {
     expect(mine.some((r) => theirs.some((t) => t.id === r.id))).toBe(false); // the same question on the same day is a DIFFERENT observation per account
     await expect(recordAiObservation({ ...mine[0]! }, OTHER)).rejects.toThrow(/tenant mismatch/); // and the writer refuses to be told otherwise
   });
-  it("derives the history row from the stored observation instead of composing a second truth", async () => {
+  it("writes ONE canonical record per reading and no history projection beside it (the parallel copy is deleted, 2026-08-19)", async () => {
     await run(world().deps, duePlan());
-    const rows = observations(), past = history();
-    expect(past.length).toBe(12);
-    for (const h of past) {
-      const rec = rows.find((r) => r.id === h.metadata.observationId)!;
-      expect(rec).toBeDefined(); // every history row names the observation it came from
-      expect([h.platform, h.prompt_id, h.answer_hash, h.observed_at]).toEqual([rec.engine, rec.prompt_id, rec.answer_hash, rec.completed_at]);
-      expect(h.citation_urls).toEqual(rec.journey.cited_sources!.map((c) => c.url));
-      expect([h.citation_count, h.metadata.citationsObserved, h.metadata.observationMode]).toEqual([rec.journey.cited_sources!.length, true, rec.observation_mode]);
-    }
-    expect(past.find((h) => h.platform === "chatgpt")!.id).toContain("chatgpt+scraper"); // the pre-6I id shape is unchanged, so every existing reader still works
-    expect(past.every((h) => h.run_id === "run-1" && h.tenant_id === TENANT)).toBe(true);
-    expect(rows.every((r) => r.journey.run_id === "run-1")).toBe(true); // and the CANONICAL row names the run that bought it too, so the record that is the truth no longer needs its own projection to say who asked
+    const rows = observations();
+    expect(rows.length).toBe(12);
+    expect(rowsFor("prompt_answer_observations")).toEqual([]); // no second AI truth is ever written again
+    expect(rows.every((r) => r.journey.run_id === "run-1" && r.tenant_id === TENANT)).toBe(true); // the canonical row itself names the run that bought it
   });
 });
 describe("re-analysis reads what was already bought", () => {

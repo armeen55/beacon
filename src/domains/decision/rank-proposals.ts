@@ -149,12 +149,23 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
   const google = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
-  // THE AI SIDE RANKS IN ITS OWN UNITS. A citation gap card can carry no click figure at all, and the stored
-  // answers behind it are a real audience: every answer is somebody asking. It rides only where the Google
-  // numbers are not already carrying more, bounded under the audience band, never converted into clicks.
+  // THE AI SIDE RANKS IN ITS OWN UNITS, ON RECURRENCE AND STAGE, NEVER ON ROW TOTALS. Answers-times-two let a
+  // question asked once across many engines outrank a question asked every day for a week (operator,
+  // 2026-08-19). The band fills on distinct days and assistants over the stored window; the stage scales it,
+  // because a page already read and passed over is closer to the citation than a page no engine reaches; the
+  // reporting answers only break ties inside that. The receipt says the same thing in the same words. It rides
+  // only where the Google numbers are not already carrying more, bounded under the audience band, never clicks.
   const ai = p.aiImpact && p.aiImpact.answers > 0
-    ? { input: `${num(p.aiImpact.answers)} stored AI answers hand this question to ${num(p.aiImpact.citedRivals)} rival ${p.aiImpact.citedRivals === 1 ? "site" : "sites"} and never this one`,
-      value: Math.min(MAX.visibility / 3, p.aiImpact.answers * 2) } : null;
+    ? (() => {
+      const a = p.aiImpact!;
+      const days = Math.max(1, a.days ?? 1), engines = Math.max(1, a.engines ?? 1);
+      const spread = Math.min(1, 0.6 * (days / 7) + 0.4 * (engines / 4));
+      const closeness = a.stage === "owned_retrieved_not_cited" ? 1 : a.stage === "owned_mentioned_not_cited" ? 0.85 : 0.7;
+      const standing = a.stage === "owned_retrieved_not_cited" ? "while this page is already read and passed over"
+        : a.stage === "owned_mentioned_not_cited" ? "while the brand is named in prose and never credited" : "and never this one";
+      return { input: `asked on ${num(days)} ${days === 1 ? "day" : "days"} across ${num(engines)} ${engines === 1 ? "assistant" : "assistants"}, ${num(a.answers)} stored answers hand this question to ${num(a.citedRivals)} rival ${a.citedRivals === 1 ? "site" : "sites"} ${standing}`,
+        value: (MAX.visibility / 3) * spread * closeness * Math.min(1, a.answers / 5) };
+    })() : null;
   const rode = ai && (!google || ai.value > google.value) ? ai : google;
   // WHAT IS RIDING ON IT, HELD AT THE CONFIDENCE IT HAS EARNED. Unfinished copy and a low reading each
   // shave the worth by a factor and never by a flat fine, so the order stays "largest credible impact

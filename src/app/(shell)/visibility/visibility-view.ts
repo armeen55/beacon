@@ -5,6 +5,7 @@
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { AiOutcomeReport } from "@/domains/measurement";
+import type { FanoutEvidence, OwnedPageAiRow } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import type { AnswerIntel, ClassifiedDomain, CompetitorKind, GscDecaySignal, GscPageSignal } from "@/domains/evidence";
 // ── shared shapes (structural: the table and chart components infer them, so nothing extra is public) ─
 /** ONE cell. `sort` is the number the column sorts on when the text is formatted, `tone` colours a change or marks a page of yours, `sub` is the second line that keeps a wide table from lying. */
@@ -51,7 +52,6 @@ const receiptTail = (key: string): string => {
 const KIND_LABEL: Record<CompetitorKind, string> = { commercial_competitor: "A competitor", citation_authority: "A source",
   publisher: "A publisher", marketplace_directory: "A marketplace", social_community: "A social platform",
   government_educational: "A government or school site", owned: "Your own site", irrelevant_unknown: "Not settled yet" };
-
 // ── Google ───────────────────────────────────────────────────────────────────────────────────────
 
 type GoogleInput = {
@@ -116,9 +116,7 @@ export function googleView(input: GoogleInput) {
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));
   const QUERY_CAP = 150;
   const queries = table({
-    columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true },
-      { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true },
-      { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }],
+    columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }],
     empty: noQueries ? UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and the next daily round picks up the rest.",
     note: seenQueries.length === 0 ? null : `These are the searches Google named over the last 90 reported days, strongest first${seenQueries.length > QUERY_CAP ? `. Showing the top ${num(QUERY_CAP)} of ${num(seenQueries.length)}` : ""}. Google hides its rarest searches, so this is what it reports and not every search you ever won.`,
     rows: [...seenQueries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, QUERY_CAP).map((q, n) => ({
@@ -133,7 +131,6 @@ export function googleView(input: GoogleInput) {
     coverage: `${num(input.days.length)} reported days on file, showing the last ${num(span)}.`,
     watermark: `Search Console, through ${through ?? "a day it has not named"}. Google reports a few days behind, so the newest days are still settling.` };
 }
-
 // ── AI answers ───────────────────────────────────────────────────────────────────────────────────
 /** ONE stored answer flattened by the page. The tri-state survives end to end: a reading nobody has taken reports null, not false, and an engine that never said which pages it used reports null, not "nobody". */
 export type AnswerRow = {
@@ -152,7 +149,7 @@ export type AnswerRow = {
 type AiInput = {
   /** Null = the daily read did not land, which is a different claim from an account with no answers. */
   segments: AiOutcomeReport["segments"] | null;
-  rangeDays: number; engine: string | null; sub: "prompts" | "citations" | "searches";
+  rangeDays: number; engine: string | null; sub: "prompts" | "citations" | "searches" | "pages";
   checks: { done?: number; total?: number; answered?: number; unavailable?: number; unsupported?: number }; // today's planned round
   /** IS THE RESEARCH ALIVE, in the run's own words: what the last pass produced and when, or how long it has been and what to press. Null only when that could not be read, and then nothing is claimed either way. */
   liveness?: string | null;
@@ -163,6 +160,13 @@ type AiInput = {
   /** Every canonical reading over the window, lean (no answer text, no journey): what the question table counts, and what the window before it is compared against. */
   window: AnswerRow[] | null;
   landscape: ClassifiedDomain[] | null; intel: AnswerIntel | null;
+  /** THE one derived fan-out projection over the WHOLE range, built by the same pure function Decision reads,
+   *  so the counts here and the counts behind a Change can never disagree. Null = the window read fell over. */
+  fanouts: FanoutEvidence | null;
+  /** The canonical keys of every tracked question in the window, so a recurring fan-out no question covers can be named as one worth tracking. */
+  trackedKeys: readonly string[] | null;
+  /** The owned pages' AI standing over the same window, from the same rows. */
+  ownedPageRollup: OwnedPageAiRow[] | null;
   /** The one question opened, with every reading of it I hold. */
   focus: { promptId: string; rows: AnswerRow[] } | null;
 };
@@ -179,7 +183,7 @@ export function aiView(input: AiInput) {
   // ONE SUBSECTION THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT: the trend, the last day read and the window are three separate reads on three separate deadlines, so losing one narrows this tab to the other two, and the whole page collapses only when all three came back with nothing at all.
   if (days.length === 0 && dayRows.length === 0 && windowRows.length === 0) {
     return { empty: input.segments == null || input.dayRows == null || input.window == null ? UNREAD : "Not one AI answer is stored for this account yet. This fills in from the first answer that lands.",
-      tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, intel: null, retrieval: null, byEngine: null,
+      tiles: [] as Tile[], chart: null, coverage: "", watermark: "", prompts: null, citations: null, searches: null, ownedPages: null, promptIdeas: null, intel: null, retrieval: null, byEngine: null,
       detail: null, engines: [] as Array<{ id: string; label: string }>, boundaries: [] as string[] };
   }
   // WITHOUT THE TREND THERE IS NO RATE AND NO LINE. Every headline number divides by days that read did not bring back, so the tiles, the chart and the per assistant table go away rather than printing honest looking zeros over them; the question, citation and search tables are read off their own rows and stay.
@@ -230,8 +234,7 @@ export function aiView(input: AiInput) {
     priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
   // EVERY ASSISTANT SIDE BY SIDE, so four filters do not have to be clicked one at a time and held in your head.
   const byEngine = !trend ? null : table({
-    columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "named", label: "Named you", numeric: true },
-      { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "checked", label: "Answers checked", numeric: true }],
+    columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "named", label: "Named you", numeric: true }, { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "checked", label: "Answers checked", numeric: true }],
     empty: "No assistant has answered for this account yet.",
     note: `Counted over the last ${num(span)} days. Each assistant divides by its own checked answers, so a slower one never drags another one down.`,
     // An assistant asked nothing in the window renders nothing: a row of zeros is the bare-zero lie.
@@ -320,24 +323,46 @@ export function aiView(input: AiInput) {
       ] };
     }),
   });
-  // ── the searches the assistants ran themselves before answering ──
-  const runs = new Map<string, { answers: number; engines: Set<string>; prompts: Set<string> }>();
-  for (const r of dayRows) for (const q of new Set(fanOutsExcluding(r.fanOuts ?? [], [r.promptText]))) {
-    const held = runs.get(q) ?? { answers: 0, engines: new Set<string>(), prompts: new Set<string>() };
-    held.answers += 1; held.engines.add(r.engine); held.prompts.add(r.promptText); runs.set(q, held); }
-  const reported = dayRows.filter((r) => r.fanOuts != null).length;
+  // ── QUERY FAN-OUTS: the searches the assistants ran, over the WHOLE window. The latest day is a sample,
+  // never a trend: recurrence is DISTINCT days, assistants and parent questions, counted by the same pure
+  // function Decision reads, so this table and the queue can never disagree (operator, 2026-08-19).
+  const FANOUT_ROWS_SHOWN = 100;
+  const fe = input.fanouts;
+  const ownLabel = (r: { ownState: string; ownCitedAnswers: number; retrievedNotCitedAnswers: number; reportingAnswers: number }): string =>
+    r.ownState === "cited" ? `credited in ${num(r.ownCitedAnswers)} of ${num(r.reportingAnswers)}`
+      : r.ownState === "retrieved_not_cited" ? `read and passed over, ${num(r.retrievedNotCitedAnswers)}x`
+        : r.ownState === "not_retrieved" ? "never you" : "sources unreported";
   const searches = table({
-    columns: [{ key: "query", label: "What the assistant searched for", wide: true }, { key: "times", label: "Answers that ran it", numeric: true },
-      { key: "share", label: "Share of answers", numeric: true }, { key: "engines", label: "Assistants", numeric: true },
-      { key: "prompts", label: "Tracked questions behind it", wide: true }],
-    empty: input.dayRows == null ? UNREAD : "None of the assistants reported what they searched for on the last day read, so whether they searched at all is unknown.",
-    note: runs.size === 0 ? null : `Before answering, an assistant runs its own searches. These are the ones it ran${dayLabel ? ` on ${dayLabel}` : ""}, in its own words, across the ${num(reported)} readings that reported them. A tracked question is never listed here as a search the assistant thought of.`,
-    rows: [...runs.entries()].sort((a, b) => b[1].answers - a[1].answers).map(([q, v]) => ({ id: q, cells: [
-      { text: q }, { text: num(v.answers), sort: v.answers },
-      { text: reported > 0 ? pct(v.answers / reported) : "not yet", sort: v.answers },
-      { text: [...v.engines].map(engineName).join(", "), sort: v.engines.size },
-      { text: [...v.prompts].slice(0, 2).join(" / "), sub: v.prompts.size > 2 ? `and ${num(v.prompts.size - 2)} more` : undefined, sort: v.prompts.size },
+    columns: [{ key: "query", label: "What the assistant searched for", wide: true },
+      { key: "days", label: "Days it recurred", numeric: true }, { key: "times", label: "Answers that ran it", numeric: true },
+      { key: "engines", label: "Assistants", numeric: true }, { key: "own", label: "Where you stood", wide: true },
+      { key: "rival", label: "Top rival credited", wide: true }, { key: "prompts", label: "Tracked questions behind it", wide: true }],
+    empty: fe == null ? UNREAD : "None of the assistants reported what they searched for over this window, so whether they searched at all is unknown.",
+    note: fe == null || fe.rows.length === 0 ? null
+      : `The searches an AI assistant ran while answering your tracked questions, over the last ${num(span)} days (${num(fe.reportingAnswers)} of ${num(fe.answers)} readings reported them). ${fe.rows.length > FANOUT_ROWS_SHOWN ? `Showing the ${num(FANOUT_ROWS_SHOWN)} most recurring of ${num(fe.rows.length)} distinct searches; the rest are on file, not gone. ` : `All ${num(fe.rows.length)} distinct searches are shown. `}A tracked question is never listed here as a search the assistant thought of.`,
+    rows: (fe?.rows ?? []).slice(0, FANOUT_ROWS_SHOWN).map((r) => ({ id: r.key, cells: [
+      { text: r.query, sub: r.material ? undefined : "seen once; watched, not yet work" },
+      { text: num(r.days), sort: r.days }, { text: num(r.executions), sort: r.executions },
+      { text: r.engines.map(engineName).join(", "), sort: r.engines.length },
+      { text: ownLabel(r), tone: r.ownState === "cited" ? "own" : undefined, sort: r.ownCitedAnswers },
+      { text: r.rivalPages[0] ? shortUrl(r.rivalPages[0].url) : "none reported", sub: r.rivalPages[0] ? `in ${num(r.rivalPages[0].answers)} answers` : undefined, sort: r.rivalPages[0]?.answers ?? 0 },
+      { text: r.parents.slice(0, 2).map((p) => p.promptText).join(" / "), sub: r.parents.length > 2 ? `and ${num(r.parents.length - 2)} more` : undefined, sort: r.parents.length },
     ] })),
+  });
+  // ── QUESTIONS WORTH TRACKING: the searches assistants keep running that NO tracked question covers. The
+  // portfolio panel stays stable; these are recommendations read straight off the same recurrence rows, and
+  // recurrence, a rival taking the credit, or this site being read for it is what earns a line here. ──
+  const tracked = new Set(input.trackedKeys ?? []);
+  const promptIdeas = fe == null || input.trackedKeys == null ? null
+    : fe.rows.filter((r) => r.material && !tracked.has(r.key) && r.ownState !== "cited").slice(0, 5)
+      .map((r) => ({ text: r.query,
+        basis: `ran on ${num(r.days)} ${r.days === 1 ? "day" : "days"} across ${num(r.engines.length)} ${r.engines.length === 1 ? "assistant" : "assistants"}; no tracked question covers it${r.ownState === "retrieved_not_cited" ? ", and your page was read for it" : r.rivalPages[0] ? `, and ${shortUrl(r.rivalPages[0].url)} takes the credit` : ""}` }));
+  // ── PAGES: each owned page's AI standing over the same window, from the same rows. ──
+  const ownedPages = table({
+    columns: [{ key: "page", label: "Your page", wide: true }, { key: "cited", label: "Credited", numeric: true }, { key: "retrieved", label: "Read", numeric: true }, { key: "rnc", label: "Read, passed over", numeric: true }, { key: "engines", label: "Assistants", numeric: true }, { key: "prompts", label: "Questions", numeric: true }, { key: "days", label: "Days", numeric: true }],
+    empty: input.ownedPageRollup == null ? UNREAD : "No answer in this window reported reading or crediting a page of yours.",
+    note: (input.ownedPageRollup ?? []).length === 0 ? null : `Every page of yours an assistant reported reading or crediting over the last ${num(span)} days. "Read, passed over" is the page that was good enough to open and not good enough to quote: the clearest change to make.`,
+    rows: (input.ownedPageRollup ?? []).map((r) => ({ id: r.url, cells: [ { text: shortUrl(r.url), tone: "own" as const }, { text: num(r.cited), sort: r.cited }, { text: num(r.retrieved), sort: r.retrieved }, { text: num(r.retrievedNotCited), sort: r.retrievedNotCited }, { text: num(r.engines.length), sort: r.engines.length }, { text: num(r.prompts), sort: r.prompts }, { text: num(r.days), sort: r.days }, ] })),
   });
   const parts = [...(typeof input.checks.answered === "number" ? [`${num(input.checks.answered)} came back with an answer`] : []), ...(input.checks.unavailable ? [`${num(input.checks.unavailable)} came back with nothing`] : []), ...(input.checks.unsupported ? [`${num(input.checks.unsupported)} cannot be asked at all today`] : [])];
   const read = days.filter((d) => d.observed > 0);
@@ -359,7 +384,7 @@ export function aiView(input: AiInput) {
       : `${typeof input.checks.done === "number" && typeof input.checks.total === "number" && input.checks.total > 0
         ? `${num(input.checks.done)} of the ${num(input.checks.total)} answer checks planned for today are settled${parts.length > 0 ? `: ${parts.join(", ")}. ` : ". "}` : ""}${input.liveness ? `${input.liveness} ` : ""}Open Changes for the move these answers point at.`;
   return {
-    empty: null, tiles, chart, boundaries, prompts, citations, searches, retrieval, byEngine, detail: detailOf(input),
+    empty: null, tiles, chart, boundaries, prompts, citations, searches, ownedPages, promptIdeas, retrieval, byEngine, detail: detailOf(input),
     engines: enginesSeen.map((e) => ({ id: e, label: engineName(e) })),
     intel: input.intel && input.intel.answers > 0 ? {
       answers: input.intel.answers,
@@ -385,8 +410,7 @@ function detailOf(input: AiInput) {
     for (const q of new Set(fanOutsExcluding(r.fanOuts ?? [], [r.promptText]))) ran.set(q, (ran.get(q) ?? 0) + 1); }
   const top = (m: Map<string, number>, n: number) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([text, count]) => ({ text, count }));
   const platforms = table({
-    columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "answers", label: "Answers", numeric: true }, { key: "named", label: "Named you", numeric: true },
-      { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "place", label: "Place in answer", numeric: true }, { key: "last", label: "Last read", numeric: true }],
+    columns: [{ key: "engine", label: "Assistant", wide: true }, { key: "answers", label: "Answers", numeric: true }, { key: "named", label: "Named you", numeric: true }, { key: "credited", label: "Credited a page of yours", numeric: true }, { key: "place", label: "Place in answer", numeric: true }, { key: "last", label: "Last read", numeric: true }],
     empty: "No reading of this question is on file yet.",
     rows: [...byEngine.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([engine, list]) => {
       const checked = list.filter((r) => r.mentioned != null), hit = checked.filter((r) => r.mentioned);
@@ -410,10 +434,7 @@ function detailOf(input: AiInput) {
     platforms, rivals: top(rivals, 6), sites: top(sites, 8).map((s) => ({ text: shortUrl(s.text), count: s.count })), searches: top(ran, 8),
     // EVERY RUN, one row each, with the whole of any one of them one click further in. No wall of a hundred and forty identical sentences: a status to scan, and the evidence on demand.
     executions: table({
-      columns: [{ key: "day", label: "Day", numeric: true }, { key: "engine", label: "Assistant", wide: true },
-        { key: "status", label: "What happened", wide: true }, { key: "named", label: "Named you" },
-        { key: "credited", label: "Credited a page of yours" }, { key: "searches", label: "Searches it ran", numeric: true },
-        { key: "cites", label: "Pages it credited", numeric: true }],
+      columns: [{ key: "day", label: "Day", numeric: true }, { key: "engine", label: "Assistant", wide: true }, { key: "status", label: "What happened", wide: true }, { key: "named", label: "Named you" }, { key: "credited", label: "Credited a page of yours" }, { key: "searches", label: "Searches it ran", numeric: true }, { key: "cites", label: "Pages it credited", numeric: true }],
       empty: "No reading of this question is on file yet.",
       note: `Every run on file for this question, newest first. Open one for the whole answer, every search behind it and every page it credited.${rows.some((r) => r.slot > 0) ? " A run marked as a repeat is the same question asked again the same day, which is how much these answers move on their own gets measured." : ""}`,
       rows: [...rows].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : a.engine.localeCompare(b.engine))).map((r) => {

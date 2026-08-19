@@ -6,7 +6,6 @@ import { dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import type { CanonicalPairObservation, ObservationMode, ResearchEngine } from "@/domains/evidence/funnel/research-evidence";
 import type { AnswerUsage, ObservedCitation, ParsedAiAnswer } from "@/domains/evidence/dataforseo/funnel-boundary";
-import type { PromptAnswerObservation } from "./prompt-answer-observations";
 
 /**
  * ai-observations - THE canonical record of one AI answer, kept WHOLE. An answer used to be collapsed at capture: the text hashed and thrown away, the
@@ -113,28 +112,6 @@ export function buildAiObservation(d: AiObservationDraft): AiObservationRecord {
   };
 }
 
-/**
- * THE legacy projection. prompt_answer_observations is derived from the canonical record at write time and
- * is never independently composed: the id keeps its pre-6I shape (the consumer look stays "+scraper", a
- * changed served model yields a distinct row) so every native-intel reader keeps working unchanged.
- */
-export function projectPromptAnswerObservation(rec: AiObservationRecord, runId: string): PromptAnswerObservation {
-  const cited = rec.journey.cited_sources, observed = cited !== null;
-  const domains = (cited ?? []).map((c) => c.domain);
-  const model = rec.model_served ?? rec.model_requested ?? rec.engine, consumer = rec.observation_mode === "consumer_search";
-  const observedAt = rec.completed_at ?? rec.requested_at;
-  return {
-    id: `${rec.tenant_id}|${rec.engine}${consumer ? "+scraper" : ""}|${rec.prompt_id}|${model}|${observedAt.slice(0, 10)}`,
-    prompt_id: rec.prompt_id, run_id: runId, tenant_id: rec.tenant_id, platform: rec.engine, observed_at: observedAt, topic: "",
-    answer_hash: rec.answer_hash, search_queries: rec.journey.fan_outs ?? undefined,
-    position: null, tracked_brand_mentioned: null, tracked_brand_cited: null,
-    citation_count: domains.length, owned_citation_count: 0, citation_domains: domains, citation_categories: {}, mentions: [],
-    citation_urls: observed ? (cited ?? []).map((c) => c.url) : null,
-    metadata: { source: "research-funnel", observationMode: rec.observation_mode, scraper: consumer,
-      webSearchReported: rec.journey.web_search_reported, modelServed: rec.model_served, modelRequested: rec.model_requested,
-      citationsObserved: observed, prompt_text: rec.prompt_text, observationId: rec.id },
-  };
-}
 
 /** THE one production write of a canonical observation: tenant-checked, fail-closed, upserted on identity. */
 export async function recordAiObservation(rec: AiObservationRecord, tenantId: string): Promise<void> {
@@ -160,6 +137,11 @@ function narrowRow(r: Record<string, unknown>, wantJourney: boolean): AiObservat
 /** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy column. A screen of whole AI answers is the shape that has timed a statement out here before, so `answer_text` is read only by the drill-down below, which asks for one row by id. */
 const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
 
+/** THE FAN-OUT PROJECTION: the identity plus ONLY the three journey lists the fan-out evidence reads. Never
+ *  the answer text, never the analysis, so a 28-day window is a fraction of the full rows and one read powers
+ *  the whole Query fan-outs view (see ai-visibility/fanout-evidence). */
+const FANOUT_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,reporting_day,sample_slot,status,requested_at,fans:journey->fan_outs,cited:journey->cited_sources,retrieved:journey->retrieved_results";
+
 /** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity, the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the journey, never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
 const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash";
 
@@ -179,7 +161,7 @@ const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requeste
 export async function readAiObservations(
   tenantId: string,
   opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
-    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" } = {},
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" | "fanout" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -189,7 +171,7 @@ export async function readAiObservations(
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
-      .select(opts.projection === "overview" ? OVERVIEW_COLUMNS : opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : "*")
+      .select(opts.projection === "overview" ? OVERVIEW_COLUMNS : opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : opts.projection === "fanout" ? FANOUT_COLUMNS : "*")
       .eq("tenant_id", tenantId);
     if (opts.id) q = q.eq("id", opts.id);
     if (opts.day) q = q.eq("reporting_day", opts.day);
@@ -214,6 +196,10 @@ export async function readAiObservations(
     // for one reads only the columns it named, which is why it asked for them.
     const narrow = opts.projection === "overview" || opts.projection === "outcome";
     const page = (narrow ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => narrowRow(r, opts.projection === "overview"))
+      : opts.projection === "fanout" ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
+        const { fans, cited, retrieved, ...rest } = r; // the three aliased journey lists, rebuilt in place
+        return { ...rest, journey: { fan_outs: fans ?? null, cited_sources: cited ?? null, retrieved_results: retrieved ?? null, brand_mentions: null, web_search_reported: null }, analysis: null, analysis_hash: null };
+      })
       : (data ?? [])) as unknown as AiObservationRecord[];
     rows.push(...page);
     const last = page[page.length - 1];

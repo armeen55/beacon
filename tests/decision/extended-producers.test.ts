@@ -149,8 +149,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
     // THE INVERSION THIS REPAIR EXISTS FOR: fact requirements are claims that belong ON the page, and my own numbers never do.
     expect(c.sourcePack!.factRequirements).toEqual(["Downspout diverter."]);
-    // THE KIND OF SOURCE IS ALL I HOLD HERE: the copy hands the choice over, and the component stays held for review.
-    expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter needs a source a reader can check, of the kind the pages being cited for "rain barrel sizing" point at: a.example, b.example, c.example. You pick the exact page: what is on file is the kind of source this needs and not the source itself.']);
+    // NO SOURCE HOMEWORK (2026-08-19): a claim either stands on a verified fact by url, or the requirement names the acquisition the fact pass owes. The operator is never told to pick a source.
+    expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "rain barrel sizing" point at (a.example, b.example, c.example) before this line ships. Nothing here asks anybody to pick a source.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
     expect(JSON.stringify(c)).not.toContain("6,000");
     expect(JSON.stringify(c)).not.toContain(INVENTED);

@@ -38,7 +38,9 @@ export type CapabilityKey =
   | "llm_gemini"
   | "llm_claude"
   | "llm_perplexity"
-  | "llm_scraper_chatgpt";
+  | "llm_scraper_chatgpt"
+  | "ai_keyword_volume"
+  | "llm_mentions_search";
 
 /** The full bounded provider envelope the boundary caches and returns. */
 export type ProviderEnvelope = {
@@ -128,6 +130,15 @@ export type ParsedByCapability = {
   llm_claude: ParsedAiAnswer;
   llm_perplexity: ParsedAiAnswer;
   llm_scraper_chatgpt: ParsedAiAnswer;
+  /** AI KEYWORD DATA: how often a keyword shows up inside AI questioning, the provider's own AI search volume.
+   *  A DIFFERENT unit from Google volume and never blended with it; an unsent figure stays null, never zero.
+   *  (docs: ai_optimization/ai_keyword_data/keywords_search_volume/live, verified 2026-08-19) */
+  ai_keyword_volume: Array<{ keyword: string; aiSearchVolume: number | null }>;
+  /** LLM MENTIONS: the provider's stored record of real LLM answers that named a target domain or keyword,
+   *  each with its question, sources and fan-outs. Read-only market evidence beside Beacon's own observations,
+   *  never a substitute for them. (docs: ai_optimization/llm_mentions/search/live, verified 2026-08-19) */
+  llm_mentions_search: Array<{ platform: string; modelName: string | null; question: string; aiSearchVolume: number | null;
+    sources: Array<{ url: string; domain: string; title: string | null }>; fanOutQueries: string[]; lastResponseAt: string | null }>;
 };
 
 /** TYPED capability inputs: the ONLY shapes a caller may hand the boundary. Every field is a real provider field for that endpoint (web_search flags are
@@ -173,6 +184,10 @@ export type CapabilityInputByKey = {
   llm_gemini: { user_prompt: string; web_search?: boolean } & ObservationIdentity;
   llm_perplexity: { user_prompt: string; web_search_country_iso_code?: string } & ObservationIdentity;
   llm_scraper_chatgpt: { keyword: string; force_web_search?: boolean; expand_citations?: boolean } & ObservationIdentity;
+  /** Up to 1,000 keywords per ask; the builder pins US English exactly like every Labs entry. */
+  ai_keyword_volume: { keywords: string[] };
+  /** Up to 10 targets, each a domain OR a keyword; platform defaults to google (chat_gpt is US English only). */
+  llm_mentions_search: { target: Array<{ domain?: string; keyword?: string }>; platform?: "chat_gpt" | "google"; limit?: number };
 };
 
 /** Method-aware model resolution: the exact current model, the retrieval method it supports, and whether it can do web search, from the FREE models

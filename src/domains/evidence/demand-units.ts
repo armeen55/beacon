@@ -143,6 +143,9 @@ export type CanonicalDemandUnit = {
   /** The disagreements between streams, preserved in words instead of resolved by force. */
   tensions: string[];
   audience: { impressions90d: number; aiAnswers: number; lostClicksPerMonth: number };
+  /** WHERE THIS AUDIENCE WAS SEEN: Google queries, AI questions and their fan-outs, or both. An AI-only
+   *  recurring demand used to be invisible unless it already resembled a GSC query (operator, 2026-08-19). */
+  seededBy: "search" | "ai" | "both";
 };
 
 export type CanonicalUnitInputs = {
@@ -151,7 +154,7 @@ export type CanonicalUnitInputs = {
   windows: { earlyDays: number; recentDays: number };
   keywords: readonly { query: string; searchVolume: number | null; intent: string | null; difficulty: number | null }[];
   serps: readonly { query: string; observedAt: string | null; organic: { rank: number; domain: string; url: string }[]; paa: string[]; related: string[] }[];
-  observations: readonly { promptId: string; promptText: string; creditedOwn: boolean;
+  observations: readonly { promptId: string; promptText: string; creditedOwn: boolean; engine?: string; day?: string;
     citations: readonly { domain: string; url: string }[] | null; fanOutQueries: readonly string[] | null }[];
   winning: readonly { url: string; domain: string; queries: readonly string[]; promptIds: readonly string[] }[];
   expectedCtrAt: (position: number) => number;
@@ -191,7 +194,7 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
   const serp = new Map(input.serps.map((s) => [canon(s.query), s] as const));
   const promptTok = input.observations.map((o) => ({ o, tokens: new Set(topicTokens(o.promptText)) }));
 
-  return units.map((u) => {
+  const searchSeeded = units.map((u) => {
     // Deduplicated: two phrasings sharing one token set are ONE history row, never a double count.
     const keys = [...new Set(u.queries.map((q) => canon(q.query)))];
     const keySet = new Set(keys);
@@ -241,10 +244,12 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
     const volume = kws[0] ? { searchVolume: kws[0].searchVolume, intent: kws[0].intent, difficulty: kws[0].difficulty } : null;
     // SERP: the biggest member whose results page is on file.
     const sr = keys.map((k) => serp.get(k)).find((x) => !!x) ?? null;
-    // Prompts: an exact-key member match, or at least THREE shared subject tokens with the unit's universe.
-    // Two was enough for a coincidence ("iranian" plus one more on a site about Iran); three is a claim.
-    const joined = promptTok.filter(({ o, tokens }) => keySet.has(canon(o.promptText))
-      || [...tokens].filter((t) => unitTokens.has(t)).length >= 3);
+    // PROMPTS JOIN BY IDENTITY, NEVER SIMILARITY: the question asked IS a member search, or the provider's
+    // own fan-out for that answer is. Shared subject tokens joined "best places to visit in Iran" to an
+    // iran-flag unit through the account's everywhere-word; a word an account puts on everything is not
+    // evidence about anything (operator, 2026-08-19). The same rule Decision's membership predicate holds.
+    const joined = promptTok.filter(({ o }) => keySet.has(canon(o.promptText))
+      || (o.fanOutQueries ?? []).some((q) => { const k = canon(q); return k.length > 0 && k !== canon(o.promptText) && keySet.has(k); }));
     const byPrompt = new Map<string, { text: string; answers: number; credited: number; rivals: Map<string, { url: string; count: number }> }>();
     for (const { o } of joined) {
       const p = byPrompt.get(o.promptId) ?? { text: o.promptText, answers: 0, credited: 0, rivals: new Map() };
@@ -279,7 +284,52 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
       prompts, fanouts, winningPages, recoverableClicks: u.recoverableClicks, tensions,
       audience: { impressions90d: u.impressions, aiAnswers: prompts.reduce((a, p) => a + p.answers, 0),
         lostClicksPerMonth: history?.lostClicksPerMonth ?? 0 },
+      seededBy: (prompts.length > 0 ? "both" : "search") as CanonicalDemandUnit["seededBy"],
     };
-  }).sort((a, b) => b.audience.lostClicksPerMonth - a.audience.lostClicksPerMonth
-    || b.audience.impressions90d - a.audience.impressions90d || a.label.localeCompare(b.label));
+  });
+
+  // ── AI-SEEDED UNITS: demand Google never named (operator, 2026-08-19). A tracked question whose answers
+  // joined no search unit is an audience somebody approved watching; a fan-out that RECURRED across distinct
+  // days, engines or parent questions earned materiality the way one sighting never does. Each becomes a unit
+  // with zero impressions, never a borrowed Google number: unknown volume stays unknown.
+  const claimed = new Set(searchSeeded.flatMap((un) => un.prompts.map((pr) => pr.promptId)));
+  const claimedKeys = new Set(searchSeeded.flatMap((un) => un.queries.map((q) => canon(q.query))));
+  const aiSeeded: CanonicalDemandUnit[] = [];
+  const byUnjoinedPrompt = new Map<string, (typeof input.observations)[number][]>();
+  for (const o of input.observations) if (!claimed.has(o.promptId)) byUnjoinedPrompt.set(o.promptId, [...(byUnjoinedPrompt.get(o.promptId) ?? []), o]);
+  for (const [promptId, obs] of byUnjoinedPrompt) {
+    const text = obs[0]!.promptText;
+    if (claimedKeys.has(canon(text))) continue;
+    const credited = obs.filter((o) => o.creditedOwn).length;
+    const rivals = new Map<string, { url: string; count: number }>();
+    for (const o of obs) if (!o.creditedOwn) for (const c of new Map((o.citations ?? []).map((x) => [x.domain, x])).values()) {
+      const r = rivals.get(c.domain) ?? { url: c.url, count: 0 }; r.count += 1; rivals.set(c.domain, r); }
+    aiSeeded.push({ label: text, vocabulary: [text], queries: [], pages: [], history: null, volume: null, serp: null,
+      prompts: [{ promptId, text, answers: obs.length, credited,
+        citedRivals: [...rivals.entries()].map(([domain, r]) => ({ domain, url: r.url, count: r.count }))
+          .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain)).slice(0, 5) }],
+      fanouts: [...new Set(obs.flatMap((o) => o.fanOutQueries ?? []))].slice(0, 20),
+      winningPages: input.winning.filter((w) => w.promptIds.includes(promptId)).map((w) => ({ url: w.url, domain: w.domain })),
+      recoverableClicks: 0, tensions: [], seededBy: "ai",
+      audience: { impressions90d: 0, aiAnswers: obs.length, lostClicksPerMonth: 0 } });
+  }
+  // Fan-outs that recurred and joined nothing: distinct days, engines or parent prompts make the claim.
+  const fanRec = new Map<string, { query: string; days: Set<string>; engines: Set<string>; parents: Set<string> }>();
+  for (const o of input.observations) for (const q of new Set((o.fanOutQueries ?? []).map((x) => x.trim()).filter(Boolean))) {
+    const k = canon(q);
+    if (!k || k === canon(o.promptText) || claimedKeys.has(k)) continue;
+    const held = fanRec.get(k) ?? { query: q, days: new Set<string>(), engines: new Set<string>(), parents: new Set<string>() };
+    if (o.day) held.days.add(o.day);
+    if (o.engine) held.engines.add(o.engine);
+    held.parents.add(o.promptId);
+    fanRec.set(k, held);
+  }
+  for (const [, f] of fanRec) {
+    if (f.days.size < 3 && f.engines.size < 2 && f.parents.size < 2) continue; // one sighting is noise, watched and never work
+    aiSeeded.push({ label: f.query, vocabulary: [f.query], queries: [], pages: [], history: null, volume: null,
+      serp: null, prompts: [], fanouts: [f.query], winningPages: [], recoverableClicks: 0,
+      tensions: [], seededBy: "ai", audience: { impressions90d: 0, aiAnswers: 0, lostClicksPerMonth: 0 } });
+  }
+  return [...searchSeeded, ...aiSeeded].sort((a, b) => b.audience.lostClicksPerMonth - a.audience.lostClicksPerMonth
+    || b.audience.impressions90d - a.audience.impressions90d || b.audience.aiAnswers - a.audience.aiAnswers || a.label.localeCompare(b.label));
 }

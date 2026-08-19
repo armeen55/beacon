@@ -25,7 +25,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "change-contracts",
   "tracked-prompts",
   "tracked-entities",
-  "prompt-answer-observations",
   "recommendation-responses",
   "competitor-overlap", // the settled "is this domain actually a business competing with you" verdicts, keyed by domain + the evidence they were decided on
   // The one persisted customer-visible release shared by Today and Changes, under a single release id

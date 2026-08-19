@@ -24,25 +24,25 @@ const pageSnap = (url: string): EvidenceSnapshot => ({ ...snapshot([]),
   cannibalization: [], keywordDemand: [] }) as unknown as EvidenceSnapshot;
 const AI_PAGE = "https://own.example/saffron-guide";
 const CTR_PAGE = "https://own.example/nowruz";
-describe("the five doors into the deep read", () => {
-  it("opens the AI door with no click gap anywhere: the engine's own reading is enough", () => {
+describe("the four doors into the deep read", () => {
+  // AI EVIDENCE NO LONGER OPENS A DEEP DOOR (2026-08-19): the staged case path in producers/extra.ts is the
+  // ONE AEO decision path, so a citation-gap candidate with no click gap earns no deep slot here, and the
+  // same page still enters by the click door when a real gap rides it.
+  it("never opens a deep door on AI evidence alone: the staged case path owns AEO", () => {
     const picked = selectDeepCandidates({
-      snapshot: snapshot([["where to buy saffron", ["saffron price"]], "best saffron brands"], { "saffron price": 900 }),
       candidates: [cand({ pageUrl: AI_PAGE, query: "saffron price",
         cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) })],
       coverage: null, limit: 3,
     });
-    expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ai_absence", AI_PAGE]]);
-    expect(picked[0]!.entry).toContain('ChatGPT answered "where to buy saffron" for your customers and never named this page, and 1 question is watched like it about "saffron price", worth about 900 searches a month.');
+    expect(picked).toEqual([]);
   });
-  it("keeps one slot per page: a page arriving by the click door and the AI door drafts once, clicks first", () => {
+  it("keeps one slot per page: a page carrying AI evidence and a click gap drafts once, by the click door", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
       cause: cause("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "where to buy saffron" }) });
-    const picked = selectDeepCandidates({ snapshot: snapshot([["where to buy saffron", ["saffron price"]]]), candidates: [both], coverage: null, limit: 3 });
+    const picked = selectDeepCandidates({ candidates: [both], coverage: null, limit: 3 });
     expect([picked.length, picked[0]!.door, picked[0]!.unit]).toEqual([1, "ctr_gap", "clicks"]); });
   it("holds the bound, strongest proof first, and every entry names its own door", () => {
     const picked = selectDeepCandidates({
-      snapshot: snapshot([["where to buy saffron", ["saffron price"]]]),
       candidates: [
         cand({ pageUrl: CTR_PAGE, action: "act_existing_page", recoverableClicks: 300 }),
         cand({ pageUrl: AI_PAGE, query: "saffron price",
@@ -56,7 +56,6 @@ describe("the five doors into the deep read", () => {
   });
   it("keeps the single-door regression path byte-stable: only the click door qualifying picks the old page", () => {
     const picked = selectDeepCandidates({
-      snapshot: snapshot([]),
       candidates: [
         cand({ pageUrl: CTR_PAGE, action: "act_existing_page", recoverableClicks: 300 }),
         cand({ pageUrl: AI_PAGE, action: "act_existing_page", recoverableClicks: 500 }),
@@ -64,22 +63,6 @@ describe("the five doors into the deep read", () => {
       coverage: null, limit: 3,
     });
     expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]); });
-  /** THE LIVE COUNTEREXAMPLE'S OWN COUNT: six answers carrying one everyday word became "I watch 7 questions like it" on the line the operator reads. Only answers that belong to THIS search may ever be counted. */
-  it("counts only the questions that belong to this search, never every answer sharing one word", () => {
-    const generic = ["best places to visit in iran", "iran travel advice", "iran food guide", "iran history timeline", "iran music scene", "iran visa rules"];
-    const picked = selectDeepCandidates({ snapshot: snapshot([["what does the iran flag mean", ["iran flag"]], ...generic], { "iran flag": 1300 }),
-      candidates: [cand({ pageUrl: "https://own.example/iran-flag", query: "iran flag",
-        cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what does the iran flag mean" }) })],
-      coverage: null, limit: 3 });
-    expect([picked[0]!.entry.includes("1 question is watched like it"), /[2-9] questions are watched/.test(picked[0]!.entry), picked[0]!.strength]).toEqual([true, false, 1]); });
-  it("never opens the AI door on an accusation nothing rides on: no watched question, no demand, no slot", () => {
-    const picked = selectDeepCandidates({
-      snapshot: snapshot([]),
-      candidates: [cand({ pageUrl: AI_PAGE, query: "saffron price",
-        cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) })],
-      coverage: null, limit: 3,
-    });
-    expect(picked).toEqual([]); });
   /** DOOR 5 WAS UNREACHABLE FOR A GENERATION: nothing anywhere assigned `gap: "recent_decline"`, so the door that finds a page which was earning and stopped could never open. compileCandidates assigns it now, off the page's own two four week windows, and these two pins run the real thing end to end. */
   /** The page's own rate, so the click curve finds nothing wrong and the fall is the only thing left to see: exactly the state a fitted curve puts a real account in. */
   const ownRate = { expectedCtrAt: () => 763 / 40_000 };
@@ -90,7 +73,7 @@ describe("the five doors into the deep read", () => {
     const candidates = compileCandidates(pageSnap(FALLEN), { decline, curve: ownRate });
     expect([candidates[0]!.gap, candidates[0]!.recoverableClicks]).toEqual(["recent_decline", 191]); // the REAL lost clicks, never a curve distance
     expect(candidates[0]!.reason).toContain("This page earned 191 fewer clicks in the last four weeks than in the four weeks before, and it holds the same position it held then (7.2 to 7.5), so the ranking is not what changed.");
-    const picked = selectDeepCandidates({ snapshot: snapshot([]), candidates, coverage: null, limit: 3 });
+    const picked = selectDeepCandidates({ candidates, coverage: null, limit: 3 });
     // THE DOOR CARRIES THE SPAN THE FALL WAS MEASURED OVER, or the producer refuses every page it picks and the door burns a slot on every pass producing nothing.
     expect([picked.map((p) => p.door), picked[0]!.evidence.window]).toEqual([["recent_decline"], "the four weeks to 2026-08-01, against the four weeks before"]);
     // Its sentence is the FALL, never a curve distance: this door is opened by what the page lost.
@@ -108,4 +91,4 @@ describe("the five doors into the deep read", () => {
     // Down 60 percent and off 30 clicks: real movement, and nothing an operator should be sent at.
     const decline = new Map([[SMALL, { clicksNow: 12, clicksPrior: 30, positionNow: 9, positionPrior: 4, impressionsNow: 900, impressionsPrior: 2_000 }]]);
     const c = compileCandidates(pageSnap(SMALL), { decline, curve: ownRate })[0]!;
-    expect([c.gap, selectDeepCandidates({ snapshot: snapshot([]), candidates: [c], coverage: null, limit: 3 })]).toEqual([undefined, []]); }); });
+    expect([c.gap, selectDeepCandidates({ candidates: [c], coverage: null, limit: 3 })]).toEqual([undefined, []]); }); });

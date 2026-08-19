@@ -1,5 +1,4 @@
 import "server-only";
-
 /**
  * ai-outcomes (V1 Truth Convergence Phase 7) - WHAT THE AI ENGINES ACTUALLY SAID ABOUT THIS ACCOUNT.
  * Every number is computed at read time from answers ALREADY bought and stored: nothing fetched, paid,
@@ -24,13 +23,11 @@ const FLAT_BAND = 0.05; // under five points either way is not a move I am willi
 
 type ObservedLink = { url: string; domain: string; title: string | null };
 type Analysis = { ownedBrandMention?: { mentioned?: unknown } | null };
-
 /** The injectable read. Production passes nothing and gets the stored-observation reader itself. The DAY
  *  RANGE is part of the ask, so the store returns the requested stretch and nothing outside it, and so is
  *  the PROJECTION, so an outcome read never drags whole answers and retrieval journeys across the wire. */
 type ReadRows = (tenantId: string, opts: { limit?: number; slot?: number; fromDay?: string; toDay?: string; projection?: "full" | "outcome" | "overview" }) => Promise<AiObservationRecord[]>;
 type ReadOpts = { ownedHost?: string | null; readObservations?: ReadRows };
-
 /** What one engine was serving on one day. `asked` is every first reading planned that day whatever came back, `observed` the ones that actually answered, so an
  *  engine that went quiet reads as quiet. `analyzed` is how many of those answers a settled reading exists for, counted by the SAME rule the day pools (namedIn),
  *  so the engines sum to the day and a surface can say "3 of the 4 I read on ChatGPT" instead of falling back to one pooled fraction of a part-read day. Without
@@ -39,7 +36,6 @@ type EnginePresence = {
   engine: string; modelServed: string | null; mode: string;
   asked: number; observed: number; analyzed: number; mentioning: number; citedOwned: number;
 };
-
 /** One reporting day, pooled across engines. Counts ride beside every rate so the surface can say what the
  *  rate was computed over instead of implying the whole day: `analyzed` is the answers read closely enough
  *  to say whether you were named, `citationSample` the answers whose engine reported what it credited, and
@@ -56,7 +52,6 @@ type OutcomeDay = {
   retrievedNotCitedRate: number | null;
   byEngine: EnginePresence[];
 };
-
 /** A stretch of days read on ONE instrument. A new segment starts the day a model or a mode changed, and
  *  `boundary` names exactly what changed, so the line is never quietly joined across the break. */
 type OutcomeSegment = {
@@ -66,7 +61,6 @@ type OutcomeSegment = {
   boundary: Array<{ engine: string; day: string; fromModel: string | null; toModel: string | null; fromMode: string; toMode: string }> | null;
   days: OutcomeDay[];
 };
-
 /** The daily trend read over stored answers, split wherever the instrument changed. */
 export type AiOutcomeReport = {
   from: string; to: string;
@@ -339,29 +333,44 @@ type ShipmentForOutcome = {
    *  own id, or the search itself in words. Empty or absent = I cannot tell which answers belong to this
    *  change, and it says so rather than reading the whole account on this one page's behalf. */
   scopeQueries?: readonly string[] | null;
+  /** THE TYPED SCOPE, when the shipment preserved one: exact prompt ids, the assistants the claim was made
+   *  on, and the fan-out cluster. It wins over scopeQueries because it is the claim itself, not a flattening
+   *  of it; the fan-out texts join so a follow-up search later promoted to a tracked question lands here. */
+  aiScope?: { promptIds: readonly string[]; engines: readonly string[]; fanouts: readonly string[]; stage: string } | null;
 };
 
-/** ONE SHIPMENT'S MEMBERSHIP KEYS: ids matched exactly, wordings matched on their canonical words. Null when
- *  the change carries no scope at all, which is a state and not an empty filter. PURE. */
-function scopeKeysOf(shipment: ShipmentForOutcome): Set<string> | null {
+/** ONE SHIPMENT'S MEMBERSHIP: ids matched exactly, wordings matched on their canonical words, and, when the
+ *  shipment preserved its typed AI scope, ONLY the assistants the claim was made on. Null when the change
+ *  carries no scope at all, which is a state and not an empty filter. PURE. */
+type ShipmentScope = { keys: Set<string>; engines: Set<string> | null };
+function scopeKeysOf(shipment: ShipmentForOutcome): ShipmentScope | null {
+  const typed = shipment.aiScope;
+  if (typed && (typed.promptIds.length > 0 || typed.fanouts.length > 0)) {
+    const keys = new Set<string>();
+    for (const id of typed.promptIds) if (id.trim().length > 0) keys.add(id.trim());
+    for (const q of typed.fanouts) { const k = canonicalQueryKey(q); if (k.length > 0) keys.add(k); }
+    return { keys, engines: typed.engines.length > 0 ? new Set(typed.engines) : null };
+  }
   const keys = new Set<string>();
   for (const raw of shipment.scopeQueries ?? []) {
     const text = (raw ?? "").trim();
     if (text.length > 0) { keys.add(text); const k = canonicalQueryKey(text); if (k.length > 0) keys.add(k); }
   }
-  return keys.size > 0 ? keys : null;
+  return keys.size > 0 ? { keys, engines: null } : null;
 }
 
 /** DOES THIS ANSWER BELONG TO THIS CHANGE? The closed rule Decision holds (decision/membership.ts), spelled
  *  out here because Measurement may not import Decision, and narrowed to what THIS read can actually see:
  *  the question asked is one of the change's tracked ids, or its exact wording. Nothing else is a route in:
  *  a word an account puts on everything is not evidence about one page. PURE. */
-function answerJoinsScope(rec: AiObservationRecord, scope: ReadonlySet<string>): boolean {
-  if (scope.has(rec.prompt_id)) return true;
+function answerJoinsScope(rec: AiObservationRecord, scope: ShipmentScope): boolean {
+  if (scope.engines != null && !scope.engines.has(rec.engine)) return false;
+  if (scope.keys.has(rec.prompt_id)) return true;
   const asked = canonicalQueryKey(rec.prompt_text ?? "");
   // Two routes only, because the lean outcome projection this read runs on carries no journey: the exact
-  // question id, or the exact question wording. A fan-out route here would be a claim the read cannot keep.
-  return asked.length > 0 && scope.has(asked);
+  // question id, or the exact question wording (a preserved fan-out text joins by the same wording rule the
+  // day it becomes a tracked question). A journey-based route here would be a claim the read cannot keep.
+  return asked.length > 0 && scope.keys.has(asked);
 }
 
 /** The two ends of ONE shipment's read: the 28 days ahead of the stamp, where the fallback before-number is

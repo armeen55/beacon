@@ -57,7 +57,7 @@ export { loadEvidenceSnapshot } from "./snapshot-loader";
 
 // Relevance gate (evidence-join suppression)
 export type { RelevanceReason, RelevanceVerdict } from "./relevance-gate";
-export { topicTokens, domainOf, isNoiseDomain, scoreTopicMatch } from "./relevance-gate";
+export { canonicalQueryKey, topicTokens, domainOf, isNoiseDomain, scoreTopicMatch } from "./relevance-gate";
 
 // The six connector readers (public entry points + result types)
 export type { GscPageSignal, GscQuerySignal, GscSiteTotals, GscDecaySignal } from "./readers/gsc-page-signals";
@@ -115,6 +115,7 @@ export type {
   DueObservation,
 } from "./ai-visibility/ai-observations";
 export { canonicalPairOf, isAnalysisSettled, observationReceiptCost, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+export { buildFanoutEvidence, ownedPageAiRollup, FANOUT_MATERIAL, type FanoutEvidence, type FanoutRow, type OwnedPageAiRow } from "./ai-visibility/fanout-evidence";
 // What the engines' OWN answers said, projected off readings already settled (pure, no I/O).
 export type { AnswerIntel, AnswerSignal } from "./answer-intel";
 export { answerIntelOf } from "./answer-intel";

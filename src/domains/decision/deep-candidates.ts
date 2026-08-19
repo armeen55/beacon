@@ -6,14 +6,14 @@
  * evidence identity so the producer proves THAT door's case rather than the click door's. THIS FILE SELECTS AND NOTHING ELSE: no draft, no purchase, no model, no clock, no I/O.
  */
 
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { observationJoinsCase } from "./membership";
+import { canonicalUrlKey } from "@/domains/evidence/snapshot";
 import type { DecidedTopic } from "./coverage-pass";
 import type { QualifiedCandidate } from "./opportunities";
 
-/** The five distinct kinds of proof that can put one page in front of the deep producer. */
-type Door = "ctr_gap" | "ai_absence" | "coverage_verdict" | "cannibalization" | "recent_decline";
+/** The four distinct kinds of proof that can put one page in front of the deep producer. AI evidence is NOT
+ *  one of them any more: the staged case path in producers/extra.ts owns every AEO decision off the same
+ *  canonical observations, so a second AI door here was a second AEO brain and it is deleted, not ranked last. */
+type Door = "ctr_gap" | "coverage_verdict" | "cannibalization" | "recent_decline";
 /** What a door's own strength is COUNTED IN. Two doors are never compared in a unit neither proved. */
 type Unit = "clicks" | "questions" | "winners";
 
@@ -41,7 +41,7 @@ type DeepCandidate = {
 /** Clicks first, then the questions an engine hands elsewhere, then the winners I read. */
 const UNIT_RANK: Record<Unit, number> = { clicks: 0, questions: 1, winners: 2 };
 /** The fixed door order, used only to break a genuine tie so the same evidence always picks the same page. */
-const DOOR_RANK: Record<Door, number> = { ctr_gap: 0, ai_absence: 1, coverage_verdict: 2, cannibalization: 3, recent_decline: 4 };
+const DOOR_RANK: Record<Door, number> = { ctr_gap: 0, coverage_verdict: 1, cannibalization: 2, recent_decline: 3 };
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const clicksOf = (c: QualifiedCandidate): number => Math.max(0, c.recoverableClicks);
@@ -52,32 +52,15 @@ const LEAD = "This page earned the deepest read because";
 const strongest = (xs: readonly QualifiedCandidate[]): QualifiedCandidate | null =>
   [...xs].sort((a, b) => b.recoverableClicks - a.recoverableClicks || (a.pageUrl ?? "").localeCompare(b.pageUrl ?? ""))[0] ?? null;
 
-/** The questions this account ALREADY WATCHES about one page's own search, and what that search is worth a
- *  month where a count is on file. Membership is the ONE canonical predicate, not a word in common: counting
- *  every answer that shares the account's own subject word told an operator I watch seven questions about
- *  their flag page when six of them were about visiting the country. */
-function aiDemand(snapshot: EvidenceSnapshot, query: string): { prompts: number; volume: number } {
-  const ofCase = { queries: [query], provenance: snapshot.research.retainedKeywords
-    .filter((k) => canonicalQueryKey(k.query) === canonicalQueryKey(query))
-    .flatMap((k) => k.origins ?? []) };
-  const prompts = new Set(snapshot.research.aiObservations
-    .filter((o) => o.citationsObserved && o.citations != null && observationJoinsCase(o, ofCase))
-    .map((o) => o.promptText.trim().toLowerCase()));
-  const key = canonicalQueryKey(query);
-  const volume = snapshot.keywordDemand.find((k) => canonicalQueryKey(k.query) === key)?.searchVolume ?? 0;
-  return { prompts: prompts.size, volume: Math.max(0, volume) };
-}
-
 /**
  * The pages that earn a deep read this pass, strongest first, at most `limit` of them and at most one per page. Every entry names the door it came through in the operator's own words. PURE.
  */
 export function selectDeepCandidates(input: {
-  snapshot: EvidenceSnapshot;
   candidates: readonly QualifiedCandidate[];
   coverage: DecidedTopic | null;
   limit: number;
 }): DeepCandidate[] {
-  const { snapshot, candidates, coverage, limit } = input;
+  const { candidates, coverage, limit } = input;
   if (limit <= 0) return [];
   const doors: DeepCandidate[] = [];
 
@@ -86,26 +69,7 @@ export function selectDeepCandidates(input: {
   if (ctr?.pageUrl) doors.push({ pageUrl: ctr.pageUrl, door: "ctr_gap", unit: "clicks", strength: clicksOf(ctr), volume: 0, evidence: NO_IDENTITY,
     entry: `${LEAD} it is the biggest proven gap on file: about ${num(clicksOf(ctr))} clicks short of what its own positions usually earn.` });
 
-  // DOOR 2: AN ENGINE THAT READ THIS PAGE, OR ANSWERED AROUND IT. This asks only that the question is one I watch and that real demand sits behind it, so an accusation with nothing riding on it takes no slot.
-  const ai = candidates
-    .filter((c) => !!c.pageUrl && !!c.query && (c.cause.cause === "ai_citation_gap" || c.cause.cause === "retrieved_not_cited"))
-    .map((c) => ({ c, ...aiDemand(snapshot, c.query!) }))
-    .filter((r) => r.prompts > 0 && (clicksOf(r.c) > 0 || r.volume > 0))
-    .sort((a, b) => b.c.recoverableClicks - a.c.recoverableClicks || b.prompts - a.prompts
-      || (a.c.pageUrl ?? "").localeCompare(b.c.pageUrl ?? ""))[0];
-  const payload = ai?.c.cause.payload;
-  if (ai?.c.pageUrl && payload && (payload.cause === "ai_citation_gap" || payload.cause === "retrieved_not_cited")) {
-    const read = payload.cause === "retrieved_not_cited"
-      ? `${payload.engine} read this page while answering "${payload.promptText}" and quoted somebody else`
-      : `${payload.engine} answered "${payload.promptText}" for your customers and never named this page`;
-    const clicks = clicksOf(ai.c);
-    doors.push({ pageUrl: ai.c.pageUrl, door: "ai_absence", volume: ai.volume,
-      evidence: { ...NO_IDENTITY, query: ai.c.query!, engine: payload.engine, promptText: payload.promptText },
-      unit: clicks > 0 ? "clicks" : "questions", strength: clicks > 0 ? clicks : ai.prompts,
-      entry: `${LEAD} ${read}, and ${num(ai.prompts)} ${ai.prompts === 1 ? "question is watched" : "questions are watched"} like it about "${ai.c.query}"${ai.volume > 0 ? `, worth about ${num(ai.volume)} searches a month` : ""}.` });
-  }
-
-  // DOOR 3: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
+  // DOOR 2: THE PAGE A VERDICT NAMES. My comparison of a whole subject already concluded that the answer is the page you have rather than a page you do not, and that conclusion never reached the deep producer.
   // A page the comparison decided to improve AND a page whose only earned work is technical both enter by this door: either way the coverage pass itself named the page, so the deep read owes it a look.
   const named = coverage && (coverage.decision.verdict === "improve_existing" || coverage.decision.verdict === "technical_only")
     ? coverage.decision.ownedUrls[0] ?? null : null;
@@ -119,7 +83,7 @@ export function selectDeepCandidates(input: {
       entry: `${LEAD} the comparison of "${coverage.investigation.label}" names this as the page of yours to improve, off the ${num(winners)} winning ${winners === 1 ? "page" : "pages"} read.` });
   }
 
-  // DOOR 4: TWO OF YOUR OWN PAGES SPLITTING ONE SEARCH, at its strongest page. The ladder proves the split and no wording change touches it, so the group's best page is where a deep read is worth buying.
+  // DOOR 3: TWO OF YOUR OWN PAGES SPLITTING ONE SEARCH, at its strongest page. The ladder proves the split and no wording change touches it, so the group's best page is where a deep read is worth buying.
   const split = strongest(candidates.filter((c) => !!c.pageUrl && !!c.query && c.cause.cause === "cannibalization"));
   const splitPayload = split?.cause.payload;
   if (split?.pageUrl) {
@@ -129,7 +93,7 @@ export function selectDeepCandidates(input: {
       entry: `${LEAD} ${num(competing.length || 2)} of your own pages come up for "${split.query}" and this one is the strongest of them, about ${num(clicksOf(split))} clicks short.` });
   }
 
-  // DOOR 5: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
+  // DOOR 4: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.
   // A PAGE ALREADY UNDER A READING IS NOT THE PAGE TO SPEND THIS SLOT ON: nothing may be stacked on a change
   // still being measured, so the deepest read of the pass was bought for a page it could only ever refuse, and
   // the next fall down the list, which nothing was measuring, never got looked at.

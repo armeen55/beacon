@@ -217,23 +217,19 @@ type ProduceBundleOptions = ProposeOptions & {
 };
 
 /** The door contract, structurally satisfied by a DeepCandidate. Only what this file has to check. */
-type DoorContext = { door: "ctr_gap" | "ai_absence" | "coverage_verdict" | "cannibalization" | "recent_decline";
+type DoorContext = { door: "ctr_gap" | "coverage_verdict" | "cannibalization" | "recent_decline";
   entry: string; evidence: { query: string | null; engine: string | null; promptText: string | null; competingUrls: readonly string[]; window: string | null } };
 
 /** THE GOAL when the door is not a click gap: a shortfall I cannot show is no objective. */
 const doorGoal = (d: DoorContext["door"], q: string): string =>
-  d === "ai_absence" ? `Give the assistants answering "${q}" a reason to name this page instead of somebody else.`
-    : d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it, read side by side.`
+  d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it, read side by side.`
       : d === "cannibalization" ? `Put one page of yours in front of "${q}" instead of several, so the clicks stop splitting.`
         : `Win back what this page has lost on "${q}".`;
 
 /** THIS DOOR'S OWN CASE, checked before a word is written. Null = on file. */
-function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string | null {
+function doorEvidenceMissing(d: DoorContext): string | null {
   const e = d.evidence;
   if (!(e.query ?? "").trim()) return "This page was picked off evidence that no longer names the search it was about, so no change is written for it. Research this page again and the finding comes back here.";
-  if (d.door === "ai_absence") return !!e.engine && !!e.promptText && snapshot.research.aiObservations.some((o) =>
-    norm(o.promptText) === norm(e.promptText!) && norm(o.engine) === norm(e.engine!)) ? null
-    : `This page was picked because an assistant answered a tracked question without naming it, and that answer is no longer on file, so no change is written off it. Watch "${e.query}" again and what the assistant said comes back here.`;
   // The verdict that named this page rides in on `coverage` and is checked against this exact page below.
   if (d.door === "coverage_verdict") return null;
   if (d.door === "cannibalization") return e.competingUrls.length >= 2 ? null
@@ -244,7 +240,7 @@ function doorEvidenceMissing(d: DoorContext, snapshot: EvidenceSnapshot): string
 
 /** WHAT EACH DOOR ACTUALLY MEASURED, in the operator's words, so the wording branch refuses in its own terms. */
 const DOOR_MEASURED: Record<DoorContext["door"], string> = { ctr_gap: "it is losing clicks against its own positions",
-  ai_absence: "an assistant answered the question around it", coverage_verdict: "the comparison of the pages winning that search names this page",
+  coverage_verdict: "the comparison of the pages winning that search names this page",
   cannibalization: "two of your own pages come up for that search", recent_decline: "this page's searches have fallen" };
 
 const OPPORTUNITY_OF: Partial<Record<CauseFinding["cause"], string>> = {
@@ -315,7 +311,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     ? "The picked page could not be read closely enough to write against, so nothing is handed over. The page is read again on the next pass, and the change follows."
     : "No page of yours is losing enough clicks against what its own positions should earn, so there is nothing honest to rewrite yet." };
   // THE DOOR ANSWERS FOR ITS OWN EVIDENCE: a wrong reason beats no reason nowhere.
-  const shortOf = door ? doorEvidenceMissing(door, snapshot) : null;
+  const shortOf = door ? doorEvidenceMissing(door) : null;
   if (shortOf) return { status: "none", reason: shortOf };
 
   const { page, gaps } = pick; const lead = door ? null : gaps[0]!; const queries = queriesOf(page); const content = page.content!;

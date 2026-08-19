@@ -12,7 +12,6 @@ import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
 import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -87,12 +86,6 @@ export interface SeedDataRepository {
   // competitor comparison / entity universe). File backend wraps existing
   // canonical-store consts; Supabase backend fetches from the corresponding
   // tables with explicit paging for the large ones.
-  /** Emergency P0 (2026-05-12) — accepts optional `{ promptId }` so
-   *  `/prompts/[id]` can push the predicate down to Postgres
-   *  (`.eq("prompt_id", id)`) instead of loading all ~15k rows. */
-  getPromptAnswerObservations(
-    options?: { promptId?: string },
-  ): Promise<PromptAnswerObservation[]>;
   getDailyMetricSnapshots(): Promise<DailyMetricSnapshot[]>;
   getTrackedEntities(): Promise<TrackedEntity[]>;
   getTrackedPrompts(): Promise<TrackedPrompt[]>;
@@ -146,19 +139,6 @@ type WindowedReadOptions = {
   columns?: string;
 };
 
-/**
- * Emergency P0 fix (2026-05-12) — scoped + windowed read for
- * `prompt_answer_observations`. Production trace measured
- * `/prompts/[id]` at **11+ seconds** because `loadFreshCanonicalData`
- * loads ALL 15,125 observations every render even though the page
- * only needs the rows for one `prompt_id`. The `promptId` filter
- * pushes the predicate down to Postgres so the row count crossing
- * the wire drops from ~15,000 to typically <500.
- */
-type ScopedObservationReadOptions = WindowedReadOptions & {
-  /** When set, filter at the DB with `prompt_id = $1`. */
-  promptId?: string;
-};
 
 export interface TenantRepository {
   getPages(): Promise<PageEntity[]>;
@@ -197,13 +177,6 @@ export interface TenantRepository {
   getDailyMetricSnapshots(
     options?: WindowedReadOptions,
   ): Promise<DailyMetricSnapshot[]>;
-  /** E3 — accepts optional `{ since, promptId }` window. Default: full
-   *  history. Emergency P0 (2026-05-12): added `promptId` so single-
-   *  prompt views (`/prompts/[id]`) push the predicate to the DB
-   *  instead of fetching all 15k rows then filtering client-side. */
-  getPromptAnswerObservations(
-    options?: ScopedObservationReadOptions,
-  ): Promise<PromptAnswerObservation[]>;
   /**
    * Customer-2 isolation fix (operator audit, 2026-05-06) —
    * tenant-scoped reads for `tracked_prompts` and `tracked_entities`.

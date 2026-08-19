@@ -107,6 +107,10 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // THE YARDSTICK IS DECLARED AT THE PRESS: a change minted off stored AI answers is judged on mentions,
       // everything else on clicks, and Results reads the declaration instead of picking one later.
       judgedMetric: proposal.aiImpact ? "ai_mentions" : "clicks",
+      // THE TYPED AI SCOPE RIDES WHOLE: prompt ids, assistants and the fan-out cluster, exactly as the card
+      // claimed them. Flattening these into the ten targetQueries strings was how a shipment lost which
+      // assistants and which follow-up searches its own result must be read on.
+      aiScope: proposal.aiScope ?? null,
       componentsApplied,
       preChangeContentHash: meta?.contentHash ?? null,
       // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.

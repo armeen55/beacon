@@ -390,3 +390,26 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.direction).toBe("improved");
   });
 });
+
+describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction, 2026-08-19)", () => {
+  const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
+  const BASE = { implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 0 } } };
+  it("joins on the exact prompt ids and ONLY the assistants the claim was made on, never the flattened wordings", async () => {
+    const rows = [
+      row({ day: "2026-07-25", prompt_id: "p1", engine: "chatgpt", mentioned: true }),
+      row({ day: "2026-07-25", prompt_id: "p1", engine: "gemini", mentioned: true, sample_slot: 0 }),
+      row({ day: "2026-07-25", prompt_id: "p9", prompt_text: "where should I go", mentioned: true }),
+    ];
+    const outcome = await aiOutcomeForShipment(T, { ...BASE, scopeQueries: ["where should I go"],
+      aiScope: { promptIds: ["p1"], engines: ["chatgpt"], fanouts: [], stage: "rivals_cited_own_not_retrieved" } },
+    { readObservations: reader(rows), now: NOW });
+    expect(outcome?.after.checked).toBe(1); // p1 on chatgpt only: not the gemini answer, and never p9 riding a matching wording
+  });
+  it("lets a preserved fan-out wording join the day that search becomes a tracked question", async () => {
+    const rows = [row({ day: "2026-07-25", prompt_id: "p7", prompt_text: "haft seen table items list", mentioned: true })];
+    const outcome = await aiOutcomeForShipment(T, { ...BASE,
+      aiScope: { promptIds: ["p1"], engines: [], fanouts: ["haft seen table items list"], stage: "rivals_cited_own_not_retrieved" } },
+    { readObservations: reader(rows), now: NOW });
+    expect(outcome?.after.checked).toBe(1); // the cluster the change targeted is remeasured on its own wording
+  });
+});

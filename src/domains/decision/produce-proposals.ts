@@ -361,7 +361,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts), earned = candidatesToEvidenceInputs(snapshot, acted), inputs = earned.slice(0, bound);
   /** THE PAGES THIS PASS NEVER REACHED, because paid drafting stops at `bound`. NOT RE-EMITTED BY A CAP IS NOT NOT RE-EMITTED: the sweep read the budget's silence as the generator withdrawing its own work, and took back a draft already PAID for on the sixth strongest page of every pass. */
   const cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")]));
-  const deep = selectDeepCandidates({ snapshot, candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
+  const deep = selectDeepCandidates({ candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
   /** Pages already carrying a change under measurement: a second change on one of them cannot be saved. */
   const measuringPagesEarly = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));

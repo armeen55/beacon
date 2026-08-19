@@ -284,6 +284,8 @@ type ShipmentOrigin = {
   /** What they say they actually put on the page, in their own words. A NOTE beside the reading, never a substitute for it: no note has
    *  ever made a change verified and none ever will. */
   operatorNote?: string | null;
+  /** THE EXACT AI SCOPE the proposal targeted, carried typed. Absent on changes with no AI claim. */
+  aiScope?: ShippedChangeRecord["aiScope"];
 };
 
 /** The pages this account already has an edit queued or freshly landed on. A page about to move is
@@ -449,6 +451,7 @@ export async function recordShippedChange(args: {
     // can press or type ends it, so this is never written at mark time.
     verification: null,
     operatorNote: ship?.operatorNote ?? null,
+    aiScope: ship?.aiScope ?? null,
     // Nothing is frozen at ship time: the first window has not even opened.
     pinnedRead: null,
     createdAt: now.toISOString(),

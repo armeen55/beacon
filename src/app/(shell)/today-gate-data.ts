@@ -14,6 +14,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { hasActiveExperiment } from "@/lib/seed-data.server";
 import { hasAnyConnectedDataSource } from "@/lib/connector-store";
 import { getRepository } from "@/lib/persistence/repositories";
+import { readAiObservations } from "@/domains/evidence";
 import { PROMPT_TAGS } from "@/domains/runtime";
 
 type TodayV2GateData = {
@@ -56,15 +57,12 @@ export async function loadTodayV2GateData(): Promise<TodayV2GateData> {
   let activePromptCount = 0;
   try {
     const repo = getRepository().forTenant(tenantId);
-    const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+    const day = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
     const [recentObs, prompts] = await Promise.all([
-      // observationCount only feeds `observationCount > 0` below — we never
-      // read the row bodies here, so project the lean `observed_at` column.
-      // The full-row pull dragged the heavy `metadata` JSONB across the wire
-      // and statement-timed-out for a data-rich tenant; since this gate is
-      // awaited FIRST (before any section streams), that timeout hung the
-      // whole V2 page. Lean projection keeps the gate index-fast.
-      repo.getPromptAnswerObservations({ since, columns: "observed_at" }),
+      // observationCount only feeds `observationCount > 0` below, so ONE lean stamp row off the canonical
+      // ai_observations store answers it. The legacy prompt_answer_observations projection this used to count
+      // was a parallel copy of the same answers and is deleted (2026-08-19): one AI record, one gate read.
+      readAiObservations(tenantId, { fromDay: day(Date.now() - 7 * 86_400_000), toDay: day(Date.now()), limit: 1, projection: "stamp" }).catch(() => []),
       repo.getTrackedPrompts(),
     ]);
     observationCount = recentObs.length;

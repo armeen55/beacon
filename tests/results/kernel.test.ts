@@ -249,7 +249,7 @@ describe("the conditional day-56 read", () => {
     componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: STAMP,
     preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: "2026-05-02T00:00:00.000Z", components: [] },
-    operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
+    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
   // Day 56 lands 2026-06-26; Google has finalized well past it.
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";
@@ -398,7 +398,7 @@ describe("a settled reading is held still", () => {
     componentsApplied: [{ kind: "section", label: "Section" }], implementedAt: STAMP,
     preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: STAMP, components: [] },
-    operatorNote: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
+    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
   });
   const AFTER = new Date("2026-06-01T00:00:00Z"), FINAL = "2026-05-20";
   it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {

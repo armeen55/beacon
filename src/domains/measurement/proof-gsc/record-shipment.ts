@@ -62,6 +62,9 @@ type ShipmentFacts = {
   implementedAt?: string;
   preChangeContentHash?: string | null;
   operatorNote?: string | null;
+  /** THE EXACT AI SCOPE the proposal targeted: prompt ids, assistants and the fan-out cluster, typed, never
+   *  flattened into targetQueries. Results remeasures exactly this. */
+  aiScope?: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string } | null;
   now?: Date;
 };
 
@@ -114,6 +117,7 @@ async function write(
       implementedAt: stamp, preChangeContentHash: f.preChangeContentHash ?? null,
       preChangeHashUnavailable: extra.preChangeHashUnavailable,
       operatorNote: f.operatorNote?.trim() || null,
+      aiScope: f.aiScope ?? null,
     },
   });
   // A baseline nobody could capture is a baseline gap, said out loud rather than left as a zero, and the

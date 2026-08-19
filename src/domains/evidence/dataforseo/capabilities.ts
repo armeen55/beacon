@@ -9,14 +9,12 @@ import type {
   CachedCallResult, CapabilityInputByKey, CapabilityKey, EngineModelResolution, FunnelBoundaryDeps,
   ObservationIdentity, ParsedAiAnswer, ParsedByCapability, ParsedKeywordItem, ParsedSerp, ProviderEnvelope,
 } from "./funnel-boundary";
-
 /** capabilities - the typed DataForSEO provider registry behind the frozen funnel-boundary contract. ONE entry per CapabilityKey owns the EXACT request
  *  builder (only fields the docs document for that endpoint), the optional ask NORMALIZATION that runs BEFORE the cache identity, the reservation, the
  *  cache dimensions, the envelope parser, and its route (post + free task_get + free tasks_ready). providerCall is the ONE model-resolution point: it
  *  resolves the engine model ONCE, picks Standard vs Live from that resolution, and stamps the requested model back. The model is NEVER caller-supplied.
  *  Every field verified vs docs.dataforseo.com: 2026-07-26 for llm_responses/llm_scraper/serp and every family's tasks_ready, 2026-07-28 for
  *  page_intersection and on_page content_parsing, 2026-08-02 for the llm_responses annotation spans and token/money receipt. */
-
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
 const LOCATION_US = 2840, LANG_EN = "en";
 const DAY = 86_400_000;
@@ -27,10 +25,8 @@ const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, COMPETITORS_MAX_LIMIT = 1
  *  live ("maximum 4096, default 2048"), NOT on llm_scraper, so it never goes there. Honest limit: with web search or a reasoning model the output may
  *  exceed it, so it narrows the spend rather than capping it. */
 const LLM_MAX_OUTPUT_TOKENS = 2048;
-
 type LlmEngine = "chatgpt" | "gemini" | "claude" | "perplexity";
 const ENGINE_SLUG: Record<LlmEngine, string> = { chatgpt: "chat_gpt", gemini: "gemini", claude: "claude", perplexity: "perplexity" };
-
 /** tasksReady = the FREE GET listing of finished-but-uncollected tasks, the only AUTOMATIC recovery a quarantined row ever gets. Null on Live routes. */
 type Route = { mode: "live" | "task"; postPath: string; getPath: ((id: string) => string) | null; tasksReady: string | null };
 
@@ -47,13 +43,10 @@ type Entry<K extends CapabilityKey> = {
   parse: (env: ProviderEnvelope) => ParsedByCapability[K];
 };
 type Registry = { [K in CapabilityKey]: Entry<K> };
-
 /** Thrown by a builder when a runtime-required field COMBINATION is absent. */
 class MissingFieldsError extends Error { constructor(cap: string, missing: string[]) {
   super(`capability ${cap}: missing required field(s): ${missing.join(", ")}`); this.name = "MissingFieldsError"; } }
-
 // ── request builders (emit ONLY documented fields per endpoint) ───────────────
-
 /** ChatGPT llm_responses: user_prompt + model_name + max_output_tokens + web_search ONLY. force_web_search is NEVER sent here and neither is a country:
  *  the endpoint rejects force on a reasoning model with an in-body 40501, verified live 2026-07-25 on o4-mini, and the live models list that day reported
  *  reasoning true for EVERY ChatGPT model. (docs: chat_gpt llm_responses task_post + live, 2026-07-26) */
@@ -87,7 +80,6 @@ function scraperBuild(i: CapabilityInputByKey["llm_scraper_chatgpt"]): unknown[]
     force_web_search: forceWeb ? true : undefined,
     expand_citations: forceWeb && i.expand_citations === true ? true : undefined })];
 }
-
 /** THE LLM OBSERVATION IDENTITY, applied BEFORE the cache identity and to the LLM capabilities ONLY (no builder ever emits it). The plan's reporting day
  *  always rides the identity, so tomorrow's reading is a new question and not a replay of tonight's answer out of the one-day cache; a deliberate second
  *  sample rides it too, so slot 1 is a real second opinion at real cost. Slot 0 is left OUT, so a same-day retry is still a $0 replay of one identical
@@ -130,9 +122,7 @@ function llmDynamicRoute(engine: LlmEngine): (r: EngineModelResolution | null) =
 function llmDynamicEntry<K extends "llm_chatgpt" | "llm_gemini" | "llm_claude">(engine: LlmEngine, build: Entry<K>["build"]): Entry<K> {
   return { ttlMs: 1 * DAY, estCostUsd: 0.035, dims: { device: false, model: true }, engine, route: llmDynamicRoute(engine), normalize: llmIdentity, build, parse: parseLlmAnswer };
 }
-
 // ── the registry ─────────────────────────────────────────────────────────────
-
 /** THE ONE RESERVATION ARITHMETIC every Labs entry below rides, stated once instead of five times. The live charges on file (50 rows $0.018, 150 rows
  *  $0.02988, 1000 rows $0.132, read 2026-07-25) fit about $0.012 per request plus $0.00012 per returned row, and keywords_for_site and ranked_keywords each
  *  actually charged $0.132 against an old $0.02 estimate. Every estCostUsd here is therefore rounded UP past the worst case that endpoint can return, so the
@@ -198,6 +188,24 @@ const REGISTRY: Registry = {
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
+  // ── AI OPTIMIZATION: the provider's own AI demand and AI mention record. BOTH ARE FIXTURE-PROVEN ONLY until the operator funds a live receipt: no producer buys them yet, the reservations below are deliberate ceilings, and the first live call must land under a named budget. AI search volume is ITS OWN UNIT, never added to or standing in for Google volume, and unknown stays unknown. (docs: ai_optimization keywords_search_volume/live + llm_mentions/search/live, verified 2026-08-19) ──
+  ai_keyword_volume: {
+    ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.1, dims: { device: false, model: false },
+    normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, 1000) }),
+    route: () => ({ mode: "live", postPath: "ai_optimization/ai_keyword_data/keywords_search_volume/live", getPath: null, tasksReady: null }),
+    build: (i) => [{ keywords: i.keywords.slice(0, 1000), location_code: LOCATION_US, language_code: LANG_EN }],
+    parse: (env) => resultBlock(env).items.map((it) => ({ keyword: String(it.keyword ?? ""), aiSearchVolume: num(it.ai_search_volume) })),
+  },
+  llm_mentions_search: {
+    ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
+    normalize: (i) => ({ target: i.target.map((t) => clean({ domain: t.domain ? String(t.domain).trim().toLowerCase() : undefined, keyword: t.keyword ? String(t.keyword).trim().toLowerCase() : undefined })).filter((t) => Object.keys(t).length > 0).slice(0, 10) as Array<{ domain?: string; keyword?: string }>, platform: i.platform ?? "google", limit: Math.min(Math.max(1, Math.trunc(i.limit ?? 100)), 1000) }),
+    route: () => ({ mode: "live", postPath: "ai_optimization/llm_mentions/search/live", getPath: null, tasksReady: null }),
+    build: (i) => [{ target: i.target.slice(0, 10), platform: i.platform ?? "google", location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? 100)), 1000) }],
+    parse: (env) => resultBlock(env).items.map((it) => ({ platform: String(it.platform ?? ""), modelName: it.model_name == null ? null : String(it.model_name), question: String(it.question ?? ""), aiSearchVolume: num(it.ai_search_volume),
+      sources: (Array.isArray(it.sources) ? (it.sources as Record<string, unknown>[]) : []).map((c) => ({ url: String(c.url ?? ""), domain: String(c.domain ?? ""), title: c.title == null ? null : String(c.title) })).filter((c) => c.url.length > 0),
+      fanOutQueries: (Array.isArray(it.fan_out_queries) ? (it.fan_out_queries as unknown[]) : []).map((q) => String(q ?? "").trim()).filter(Boolean),
+      lastResponseAt: it.last_response_at == null ? null : String(it.last_response_at) })),
+  },
   llm_chatgpt: llmDynamicEntry("chatgpt", chatGptBuild),
   llm_gemini: llmDynamicEntry("gemini", geminiBuild),
   llm_claude: llmDynamicEntry("claude", claudeBuild),
@@ -213,11 +221,9 @@ const REGISTRY: Registry = {
     normalize: llmIdentity, build: scraperBuild, parse: parseScraper,
   },
 };
-
 /** CAN THIS CAPABILITY BE ASKED AT ALL, read off the registry itself rather than a second list somebody has to remember to update. A planner asks this so
  *  an engine the registry carries no way to reach is left out of every plan while that is true, and planned again the day it comes back. */
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
-
 // ── composed provider call (the ONE model-resolution point) ───────────────────
 
 export async function providerCall<K extends CapabilityKey>(
@@ -257,7 +263,6 @@ export async function providerCall<K extends CapabilityKey>(
   if (modelRequested && (result.state === "ok" || result.state === "waiting")) return { ...result, modelRequested };
   return result;
 }
-
 /** THE batched ideas ask: N seed themes cost ceil(N / 200) requests through the SAME providerCall (one transport, cache identity, reserve-then-reconcile
  *  spend path, tenant attribution and fail-closed cap), never one paid request per keyword. Seeds are trimmed, lowercased, deduped and ordered, so the
  *  same themes in any order derive the SAME cache identity and reuse what was already bought. One result per batch, in order. A refusal, the spend cap or
@@ -278,7 +283,6 @@ export async function keywordIdeasBatched(
   }
   return out;
 }
-
 /** Resume a waiting Standard task via the endpoint-derived FREE task_get path, or recover a quarantined row via the endpoint-derived FREE tasks_ready
  *  listing. */
 export async function collectCapability(cacheKey: string, deps: FunnelBoundaryDeps = {}): Promise<CachedCallResult> {
@@ -301,11 +305,9 @@ function getPathForEndpoint(endpoint: string, id: string): string | null {
 function tasksReadyForEndpoint(endpoint: string): string | null {
   return endpoint.endsWith("/task_post") ? `${endpoint.slice(0, -"/task_post".length)}/tasks_ready` : null;
 }
-
 /** Pure: the full bounded envelope -> the capability's frozen typed output. */
 export function parseCapability<K extends CapabilityKey>(capability: K, envelope: ProviderEnvelope): ParsedByCapability[K] | null {
   try { return REGISTRY[capability].parse(envelope) as ParsedByCapability[K]; } catch { return null; } }
-
 // ── model resolution (FREE models endpoint, method-aware, cached) ──────────────
 /** Labeled fallbacks (docs, 2026-07-24), used only when credentials are absent: chatgpt/claude standard, gemini/perplexity live. */
 const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
@@ -345,7 +347,6 @@ export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundary
   if (!envelope) return null;
   return selectResolution(modelObjects(envelope));
 }
-
 /** Prefer Standard + web (resumable AND current); else web-only (Live); else any Standard; else any (Live). */
 function selectResolution(models: Record<string, unknown>[]): EngineModelResolution | null {
   if (models.length === 0) return null;
@@ -356,7 +357,6 @@ function selectResolution(models: Record<string, unknown>[]): EngineModelResolut
   if (!model) return null;
   return { model, method: post(chosen) ? "standard" : "live", webSearch: web(chosen) };
 }
-
 
 // ── parsers (tolerant of provider variation; never invent data) ──────────────
 function resultBlock(env: ProviderEnvelope): { result0: Record<string, unknown> | null; items: Record<string, unknown>[] } {

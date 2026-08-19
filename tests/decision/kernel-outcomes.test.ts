@@ -423,16 +423,14 @@ describe("a page earns the deep read through the door its own evidence opens", (
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true);
     expect(deep.impactScore).toBeNull(); // no proven size, so it ranks as a direction and claims no clicks
   });
-  it("acts on a page an engine answered around, off the question it was asked", async () => {
-    // Nothing structural is left to accuse: the only thing wrong is that the engine answering its search never names it.
+  it("never opens a second deep door on AI evidence: the comparison's own door holds, and the staged case path owns AEO (2026-08-19)", async () => {
+    // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door
+    // used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
     const noGaps = (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" });
     const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps);
-    expect([env.door!.door, env.door!.evidence.query]).toEqual(["ai_absence", HAFT]);
+    expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
     const deep = res.proposals.find((p) => p.bundle)!;
-    expect(deep.bundle!.components.map((c) => c.kind)).toEqual(["source_update"]); // a source improvement, never a reworded title
-    expect(deep.opportunityType).toBe("Give the assistants a reason to name this page");
-    // AND IT CAN SHOW THE ANSWER IT WAS MADE FROM: the cause cites the receipt id the receipt actually writes.
-    expect([deep.bundle!.components[0]!.evidenceKeys, deep.bundle!.receipt.items.find((i) => i.key === "ai-citations")!.fact.includes(`what goes on a ${HAFT}`)]).toEqual([["ai-citations"], true]);
+    expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true); // still never a reworded title
   });
   /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */
   it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {

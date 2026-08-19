@@ -15,7 +15,6 @@ import { readObservationRunsMergedSync } from "@/domains/evidence/observations/o
 import { getFindings } from "@/domains/evidence/scanning/findings-store";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
 import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -83,11 +82,6 @@ export const fileBackend: SeedDataRepository = {
   // Phase 3.5E — hero-surface data (local mode reads same files canonical-store
   // reads at module init; arrays are already hot in memory, so these re-reads
   // return the same cached values without extra disk hits).
-  // Emergency P0 (2026-05-12) — file backend ignores the promptId option
-  // because the array is already hot in process; tenant-repo applies the
-  // filter at the boundary. Supabase backend pushes it down to the query.
-  getPromptAnswerObservations: async () =>
-    readStore<PromptAnswerObservation>("prompt-answer-observations"),
   getDailyMetricSnapshots: async () =>
     readStore<DailyMetricSnapshot>("daily-metric-snapshots"),
   getTrackedEntities: async () =>

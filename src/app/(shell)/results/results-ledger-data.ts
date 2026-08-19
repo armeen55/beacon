@@ -51,7 +51,7 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
   // engine sat with zero callers while every Result was judged on Google alone; a failure here costs only
   // the AI line, never the ledger.
   const aiReads = await aiOutcomesForShipments(tenantId, records.map((r) => ({
-    implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries,
+    implementedAt: r.implementedAt, shipmentBaseline: r.shipmentBaseline, scopeQueries: r.targetQueries, aiScope: r.aiScope,
   }))).catch(() => records.map(() => null));
   return records.map((r, i) => {
     // A FINISHED READING IS SERVED AS IT WAS READ. Everything below still recomputes from live Google data,

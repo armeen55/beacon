@@ -283,7 +283,15 @@ export type ChangeProposal = {
   /** HOW BIG THE AUDIENCE BEHIND THIS CHANGE IS: views its page earned in Google over 90 days, off the account's own rows. An audience size and never a proven recovery, so the ranker reads it ONLY where both proven figures are empty, at a third of the ceiling, and says so. Absent on a pre-field row. */
   demandImpressions90d?: number | null;
   /** THE AI SIDE OF THIS CHANGE, IN ITS OWN UNITS, never converted into pretend clicks: how many stored answers to its question exist, the share that credit this site, how many rival domains those answers cite instead, and the Google audience of the page the work lands on as the honest weight. Absent on a card no stored answer is behind. */
-  aiImpact?: { answers: number; mentionRate: number; citedRivals: number; audienceWeight: number | null };
+  aiImpact?: { answers: number; mentionRate: number; citedRivals: number; audienceWeight: number | null;
+    /** RECURRENCE, never row totals: distinct reporting days, engines and parent questions behind the claim,
+     *  the answers that actually reported sources (the honest denominator), how often this site was read and
+     *  passed over, and the AI stage the case is in. Absent on rows minted before 2026-08-19. */
+    days?: number; engines?: number; prompts?: number; reportedAnswers?: number; retrievedNotCited?: number;
+    stage?: "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "owned_mentioned_not_cited" | "citations_unreported"; };
+  /** THE EXACT AI SCOPE a shipment must remeasure: prompt ids, engines and the fan-out cluster this change
+   *  targets, preserved through Mark implemented instead of flattened into ten strings. */
+  aiScope?: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string };
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
   bundle?: ChangeBundle;
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
@@ -401,7 +409,11 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),
   demandImpressions90d: z.number().nullable().optional(),
-  aiImpact: z.object({ answers: z.number(), mentionRate: z.number(), citedRivals: z.number(), audienceWeight: z.number().nullable() }).optional(),
+  aiImpact: z.object({ answers: z.number(), mentionRate: z.number(), citedRivals: z.number(), audienceWeight: z.number().nullable(),
+    days: z.number().optional(), engines: z.number().optional(), prompts: z.number().optional(),
+    reportedAnswers: z.number().optional(), retrievedNotCited: z.number().optional(),
+    stage: z.enum(["owned_retrieved_not_cited", "rivals_cited_own_not_retrieved", "owned_mentioned_not_cited", "citations_unreported"]).optional() }).optional(),
+  aiScope: z.object({ promptIds: z.array(z.string()), engines: z.array(z.string()), fanouts: z.array(z.string()), stage: z.string() }).optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
   researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit

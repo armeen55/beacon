@@ -4,7 +4,7 @@ import "server-only";
  * retrieval MODE and query/prompt/engine; citations keep the null-vs-[]-vs-nonempty tri-state end to end. */
 import { log } from "@/lib/logger";
 import {
-  buildAiObservation, projectPromptAnswerObservation,
+  buildAiObservation,
   type AiObservationDraft, type AiObservationStatus, type DueObservation,
 } from "@/domains/evidence/ai-visibility/ai-observations";
 import type { CachedCallResult, CapabilityKey, FunnelCounters, FunnelUnitFn, FunnelUnitOutcome, ParsedAiAnswer, ParsedSerp } from "@/domains/evidence/dataforseo/funnel-boundary";
@@ -104,7 +104,6 @@ async function landAnswer(p: FunnelPair, r: Interp, parsed: ParsedAiAnswer, prom
   p.retrievedResults = parsed.retrievedResults ? parsed.retrievedResults.map((c) => ({ url: c.url, domain: c.domain, title: c.title })) : null;
   p.brandMentions = parsed.brandMentions ?? null;
   await d.recordObservation(rec, ids.tenantId);
-  await d.syncHistory([projectPromptAnswerObservation(rec, ids.runId)], ids.tenantId);
 }
 
 /** The set Runtime's planner says is DUE: one row per (prompt, version, engine, slot, reporting day), each in that engine's canonical retrieval mode. THE

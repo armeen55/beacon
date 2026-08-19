@@ -87,41 +87,6 @@ export function buildTenantRepo(
         return typeof d === "string" && d >= since;
       });
     },
-    getPromptAnswerObservations: async (options) => {
-      // Emergency P0 fix (2026-05-12) — push the `promptId` filter
-      // down to the base read. For the Supabase backend that's a
-      // `.eq("prompt_id", id)` server-side filter (the row count
-      // crossing the wire drops from ~15,000 to typically <500).
-      // For the file backend it's an in-memory filter (cheap; the
-      // array is hot in process). Both `since` and `promptId` are
-      // applied; either may be omitted.
-      const all = filterByTenantId(
-        await base.getPromptAnswerObservations(
-          options?.promptId ? { promptId: options.promptId } : undefined,
-        ),
-        tenantId,
-      );
-      const since = options?.since;
-      const promptId = options?.promptId;
-      if (!since && !promptId) return all;
-      return all.filter((row) => {
-        if (promptId) {
-          const p = (row as { prompt_id?: string }).prompt_id;
-          if (p !== promptId) return false;
-        }
-        if (since) {
-          const o = (row as { observed_at?: string }).observed_at;
-          if (typeof o !== "string" || o < since) return false;
-        }
-        return true;
-      });
-    },
-    // Customer-2 isolation fix (operator audit, 2026-05-06) — both
-    // stores are TENANT_SCOPED in store-classification.ts; rows on
-    // disk already carry tenant_id (and account_id). The unscoped
-    // base.getTrackedPrompts() / .getTrackedEntities() paths return
-    // ALL rows across tenants; filtering here keeps each tenant's
-    // /today leaderboard isolated from the other.
     getTrackedPrompts: async () =>
       filterByTenantId(await base.getTrackedPrompts(), tenantId),
     getTrackedEntities: async () =>

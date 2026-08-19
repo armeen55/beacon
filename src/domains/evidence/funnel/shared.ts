@@ -1,4 +1,5 @@
 import "server-only";
+import { syncPageSnapshots } from "@/lib/persistence/dual-write";
 
 /**
  * funnel/shared (integrity closure, Agent B) - the injected deps + boundary
@@ -16,9 +17,7 @@ import { fetchPageHtml } from "@/domains/evidence/competitor-intel/polite-fetch"
 import { loadGscDecaySignalsForTenant, loadGscPageSignalsForTenant, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence/readers/gsc-page-signals";
 import type { SerpAgendaPageQuery } from "./normalize";
 import { loadCrawlFrontier, type CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
-import { syncPageSnapshots, syncPromptAnswerObservations } from "@/lib/persistence/dual-write";
 import type { PageSnapshot } from "@/domains/evidence/pages/types";
-import type { PromptAnswerObservation } from "@/domains/evidence/ai-visibility/prompt-answer-observations";
 import { readAiObservations, recordAiObservation, type AiObservationRecord, type CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
 import type {
   CachedCallResult,
@@ -62,9 +61,7 @@ export type FunnelDeps = {
    *  redirect-only resolver in competitor-intel/polite-fetch). */
   resolveCitations?: (appearances: ResearchWinningAppearance[], fetchImpl?: typeof fetch, deadlineMs?: number) => Promise<ResearchWinningAppearance[]>;
   getAccount?: (tenantId: string) => Promise<Account | null>;
-  syncHistory?: (rows: PromptAnswerObservation[], tenantId: string) => Promise<void>;
-  /** THE canonical full-fidelity observation write (ai_observations). Separate seam from syncHistory
-   *  because the history row is a PROJECTION of this record, derived from it at the same instant. */
+  /** THE canonical full-fidelity observation write (ai_observations): the ONE AI record, no history projection beside it. */
   recordObservation?: (rec: AiObservationRecord, tenantId: string) => Promise<void>;
   /** THE PAID PLACEMENT ALREADY ON FILE for one stored identity, read ONLY when a landing computed nothing of
    *  its own, so a free collect can never write a paid receipt down to zero on a row placed before the pair
@@ -97,7 +94,6 @@ export function resolveDeps(deps: FunnelDeps) {
     loadPageQueries: deps.loadPageQueries ?? defaultPageQueries,
     loadCanonicalObservations: deps.loadCanonicalObservations ?? (async (t: string) => (await import("@/domains/evidence/ai-visibility/ai-observations")).readCanonicalPairObservations(t)),
     getAccount: deps.getAccount ?? getTenant,
-    syncHistory: deps.syncHistory ?? syncPromptAnswerObservations,
     recordObservation: deps.recordObservation ?? recordAiObservation,
     readObservationCost: deps.readObservationCost ?? (async (t: string, id: string) => Number((await readAiObservations(t, { id, limit: 1, projection: "list" }))[0]?.cost_usd ?? 0) || 0),
     fetchPage: deps.fetchPage ?? fetchPageHtml,

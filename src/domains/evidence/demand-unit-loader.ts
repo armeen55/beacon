@@ -82,7 +82,7 @@ export async function loadCanonicalDemandUnits(tenantId: string, snapshot: Evide
       organic: s.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url })),
       paa: s.paa.map((p) => p.question), related: s.related })),
     observations: (research.aiObservations ?? []).map((o) => ({ promptId: o.promptId, promptText: o.promptText,
-      creditedOwn: site.length > 0 && citesOwnSite(o.citations ?? [], site),
+      creditedOwn: site.length > 0 && citesOwnSite(o.citations ?? [], site), engine: o.engine, day: o.reportingDay,
       citations: (o.citations ?? []).map((c) => ({ domain: c.domain, url: c.url })), fanOutQueries: o.fanOutQueries })),
     winning: (research.winningPages ?? []).map((w) => ({ url: w.url, domain: w.domain || domainOf(w.url),
       queries: w.appearances.map((a) => a.query).filter((q): q is string => !!q),

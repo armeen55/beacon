@@ -80,7 +80,7 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     const piece = (label: string, evidenceKeys: string[]): BundleComponent => ({ kind: "section_add", label, before: null, after: "A rain barrel sized for your roof area holds what one storm gives you.", evidenceKeys, risk: "review",
       where: "After the opening", objective: "Answer what the assistants leave out", mechanism: "The answers I hold never cover it, so the page that does is the one they can name", measurementPlan: "Clicks for this search over 28 days" });
     for (const k of [...slots, "ai_citation_gap"]) (CORE_PRODUCERS as Record<string, unknown>)[k] = async () => ({ components: [piece("Rescued by an omission", ["ai2"]), piece("Stands on its own", ["demand-page"])] });
-    const out = await produceBundleForSnapshot(world, { complete: seam, ...OPTS, door: { door: "ai_absence", entry: "An assistant answered around this page.", evidence: { query: "rain barrel sizing", engine: "chatgpt", promptText: "what size rain barrel do I need", competingUrls: [], window: null } } });
+    const out = await produceBundleForSnapshot(world, { complete: seam, ...OPTS, door: { door: "recent_decline", entry: "This page was earning and stopped.", evidence: { query: "rain barrel sizing", engine: null, promptText: null, competingUrls: [], window: "the four weeks to 2026-08-01, against the four weeks before" } } });
     for (const [k, v] of held) (CORE_PRODUCERS as Record<string, unknown>)[k] = v; delete (CORE_PRODUCERS as Record<string, unknown>).ai_citation_gap;
     if (out.status !== "bundled") throw new Error(`expected a change, got ${out.reason}`); const b = out.proposal.bundle!; expect(b.components.map((c) => c.label)).toEqual(["Stands on its own"]); expect(b.receipt.items.some((i) => i.key === "covered1")).toBe(false); // a rebuild justified ONLY by an omission somewhere in the case is not proven, and one answer's own outline is never what the answers agree on
     expect(b.alternatives.find((a) => a.option === "Rescued by an omission")!.reason).toContain("There was nothing to show behind that one"); expect(b.components[0]!.evidenceKeys).toEqual(["demand-page", "missing1"]); }); // and the omission still ADDS itself to the piece that already stood up
@@ -752,4 +752,24 @@ describe("a change earns ready on its own evidence, its whole version, and words
     expect([lanes.map((h) => h.lane), lanes.map((h) => h.blocking == null), lanes[1]!.why[0]!.startsWith("Where this copy goes can no longer be checked"),
       (lost.recommendedChange as { after: string }).after === BODY, lost.claims?.length])
       .toEqual([["review", "review", "research"], [true, false, false], true, true, 1]); });
+});
+
+describe("the AI side ranks on recurrence and stage, never on raw answer totals (AEO reconstruction, 2026-08-19)", () => {
+  const aiProp = (id: string, ai: Partial<NonNullable<ChangeProposal["aiImpact"]>> & { answers: number; citedRivals: number }) => prop({ id, impactScore: null, demandImpressions90d: null, aiImpact: { audienceWeight: null, mentionRate: 0, ...ai } });
+  it("puts a question asked every day for a week above one asked once with ten times the rows", () => {
+    const recurring = aiProp("recurring", { answers: 5, citedRivals: 3, days: 7, engines: 4, stage: "owned_retrieved_not_cited" });
+    const burst = aiProp("burst", { answers: 50, citedRivals: 3 }); // fifty rows, no recurrence on file
+    const ranked = rankProposals([burst, recurring]);
+    expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]);
+    const receipt = ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
+    expect(receipt.input).toContain("asked on 7 days across 4 assistants"); // the receipt says the same thing the score used
+    expect(receipt.input).toContain("while this page is already read and passed over");
+  });
+  it("ranks a page already read and passed over above the same claim on a page never retrieved", () => {
+    const shared = { answers: 5, citedRivals: 3, days: 7, engines: 4 } as const;
+    const ranked = rankProposals([
+      aiProp("never-read", { ...shared, stage: "rivals_cited_own_not_retrieved" }),
+      aiProp("passed-over", { ...shared, stage: "owned_retrieved_not_cited" })]);
+    expect(ranked.map((p) => p.id)).toEqual(["passed-over", "never-read"]); // closer to the citation ranks first
+  });
 });

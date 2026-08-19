@@ -91,7 +91,6 @@ export { validateProposal, actionableProposalFailures } from "./validate-proposa
 
 // Recommendation-intelligence surfaces
 export { loadDailyTotalsForTenant } from "./recommendation-intelligence/gsc-page-queries";
-export { loadOwnCitationsByDay } from "./recommendation-intelligence/citations-daily";
 export {
   loadPageSurgeonContext,
   topPagesByDemand,
