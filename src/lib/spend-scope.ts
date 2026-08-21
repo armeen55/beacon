@@ -31,28 +31,41 @@ export function spendingRefused(): boolean {
 /** THE PAUSE, ASKED AT THE DOOR ITSELF. The ambient scope closes every caller that opened one, and the leak
  *  proved that is not enough: a paid path nobody wrapped (the competitor overlap judgment behind Update data)
  *  kept buying on a paused account. So the two paid doors now also ask the account's own switch, HERE, so a
- *  caller added tomorrow inherits the refusal without anyone remembering to open a scope. Memoized briefly so
- *  a drafting pass does not turn one pause bit into dozens of reads. An UNREADABLE switch counts as paused:
- *  the expensive assumption is never the safe one. Hermetic under vitest exactly as checkBudget is: unit
- *  tests never read a live tenants table, and a test that pins the pause injects the probe. */
+ *  caller added tomorrow inherits the refusal without anyone remembering to open a scope.
+ *
+ *  PERMISSION TO SPEND IS NEVER REMEMBERED. The first cut memoized both answers for a minute, so an operator
+ *  who pressed Pause could watch paid calls keep passing on a cached "running" until the memo died. Only the
+ *  REFUSAL is memoized (a paused account's drafting pass must not turn one pause bit into dozens of reads);
+ *  an open door is re-asked on every paid call, in every instance, so Pause lands on the very next one. The
+ *  verified pause write also settles the memo here directly, so the same process refuses without a read at
+ *  all. An UNREADABLE switch counts as paused: the expensive assumption is never the safe one. Hermetic under
+ *  vitest exactly as checkBudget is: unit tests never read a live tenants table, and a test that pins the
+ *  pause injects the probe. */
 type PauseProbe = (tenantId: string) => Promise<boolean>;
 let probeForTests: PauseProbe | null = null;
 export function setSpendPauseProbeForTests(probe: PauseProbe | null): void { probeForTests = probe; }
-const pauseMemo = new Map<string, { at: number; paused: boolean }>();
+const pausedMemo = new Map<string, number>(); // tenantId -> when the refusal was learned; running is never held
 const PAUSE_MEMO_MS = 60_000;
+
+/** The verified pause write tells the boundary directly: a fresh pause refuses in this process before any
+ *  read, and a resume only clears the memo, it never grants, because a grant is only ever a fresh read. */
+export function settleSpendPause(tenantId: string, paused: boolean): void {
+  if (paused) pausedMemo.set(tenantId, Date.now());
+  else pausedMemo.delete(tenantId);
+}
 
 export async function spendingClosed(tenantId: string): Promise<boolean> {
   if (noSpend.getStore() === true) return true;
   if (probeForTests) return probeForTests(tenantId);
   if (process.env.VITEST) return false;
-  const held = pauseMemo.get(tenantId), now = Date.now();
-  if (held && now - held.at < PAUSE_MEMO_MS) return held.paused;
+  const heldAt = pausedMemo.get(tenantId);
+  if (heldAt != null && Date.now() - heldAt < PAUSE_MEMO_MS) return true;
   try {
     const { getSupabaseAdmin } = await import("./persistence/supabase");
     const { data, error } = await getSupabaseAdmin().from("tenants").select("research_paused").eq("id", tenantId).maybeSingle();
     if (error != null) return true;
     const paused = (data as { research_paused?: boolean } | null)?.research_paused === true;
-    pauseMemo.set(tenantId, { at: now, paused });
+    settleSpendPause(tenantId, paused);
     return paused;
   } catch {
     return true;

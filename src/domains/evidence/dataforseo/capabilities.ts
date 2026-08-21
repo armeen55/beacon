@@ -17,8 +17,7 @@ import type {
  *  Every field verified vs docs.dataforseo.com: 2026-07-26 for llm_responses/llm_scraper/serp and every family's tasks_ready, 2026-07-28 for
  *  page_intersection and on_page content_parsing, 2026-08-02 for the llm_responses annotation spans and token/money receipt. */
 const DFS_API_BASE = "https://api.dataforseo.com/v3";
-const LOCATION_US = 2840, LANG_EN = "en";
-const DAY = 86_400_000;
+const LOCATION_US = 2840, LANG_EN = "en", DAY = 86_400_000;
 const MAX_IDEAS_SEEDS = 200, IDEAS_DEFAULT_LIMIT = 700, IDEAS_MAX_LIMIT = 1000; // documented keyword_ideas seed ceiling, default and max limit, in ONE place so the ask and the built body agree
 /** serp_competitors documents the SAME 200-keyword ceiling and a limit defaulting to 100, maxing at 1000. Beacon asks for 50: a case wants the handful of domains that keep coming up, not a directory. (docs: serp_competitors/live, 2026-07-31) */
 const COMPETITORS_SEEDS = 200, COMPETITORS_LIMIT = 50, COMPETITORS_MAX_LIMIT = 1000, MAX_COMPETITOR_ROWS = 50;
@@ -226,11 +225,10 @@ const REGISTRY: Registry = {
  *  an engine the registry carries no way to reach is left out of every plan while that is true, and planned again the day it comes back. */
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 // ── composed provider call (the ONE model-resolution point) ───────────────────
-
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
-  // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller already reads as "not buying now", so a paused day leaves the work owed rather than recording a failure nobody caused.
+  // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller reads as "not buying now", so a paused day leaves the work owed, never failed.
   if (await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
@@ -319,7 +317,6 @@ const FALLBACK: Record<LlmEngine, EngineModelResolution> = {
   gemini: { model: "gemini-2.5-flash", method: "live", webSearch: true },
   perplexity: { model: "sonar", method: "live", webSearch: true },
 };
-
 export async function resolveEngineModel(engine: LlmEngine, deps: FunnelBoundaryDeps = {}): Promise<EngineModelResolution | null> {
   const d = resolveDeps(deps);
   // No credentials -> the labeled fallback, no network.

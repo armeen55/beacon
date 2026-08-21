@@ -127,7 +127,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // else is handed the release already on file. Held HERE, at the one body every entrance shares, so the
     // scheduler, a stale visit and the Update data press can never duplicate the work; released on the way
     // out so the next legitimate rebuild does not wait out the TTL.
-    if (!(await claimScope("surface-claims", tenantId, SURFACE_CLAIM_SECONDS))) {
+    const hold = await claimScope("surface-claims", tenantId, SURFACE_CLAIM_SECONDS);
+    if (hold == null) {
       const held = await readCustomerSurface(tenantId).catch(() => null);
       if (held) return held;
       throw new Error("Another instance is rebuilding this account's surfaces right now. The next visit reads the fresh release.");
@@ -269,7 +270,9 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     }
     return surface;
     } finally {
-      await releaseScope("surface-claims", tenantId).catch(() => {});
+      // Released with this build's own token: a rebuild that outlived its TTL comes back to somebody else's
+      // live hold, and its late release must change nothing.
+      await releaseScope("surface-claims", tenantId, hold).catch(() => {});
     }
   }));
 }

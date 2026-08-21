@@ -108,6 +108,30 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
    *  republish above (which only ever reaches accounts this dispatch CLAIMED) could never reach a paused one:
    *  its Today and its Changes froze at whatever the last unpaused pass left, for as long as the pause lasted.
    *  Bounded per tick, zero spend, no lease taken, and every failure stays local to one account. */
+  /** ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT. A posted Standard task was paid for at task_post,
+   *  and the pause then stranded it: the buying door refuses before it would ever have discovered the pending
+   *  receipt, and the run that would have collected it never comes, so evidence the account already owns sat
+   *  provider-side until it expired. This step is the free half only: a bounded number of pending receipts
+   *  per tick, GET-only through collectCapability (task_get / tasks_ready), nothing posted, nothing reserved,
+   *  results persisted by the collector itself, and the republish below then rebuilds from what landed. */
+  const FREE_COLLECT_PER_TICK = 5;
+  const collectBoughtTasks = async (): Promise<void> => {
+    try {
+      const { pendingProviderTaskKeys } = await import("@/domains/evidence/dataforseo/default-deps");
+      const keys = await pendingProviderTaskKeys(FREE_COLLECT_PER_TICK);
+      if (keys.length === 0) return;
+      const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
+      let ready = 0;
+      for (const key of keys) {
+        if (nowFn().getTime() >= endsAt) break;
+        const collected = await collectCapability(key).catch(() => null);
+        if (collected?.state === "hit") ready += 1;
+      }
+      log.info("[research-run] tasks already paid for were checked for free", { pending: keys.length, ready });
+    } catch (error) {
+      log.warn("[research-run] the free task collection could not run on this tick", { error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
+    }
+  };
   const PAUSED_REPUBLISH_PER_TICK = 3;
   const republishPaused = async (): Promise<void> => {
     try {
@@ -167,6 +191,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
     failed += 1;
     if (outcome !== "lost_lease" && await handBack(run)) released += 1;
   }
+  await collectBoughtTasks(); // first the evidence already paid for, so the republish below can use it
   await republishPaused(); // the accounts the claim can never see, and the only work they are owed
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
   else for (const t of worked) if (nowFn().getTime() < endsAt) await republishStale(t);

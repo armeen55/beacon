@@ -164,14 +164,29 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
     expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
       [["fanout:a", "actionable"], ["fanout:b", "already_credited"]]);
   });
-  it("refuses a stale writer: an older pass that woke up late cannot overwrite the newer verdict", async () => {
+  it("refuses a stale writer, and the stale pass may not claim the family it failed to write", async () => {
     const s = await coldInstance();
     await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
-    // The late lambda decided BEFORE that, and lands nothing: not a failure, and not its success either.
+    // The late lambda decided BEFORE that, and lands nothing. "The call worked" is not "my conclusions are
+    // canonical": reporting filed here let the sweep behind the stale pass retire cards off verdicts the
+    // table never accepted (reviewer, 2026-08-21). Superseded is not unwritable and not success.
     expect(await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" })]))
-      .toEqual({ filed: true, landed: 0 });
+      .toEqual({ filed: false, reason: "superseded", landed: 0 });
     const back = await s.readAiCaseDispositions("t");
     expect(back.state === "read" ? back.rows[0]?.state : null).toBe("actionable");
+  });
+  it("reports superseded when even ONE row lost, because the family claim is all rows or nothing", async () => {
+    const s = await coldInstance();
+    await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
+    const out = await s.recordAiCaseDispositions("t", [
+      filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" }), // loses
+      filed({ caseKey: "fanout:b", state: "no_page", decidedAt: "2026-08-21T00:00:00.000Z" }),    // lands
+    ]);
+    expect(out).toEqual({ filed: false, reason: "superseded", landed: 1 });
+    const back = await s.readAiCaseDispositions("t");
+    // The row that landed IS durable; what the pass lost is its license to sweep, never its writes.
+    expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
+      [["fanout:a", "actionable"], ["fanout:b", "no_page"]]);
   });
   it("carries a read failure out as unavailable, never as an account with no verdicts", async () => {
     const s = await coldInstance();

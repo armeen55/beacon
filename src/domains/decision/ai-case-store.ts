@@ -106,10 +106,12 @@ export function dispositionOf(
       : evidence.reason };
 }
 
-/** What the writer answers with, so a pass can never claim durability it did not get. `landed` is the
- *  database's own count of rows that actually took, which a stale pass legitimately sees fall short of what
- *  it sent: a newer verdict already standing is not a failure, and it is not this pass's success either. */
-export type AiCaseWrite = { filed: true; landed: number } | { filed: false; reason: "unwritable" };
+/** What the writer answers with, so a pass can never claim durability it did not get. `filed` means THIS
+ *  PASS'S WHOLE DECISION SET IS CANONICAL: every row it sent is what the table now holds. A stale pass whose
+ *  rows lost to newer verdicts gets `superseded`, which is not a failure and is not this pass's success
+ *  either, and above all it is not a license to sweep: the sweep behind a filing retires cards on the claim
+ *  that this pass's conclusions are the standing record, and for a superseded pass they are not. */
+export type AiCaseWrite = { filed: true; landed: number } | { filed: false; reason: "unwritable" | "superseded"; landed?: number };
 
 /** THE ONE WRITER. Called once per producer pass with every case that pass decided. Per-row atomic through
  *  the SQL function, stale-writer-guarded by decided_at, and a failure is a failure: the caller must not
@@ -121,7 +123,14 @@ export async function recordAiCaseDispositions(tenantId: string, decided: readon
       p_tenant_id: tenantId, p_rows: decided as unknown as Record<string, unknown>[],
     });
     if (error != null) throw new Error(error.message);
-    return { filed: true, landed: Number(data) || 0 };
+    const landed = Number(data) || 0;
+    // THE DATABASE'S COUNT IS THE VERDICT ON THIS PASS, not the RPC's success. "The call worked" with rows
+    // lost to newer writers still authorized the sweep off conclusions that never became canonical.
+    if (landed < decided.length) {
+      log.info("[ai-case-store] a newer pass already answered some of these searches, so this one does not claim the family", { tenantId, decided: decided.length, landed });
+      return { filed: false, reason: "superseded", landed };
+    }
+    return { filed: true, landed };
   } catch (error) {
     log.warn("[ai-case-store] the searches this pass decided could not be filed, so the last conclusions stand and this family is not swept", { tenantId, decided: decided.length, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
     return { filed: false, reason: "unwritable" };

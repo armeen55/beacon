@@ -270,6 +270,21 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(onChanges).toBe(onVisibility.line);
   });
 
+  it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {
+    // TWO PASSES RACE ON TWO INSTANCES. The one that read the world later files first; the one that woke up
+    // late files second with an older decidedAt on every row. The database refuses its rows, and the pass may
+    // not then read "the RPC worked" as a license to sweep: its conclusions never became canonical.
+    env.aiWindow = [];
+    await runExtras(aiSnapshot()); // the NEWER pass files (decidedAt = 2026-08-20T09:00Z)
+    const standing = new Map(env.dispositions);
+    const m = await coldExtras();
+    const stale = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never,
+      now: new Date("2026-08-19T09:00:00Z"), reads: { left: 0 } }); // woke up late: every row older
+    expect(stale.families).not.toContain("ai_answer_gap"); // no license to sweep
+    expect(stale.families).not.toContain("engine_followup");
+    expect([...env.dispositions.entries()]).toEqual([...standing.entries()]); // the newer verdicts stand untouched
+  });
+
   it("files a search a tracked question already asks as covered, a decision with the covering thing named, never silence", async () => {
     // One question's follow-up search IS another question this account already tracks: declining to open a
     // second case for it is right, and before the covered vocabulary that refusal lived in a log counter

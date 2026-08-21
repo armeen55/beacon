@@ -56,8 +56,8 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
     readStore: async () => held, writeStore: async () => undefined,
-    claimScope: async (name: string) => { calls.claims.push(name); return claim; },
-    releaseScope: async (name: string) => { calls.releases.push(name); },
+    claimScope: async (name: string) => { calls.claims.push(name); return claim ? "hold-1" : null; },
+    releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); },
   });
   const calls = { claims: [] as string[], releases: [] as string[] };
 
@@ -82,7 +82,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     expect(seen[0]!.refusedInside).toBe(true); // every paid door inside this pass is already closed
     expect(seen[0]!.opts).toMatchObject({ maxDrafts: 0 }); // and the pause outranked the caller's ask
     expect(calls.claims).toContain("surface-claims"); // the cross-instance hold was taken at the boundary
-    expect(calls.releases).toContain("surface-claims"); // and freed on the way out, build or no build
+    expect(calls.releases).toContain("surface-claims:hold-1"); // and freed with ITS OWN token, build or no build
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
   });
 
@@ -151,22 +151,21 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
  *  and then acting is not a claim: two dispatchers on two instances both read "stale", both decide, and both
  *  do the whole job. It buys nothing, and it doubles database work of exactly the kind that has exhausted this
  *  project's connection budget before. */
-describe("two dispatchers cannot both rebuild one account", () => {
-  it("grants the hold to exactly one caller and refuses the other until it expires", async () => {
-    vi.resetModules();
-    const rows = new Map<string, { content: [{ until: string }] }>();
-    vi.doMock("@/lib/persistence/supabase", () => ({
-      getSupabaseAdmin: () => ({
-        from: () => ({
-          // insert wins only when nothing holds the scope yet; a duplicate key is a real database error.
-          insert: (r: { scope_key: string; content: [{ until: string }] }) => ({
-            select: async () => rows.has(r.scope_key)
-              ? { data: null, error: { code: "23505", message: "duplicate key" } }
-              : (rows.set(r.scope_key, { content: r.content }), { data: [{ scope_key: r.scope_key }], error: null }),
-          }),
-          // update carries the condition: it changes the row ONLY where the hold already expired.
-          update: (r: { content: [{ until: string }] }) => ({
-            eq: (_c: string, key: string) => ({
+describe("two dispatchers cannot both rebuild one account, and only the owner can free the hold", () => {
+  type Hold = { content: [{ until: string; owner?: string }] };
+  /** One fake claims table honoring exactly the three statements the store issues: the winning insert, the
+   *  expired-hold takeover, and the owner-matched release. */
+  const claimsTable = (rows: Map<string, Hold>) => ({
+    getSupabaseAdmin: () => ({
+      from: () => ({
+        insert: (r: { scope_key: string; content: Hold["content"] }) => ({
+          select: async () => rows.has(r.scope_key)
+            ? { data: null, error: { code: "23505", message: "duplicate key" } }
+            : (rows.set(r.scope_key, { content: r.content }), { data: [{ scope_key: r.scope_key }], error: null }),
+        }),
+        update: (r: { content: Hold["content"] }) => ({
+          eq: (_c: string, key: string) => {
+            const takeover = {
               lt: (_p: string, nowIso: string) => ({
                 select: async () => {
                   const held = rows.get(key);
@@ -175,20 +174,53 @@ describe("two dispatchers cannot both rebuild one account", () => {
                   return { data: [{ scope_key: key }], error: null };
                 },
               }),
-            }),
-          }),
+              // The release path: a second eq is the OWNER match, and the row changes only when it holds.
+              eq: (_o: string, owner: string) => ({
+                then: (res: (v: unknown) => unknown) => {
+                  const held = rows.get(key);
+                  if (held && held.content[0].owner === owner) rows.set(key, { content: r.content });
+                  return Promise.resolve({ data: null, error: null }).then(res);
+                },
+              }),
+            };
+            return takeover;
+          },
         }),
       }),
-    }));
+    }),
+  });
+  it("grants the hold to exactly one caller, and an expired hold never wedges the account", async () => {
+    vi.resetModules();
+    const rows = new Map<string, Hold>();
+    vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
     const { claimScope } = await import("@/lib/persistence/json-store");
     // The two dispatchers arrive one after the other, which is what the database sees however they were
     // scheduled: the first statement takes the hold, and the second changes nothing and is told so.
-    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBe(true);
-    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBe(false); // never both
-    expect(await claimScope("surface-claims", "tenant-other", 300)).toBe(true); // another account is not blocked by it
+    expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
+    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull(); // never both
+    expect(typeof await claimScope("surface-claims", "tenant-other", 300)).toBe("string"); // another account is not blocked by it
     // AND A HOLD THAT OUTLIVES ITS OWNER NEVER WEDGES THE ACCOUNT: expired, the next dispatcher takes it.
-    rows.set("surface-claims::tenant-fx", { content: [{ until: "2000-01-01T00:00:00.000Z" }] });
-    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBe(true);
+    rows.set("surface-claims::tenant-fx", { content: [{ until: "2000-01-01T00:00:00.000Z", owner: "dead" }] });
+    expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
+  });
+  it("lets a holder that outlived its TTL release NOTHING, so its successor keeps the hold", async () => {
+    // The race this pins: A claims and stalls past its TTL; B takes the expired hold; A finishes late and
+    // releases on its way out. Keyed on the scope alone that release freed B's LIVE hold and C rebuilt
+    // concurrently with B. Keyed on the owner token, A's late release changes nothing.
+    vi.resetModules();
+    const rows = new Map<string, Hold>();
+    vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
+    const { claimScope, releaseScope } = await import("@/lib/persistence/json-store");
+    const a = await claimScope("surface-claims", "tenant-fx", 300);
+    expect(typeof a).toBe("string");
+    rows.set("surface-claims::tenant-fx", { content: [{ ...rows.get("surface-claims::tenant-fx")!.content[0], until: "2000-01-01T00:00:00.000Z" }] }); // A's TTL passes
+    const b = await claimScope("surface-claims", "tenant-fx", 300);
+    expect(typeof b).toBe("string"); // B takes the expired hold
+    await releaseScope("surface-claims", "tenant-fx", a!); // A wakes up late and releases
+    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull(); // C is still refused: B holds
+    await releaseScope("surface-claims", "tenant-fx", b!); // B's own release is the one that lands
+    expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string"); // now C may build
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
 });
@@ -197,7 +229,7 @@ describe("two dispatchers cannot both rebuild one account", () => {
  *  granted whenever the database could not answer, which hands the hold to every dispatcher at once in exactly
  *  the state where that is most likely. Only explicitly local file mode may grant without a database. */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
-  const hosted = async (impl: () => unknown): Promise<boolean> => {
+  const hosted = async (impl: () => unknown): Promise<string | null> => {
     vi.resetModules();
     const prior = { source: process.env.DATA_SOURCE, vercel: process.env.VERCEL };
     process.env.DATA_SOURCE = "supabase"; delete process.env.VERCEL;
@@ -216,16 +248,16 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
   });
 
   it("refuses when the database client will not start", async () => {
-    expect(await hosted(() => { throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set"); })).toBe(false);
+    expect(await hosted(() => { throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set"); })).toBeNull();
   });
   it("refuses when the claims table is not migrated here", async () => {
-    expect(await hosted(table({ code: "42P01", message: "relation does not exist" }))).toBe(false);
+    expect(await hosted(table({ code: "42P01", message: "relation does not exist" }))).toBeNull();
   });
   it("refuses when the statement fails", async () => {
-    expect(await hosted(table({ code: "57014", message: "canceling statement due to statement timeout" }))).toBe(false);
+    expect(await hosted(table({ code: "57014", message: "canceling statement due to statement timeout" }))).toBeNull();
   });
   it("refuses when the answer is not something it can read", async () => {
-    expect(await hosted(() => ({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: null }) }) }) }))).toBe(false);
+    expect(await hosted(() => ({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: null }) }) }) }))).toBeNull();
   });
   it("still grants in explicitly local file mode, where there is one process and nothing to race", async () => {
     vi.resetModules();
@@ -233,8 +265,114 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     process.env.DATA_SOURCE = "file"; delete process.env.VERCEL;
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("no env"); } }));
     const { claimScope } = await import("@/lib/persistence/json-store");
-    expect(await claimScope("surface-claims", "tenant-fx", 300)).toBe(true);
+    expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     process.env.DATA_SOURCE = prior ?? "";
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
+  });
+});
+
+/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21). The boundary memoized both
+ *  answers for a minute, so a cached "running" outlived the operator's Pause and paid calls kept passing
+ *  until the memo died. Permission to spend is never remembered now: only the refusal is, and the verified
+ *  pause write settles the memo directly. These run the REAL read path, so VITEST's hermetic short-circuit
+ *  is lifted for exactly their duration. */
+describe("pressing Pause closes the doors on the very next paid call", () => {
+  const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
+    vi.resetModules();
+    const prior = process.env.VITEST; delete process.env.VITEST;
+    vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
+      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => {
+        if (reads.count) reads.count.n += 1;
+        return { data: { research_paused: reads.paused() }, error: null };
+      } }) }) }),
+    }) }));
+    try { await fn(await import("@/lib/spend-scope")); }
+    finally { process.env.VITEST = prior; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
+  };
+
+  it("never remembers permission: the switch flipped mid-minute refuses on the very next ask", async () => {
+    let paused = false;
+    await withRealPausePath(async ({ spendingClosed }) => {
+      expect(await spendingClosed("tenant-fx")).toBe(false); // running is read
+      paused = true; // the operator presses Pause; no memo shields the stale grant
+      expect(await spendingClosed("tenant-fx")).toBe(true); // the very next ask refuses
+    }, { paused: () => paused });
+  });
+
+  it("remembers only the refusal, so a paused drafting pass reads the switch once, not dozens of times", async () => {
+    const count = { n: 0 };
+    await withRealPausePath(async ({ spendingClosed }) => {
+      expect(await spendingClosed("tenant-fx")).toBe(true);
+      expect(await spendingClosed("tenant-fx")).toBe(true);
+      expect(await spendingClosed("tenant-fx")).toBe(true);
+      expect(count.n).toBe(1); // one read, then the memoized refusal
+    }, { paused: () => true, count });
+  });
+
+  it("lets the verified pause write settle the boundary directly, and a resume clears without granting", async () => {
+    const count = { n: 0 };
+    await withRealPausePath(async ({ spendingClosed, settleSpendPause }) => {
+      settleSpendPause("tenant-fx", true); // the write's readback landed: refuse before any read
+      expect(await spendingClosed("tenant-fx")).toBe(true);
+      expect(count.n).toBe(0); // refused from the settled memo, no read at all
+      settleSpendPause("tenant-fx", false); // resume clears the memo and grants NOTHING by itself
+      expect(await spendingClosed("tenant-fx")).toBe(false);
+      expect(count.n).toBe(1); // the grant came from a fresh read, never from the settle
+    }, { paused: () => false, count });
+  });
+
+  it("refuses at BOTH paid doors immediately after the flip, with zero network", async () => {
+    let paused = false;
+    await withRealPausePath(async () => {
+      const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
+      const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
+      paused = true; // Pause lands; the doors are asked next, with no probe and no scope
+      const model = await openAIStructuredResponse({
+        promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
+        model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
+        maxOutputTokens: 16, tenantId: "tenant-fx",
+      } as never);
+      expect(model.kind).toBe("blocked_budget");
+      const provider = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
+      expect(provider.state).toBe("capped");
+      expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
+    }, { paused: () => paused });
+  });
+});
+
+/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21). The free collect existed as
+ *  a function nothing called: the pause refused providerCall before it ever discovered a pending receipt, and
+ *  the run that would have collected it never came, so paid-for evidence expired provider side. The scheduler
+ *  tick now runs one bounded GET-only collection and republishes after it. */
+describe("a paused tick collects what was already paid for, free, then republishes", () => {
+  it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {
+    vi.resetModules();
+    const events: string[] = [];
+    vi.doMock("@/domains/evidence/dataforseo/default-deps", () => ({
+      pendingProviderTaskKeys: async (limit: number) => { events.push(`enumerate:${limit}`); return ["dfs2_owed"]; },
+    }));
+    vi.doMock("@/domains/evidence/dataforseo/capabilities", () => ({
+      collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },
+    }));
+    vi.doMock("@/domains/runtime/research-run", () => ({
+      claimDueRuns: async () => [], finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null,
+    }));
+    vi.doMock("@/app/(shell)/surface-release", () => ({
+      readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }),
+      isCustomerSurfaceStale: () => true,
+      refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },
+    }));
+    vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
+      from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ id: "tenant-fx" }], error: null }) }) }) }) }) }),
+    }) }));
+    const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler");
+    // The stranded probe is somebody else's contract; this pin holds the dispatch to the paused tail.
+    await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never });
+    // The order IS the contract: what was already bought lands first, then the republish reads it.
+    expect(events).toEqual(["enumerate:5", "collect:dfs2_owed", "rebuild:tenant-fx"]);
+    expect(fetchSpy).not.toHaveBeenCalled(); // GET went through the collector fake; nothing posted, nothing paid
+    vi.doUnmock("@/domains/evidence/dataforseo/default-deps"); vi.doUnmock("@/domains/evidence/dataforseo/capabilities");
+    vi.doUnmock("@/domains/runtime/research-run"); vi.doUnmock("@/app/(shell)/surface-release");
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
 });

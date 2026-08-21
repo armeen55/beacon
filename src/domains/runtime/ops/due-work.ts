@@ -113,6 +113,10 @@ export async function setResearchPaused(tenantId: string, paused: boolean): Prom
     if (!Array.isArray(data) || data.length === 0) { log.warn("[due-work] the research pause switch matched no account, so nothing changed", { tenantId }); return false; }
     if (await researchPermission(tenantId) !== (paused ? "paused" : "running")) {
       log.warn("[due-work] the research pause switch did not read back as asked, so no surface may claim it", { tenantId, paused }); return false; }
+    // The verified flip settles the spend boundary's own memo, so a fresh pause refuses the very next paid
+    // call in this process without waiting on any read, and a resume clears only the memo, never grants.
+    const { settleSpendPause } = await import("@/lib/spend-scope");
+    settleSpendPause(tenantId, paused);
     return true;
   } catch (error) {
     log.warn("[due-work] the research pause switch could not be written", { tenantId, error: error instanceof Error ? error.message : String(error) });

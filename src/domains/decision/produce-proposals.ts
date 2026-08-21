@@ -49,8 +49,7 @@ export type ProduceProposalsResult = {
   /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[];
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
-const MAX_INVENTORY = 200; // one bounded page of this account's own inventory, never the whole site
-const NO_BODIES = new Map<string, OwnedPageBody>(); // no page words in hand: "I am not holding this page" is a skip, never a failure
+const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
 /** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
 const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const;
 const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
@@ -532,13 +531,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     skip: new Set(proposals.flatMap((p) => [(p.pagePath ?? "").toLowerCase(), (p.pageUrl ?? "").toLowerCase()])) })) {
     proposals.push(card); await persistIfChanged(card);
   }
-  // EACH PRODUCER SWEEPS ITS OWN FAMILIES, and only the one that finished sweeps at all.
+  // EACH PRODUCER SWEEPS ITS OWN FAMILIES, per family: `extra.families` lists only the ones whose evidence answered in full, so gating them on extra.complete froze finished sweeps for a neighbour's outage.
   extraHeld.push(...(extra.held ?? []));
-  // Per-family precision: a dead evidence source holds ITS families out of the sweep without freezing the
-  // rest. `extra.families` ALREADY lists only the families whose evidence answered in full, so the run is
-  // complete for exactly what it lists; gating it on extra.complete froze internal_link and the defect sweeps
-  // whenever the AI read failed, which punished finished work for a neighbour's outage.
-  await sweepStale([suggested, { families: (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES], complete: ((extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES]).length > 0 },
+  const extraFamilies = (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES];
+  await sweepStale([suggested, { families: extraFamilies, complete: extraFamilies.length > 0 },
     { families: ["demand_recovery"], complete: recovery.complete },
     // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["factual_correction"], complete: factual.complete },

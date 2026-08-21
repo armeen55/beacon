@@ -191,18 +191,22 @@ const writeLocks = new Map<string, Promise<void>>();
  *  configuration, not a quiet single-process machine, and granting the hold to everybody in that state is the
  *  exact opposite of what a claim is for. Refusing costs one skipped rebuild; granting costs the duplicated
  *  work this exists to prevent. */
-export async function claimScope(name: string, key: string, ttlSeconds: number): Promise<boolean> {
+export async function claimScope(name: string, key: string, ttlSeconds: number): Promise<string | null> {
   const scopeKey = `${name}::${key}`;
+  // THE CLAIM IS OWNED, not just timed. A release keyed on the scope alone let a holder that outlived its TTL
+  // free the NEXT holder's live claim on its way out, and a third instance then rebuilt concurrently with the
+  // second. The winner gets a token; renewal and release land only while that exact token still holds.
+  const owner = randomUUID();
   // Hermetic under vitest exactly as the budget check is: a test run with no database configured is one
   // process with nothing to race, so the claim is granted rather than refusing every unmocked fixture. A
   // test that pins the hosted fail-closed behaviour sets DATA_SOURCE, exactly as those tests already do.
-  if (process.env.VITEST && !process.env.DATA_SOURCE && !process.env.NEXT_PUBLIC_SUPABASE_URL) return true;
+  if (process.env.VITEST && !process.env.DATA_SOURCE && !process.env.NEXT_PUBLIC_SUPABASE_URL) return owner;
   // THE ONE STATE THAT MAY GRANT WITHOUT A DATABASE: file mode, and not on the hosted platform.
   const localFileMode = process.env.DATA_SOURCE === "file" && process.env.VERCEL !== "1";
-  const refuse = (why: string): boolean => {
-    if (localFileMode) return true;
+  const refuse = (why: string): string | null => {
+    if (localFileMode) return owner;
     console.error(`[json-store] claim refused for ${scopeKey}: ${why}`);
-    return false; // nobody won, which is always safer than everybody winning
+    return null; // nobody won, which is always safer than everybody winning
   };
   let admin: Awaited<ReturnType<typeof import("./supabase")["getSupabaseAdmin"]>>;
   try {
@@ -212,10 +216,10 @@ export async function claimScope(name: string, key: string, ttlSeconds: number):
   }
   try {
     const now = new Date(), until = new Date(now.getTime() + Math.max(1, ttlSeconds) * 1000).toISOString();
-    const content = [{ until }];
+    const content = [{ until, owner }];
     // Nobody has ever claimed this scope: the insert IS the claim, and a duplicate key means somebody beat us here.
     const first = await admin.from(BLOBS_TABLE).insert({ scope_key: scopeKey, store_name: name, content, updated_at: now.toISOString() }).select("scope_key");
-    if (first.error == null) return Array.isArray(first.data) ? first.data.length > 0 : refuse("the insert answer could not be read");
+    if (first.error == null) return Array.isArray(first.data) && first.data.length > 0 ? owner : refuse("the insert answer could not be read");
     if (isMissingBlobsTable(first.error)) return refuse("the claims table is not migrated here");
     // The row exists, so the claim is a conditional overwrite of an EXPIRED hold and nothing else.
     const taken = await admin.from(BLOBS_TABLE)
@@ -225,20 +229,23 @@ export async function claimScope(name: string, key: string, ttlSeconds: number):
     // AN ANSWER THAT IS NOT A LIST IS NOT AN ANSWER. A null or malformed response says nothing about who holds
     // the scope, and reading it as "no rows, so somebody else has it" is a guess either way.
     if (!Array.isArray(taken.data)) return refuse("the claim answer could not be read");
-    return taken.data.length > 0;
+    return taken.data.length > 0 ? owner : null;
   } catch (error) {
     return refuse(`the claim threw: ${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
   }
 }
 
-/** Free a hold this caller won, so the next legitimate rebuild does not wait out the TTL. Best effort: a
- *  release that fails simply leaves the hold to expire on its own, which is the safety the TTL exists for. */
-export async function releaseScope(name: string, key: string): Promise<void> {
+/** Free a hold this caller won, so the next legitimate rebuild does not wait out the TTL. ONLY WITH THE
+ *  WINNER'S OWN TOKEN: a holder that outlived its TTL comes back to a claim that is no longer its own, and
+ *  its late release must change nothing, or it frees the live successor's hold for a third instance. Best
+ *  effort: a release that fails simply leaves the hold to expire on its own, which is the safety the TTL
+ *  exists for. */
+export async function releaseScope(name: string, key: string, owner: string): Promise<void> {
   try {
     const { getSupabaseAdmin } = await import("./supabase");
     await getSupabaseAdmin().from(BLOBS_TABLE)
       .update({ content: [{ until: new Date(0).toISOString() }], updated_at: new Date().toISOString() })
-      .eq("scope_key", `${name}::${key}`);
+      .eq("scope_key", `${name}::${key}`).eq("content->0->>owner", owner);
   } catch {
     // expiry handles it
   }
