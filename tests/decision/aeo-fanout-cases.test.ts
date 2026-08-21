@@ -5,7 +5,7 @@
  *  search can quietly terminate nowhere. The resolver is EVIDENCE ONLY on purpose: a search that had to consult
  *  the queue to decide whether the queue should hold it could never produce the first card. */
 import { describe, expect, it } from "vitest";
-import { resolveFanoutCase } from "@/domains/decision/producers/ai-cases";
+import { AI_CASE_COPY, resolveFanoutCase } from "@/domains/decision/producers/ai-cases";
 import { buildFanoutEvidence, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";
 
 const SITE = "own.example";
@@ -100,5 +100,38 @@ describe("every material search the assistants ran terminates somewhere a person
     const other = resolveFanoutCase(rowOf(recurring({ fanOutQueries: ["haft seen set prices"] })));
     expect(a.caseKey).toBe(b.caseKey); // a capital letter and a question mark are the SAME search
     expect(a.caseKey).not.toBe(other.caseKey);
+  });
+});
+
+/** THE BRIEF DERIVES FROM THE ANSWER INTENT AND THE STAGE, NEVER FROM A TOPIC STRATEGY (operator, 2026-08-21): a phrase-page recipe hardcoded in the producer shipped on wildlife and rug cards. */
+describe("no case card carries a content strategy written for another page", () => {
+  const { caseCopy, intentOf, readableSubject } = AI_CASE_COPY;
+  const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({
+    voice: "What animals live in Iran?", quoted: '"What animals live in Iran?"', path: "/iran-animals",
+    intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited",
+    retrievedNotCited: 3, domain: "rival.example", covers: "iran, animals", factLine: null, ...over });
+  it("a wildlife case and a rug case never inherit language-learning instructions", () => {
+    const rugs = standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs", intent: intentOf("What are Persian rugs known for?") });
+    for (const c of [caseCopy(standing()), caseCopy(rugs)]) {
+      expect(`${c.headline} ${c.after} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every/i);
+    }
+    expect(intentOf("What are Persian rugs known for?")).toBe("definition");
+    expect(caseCopy(rugs).after).toContain("the definition in the first sentence");
+  });
+  it("a phrase question earns the list shape from its own intent, not from its topic", () => {
+    expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples");
+    expect(caseCopy(standing({ intent: "examples" })).after).toContain("each on its own line");
+  });
+  it("a raw fan-out is quoted as evidence and never pasted as the thing to answer", () => {
+    expect(readableSubject("funny Persian idioms phrases examples")).toBe("funny Persian idioms phrases");
+    const c = caseCopy(standing({ quoted: "searches for funny Persian idioms phrases" }));
+    expect(c.after).not.toContain("funny Persian idioms phrases examples");
+    expect(c.after).toContain("answers searches for funny Persian idioms phrases");
+  });
+  it("a case with no reported retrieval claims no reading and nothing passed over", () => {
+    const c = caseCopy(standing({ stage: "own_not_in_reported_sources", retrievedNotCited: 0 }));
+    expect(c.headline).not.toMatch(/\bread\b|passed over|opened/i);
+    expect(c.after).not.toMatch(/passed over|already open/);
+    expect(c.after).toContain("whether this page was read is unknown");
   });
 });

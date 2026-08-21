@@ -8,17 +8,11 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { PageHeader } from "@/components/data/page-header";
 import { loadChangesView, setAsideHint, type ChangesView } from "../changes-data";
 import { ChangesListClient } from "../changes-list-client";
-import { ChangesFeed } from "./changes-feed";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
 import { HonestDelay } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
-import { loadGscDecaySignalsForTenant } from "@/domains/evidence";
-import { loadProofLedgerCached } from "@/domains/measurement";
 import { researchPermission } from "@/domains/runtime";
-import { splitLedgerLifecycle } from "@/domains/decision";
-import { readCustomerSurface } from "../surface-release";
-import { runSingleFlight } from "@/lib/single-flight";
 
 /** /changes -> the canonical CHANGES list. One object, a CHANGE, across one lifecycle (suggested -> ready ->
  *  apply -> verify -> measuring -> result), shown as one compact list with two lanes. The queue is unlimited and
@@ -85,57 +79,6 @@ function QueueSlot({ view, researchPaused = false }: { view: ChangesView; resear
   );
 }
 
-/** ONE READ, ONE RETRY, THEN THE HONEST STATE, AND NEVER TWO AT ONCE. A first cold attempt at a GSC-backed read
- *  loses often enough that "your Google search data could not be read" was being printed over a source that
- *  answered fine one second later; the second attempt is warm and usually wins. Two rules keep that retry from
- *  becoming the outage: the retry only fires once the first attempt has actually COMPLETED with a failure, and
- *  the whole thing runs single-flight per loader per account, so a deadline that abandons one request can never
- *  leave two copies of the same read holding two connections. Whoever is waiting joins the run already going.
- *  A read either LANDED or it did not, and the verdict travels with the rows so a lane can say which happened. */
-function twice<T>(key: string, tenantId: string, read: () => Promise<T>, empty: T) {
-  const attempt = () => read().then((v) => ({ v, read: true }));
-  return valueWithDeadline(
-    runSingleFlight(`changes-lane:${key}:${tenantId}`, async () => {
-      try { return await attempt(); } catch { /* completed, and it failed: now the warm second try is owed */ }
-      await new Promise((r) => setTimeout(r, 1_000));
-      return attempt().catch(() => ({ v: empty, read: false }));
-    }) as Promise<{ v: T; read: boolean }>,
-    { v: empty, read: false }, MAIN_LIST_DEADLINE_MS,
-  );
-}
-
-/** EVERY LANE'S OWN EVIDENCE, loaded once, $0, deadline bounded and fail soft. The three opportunity lanes come
- *  off the release itself, the declining pages off the same decay read Today uses, and the measuring and results
- *  rows off the SAME ledger split the counts come from. */
-async function loadLanes(tenantId: string) {
-  const [decayMap, ledger, release, permission] = await Promise.all([
-    twice("decay", tenantId, () => loadGscDecaySignalsForTenant(tenantId, new Date()), new Map()),
-    twice("ledger", tenantId, () => loadProofLedgerCached(tenantId), [] as Awaited<ReturnType<typeof loadProofLedgerCached>>),
-    valueWithDeadline(
-      runSingleFlight(`changes-lane:release:${tenantId}`, () => readCustomerSurface(tenantId)).catch(() => null),
-      null, MAIN_LIST_DEADLINE_MS),
-    // THE ACCOUNT'S REAL PAUSE SWITCH, read here rather than off the release: no screen may promise a nightly round or work behind the scenes while research is off. Unreadable claims neither way.
-    valueWithDeadline(researchPermission(tenantId).catch(() => "unreadable" as const), "unreadable" as const, MAIN_LIST_DEADLINE_MS),
-  ]);
-  const bands = splitLedgerLifecycle(ledger.v, new Date());
-  const today = release?.today?.today;
-  return {
-    ledgerRead: ledger.read,
-    researchPaused: permission === "paused",
-    evidenceRead: decayMap.read,
-    // Last-known open-lane counts off the release stamp, with their age, for the strip's failed-read fallback.
-    staleCounts: release?.laneCounts
-      ? { ...release.laneCounts, ago: checkedAgoLabel(release.computedAt, serverNowMs()) }
-      : null,
-    decay: Array.from((decayMap.v as Map<string, Parameters<typeof ChangesFeed>[0]["decay"][number]>).values()),
-    declineNotes: today?.declineNotes ?? [],
-    heldForMeasurement: today?.heldForMeasurement ?? 0,
-    // A pre 28 day improvement is still in flight, exactly as countLedgerLifecycle counts it.
-    measuring: [...bands.measuring, ...bands.promising],
-    results: [...bands.won, ...bands.learned],
-  };
-}
-
 // Exported for the render pins in tests/changes (the empty-state copies must stay distinct);
 // the router only consumes the default export below.
 export async function ChangesSection() {
@@ -149,21 +92,18 @@ export async function ChangesSection() {
   if (view.proposals.length === 0 && view.releaseUnreadable) {
     return <HonestDelay message="Your saved changes could not be read just now, so no empty list is shown. Beacon is checking again automatically." />;
   }
-  const lanes = await loadLanes(await currentTenantId()).catch(() => null);
+  // ONE cheap read beside the release: the account's real pause switch, so no sentence here promises work
+  // while research is off. The measurement ledger and the watched pages left this screen entirely (operator,
+  // 2026-08-21): Results owns that information, and Changes points at it with one compact line.
+  const permission = await valueWithDeadline(researchPermission(await currentTenantId()).catch(() => "unreadable" as const), "unreadable" as const, MAIN_LIST_DEADLINE_MS);
+  const paused = permission === "paused";
   return (
-    <ChangesFeed
-      view={view}
-      queue={<QueueSlot view={view} researchPaused={lanes?.researchPaused ?? false} />}
-      decay={lanes?.decay ?? []}
-      declineNotes={lanes?.declineNotes ?? []}
-      measuring={lanes?.measuring ?? []}
-      results={lanes?.results ?? []}
-      heldForMeasurement={lanes?.heldForMeasurement ?? 0}
-      evidenceRead={lanes?.evidenceRead ?? false}
-      ledgerRead={lanes?.ledgerRead ?? false}
-      researchPaused={lanes?.researchPaused ?? false}
-      staleCounts={lanes?.staleCounts ?? null}
-    />
+    <div className="space-y-4">
+      <QueueSlot view={view} researchPaused={paused} />
+      {paused && view.proposals.length > 0 ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground"><PausedLine paused /></p>
+      ) : null}
+    </div>
   );
 }
 
@@ -186,7 +126,7 @@ export default async function WorklistPage() {
           operator to go and write the edit, so it says what the queue now guarantees. Unfinished work is counted, never ranked. */}
       <PageHeader
         title="Changes"
-        description="Every change here carries the exact work to make, ranked by payoff. Make one, mark it done, and the page is measured against pages that were not changed."
+        description="Finished changes first, each with the exact work to make. Drafts waiting on you and the research Beacon is still finishing are labeled below them. Make a change, mark it done, and the page is measured."
       />
       <Suspense fallback={<ChangesListFallback />}>
         <ChangesSection />

@@ -17,8 +17,10 @@ type ResultsRow = ResultsView["rows"]["worked"][number];
  */
 
 const TABS: Array<{ key: ResultsGroup; label: string; line: string }> = [
-  { key: "worked", label: "Worked", line: "These beat pages that were not changed." },
-  { key: "down", label: "Went down", line: "These fell behind pages that were not changed." },
+  // EACH ROW FINISHED AHEAD OR BEHIND ON ITS OWN DECLARED YARDSTICK: unchanged pages for a Google objective,
+  // the account's own unaffected questions for an AI one. One shared sentence may not claim otherwise.
+  { key: "worked", label: "Worked", line: "Each finished ahead on the yardstick it declared: unchanged pages for Google, unaffected questions for AI answers." },
+  { key: "down", label: "Went down", line: "Each fell behind on the yardstick it declared." },
   // NEUTRAL ENOUGH TO HOLD WHAT IS IN IT: inside the normal range, uncalled, split, and unmeasurable are
   // four different outcomes, and naming the group "No change" spoke for all four (Codex, 2026-08-21).
   { key: "flat", label: "No clear result", line: "Nothing here earned a verdict. Each row says which kind of silence it is." },

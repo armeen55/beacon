@@ -52,8 +52,10 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
    *  throw that carried none of that turned a 503 into "nothing happened", which is its own quiet lie about a day. */
   const receipt = (): SchedulerReceipt => ({ claimed, attempted, succeeded, paused, failed, leaseHeldUntil, released, remaining: claimed - succeeded });
   /** Hand the lease back through the canonical state. Only a finish that did not land is a held lease. */
-  const handBack = async (run: { tenant_id: string; id: string; lease_expires_at: string | null }) => {
-    const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused");
+  const handBack = async (run: { tenant_id: string; id: string; lease_expires_at: string | null; progress?: { funnel?: { spendUsd?: number } } | null }) => {
+    // The row keeps its own accumulated spend on the way back: a hand-back is a pause, and a paused row
+    // reading $0.00 over a funnel that already spent is the receipt bug this closure removes.
+    const ok = await finishRun(run.tenant_id, run.id, ownerToken, "paused", null, Number(run.progress?.funnel?.spendUsd) || 0);
     if (!ok) leaseHeldUntil.push(run.lease_expires_at ?? "");
     return ok;
   };
@@ -132,6 +134,10 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       if (error != null) return void log.warn("[research-run] the paused fleet could not be read, so nothing was republished for it", { error: error.message.slice(0, 160) });
       for (const row of (data ?? []) as Array<{ id: string }>) {
         if (nowFn().getTime() >= endsAt) break;
+        // A MARKED CHANGE ON A PAUSED ACCOUNT STILL GETS ITS LIVE CHECK: verification is a bounded $0 public
+        // read, and leaving it to the research cycle alone meant a paused account showed wins nothing had
+        // verified (operator, 2026-08-21). Same per-pass cap the cycle uses; failures stay local.
+        await import("@/domains/measurement/verify-shipment").then((m) => m.verifyDueShipments(String(row.id))).catch(() => 0);
         await republishStale(String(row.id));
       }
     } catch (error) {

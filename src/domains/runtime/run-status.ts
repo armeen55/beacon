@@ -106,8 +106,10 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   const answers = num(f.answersAnalyzed), collected = num(s.checksAnswers), sources = num(run.progress?.sourcesRefreshed), spent = num(f.spendUsd);
   const at = whenLabel(Date.parse(run.completed_at ?? "") || touched, nowMs);
   // ONE number, the closest one to the work an account pays for: a reading beats a collection, a collection beats a refresh, and money beats nothing at all.
+  // AN ARRIVED ANSWER WAS ORDERED EARLIER: "collected 12 new answers" beside "research is paused" read as new
+  // paid work on a paused account (operator, 2026-08-21). Arrival of an already requested answer is what it is.
   const did = answers > 0 ? `Read ${answers} new ${answers === 1 ? "answer" : "answers"} closely`
-    : collected > 0 ? `Collected ${collected} new AI ${collected === 1 ? "answer" : "answers"}`
+    : collected > 0 ? `${collected} previously requested AI ${collected === 1 ? "answer" : "answers"} arrived`
     : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}`
     : spent > 0 ? `Spent $${spent.toFixed(2)} on research` : null;
   // "NOTHING WAS OWED" IS A CLAIM ABOUT HOW THE RUN ENDED, not just what it counted. A run that paused or

@@ -30,7 +30,7 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     return q; } }) }));
 
 describe("Today renders, and tells the truth about its own queue", () => {
-  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "ranked by payoff"]],
+  it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes first"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
     const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
@@ -53,7 +53,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
       opportunityType: "Sharpen the title", recommendedChange: { kind: "existing_edit", field: "title" } })),
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
-  const NO_WORK = "No finished change is ready today. The next one is ranked here the moment Beacon has written the exact work.";
+  const NO_WORK = "No finished change is ready today. The next one lands here the moment the exact work is written.";
   // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
   it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
@@ -63,13 +63,13 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
     expect([mixed.headerSentence, mixed.readyTotal, mixed.toDoTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit])
-      .toEqual(["You have 3 finished changes ready to make, best first. 1 draft is waiting on your review in Changes.", 3, 1, 3,
-        "No finished change is ready today. 1 draft is waiting on your review in Changes.", undefined]);
+      .toEqual(["You have 3 finished changes ready to make, best first.", 3, 1, 3,
+        "No finished change is ready today. The next one lands here the moment the exact work is written.", undefined]);
     expect([view.headerSentence, view.nextOpportunities.length, buildTodayViewFromChanges(readyView(1, 0)).headerSentence,
       buildTodayViewFromChanges(empty, { outcome: "actionable_but_no_trusted_draft" }).headerSentence, buildTodayViewFromChanges(empty).headerSentence,
       buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
       .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
-        "No finished change is ready today. 7 opportunities are being researched, each one shown with what is missing."]);
+        NO_WORK]);
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
 });

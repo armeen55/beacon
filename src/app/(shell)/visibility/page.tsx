@@ -14,6 +14,7 @@ import { answerIntelOf, canonicalPairOf, canonicalQueryKey, citesOwnSite, compet
   loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
   buildFanoutEvidence, ownedPageAiRollup,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
+import { readCustomerSurface } from "../surface-release";
 import { GoogleWorkspace } from "./google-view";
 import { AiWorkspace } from "./ai-view";
 import { aiView, answerDetail, googleView, type AnswerRow } from "./visibility-view";
@@ -76,15 +77,33 @@ function Skeleton() {
 async function GoogleBody({ tenantId, params }: { tenantId: string; params: Params }) {
   const range = [7, 28, 84].includes(Number(one(params, "range"))) ? Number(one(params, "range")) : 28;
   const metric = (["clicks", "impressions", "ctr"] as const).find((m) => m === one(params, "metric")) ?? "clicks";
-  // Every read is bounded, deadline raced and fail-soft, so one slow store narrows one table instead of
-  // stranding the page. None of them calls Google: these are rows my daily round already synced.
-  const [days, decay, pages] = await Promise.all([
+  // THE DEFAULT RENDER READS THE COMPACT SAVED SURFACE (Product Truth, operator 2026-08-21): the page
+  // movement and search tables come off the projection the last publish stamped, one bounded blob read,
+  // because re-running the split-window aggregates on every visit is what kept this tab timing out. The
+  // daily totals stay a lean live read, and only a release with no projection falls back to the live RPCs.
+  const [days, release] = await Promise.all([
     valueWithDeadline(loadDailyTotalsForTenant(tenantId, 84).catch(() => []), []),
-    valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map()),
-    valueWithDeadline(loadGscPageSignalsForTenant(tenantId).catch(() => new Map()), new Map()),
+    valueWithDeadline(readCustomerSurface(tenantId).catch(() => null), null),
   ]);
-  const view = googleView({ days, rangeDays: range, metric,
-    decay: Array.from((decay as Map<string, GscDecaySignal>).values()), pages: pages as Map<string, GscPageSignal> });
+  const saved = release?.visibility?.google ?? null;
+  let decay: GscDecaySignal[]; let pages: Map<string, GscPageSignal>;
+  if (saved) {
+    decay = saved.pages.map((d) => ({ ...d, windowNowEnd: saved.windowNowEnd } as GscDecaySignal));
+    pages = new Map();
+    for (const q of saved.queries) {
+      const held = pages.get(q.page) ?? ({ topQueries: [] } as unknown as GscPageSignal);
+      (held.topQueries as Array<Omit<typeof q, "page">>).push({ query: q.query, clicks: q.clicks, impressions: q.impressions, position: q.position });
+      pages.set(q.page, held);
+    }
+  } else {
+    const [decayMap, pageMap] = await Promise.all([
+      valueWithDeadline(loadGscDecaySignalsForTenant(tenantId, new Date()).catch(() => new Map()), new Map()),
+      valueWithDeadline(loadGscPageSignalsForTenant(tenantId).catch(() => new Map()), new Map()),
+    ]);
+    decay = Array.from((decayMap as Map<string, GscDecaySignal>).values());
+    pages = pageMap as Map<string, GscPageSignal>;
+  }
+  const view = googleView({ days, rangeDays: range, metric, decay, pages });
   return <GoogleWorkspace view={view} range={range} metric={metric} />;
 }
 

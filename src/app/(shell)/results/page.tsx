@@ -32,7 +32,7 @@ export default async function ProofPage({
   // `unavailable`, which renders as an outage with a way to retry rather than "no changes are being measured".
   const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
   const shipments = surface.shipments;
-  const view = buildResultsView(shipments);
+  const view = buildResultsView(shipments, new Date());
   const anyClosed = shipments.some((s) => s.read.windows.some((w) => w.state === "closed"));
 
   // Settle due rows in the background (never blocks this render).
@@ -98,7 +98,7 @@ export default async function ProofPage({
             </div>
           </div>
           <p className="mb-5 mt-3 text-[12px] text-muted-foreground">
-            {view.header.window} Every number here is an estimated lift: each page is compared to similar pages that were not changed.{surface.checkedAgo ? ` Checked ${surface.checkedAgo}.` : ""}
+            {view.header.window} Google numbers are estimated lifts against similar pages that were not changed; a change judged on AI answers is compared against this account&apos;s own unaffected questions instead.{surface.checkedAgo ? ` Checked ${surface.checkedAgo}.` : ""}
           </p>
 
           <ResultsRows view={view} />

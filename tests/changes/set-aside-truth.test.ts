@@ -157,27 +157,31 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    for (const said of ["1 draft to review", EXACT, "Copy draft", "Why it is held", "1 being researched", "has not been read, and that read is what turns this into exact work", "Still missing"]) expect(html).toContain(said);
-    expect(html).not.toMatch(/Proven|Mark done/);
+    for (const said of ["Needs your review: 1 draft", EXACT, "Copy draft", "Why it is held", "Beacon is preparing 1 more"]) expect(html).toContain(said);
+    expect(html).not.toMatch(/Proven|Mark done|Still missing/);
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
-      .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. 1 draft is waiting on your review in Changes. 1 opportunity is being researched, each one shown with what is missing."]);
-    expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and the research card is its own shape
-  // EVERY GENUINE OPPORTUNITY IS REACHABLE: every research card renders in the one flow with its own detail link.
-  it("exposes all 12 research opportunities past the fold, each with its own detail link", async () => {
+      .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
+    expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and preparing rows are their own compact shape
+  // EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21).
+  it("shows all 12 preparing opportunities as compact rows with detail links, never as essays and never as Ready", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Missing for idea ${i}` } })) as ChangeProposal[];
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } };
     const html = await renderChanges(view);
-    expect([html.match(/data-research-card="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("12 being researched")])
-      .toEqual([12, 12, true]); });
-  // TYPED, NOT GUESSED FROM ARRAY POSITION (fix, 2026-08-15): the last string in operatorSteps used to be read as "Next", so reordering that array changed the answer. A producer-minted card carries `research.missing`/`research.next` and the feed reads only those.
-  it("reads Still missing / Next off the typed research field, never off operatorSteps order", async () => {
-    const idea = { ...bundled(NOW, "t::idea-typed"), status: "needs_review", researchOnly: true, bundle: undefined,
-      operatorSteps: ["typed-missing-text", "unrelated-earlier-step"], research: { missing: "typed-missing-text", next: "typed-next-text" } } as unknown as ChangeProposal;
-    const view = { ...emptyView(0), proposals: [idea], ready: [], toDo: [], research: [idea], summary: { ...emptyView(0).summary, research: 1 } };
+    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is preparing 12 more"),
+      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
+      .toEqual([12, 12, true, false, true, false]); });
+  // THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence.
+  it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
+    const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
+    const rows = [idea("t::/a::existing_edit::ownership"), idea("t::/b::existing_edit::missing_description"), idea("t::idea-typed")];
+    const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } };
     const html = await renderChanges(view);
-    expect([/data-research-next="true"><span[^>]*>Next: <\/span>([^<]*)</.exec(html)?.[1], /data-research-owed="true"><span[^>]*>Still missing: <\/span>([^<]*)</.exec(html)?.[1]])
-      .toEqual(["typed-next-text", "typed-missing-text"]); });
+    expect([html.includes("Reading the competing pages before writing distinct titles and openings."),
+      html.includes("Writing a page-specific description from the stored page."),
+      html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")])
+      .toEqual([true, true, true, false]); });
   // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");

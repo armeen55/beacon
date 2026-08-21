@@ -101,8 +101,7 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    // Six calls, not three: the defect card's draft is refused by the deterministic contract and the editor
-    // buys up to THREE fed-back attempts, each told every refusal so far. Still every one an edit.
+    // Six calls, not three: the defect card's draft is refused by the deterministic contract and the editor buys up to THREE fed-back attempts, each told every refusal so far. Still every one an edit.
     ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
@@ -166,17 +165,15 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS }); expect(out.status).toBe("none"); if (out.status !== "none") return; expect(out.reason).toContain("nothing is handed over rather than filler"); });
 }); describe("one pass, one row per change", () => { it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
-    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result.
-    // A MEASURED GAP WITH NO DIAGNOSED CAUSE MINTS NO TITLE GUESS (operator, 2026-08-17): the compost page's
-    // 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest
-    // output is the investigation path plus the page's real defects, never a rewrite nobody can justify.
+    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result. A MEASURED GAP WITH NO DIAGNOSED CAUSE
+    // MINTS NO TITLE GUESS (operator, 2026-08-17): the compost page's 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest output is the investigation
+    // path plus the page's real defects, never a rewrite nobody can justify.
     expect(res.proposals.map((p) => [p.id, p.status]).sort()).toEqual([[`${TENANT}::/compost::existing_edit::missing_description`, "needs_review"], [`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"]]);
     expect(res.held.some((h) => h.pageUrl.includes("/rain-barrels"))).toBe(true);
     // FIVE GUARDS ON ONE PASS: host and path key the page (two hosts share /compost and the weak row must carry ITS OWN title), an em dash in a brand tail is never pasted, a page the strict path covered takes no second weaker row, a page beating its own curve on its ONE measured search is refused even through the AEO clause that waives the click test, and a search whose results page I never bought still earns ONE best-guess card, at the lowest confidence I have, rather than the silence that left a losing page with nothing to do.
     const twin = { ...topicSnapshot().ownedPages[1]!, url: "https://other.example/compost", content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Twin Compost Page", h1: "Twin Compost Page" } };
     const dashed = { ...topicSnapshot().ownedPages[1]!, content: { ...topicSnapshot().ownedPages[1]!.content!, title: "Compost | Green \u2014 Co", h1: null } }; // the title is the only line there is, so the dash decides
-    // The guards below are exercised under a FORGED treatable cause: with the real (unknown) cause the boundary
-    // refuses the card outright, which is pinned separately right here.
+    // The guards below are exercised under a FORGED treatable cause: with the real (unknown) cause the boundary refuses the card outright, which is pinned separately right here.
     expect(suggestedEdits(topicSnapshot(), compileCandidates(topicSnapshot()), { now: OPTS.now!, basis: "b" })).toEqual([]);
     const treatably = (s: EvidenceSnapshot) => compileCandidates(s).map((c) => ({ ...c, cause: { ...c.cause, cause: "ctr_snippet" as const }, diagnosis: undefined }));
     const only = (s: EvidenceSnapshot) => suggestedEdits(s, treatably(s), { now: OPTS.now!, basis: "b" }); // the twin is LAST below, so keying on the path alone would hand that page the twin's words
@@ -461,6 +458,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(factorOf(only!, "causeFit")).toBe(0);
       expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
     } });
+  // DRAFT CAPACITY FOLLOWS THIS RANKING, NEVER ARRIVAL ORDER (operator, 2026-08-21): produce-proposals ranks the eligible cards through THIS function before the bounded drafter walks them, so with
+  // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
+  it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => {
+    const six = Array.from({ length: 6 }, (_, i) => prop({ id: `card-${i}`, pagePath: `/p${i}`, impactScore: i === 5 ? 900 : 10 + i }));
+    expect(rankProposals(six)[0]!.id).toBe("card-5");
+  });
   it("puts what is riding on the change above how long it takes, and never lets a wrong lever ride a recovery", () => {
     // A page proven to be losing 191 clicks against a description errand on a page shown twice: value leads, and the whole of the errand's speed is worth less than what the losing page has riding on it.
     const losing = prop({ id: "losing", pagePath: "/persian-male-names", impactScore: 191, estimatedEffortMinutes: 30 });
@@ -533,11 +536,9 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
       .toEqual([true, true, false]); });
-  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing.
-  // Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped
-  // the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real
-  // audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a
-  // reason, and a banned term a stored search actually carries is that page's own vocabulary.
+  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and
+  // stripped the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped
+  // without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
   it("never drops a word the page earns clicks on, and demand vocabulary overrides the banned list", () => {
     const body = "Persian boy names with meanings, a list of classic and modern Iranian names for boys.";
     const pk = (demand: { preserve: string[]; vocabulary: string[] }, bannedTerms: string[] = [], fact = 'people search "persian boy names list" 4,100 times in 90 days') => ({
@@ -561,9 +562,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     pk({ preserve: [], vocabulary: demand }, ["Farsi"], 'people search "persian boy names in farsi" 480 times in 90 days') as never);
     expect([farsi(["persian boy names in farsi"]).some((r) => r.toLowerCase().includes("farsi")),
       farsi([]).some((r) => r.toLowerCase().includes("farsi"))]).toEqual([false, true]); });
-  // A BLANK CAPTURE AUTHORIZES NOTHING. persian-last-names holds 194,554 lifetime impressions and a raw fetch
-  // reads zero words off its javascript body; until a rendered read lands, no body-dependent copy may be
-  // bought or written for it. A page that WAS read keeps earning its editor attention on the same pass.
+  // A BLANK CAPTURE AUTHORIZES NOTHING. persian-last-names holds 194,554 lifetime impressions and a raw fetch reads zero words off its javascript body; until a rendered read lands, no body-dependent
+  // copy may be bought or written for it. A page that WAS read keeps earning its editor attention on the same pass.
   it("an unread page buys no draft, while a read page on the same pass still leaves with work", async () => {
     const page = (path: string, wordCount: number) => ({ url: `https://www.iranopedia.com${path}`, content: { wordCount }, search: null });
     const snapshot = { ownedPages: [page("/persian-last-names", 0), page("/thin-guide", 120)], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
@@ -614,16 +614,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([await acceptDeliverable(meta([...REAL, { text: "These Persian shoes are waterproof", supportedBy: ["page-title"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops, and these Persian shoes are waterproof.") as never, P as never, yes), await acceptDeliverable(meta([...REAL, { text: "The page includes Love \"Eshgh\" black and white variants", supportedBy: ["page-heading-3", "page-heading-4"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops; the page includes black and white slip-ons.") as never, P as never, yes), await acceptDeliverable(meta(REAL, "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops and white and black Persian calligraphy slip-ons.") as never, P as never, yes)])
       .toEqual([["its copy says \"waterproof\" on a claim of its own, and the evidence that claim names does not carry it"], [], []]); }); // "include" is carrier grammar now: the verb that states a list is not a fact about the page
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
-    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven
-    // recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a
-    // flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The
-    // flat 45 this replaces put every big research card behind every three impression description.
+    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt,
+    // never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression
+    // description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
     const ranked = rankProposals([owed, finished]); expect(ranked.map((p) => p.id)).toEqual(["owed", "finished"]);
-    // No diagnosed cause on the owed card: its 2,000-click figure rides the MEASURED-SHORTFALL band (half the
-    // proven reach), never "proven recoverable". 60 × 0.595 = 35.7; the order still holds.
+    // No diagnosed cause on the owed card: its 2,000-click figure rides the MEASURED-SHORTFALL band (half the proven reach), never "proven recoverable". 60 × 0.595 = 35.7; the order still holds.
     expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[0]!, "readiness"), factorOf(ranked[1]!, "readiness")]).toEqual([35.7, 0, 0]);
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at 60 percent because the copy is still owed and confidence is medium");
     // A PAGE LOSING GROUND ON A SEARCH PEOPLE STILL RUN has levers; a search fewer people run has none, and saying otherwise would score a decline card for a fix that is not one.
@@ -657,8 +655,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
     expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]);
     expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
-    // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the
-    // receipt never claims a proven recovery for a gap nobody has explained.
+    // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
     const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([true, 19.38]);
     expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall, cause not yet diagnosed");
     const [causal] = rankProposals([prop({ impactScore: 570, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) })]);

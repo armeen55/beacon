@@ -13,7 +13,7 @@ import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCount
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
-import { countLedgerLifecycle } from "@/domains/decision";
+import { countLedgerLifecycle, splitLedgerLifecycle } from "@/domains/decision";
 import { buildReceiptLine } from "@/components/data/receipt-line";
 import { recordAppError, errorFieldsFrom } from "@/lib/obs/error-ledger";
 import { readCustomerSurface, isCustomerSurfaceStale, type CustomerSurface } from "./surface-release";
@@ -46,6 +46,8 @@ export type ChangesView = {
   basisUnreadable?: boolean;
   /** Whole-tenant decided count (proof ledger). */
   decidedCountCanonical: number;
+  /** Settled wins on the same ledger, for the one compact line that points at Results. */
+  wonCountCanonical?: number;
   /** TRUE when the ledger behind the two counts above could not be READ: they are zero because I could not look, and every surface says so
    *  rather than printing the zero. */
   countsUnavailable?: boolean;
@@ -222,7 +224,10 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       ...(read.fromMemory ? { releaseFromMemory: true } : {}),
     }, { tenantId, currentBasis: await resolveCurrentBasis(tenantId).catch(() => null) });
   }
-  scheduleReleaseRebuild("cold-rebuild");
+  // A FAILED READ SCHEDULES NO REBUILD: the heavy rebuild is owed when a release is genuinely absent or
+  // stale, and firing it on every visit during a store outage is a rebuild loop on top of the outage
+  // (operator, 2026-08-21). The store answering again is what ends this state, not more load on it.
+  if (read.ok) scheduleReleaseRebuild("cold-rebuild");
   // A RELEASE I COULD NOT READ IS NOT A FIRST-EVER LOAD: claiming I am building their ranking for the first time during an outage is a
   // sentence an established customer knows is false the moment they read it.
   return read.ok ? EMPTY_CHANGES_VIEW : { ...EMPTY_CHANGES_VIEW, surfaceBuilding: false, releaseUnreadable: true };
@@ -245,6 +250,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   ]);
 
   const ledgerCounts = countLedgerLifecycle(ledger.rows);
+  const won = ledger.read ? splitLedgerLifecycle(ledger.rows, new Date()).won.length : 0;
   const summary: ChangesSummary = {
     todo: queue.toDo.length,
     ready: queue.ready.length,
@@ -300,6 +306,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     measuringCountCanonical: ledgerCounts.measuring,
     demotedStaleBasis: queue.demotedStaleBasis,
     decidedCountCanonical: ledgerCounts.decided,
+    wonCountCanonical: won,
     readyZeroHint,
     receiptLine,
     surfaceVersion: releaseId,

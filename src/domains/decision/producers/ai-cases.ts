@@ -26,6 +26,66 @@ import { asWritten, askable, bestPageFor, count, labelOf, MAX_PER_PRODUCER, note
  *  and is not spelled a second time here: two names for one set of states is the same defect this closure
  *  exists to remove. `held` and the landing states below need facts only a producer pass holds. */
 type FanoutStage = "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "own_not_in_reported_sources";
+
+// ── THE ONE CASE STANDING, AND THE ONE WRITER OVER IT ─────────────────────────
+/** Every customer-facing word on an AEO card derives from ONE standing object, so a claim can only say what
+ *  the standing holds: a reading claim needs a reported retrieval, credit is named in the endpoint's own
+ *  vocabulary, and the drafting brief takes its structure from the ANSWER INTENT and the page, never from a
+ *  topic strategy written for some other page (Codex, 2026-08-21: phrase-page instructions shipped on
+ *  wildlife and rug cards, so no producer carries a content strategy of its own any more). A raw fan-out
+ *  query is EVIDENCE: quoted as the search the assistants ran, never pasted as a heading or a question. */
+type Intent = "examples" | "definition" | "comparison" | "process" | "history" | "category" | "question";
+const INTENT_OF: [Intent, RegExp][] = [
+  ["comparison", /\b(vs|versus|difference|better than|compared)\b/i],
+  ["process", /\bhow (to|do|does|can)\b|\bsteps?\b|\brecipe\b/i],
+  ["history", /\b(history|origins?|ancient|timeline|dynasty|empire|revolution)\b/i],
+  ["examples", /\b(examples?|lists?|names?|ideas?|phrases?|words?|sayings?|idioms?|quotes?)\b/i],
+  ["definition", /\b(what (is|are)|meanings?|means|definitions?|known for|famous for)\b/i],
+  ["category", /\b(buy|shops?|stores?|prices?|costs?|delivery|products?)\b/i],
+];
+const intentOf = (t: string): Intent => INTENT_OF.find(([, re]) => re.test(t))?.[0] ?? "question";
+/** What each intent's finished section is SHAPED like. Structure only: every fact still has to come from the
+ *  page's own evidence, and the editor contract refuses anything these words could not license. */
+const SHAPE: Record<Intent, string> = {
+  examples: "a one-sentence direct answer first, then the strongest items each on its own line with the one fact a reader needs about it",
+  definition: "the definition in the first sentence, then the two or three facts on this page that support it",
+  comparison: "what each option is and the one difference that decides between them",
+  process: "the steps in order, one per line, each something a reader can do",
+  history: "the turns in order, earliest first, with their dates",
+  category: "what this category offers and how a buyer narrows it, using only what this page carries",
+  question: "the direct answer in the first two sentences, then the specifics only this page has",
+};
+/** A search rendered as a subject a reader would say, for copy that must not paste the machine's phrasing:
+ *  the intent-marker words come off and what is left is a noun phrase about the subject itself. */
+const MARKERS = /\b(examples?|lists?|ideas?|websites?|sites?|best|top|guides?)\b/gi;
+const readableSubject = (q: string): string => plain(q).replace(MARKERS, " ").replace(/\s+/g, " ").trim() || plain(q);
+/** The case as one object, and the four card texts as pure derivations of it. */
+type Standing = { voice: string; quoted: string; path: string; intent: Intent; stage: FanoutStage | "owned_mentioned_not_cited";
+  retrievedNotCited: number; domain: string | null; covers: string; factLine: string | null };
+function caseCopy(s: Standing): { headline: string; after: string; steps: string[]; next?: string } {
+  const q = s.quoted, credit = s.domain ? `credit ${s.domain} instead` : "credit other sites";
+  const open = `Open the site editor on ${s.path}`, close = "Mark it done here and the next answers get checked against it";
+  const section = `Add a section on ${s.path} that answers ${q}: ${SHAPE[s.intent]}, under a heading a reader would look for, built only from facts the page and its evidence already establish.`;
+  if (s.stage === "owned_retrieved_not_cited") return {
+    headline: `Assistants read ${s.path} for ${q} and ${credit}`,
+    after: `${section} The assistants already open this page while answering and credit somebody else, so a restatement of what it lists changes nothing: the section has to be a block an assistant can lift whole.`,
+    steps: [open, `Add the section answering ${q}`, "Put the answer in the first two sentences, before any background", close],
+    next: `The next pass reads what the credited pages answer for ${q} that ${s.path} does not, and the section brief lands only after that comparison is on file. Nothing here invents the missing facts.` };
+  if (s.stage === "owned_mentioned_not_cited") return {
+    headline: `Assistants name this brand for ${q} and ${credit}; ${s.path} needs a passage worth citing`,
+    after: `Write the passage an assistant can credit on ${s.path}: the direct answer to ${q} in the first two sentences, every factual claim backed by a source the page names. ${s.factLine ?? "No verified source fact is on file for this page yet, so the fact is acquired first; a passage never invents its backing."} Assistants already say the name in prose and hand the credit elsewhere, so the missing thing is a passage that earns the citation, not awareness.`,
+    steps: [open, `Write the direct answer to ${q} with its source named in the passage`, s.factLine ? "Build on the verified fact already on file" : "Hold publishing until a verified source for the claim is on file", close],
+    next: s.factLine ? undefined : `No verified source fact is on file for ${s.path}. The fact pass acquires one for the claim this passage will make, and the wording lands only after the fact is confirmed; a passage with invented backing never ships.` };
+  if (s.stage === "rivals_cited_own_not_retrieved") return {
+    headline: `AI answers cite ${s.domain ?? "other sites"} for ${q} and none reports reading ${s.path}; make it reachable first`,
+    after: `Make ${s.path} the page an assistant reaches for ${q}: align the title and H1 with the subject's own words, link it from the strongest related pages, confirm it is indexed, then put the answer in the first two sentences. No stored answer reports reading this page, so reachability comes before wording.`,
+    steps: [open, "Align the title and H1 with the subject's own words", `Link to ${s.path} from the strongest related pages`, close],
+    next: "Reachability is checked first: the next pass confirms the page is indexed and linked before any wording is written, because a section on a page no assistant reads changes nothing." };
+  return {
+    headline: `AI answers rely on other sites for ${q}; ${s.path} is not among the sources they report`,
+    after: `${section} These instruments report the sources they relied on and not what they read, so whether this page was read is unknown; what is known is that the credit goes elsewhere, and the work is a passage worth relying on.`,
+    steps: [open, `Add the section answering ${q}`, "Put the answer in the first two sentences, before any background", close] };
+}
 type FanoutCase = { caseKey: string; state: AiCaseState; stage?: FanoutStage; pageUrl?: string; reason: string };
 
 /** PURE, AND IT NEVER CONSULTS THE QUEUE: evidence in, one state out; `landing` is the coverage answer the
@@ -174,29 +234,20 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const clusterLine = cluster.length > 0 ? `While answering it, assistants ran their own searches on repeat: ${cluster.map((f) => `"${f.query}" (${count(f.days, "day")}, ${count(f.engines.length, "assistant")})`).join("; ")}.` : "";
     const fact = mentioned ? facts.find((f) => f.page.toLowerCase() === path.toLowerCase()) ?? null : null;
     const engines = engineList([...g.engines].sort()), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
-    const readers = stand.retrievedNotCitedEngines.length > 0 ? stand.retrievedNotCitedEngines.map(engineLabel).join(" and ") : "An assistant";
+    // ONE WRITER, OFF THE STANDING: the words on the card can only claim what the standing carries.
+    const copy = caseCopy({ voice: g.prompt, quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage,
+      retrievedNotCited: w?.rnc ?? 0, domain,
+      covers, factLine: fact ? `A verified fact is already on file for this page (${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}), so the passage stands on it.` : null });
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
-      headline: passedOver ? `${readers} reads ${path} for "${g.prompt}" and cites ${domain} instead; give it the answer it can lift`
-        : mentioned ? `Assistants name this brand for "${g.prompt}" and credit ${domain}; give ${path} a passage worth citing`
-          : `AI answers cite ${domain} for "${g.prompt}" and never read ${path}; make it reachable, then liftable`, before: null,
-      after: passedOver
-        ? `Add a short section that answers "${g.prompt}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. The section must add structure the page does not have: where the page states a question and its reply separately, connect them into one sentence a reader can use; where it marks one form as more formal, carry that note into the sentence; pair every expression with its English meaning in the same sentence. This page is ALREADY being read by the engine and passed over, so a restatement of its list changes nothing: what is missing is a block an engine can lift whole.`
-        : mentioned
-          ? `Write the passage an assistant can credit on ${path}: the direct answer to "${g.prompt}" in the first two sentences, every factual claim backed by a source the page names. ${fact ? `A verified fact is already banked for this page (${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}), so the passage stands on it.` : "No verified source fact is banked for this page yet, so the fact is acquired first; a passage never invents its backing."} Assistants already say the name in prose and hand the credit elsewhere, so the missing thing is a passage that earns the citation, not awareness.`
-          : unreach
-            ? `Make ${path} the page an assistant can reach and lift for "${g.prompt}": align the title and H1 with the question's own words, link it from the strongest related pages so it sits one hop from where crawlers already go, confirm it is indexed, then put the answer in the first two sentences under a heading a reader would search for. No stored answer reports reading this page, so reachability comes before wording.`
-            : `Give ${path} the answer the assistants would rely on for "${g.prompt}": the direct answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. These instruments report the sources they relied on and not what they read, so whether this page was read is unknown; what is known is that the credit goes elsewhere, and the work is a passage worth relying on.`,
+      headline: copy.headline, before: null, after: copy.after,
       why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${labelOf(match.page)} at ${path} already covers ${covers}, so ${passedOver ? "the page is already being read and passed over: the work is making the answer liftable, not making it exist" : mentioned ? "the name is already in the answers: the work is a passage that converts the mention into a citation" : unreach ? "the work starts with making this page reachable, because no stored answer reports reading it" : "the work is a passage worth relying on, because these instruments report what they relied on rather than what they read"}.`,
-      steps: passedOver ? [`Open the site editor on ${path}`, `Add a section that answers "${g.prompt}"`, "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"]
-        : mentioned ? [`Open the site editor on ${path}`, `Write the direct answer to "${g.prompt}" with its source named in the passage`, fact ? `Build on the banked verified fact: ${fact.subject}` : "Hold publishing until the fact pass banks a verified source for the claim", "Mark it done here and the next answers get checked against it"]
-          : unreach ? [`Open the site editor on ${path}`, "Align the title and H1 with the question's own words", `Link to ${path} from the strongest related pages`, "Mark it done here and the next answers get checked against it"]
-            : [`Open the site editor on ${path}`, `Add a section that answers "${g.prompt}" outright`, "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],
+      steps: copy.steps,
       hints: [`${engineLabel(cite.engine)} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
         ...passages, ...linkOnly, ...(standLine ? [standLine] : []), ...(recurLine ? [recurLine] : []), ...(clusterLine ? [clusterLine] : []),
-        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited nowhere, so the page is reachable and not liftable`] : []),
+        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited on none of those answers, so the page is reachable and not liftable`] : []),
         ...(mentioned ? [`Assistants say the name in prose on ${count(g.mentioned, "stored answer")} without crediting any page of this site`] : []),
-        ...(fact ? [`Verified fact banked for this page: ${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}`] : []),
+        ...(fact ? [`Verified fact on file for this page: ${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}`] : []),
         `The newest answer from each of ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // THE AI SIDE RIDES IN ITS OWN UNITS: the reporting answers behind the claim, recurrence in distinct days and assistants off the stored window, how often the site was read and passed over, the rivals credited instead, the stage by name, and the landing page's own Google audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click, and a raw row total is never an audience.
@@ -226,12 +277,8 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         falsifier: passedOver ? "If a newly stored answer credits this site without the section shipping, the page was already liftable and this card retires itself."
           : mentioned ? "If a newly stored answer credits this site before the passage ships, the mention was already converting and this card retires itself."
             : "If newly stored answers to this question credit this site before the page is relinked, the gap was already closing and this card retires itself." },
-      // WHAT THE NEXT PASS OWES, per stage, and NEVER a content plan this producer invented: a hardcoded
-      // "pair every expression with its meaning" strategy shipped on unrelated accounts (Codex, 2026-08-21).
-      next: passedOver ? `The next pass reads what the credited pages answer for "${g.prompt}" that ${path} does not, and the section brief lands only after that comparison is on file. Nothing here invents the missing facts.`
-        : mentioned && !fact ? `No verified source fact is banked for ${path}. The fact pass acquires one for the claim this passage will make, and the wording lands only after the fact is confirmed; a passage with invented backing never ships.`
-          : unreach ? `Reachability is checked first: the next pass confirms the page is indexed and linked before any wording is written, because a section on a page no assistant reads changes nothing.`
-            : undefined,
+      // WHAT THE NEXT PASS OWES, per stage, off the same writer: never a content plan this producer invented.
+      ...(copy.next ? { next: copy.next } : {}),
       minutes: 30, confidence: g.answers >= 3 && (w == null || w.days.size >= 3) ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
@@ -324,25 +371,25 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const readOver = stage === "owned_retrieved_not_cited";
     const unreachF = stage === "rivals_cited_own_not_retrieved";
     const rival = row.rivalPages[0] ?? null;
+    // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a
+    // subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the
+    // copy is told to answer, because a retrieval trace is not a sentence a person publishes.
+    const voice = parent && askable(plain(parent.promptText)) ? plain(parent.promptText) : readableSubject(subject);
+    const copyF = caseCopy({ voice, quoted: parent && askable(plain(parent.promptText)) ? `"${voice}"` : `searches for ${voice}`,
+      path, intent: intentOf(subject), stage, retrievedNotCited: row.retrievedNotCitedAnswers,
+      domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null,
+      covers: asWritten(subject, fit.match.hits).join(", "), factLine: null });
     out.push({
       page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject,
       headline: readOver
-        ? `Assistants search "${row.query}" and read ${path} without crediting it; give it the answer it can lift`
+        ? `Assistants search "${row.query}" and read ${path} without crediting it`
         : unreachF
-          ? `Assistants search "${row.query}" and never read ${path}; make it the page they reach`
-          : `Assistants search "${row.query}" and rely on other sites; give ${path} the answer worth relying on`,
+          ? `Assistants search "${row.query}" and none reports reading ${path}; make it the page they reach`
+          : `Assistants search "${row.query}" and rely on other sites; ${path} is not among the sources they report`,
       before: null,
-      after: readOver
-        ? `Add a short section that answers "${subject}" outright: the answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. The assistants already open this page while answering and credit somebody else, so a restatement of what it lists changes nothing: what is missing is a block an engine can lift whole.`
-        : unreachF
-          ? `Make ${path} the page an assistant reaches for "${subject}": align the title and H1 with the question's own words, link it from the strongest related pages, confirm it is indexed, then put the answer in the first two sentences. No stored answer reports reading this page for this search, so reachability comes before wording.`
-          : `Give ${path} the answer an assistant would rely on for "${subject}": the direct answer in the first two sentences, then the specifics only this page has, under a heading a reader would search for. These instruments report the sources they relied on and not what they read, so the work is a passage worth relying on rather than a reachability hunt.`,
+      after: copyF.after,
       why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${count(rival.answers, "of those answers")}.` : "No page is credited on it often enough to name a leader."} ${labelOf(fit.match.page)} at ${path} already covers ${asWritten(subject, fit.match.hits).join(", ")}, so ${readOver ? "the page is reachable and being read: the work is making the answer liftable" : unreachF ? "the work starts with being reachable for it at all" : "the work is a passage worth relying on, because whether the page was read is not something these instruments report"}.`,
-      steps: readOver
-        ? [`Open the site editor on ${path}`, `Add a section that answers "${subject}"`, "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"]
-        : unreachF
-          ? [`Open the site editor on ${path}`, "Align the title and H1 with the words of this search", `Link to ${path} from the strongest related pages`, "Mark it done here and the next answers get checked against it"]
-          : [`Open the site editor on ${path}`, `Add a section that answers "${subject}" outright`, "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],
+      steps: copyF.steps,
       hints: [`Assistants ran this search themselves: ${row.materialBecause}`,
         ...(row.variants.length > 1 ? [`Wordings collapsed onto one search: ${variants.slice(0, 4).map((v) => `"${v}"`).join(", ")}`] : []),
         `Behind ${row.parents.slice(0, 2).map((pr) => `"${plain(pr.promptText)}"`).join(" and ")}${row.parents.length > 2 ? ` and ${count(row.parents.length - 2, "more question")}` : ""}`,
@@ -366,6 +413,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
             : { cause: "technical_indexability" as const, reason: "these instruments do not report retrieval, so an access problem is neither shown nor ruled out by anything on file" }],
         notConsidered: [{ cause: "intent_shift" as const, missing: "no results page for this search is on file, so whether searchers want a different shape of answer is not decided here" }],
         falsifier: "If a newly stored answer credits this page on this search before anything ships, the gap was already closing and this card retires itself." },
+      ...(copyF.next ? { next: copyF.next } : {}),
       minutes: 30, confidence: row.days >= 3 && row.engines.length >= 2 ? "medium" : "low", refs: row.executions,
       limitation: FANOUT_LINKAGE_CAVEAT,
     });
@@ -395,3 +443,5 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   if (Object.keys(states).length > 0) log.info("[ai-cases] every search the assistants ran, by where it ended up", { tenantId, ...states });
   return { drafts: out, filed: write.filed };
 }
+/** ONE test surface for the copy layer: every derivation pinned through one export. */
+export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject } as const;

@@ -56,15 +56,13 @@ async function renderSection(): Promise<string> {
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
   beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
 
-  it("two requests racing into the same lane read it ONCE, so a deadline can never leave two copies holding the pool", async () => {
+  // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the
+  // watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the
+  // one-read promise the two deleted pins here used to hold.
+  it("a Changes visit buys no ledger read and no decay read of its own", async () => {
     await Promise.all([renderSection(), renderSection()]);
-    expect(calls.ledger, "one ledger read per account per process, however many requests race").toBe(1);
+    expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
   });
-
-  it("the warm second attempt only runs after the first has COMPLETED with a failure, and then it answers", async () => {
-    await renderSection();
-    expect(calls.evidence, "one failure, then exactly one retry: never a third").toBe(2);
-  }, 15_000);
 
   // ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins.
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {

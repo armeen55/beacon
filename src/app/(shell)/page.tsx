@@ -230,8 +230,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   // A PLAN IS STILL READ RATHER THAN PASTED: a merge carries several moves, so it opens instead of copying.
   // Nothing unfinished reaches here at all now, so there is no "read this first" state left to render.
   const plan = !!edit && !edit.paste && !edit.after;
-  // THE OTHER CHANGES ARE THE OTHER FINISHED ONES. Adding the review lane in put a card nobody can paste behind "See the other 3 changes".
-  const openTotal = (today.readyTotal ?? 0) + (today.toDoTotal ?? 0) + (today.researchTotal ?? 0);
+  // THE OTHER CHANGES ARE THE OTHER FINISHED ONES, counted from the ready lane alone: Today never counts a
+  // draft or Beacon's own research as the operator's work (operator, 2026-08-21).
+  const others = Math.max(0, (today.readyTotal ?? 0) - (lane === "ready" && edit ? 1 : 0));
   const winLine = lastWinLine(ledgerRows, nowMs);
   const week = weekStrip(ledgerRows, nowMs);
 
@@ -277,11 +278,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
               {lane === "research" ? "See what is missing" : lane === "review" ? "Read the draft" : plan ? "Open the steps" : "Make this change"}
             </Link>
-            {openTotal > 1 ? (
-              <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
-                See the other {(openTotal - 1).toLocaleString("en-US")} {openTotal - 1 === 1 ? "opportunity" : "opportunities"}
-              </Link>
-            ) : null}
+            <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
+              {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}
+            </Link>
           </div>
         </div>
       ) : (

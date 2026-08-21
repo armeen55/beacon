@@ -506,9 +506,15 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
   // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize, or that the store will refuse (a page under measurement rejects new drafts at save time), is not worth paying to write; drafting one anyway spent four charged calls a pass on copy that could never land.
   const measuringPages = measuringPagesEarly;
-  const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
+  const eligible: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
     if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
-    if (await admit(c)) allowed.push(c); }
+    if (await admit(c)) eligible.push(c); }
+  // RANK BEFORE SPENDING DRAFT CAPACITY (Codex, 2026-08-21). The editor drafts a bounded few and used to walk
+  // the producers' own output order, so the attempt budget went to whichever eligible card happened to come
+  // first and the account's biggest opportunity stayed a brief for ever. The SAME global ranking that orders
+  // the queue orders the drafting line, at $0, so the highest-impact unfinished deliverable is drafted first
+  // whatever position it arrived in. Cards already finished are preserved by identity exactly as before.
+  const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory });
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); await persistIfChanged(p); }

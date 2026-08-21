@@ -8,7 +8,7 @@ import type { ControlReceipt } from "@/domains/measurement";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { KernelRead } from "@/domains/measurement";
-import { groupOf, lastClosed, nextReadDay, type ResultsGroup, type ShipmentPresentation } from "./results-presentation";
+import { groupOf, landsLabel, lastClosed, nextCloseOn, type ResultsGroup, type ShipmentPresentation } from "./results-presentation";
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
@@ -194,7 +194,7 @@ function aiHappenedLine(p: ShipmentPresentation): string {
 
 /** One sentence for what happened, on the read that was actually used. On a row judged on AI this is the Google half, and it prints under
  *  its own heading as context rather than as the answer. */
-function happenedLine(p: ShipmentPresentation): string {
+function happenedLine(p: ShipmentPresentation, now: Date = new Date()): string {
   const r = p.read;
   // Recorded, and honestly not judged: nothing about this row names a Search number to grade it on. UNLESS IT
   // WAS JUDGED ON SOMETHING ELSE. A change pressed under an AI objective carries its verdict from the answers,
@@ -216,8 +216,8 @@ function happenedLine(p: ShipmentPresentation): string {
     return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.${held}`;
   }
   if (r.basisDay == null) {
-    const next = nextReadDay(r);
-    return next ? `Nothing read yet. The first result lands ${next}.` : "Nothing read yet. The first result lands once a read closes.";
+    const next = landsLabel(nextCloseOn(r), now);
+    return next ? `Nothing read yet. The first result ${next}.` : "Nothing read yet. The first result lands once a read closes.";
   }
   // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA: the days ran and the page moved, and the pair below shows it.
   if (r.verdict === "insufficient_evidence") {
@@ -287,7 +287,7 @@ const GENERIC_NEXT = ["Do this again on a similar page.", "Undo what was applied
 /** The one thing to do about this row. A ROW JUDGED ON AI TAKES ITS STEP FROM ITS OWN OBJECTIVE: the Google map above sent a change that
  *  had just won a citation off to "Put the previous title back", because Google clicks had slipped over the same days. There is no undo
  *  step here at all, on purpose: the objective moved or it did not, and the answer to "it did not" is the next thing to try on the page. */
-function nextStepLine(p: ShipmentPresentation): string {
+function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
   const r = p.read;
   if (judgedOnAi(p)) {
     const [, , , target, down, flat] = aiStory(p), move = aiMove(p);
@@ -304,8 +304,10 @@ function nextStepLine(p: ShipmentPresentation): string {
   if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
   const d = r.learning.outcomeDirection;
   if (d !== "unclear") return (NEXT_STEP[r.learning.actionFamily] ?? GENERIC_NEXT)[d === "up" ? 0 : d === "down" ? 1 : 2];
-  const next = nextReadDay(r);
-  return next ? `Nothing to do until ${next}.` : "Nothing to do until the next read lands.";
+  const next = landsLabel(nextCloseOn(r), now);
+  return next == null ? "Nothing to do until the next read lands."
+    : next.startsWith("lands") ? `Nothing to do until the next read ${next}.`
+      : "Nothing to do; the next read is overdue because Google reports a few days behind.";
 }
 
 /** At most two, and only the ones this row actually carries. `judgedOnAi` drops the one caveat that is purely about the Google

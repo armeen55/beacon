@@ -57,8 +57,7 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { retu
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
-    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING: a pinned absolute date armed itself as a date bomb
-    // against EVIDENCE_VALID_DAYS and the suite went red with no change anywhere (2026-08-21).
+    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING: a pinned absolute date armed itself as a date bomb against EVIDENCE_VALID_DAYS and the suite went red with no change anywhere (2026-08-21).
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: new Date(Date.now() - 5 * 86_400_000).toISOString(), ...over };
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
@@ -440,8 +439,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
     expect(deep.impactScore).toBeNull(); // no proven size, so it ranks as a direction and claims no clicks
   });
   it("never opens a second deep door on AI evidence: the comparison's own door holds, and the staged case path owns AEO (2026-08-19)", async () => {
-    // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door
-    // used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
+    // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
     const noGaps = (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" });
     const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps);
     expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
@@ -503,8 +501,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(c.cause.competingExplanations.map((x) => x.cause)).toContain("ctr_snippet"); // the wording read fired and lost to the stronger evidence
     expect(c.reason).toContain('2 of your own pages come up for "iranian actors"'); expect(snapshotToEvidenceInputs(world)).toEqual([]); // self-competition is never a copy rewrite
     const supported = { ...ACTORS_SEEN(), research: { ...actorsSerp("Persian Screen | Iranopedia"), retainedKeywords: [{ query: "iranian actors", searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, supports: "consolidation" as const }] } };
-    // A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no current
-    // group there are no two pages to compare, and today's own rows overrule yesterday's judgment.
+    // A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no current group there are no two pages to compare, and today's own rows overrule yesterday's judgment.
     expect(compileCandidates(supported)[0]!.cause.cause).not.toBe("cannibalization"); });
   it("names what the winning pages do that mine does not, citing the verdict's own receipt lines", async () => {
     const world = snap([GAP], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);

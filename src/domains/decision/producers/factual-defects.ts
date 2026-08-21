@@ -113,12 +113,15 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       cards.push({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::factual_correction`, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
+        // THE COLLAPSED CARD NAMES THE DELIVERABLE, and the umbrella `after` is a description of the bundle,
+        // NEVER the thing to paste: the card renders the pieces, and only each piece's own wording is copyable
+        // (Codex, 2026-08-21: an umbrella Copy button copied "Replace the 40 statements listed below").
         opportunityType: remaining > 0
-          ? `Correct ${n(shown.length)} statements on ${path} that independent sources contradict (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
-          : `Correct ${n(shown.length)} statements on ${path} that independent sources contradict`,
+          ? `${n(shown.length)} sourced corrections on ${path} (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
+          : `${n(shown.length)} sourced corrections on ${path}`,
         changeFamily: "factual_correction", status: "needs_review",
         recommendedChange: { kind: "existing_edit", field: "section", before: null,
-          after: `Replace the ${n(shown.length)} statements listed below with their corrected wording. Each one carries the source that establishes it.` },
+          after: `${n(shown.length)} corrected statements, each with its exact current wording, its replacement and the source that establishes it. Work through them piece by piece below.` },
         bundle: {
           objective, metric: "Accuracy of the page's own statements, re-checked against the same sources on the next run.",
           scope: { queries: [], prompts: [] },

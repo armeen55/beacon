@@ -139,9 +139,17 @@ function barOf(p: ShipmentPresentation): number | null {
   return scaled;
 }
 
-/** The next read that has not landed, as a day. */
-export const nextReadDay = (r: KernelRead): string | null =>
-  monthDayLabel(r.windows.find((w) => w.state !== "closed")?.closesOn ?? null);
+/** The next read that has not landed, as its raw close date. */
+export const nextCloseOn = (r: KernelRead): string | null => r.windows.find((w) => w.state !== "closed")?.closesOn ?? null;
+/** A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): "next result lands August
+ *  19" printed on August 21 is impossible on its face. A window whose close date has passed without finalized
+ *  data is OVERDUE because Google reports a few days behind, and that is what is said. */
+export const landsLabel = (closesOn: string | null | undefined, now: Date): string | null => {
+  const day = monthDayLabel(closesOn ?? null);
+  if (!day) return null;
+  const end = Date.parse(`${(closesOn ?? "").slice(0, 10)}T23:59:59Z`);
+  return Number.isFinite(end) && end < now.getTime() ? "is overdue; Google reports a few days behind" : `lands ${day}`;
+};
 
 export const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
 
@@ -205,7 +213,7 @@ function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; n
 
 // -- the whole surface --------------------------------------------------------
 
-function rowOf(p: ShipmentPresentation): ResultsRow {
+function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
   const r = p.read;
   const group = groupFor(p);
   const onAi = judgedOnAi(p), aiDone = aiDays(p), move = onAi ? aiMove(p) : null;
@@ -245,8 +253,9 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     readLabel: onAi ? (aiDone >= 28 ? "28 day read done" : aiDone > 0 ? `${aiDone} of 28 days in` : "Nothing read yet")
       : done ? `${done.day} day read done` : "Nothing read yet",
     // A page with no traffic on file before the change gets no delta at all: there is nothing to count from. Everything else prints what was read, and "Level" rather than a bare zero.
+    // EVERY COLLAPSED NUMBER CARRIES ITS UNIT (operator, 2026-08-21): a bare +1,119 answers nothing.
     impressionsLabel: onAi || !claimNumber || !showsImpressions(p) ? null
-      : (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift)),
+      : (Math.abs(r.impressionsLift) < 0.5 ? "Level" : `${signed(r.impressionsLift)} shown`),
     chip: chipOf(p),
     // The dots count down the read THIS row is judged over. A citation change one day in showed three filled dots and "Done May 29",
     // because those are the Google windows, beside its own "Reading".
@@ -256,20 +265,24 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
         state: w.confounded != null ? "shared" as const : w.state === "closed" ? "read" as const : "pending" as const,
       })),
     pipCaption: onAi ? (aiDone >= 28 ? "Read over 28 days" : aiDone > 0 ? `Day ${aiDone} of 28` : "Nothing read yet")
-      : next ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}`
+      : next ? ((l) => l == null || l.startsWith("lands") ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}` : "Overdue; Google reports a few days behind")(landsLabel(next.closesOn, now))
         : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
-    happened: onAi ? aiHappenedLine(p) : happenedLine(p),
+    happened: onAi ? aiHappenedLine(p) : happenedLine(p, now),
     // GOOGLE STAYS ON THE ROW AND STOPS BEING THE ANSWER: same sentence, same before and after, under a heading that says whose they are.
-    googleAside: onAi ? { heading: "Google search, for context", line: happenedLine(p) } : null,
+    googleAside: onAi ? { heading: "Google search, for context", line: happenedLine(p, now) } : null,
     numbers,
     numbersNote: note,
     comparedAgainst: receiptOf(p).map((c) => ((w) => (w.length > 0 ? `${c.path} (${w.join("; ")})` : c.path))(reasonWords(c.reasons))),
     unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null, yardstick: yardstickOf(p.judgedMetric),
     aiMetricLines: p.ai?.metricLines ?? [], aiBoundary: p.ai?.boundary ?? null,
-    caveats: caveatLines(r, onAi),
+    // A WIN NOBODY VERIFIED SAYS SO ON THE ROW (operator, 2026-08-21): improvement after a marked change is a
+    // fact, and "the live implementation has not been verified" is the other fact that belongs beside it.
+    caveats: [...(group === "worked" && (p.verification == null || p.verification.status === "not_found" || p.verification.status === "blocked" || p.verification.status === "operator_confirmed")
+      ? [onAi ? "This improved after the change was marked done; the live implementation has not been verified yet." : "Traffic improved after this marked change; the live implementation has not been verified yet."] : []),
+    ...caveatLines(r, onAi)].slice(0, 3),
     timeline: timelineLines(p),
     taught: taughtLine(p),
-    nextStep: nextStepLine(p),
+    nextStep: nextStepLine(p, now),
     sort: group === "worked" ? -(bar ?? 0)
       : group === "down" ? (bar ?? 0)
         : group === "flat" ? -started
@@ -280,9 +293,9 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
 /** THE WHOLE RESULTS SURFACE, in the operator's words. Pure. This is the only thing the screen
  * renders, so it can never say a sentence this function did not produce.
  */
-export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>): ResultsView {
+export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>, now: Date = new Date()): ResultsView {
   const rows: Record<ResultsGroup, ResultsRow[]> = { worked: [], down: [], flat: [], reading: [] };
-  for (const p of shipments) rows[groupFor(p)].push(rowOf(p));
+  for (const p of shipments) rows[groupFor(p)].push(rowOf(p, now));
   for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
   const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };
 
@@ -291,9 +304,9 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
   // had finished. `groupFor` already holds an unfinished read of either kind as reading.
   const settled = shipments.filter((p) => groupFor(p) !== "reading");
   const wins = settled.filter((p) => groupFor(p) === "worked");
-  const soonestDay = monthDayLabel(shipments
+  const soonest = landsLabel(shipments
     .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
-    .filter((d): d is string => d != null).sort()[0] ?? null);
+    .filter((d): d is string => d != null).sort()[0] ?? null, now);
 
   // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost more than it
   // gained still read "+54 clicks added". They now add up EVERY settled row exactly as the screen prints it
@@ -320,10 +333,11 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
     counts,
     header: {
       worked: settled.length === 0
-        ? { value: soonestDay ? `First result lands ${soonestDay}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
-        // BANKED, NEVER CHERRY PICKED: wins are counted against every change that finished, and the rest are named as what they taught.
+        ? { value: soonest ? `First result ${soonest}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
+        // COUNTED, NEVER CHERRY PICKED, AND NEVER OVERSOLD: a row without a clear result is inconclusive, not
+        // proof of what does not work (operator, 2026-08-21), so the rest are counted and never characterized.
         : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, isCount: true,
-            sub: `out of ${settled.length} finished${settled.length > wins.length ? "; the rest taught what does not move this site" : ""}` },
+            sub: `out of ${settled.length} finished` },
       clicks: clicked.length === 0
         ? { value: rateReads > 0 ? `${rateReads} read in click rate` : "Nothing read yet", positive: false, note: null }
         : { value: signed(clicks), positive: clicks > 0,
@@ -335,7 +349,7 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
       // words and small, exactly as the three totals beside it say their own missing answers.
       reading: counts.reading === 0
         ? { value: "None", sub: "every change recorded has been read", isCount: false }
-        : { value: num(counts.reading), sub: soonestDay ? `next result lands ${soonestDay}` : "next result lands once a read closes", isCount: true },
+        : { value: num(counts.reading), sub: soonest ? `next result ${soonest}` : "next result lands once a read closes", isCount: true },
       window: settled.length === 0
         ? "Nothing has finished its 28 day read yet."
         : `Across the ${num(settled.length)} ${settled.length === 1 ? "change" : "changes"} that finished their 28 day read.`,

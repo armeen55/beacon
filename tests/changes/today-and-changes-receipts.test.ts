@@ -15,42 +15,6 @@ vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof 
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
 
-// ── evidence controls an opportunity's STATE, never its existence. Fixtures carry only what the feed reads. ──
-const TOPIC = { key: "k1", label: "iranian saffron", demand: { monthlySearchVolume: 2400, gscImpressions: 900, trackedPrompts: 2, fanOuts: 5 }, keywords: [{}, {}], exactSerps: [], serpFreshness: "missing", pageType: "unknown", distinctWinners: 0, currentReadableWinners: 0, answerIntel: { answers: 12, latestObservedAt: null }, missingEvidence: ["I have not looked at Google's results for this yet."], diminishing: false, nextAcquisition: { kind: "buy_serp", subject: "saffron", why: "I have never looked at Google's results for this, so buying that one results page is what changes the answer." } };
-const DECAY = { page: "https://site.example/comedians", clicksNow: 12, clicksPrior: 175, impressionsNow: 900, impressionsPrior: 1200, positionNow: 14.2, positionPrior: 8.1, windowNowEnd: "2026-07-09" };
-const SHIPPED = { id: "s1", page: "https://site.example/saffron", path: "/saffron", actionType: "edit_title", shippedAt: "2026-07-01T00:00:00.000Z", implementedAt: "2026-07-01T00:00:00.000Z", verdict: "won" }, renderFeed = async (over: Record<string, unknown> = {}): Promise<string> => renderToStaticMarkup(createElement((await import("@/app/(shell)/changes/changes-feed")).ChangesFeed,
-  { view: viewOf([]), queue: null, investigations: [], decay: [], declineNotes: [], measuring: [], results: [], ...over } as never));
-describe("Changes shows every opportunity, and evidence decides only which lane it sits in", () => {
-  it("renders the open topic, every losing page, the ideas I set aside and the ledger, each with its own next step and its own honest count", async () => { // M3: a count computed apart from its own list is a contradiction waiting to ship
-    const html = await renderFeed({ investigations: [TOPIC], view: { ...viewOf([]), demotedStaleBasis: 21 }, results: [{ ...SHIPPED, id: "r1" }],
-      decay: [DECAY, ...Array.from({ length: 21 }, (_, i) => ({ ...DECAY, page: `https://site.example/p${i}`, clicksPrior: 30 + i }))],
-      measuring: Array.from({ length: 9 }, (_, i) => ({ ...SHIPPED, id: `m${i}`, verdict: "measuring" })) });
-    for (const s of ["Pages being watched", "/comedians", "lost 163 clicks in 4 weeks", "data through Jul 9", "its results page is read next", "21 earlier ideas that no longer clear it went aside", "Changed the title", "Jul 1", "waiting on the first read (lands Jul 8)", "it worked"]) expect(html, s).toContain(s);
-    const n = (re: RegExp) => Number((re.exec(html)?.[1] ?? "0").replace(/,/g, "")), rows = (a: string) => html.split(a).length - 1;
-    // The drawer counts what it lists: 22 declining pages plus the set-aside row = 23, of which 6 + 1 render and 16 are named as more. Measuring 9 and Results 1 = 7 rendered and 3 named.
-    expect([n(/\(([\d,]+) pages?\)/), rows('data-watching-row="true"'), n(/">([\d,]+) more pages? (?:is|are) down/), rows("data-ledger-row="), n(/See the other ([\d,]+) on Results/), /No changes yet|nothing for you to do/i.test(html)]).toEqual([23, 7, 16, 7, 3, false]); });
-  // THE MEASURING LANE IS A LIST, NOT AN ESSAY: one row printed the whole stored argument for the change, and "still measuring" never answered the only question the row is asked, which is when the operator hears back.
-  it("a measuring row is a short label, a date and where the reading has got to, never the paragraph behind the change", async () => {
-    const why = "The page answers the question in the fourth paragraph while every page beating it answers in the first, and the searches behind it are worth about 2,400 a month, so the answer moves to the top and the rest of the page stays exactly as it is.";
-    const html = await renderFeed({ measuring: [
-      { ...SHIPPED, id: "m1", actionType: "restructure_page", verdict: "measuring", bundleHypothesis: why, windows: [{ day: 7, ran: true, controlsUsed: 4, adjustedLift: 9 }, { day: 14, ran: false }, { day: 28, ran: false }] },
-      { ...SHIPPED, id: "m2", actionType: "restructure_page", verdict: "measuring", bundleHypothesis: why },
-    ] });
-    expect(html).not.toContain("the rest of the page stays exactly as it is");
-    expect(html).toContain("The page answers the question in the fourth paragraph while every page beating it answers...");
-    for (const s of ["7 day read done, waiting on the 14 day", "waiting on the first read (lands Jul 8)"]) expect(html, s).toContain(s);
-    expect(html).not.toContain("still measuring");
-  });
-  it("never dresses a one click wobble as a decline, and tells a failed read apart from an account with nothing open or measuring", async () => {
-    const quiet = await renderFeed({ decay: [{ ...DECAY, clicksNow: 174 }] }), blind = await renderFeed({ ledgerRead: false });
-    expect([/lost 1 click /.test(quiet), quiet.includes("Nothing is measuring yet."), blind.includes("What is measuring could not be read just now"), /Make the top edit/.test(blind), /data-ledger-row/.test(blind)]).toEqual([false, true, true, false, false]);
-    // AND THE SAME DISTINCTION IN THE DRAWER: a search read that did not answer emptied the list in one render and the empty state said I have nothing open.
-    const dark = await renderFeed({ evidenceRead: false, decay: [DECAY] }), open = await renderFeed({ decay: [DECAY] });
-    const fixed = await renderFeed({ decay: [DECAY], view: { ...viewOf([]), queuedPages: ["/comedians"] } }); // a page whose fix is in the list above names its rank, never "I have no change for it"
-    expect([dark.includes("Your Google search data could not be read just now"), /data-watching-row/.test(dark),
-      open.includes("Your Google search data could not be read just now"), /\(1 page\)/.test(open), open.includes("its results page is read next"),
-      fixed.includes("its fix is #1 in the list above"), fixed.includes("its results page is read next")]).toEqual([true, false, false, true, true, true, false]); }); });
-
 // ── Changes: the receipts reach the operator ─────────────────────────────────
 
 const ID = "t::/nowruz-guide::existing_edit::bundle";
@@ -117,7 +81,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "draft to review", "Why it is held", "moves or hides a page", "Copy draft"]) expect(held, s).toContain(s);
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your review", "Why it is held", "moves or hides a page", "2 exact pieces inside"]) expect(held, s).toContain(s);
     for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {

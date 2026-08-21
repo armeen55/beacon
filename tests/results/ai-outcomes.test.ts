@@ -238,8 +238,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).not.toMatch(/[\u2014\u2013]/); // no em or en dashes, ever
   });
   it("reports a supported early move as movement, never as a verdict, before the 28 days have run", async () => {
-    // Eleven days in, a clear rise on adequate sides: the line says it is moving, and the direction waits,
-    // because day 7 and day 14 carry movement only (Codex, 2026-08-21).
+    // Eleven days in, a clear rise on adequate sides: the line says it is moving, and the direction waits, because day 7 and day 14 carry movement only (Codex, 2026-08-21).
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
       shipmentBaseline: { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } } },
     { readObservations: reader(stretch("2026-07-21", "2026-07-31", 3)), now: NOW });
@@ -395,8 +394,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.from).toBe("2026-08-04");                 // the operator's day, not the UTC one
     expect(outcome?.before.day).toBe("2026-08-03");                 // so the evening's own answers are not "before"
     expect(outcome?.after.checked).toBe(52);                        // 13 days x 4 answers, the 4th included
-    // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone
-    // boundary above is the whole of what this pins.
+    // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone boundary above is the whole of what this pins.
     expect(outcome?.direction).toBe("no_clear_movement");
   });
 });
@@ -521,8 +519,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       { engine: "chatgpt", modelServed: "gpt-5.5", mode: "api", answers: 24 },
     ]);
     expect(outcome?.boundary).toBe("The instrument changed under this reading: ChatGPT moved from gpt-5 to gpt-5.5. A step here is the instrument, not the change.");
-    // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made
-    // on empties the after side, which reads on screen as the change losing everything it had.
+    // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made on empties the after side, which reads on screen as the change losing everything it had.
     expect(outcome?.after.checked).toBe(44);
   });
   /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is
@@ -623,8 +620,7 @@ describe("controls and per-assistant verdicts", () => {
   const C1 = "an unaffected question", C2 = "another unaffected question", MINE = "where should I go";
 
   it("subtracts the unaffected questions' own drift before calling a verdict", async () => {
-    // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly
-    // as much: the world moved, not the change, and the receipt says so.
+    // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly as much: the world moved, not the change, and the receipt says so.
     const outcome = await judge([
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
@@ -639,8 +635,7 @@ describe("controls and per-assistant verdicts", () => {
     expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]);
   });
   it("reports a split when two assistants genuinely disagree, never an average", async () => {
-    // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both
-    // adequately sampled, and the one honest overall answer is that they split.
+    // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both adequately sampled, and the one honest overall answer is that they split.
     const outcome = await judge([
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);

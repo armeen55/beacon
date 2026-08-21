@@ -59,6 +59,8 @@ type GoogleInput = {
   rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal> };
 
 const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Appearances", ctr: "Click rate" };
+/** GOOGLE'S OWN FAILURE WORDS (operator, 2026-08-21): about GOOGLE, totals above stay current, and nothing about AI answers. */
+const GOOGLE_UNREAD = "Google's page movement could not be read in time just now. The totals above are current, and this table fills in on the next visit.";
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
@@ -82,7 +84,7 @@ export function googleView(input: GoogleInput) {
     { label: "Appearances", value: num(i), basis: `times a page of yours was shown, ${prior.length === span ? `against ${num(pi)} the ${num(span)} days before` : "no full window before this one"}`, ...delta(i, pi) },
     { label: "Click rate", value: i > 0 ? pct(c / i) : "not yet", basis: i > 0 ? `${num(c)} clicks out of ${num(i)} appearances` : "no appearances reported in this window", ...points(i > 0 ? c / i : null, pi > 0 ? pc / pi : null) },
     { label: "Average position", value: posNow == null ? "not yet" : posNow.toFixed(1),
-      basis: posNow == null ? (noPages ? UNREAD : "no page of yours was shown in the last 28 days") : `weighted by appearances across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
+      basis: posNow == null ? (noPages ? "Google's per page windows could not be read in time just now; the totals above are current" : "no page of yours was shown in the last 28 days") : `weighted by appearances across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
       delta: posNow != null && posPrior != null ? `${posNow < posPrior ? "" : "+"}${(posNow - posPrior).toFixed(1)}` : null,
       tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },
   ];
@@ -96,7 +98,7 @@ export function googleView(input: GoogleInput) {
     columns: [{ key: "page", label: "Page", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "clicksChange", label: "Change", numeric: true },
       { key: "impressions", label: "Appearances", numeric: true }, { key: "impressionsChange", label: "Change", numeric: true },
       { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }, { key: "query", label: "Strongest search, 90 days", wide: true }],
-    empty: noPages ? UNREAD : "Google has not reported a page for this account yet. The next daily round picks them up.",
+    empty: noPages ? GOOGLE_UNREAD : "Google has not reported a page for this account yet. The next daily round picks them up.",
     note: moved.length === 0 ? null : `Each page compares the 28 days${windowEnd ? ` ending ${windowEnd}` : ""} with the 28 days before them. ${losing > 0 ? `${num(losing)} ${losing === 1 ? "page is" : "pages are"} losing clicks, marked in the change column. The fix for one of them lives in Changes.` : "Not one page is losing clicks in this window."}`,
     rows: [...moved].sort((a, b) => b.clicksNow - a.clicksNow).map((r) => {
       const sig = input.pages.get(r.page), top = sig?.topQueries[0] ?? null;
@@ -116,7 +118,7 @@ export function googleView(input: GoogleInput) {
   const QUERY_CAP = 150;
   const queries = table({
     columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }],
-    empty: noQueries ? UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and the next daily round picks up the rest.",
+    empty: noQueries ? GOOGLE_UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and the next daily round picks up the rest.",
     note: seenQueries.length === 0 ? null : `These are the searches Google named over the last 90 reported days, strongest first${seenQueries.length > QUERY_CAP ? `. Showing the top ${num(QUERY_CAP)} of ${num(seenQueries.length)}` : ""}. Google hides its rarest searches, so this is what it reports and not every search you ever won.`,
     rows: [...seenQueries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, QUERY_CAP).map((q, n) => ({
       id: `${q.page}|${q.query}|${n}`, cells: [

@@ -247,8 +247,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
     const narrow = validate(many.components, RECEIPT_ONLY);
     expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
-    // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions,
-    // the one still owed is named out loud, and resuming costs nothing a second time.
+    // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
     const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
     expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]);

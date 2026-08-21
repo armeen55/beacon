@@ -120,7 +120,7 @@ export function withholdReason(p: ChangeProposal, cause: Cause | null | undefine
   if (own && own !== cause && treatsCause(p, own)) return null;
   if (!cause || !treatable(cause) || treatsCause(p, cause)) return null;
   const lever = p.recommendedChange.kind === "new_page" ? "new_page" : p.recommendedChange.field;
-  return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Settle that first and this card comes back.`;
+  return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Once that is dealt with, this card comes back.`;
 }
 
 /**
@@ -147,7 +147,7 @@ export function unsettledCause(p: ChangeProposal): string | null {
       .map((c) => pathOf(c.page ?? p.pagePath ?? "")));
     const owed = named.filter((n) => !written.has(n));
     if (owed.length === 0) return null;
-    return `${num(owed.length)} of the ${num(named.length)} pages coming up for "${p.primaryQuery}" get no words from this change (${owed.join(", ")}), so the split it names is not settled and this is held for review rather than handed over as ready to paste.`;
+    return `${num(owed.length)} of the ${num(named.length)} pages coming up for "${p.primaryQuery}" get no words from this change (${owed.join(", ")}), so the split it names is not fully answered and this is held for review rather than handed over as ready to paste.`;
   }
   return withholdReason(p, cause) == null ? null
     : `This change works on something other than ${causeLabel(cause)}, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste.`;
@@ -253,20 +253,20 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
   // one out (2026-08-14). Which mechanism it is comes off what each page carries, and that read is not on this card.
   const settled = b.survivor && named.includes(b.survivor) ? b.survivor : null;
   const plan = settled
-    ? `Your own figures name ${settled} as the page to keep. What settling it takes, forwarding the others to it or wording that tells them apart, is decided by what each page carries, and that read is not on this card.`
-    : `Which of them should own it is not settled: ${b.unproven.length > 0
+    ? `Your own figures show ${settled} as the page to keep. Whether the others forward to it or get wording that tells them apart depends on what each page carries, and that read is not on this card.`
+    : `Which of them should own it is not decided yet: ${b.unproven.length > 0
       ? `${b.unproven.join(" and ")} ${b.unproven.length === 1 ? "carries" : "carry"} no clicks of ${b.unproven.length === 1 ? "its" : "their"} own for that search on file, so no page here is proven to be the one to keep`
       : "no page here is far enough ahead on both clicks and position for the figures to pick one"}.`;
-  const owed = "The exact titles and opening lines that would tell these pages apart have not been drafted, so nothing here is an instruction yet.";
+  const owed = "Beacon is reading the competing pages before writing the distinct titles and opening lines, so nothing here is an instruction yet.";
   return {
     ...shell(b, OWNERSHIP_FAMILY, b.impactScore),
-    opportunityType: settled ? `Settle "${b.query}": the figures name ${settled} as the page to keep`
-      : `Find out which of your pages should own "${b.query}"`,
+    opportunityType: settled ? `Decide "${b.query}": your own figures show ${settled} as the page to keep`
+      : `Decide which of your pages should own "${b.query}"`,
     recommendedChange: { kind: "existing_edit", field: "section", before: null,
       after: `${num(named.length)} of your own pages come up for "${b.query}": ${list}. ${plan} ${owed}` },
-    whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so ownership is settled first and every other change on these pages waits behind it. ${plan}`,
+    whyItMatters: `${b.finding.explanation} Adding copy to one of them on its own leaves them competing, so which page owns which search is decided first and every other change on these pages waits behind it. ${plan}`,
     estimatedEffortMinutes: 0, confidence: "low",
-    research: { missing: owed, next: "The exact titles and opening lines land on this card once they are drafted." },
+    research: { missing: owed, next: "Beacon reads every named page whole, then writes the exact title and opening for each or records why it stays as it is. The finished set lands here as one change." },
     limitations: [RESEARCH_MARKER,
       "Which pages come up for that search is read off the last stored search data, so a page that stopped coming up since then is still counted here."],
     evidence: { query: b.query, hints: [b.finding.explanation, `Competing pages on file: ${list}`, plan, owed], evidenceRefCount: 4 },

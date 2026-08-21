@@ -194,25 +194,22 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     researchTotal: researching,
     ...(unread ? { countsUnavailable: true } : { measuringCount: measuring }),
   };
-  // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane whose
-  // words are written, checked and pasteable today. A card in review is not finished work and is never added into
-  // this number: it rides its own clause below, as a count, exactly as work still being developed does. Production
-  // held 3 ready and 1 in review and this sentence said "4 finished changes ready to make".
+  // ONE SENTENCE, AND EVERY CHANGE IT COUNTS IS FINISHED WORK: the READY lane alone, which is the only lane
+  // whose words are written, checked and pasteable today. THE OPENING IS NOT A STATUS ESSAY (operator,
+  // 2026-08-21): the draft and research counts left this sentence entirely, because Changes labels those
+  // lanes itself and Today opens on the one number that is work.
   const openTotal = readyTotal;
-  // THE SAME THREE NUMBERS CHANGES SHOWS, off the same release, so one navigation cannot show two answers.
-  const stillComing = (inReview > 0 ? ` ${inReview} ${inReview === 1 ? "draft is" : "drafts are"} waiting on your review in Changes.` : "")
-    + (researching > 0 ? ` ${researching} ${researching === 1 ? "opportunity is" : "opportunities are"} being researched, each one shown with what is missing.` : "");
   const headerSentence = openTotal > 0
-    ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.${stillComing}`
+    ? `You have ${openTotal} finished ${openTotal === 1 ? "change" : "changes"} ready to make, best first.`
     : waiting
-      ? `No finished change is ready today. Some of your pages could not be read, so they get another try on ${retryDay(waiting)}.${stillComing}`
+      ? `No finished change is ready today. Some of your pages could not be read, so they get another try on ${retryDay(waiting)}.`
       // A BAR THAT COULD NOT BE READ IS NOT A QUEUE THAT IS EMPTY. With the basis unreadable, every stored idea
       // is held back as unconfirmed rather than judged, so the queue reads zero for a reason that has nothing to
       // do with the operator's work, and "no edits waiting" is the one sentence that must not be said over it.
       // Changes already says exactly this on the same release; Today may not disagree with it.
       : view.basisUnreadable
         ? "Which of your saved ideas still hold could not be confirmed just now. Beacon is checking again automatically."
-        : `No finished change is ready today.${stillComing || " The next one is ranked here the moment Beacon has written the exact work."}`;
+        : "No finished change is ready today. The next one lands here the moment the exact work is written.";
   return { headerSentence, nextOpportunities: ready, ...(topEdit ? { topEdit } : {}), ...rest };
 }
 

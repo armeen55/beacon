@@ -38,6 +38,10 @@ type ReleaseDecayRow = {
   positionNow: number;
   positionPrior: number;
 };
+/** One search row the release carries for the Visibility drilldown: the grain Google reports. */
+type ReleaseQueryRow = { page: string; query: string; clicks: number; impressions: number; position: number };
+/** Bounded projections: enough for the whole Google tab, never the whole store. */
+const VISIBILITY_PAGE_CAP = 200, VISIBILITY_QUERIES_PER_PAGE = 5;
 
 /** One atomic customer-visible release. Engineering producers may update their
  * own caches independently, but Today and Changes only adopt a new release when
@@ -49,16 +53,12 @@ export type CustomerSurface = {
   tenantId: string;
   changes: ChangesView;
   today: TodayComposite;
-  /** The two open-lane counts as of this publish (lane-counts.ts arithmetic), so a Changes visit whose live
-   *  evidence read fails can show last-known counts with their age instead of a blank strip. Absent when the
-   *  publish-time decay read itself failed: a count nobody computed is not stamped. */
-  laneCounts?: { researching: number; watching: number };
-  /** THE DECAYING PAGES THIS RELEASE WAS PUBLISHED AGAINST. The publish already computed them, counted them
-   *  and threw them away, so every lane visit paid for the same split-window aggregate again to name pages
-   *  the release already knew. Carried here CAPPED AT THE WATCHED SET (the only rows a lane serves), so the
-   *  lanes read from the release and a live read becomes a refresh rather than the price of admission.
-   *  Absent when the publish-time read itself failed: rows nobody could compute are not stamped. */
-  laneDecay?: { windowNowEnd: string; rows: ReleaseDecayRow[] };
+  /** THE COMPACT SAVED VISIBILITY PROJECTION (Product Truth, operator 2026-08-21). The default Google tab
+   *  render reads THIS instead of re-running the split-window aggregates on the request path, which is what
+   *  kept timing out: page movement, average-position inputs and the strongest searches, bounded, published
+   *  when research or a rebuild already holds the reads warm. Absent when the publish-time read itself
+   *  failed: rows nobody could compute are not stamped, and the tab then falls back to one live read. */
+  visibility?: { google: { windowNowEnd: string; pages: ReleaseDecayRow[]; queries: ReleaseQueryRow[] } };
 };
 
 export async function readCustomerSurface(tenantId: string): Promise<CustomerSurface | null> {
@@ -205,30 +205,25 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       // A draft the store refused because that page already carries a change I am measuring. The
       // store has always answered this; carrying it here is what lets Today say so out loud.
       heldForMeasurement: produced?.heldForMeasurement, declineNotes });
-    // The open-lane counts this release can vouch for, off the SAME arithmetic the live strip uses. Fail-soft:
-    // a publish never aborts over a fallback count; a failed decay read stamps nothing, never stale-and-wrong.
-    const { isWatchedDecay } = await import("./changes/lane-counts");
-    const { loadGscDecaySignalsForTenant } = await import("@/domains/evidence");
-    const decayRows = await loadGscDecaySignalsForTenant(tenantId, new Date())
-      .then((m) => [...m.values()]).catch(() => null);
-    const setAsideRow = (changes.basisUnreadable ? 0 : changes.demotedStaleBasis ?? 0) > 0 ? 1 : 0;
-    const heldRow = (produced?.heldForMeasurement ?? 0) > 0 ? 1 : 0;
-    const watched = (decayRows ?? []).filter(isWatchedDecay);
-    const laneCounts = decayRows === null ? {} : { laneCounts: {
-      // THE RESEARCH LANE'S OWN COUNT, off the release being published, so the stale fallback names the same
-      // number the lane's own cards do rather than a second count of a different thing.
-      researching: changes.summary.research,
-      watching: watched.length + setAsideRow + heldRow,
-    } };
-    // The same rows the count was taken over, biggest fall first, carried instead of discarded.
-    const laneDecay = decayRows === null ? {} : { laneDecay: {
-      windowNowEnd: watched[0]?.windowNowEnd ?? "",
-      rows: [...watched]
-        .sort((a, b) => (b.clicksPrior - b.clicksNow) - (a.clicksPrior - a.clicksNow))
+    // THE COMPACT VISIBILITY PROJECTION, published while the reads are already warm here, so the Google tab
+    // costs one blob read at render time instead of the split-window aggregates that kept timing out.
+    // Fail-soft: a failed read stamps nothing, never stale-and-wrong, and the tab falls back to a live read.
+    const { loadGscDecaySignalsForTenant, loadGscPageSignalsForTenant } = await import("@/domains/evidence");
+    const [decayRows, pageSignals] = await Promise.all([
+      loadGscDecaySignalsForTenant(tenantId, new Date()).then((m) => [...m.values()]).catch(() => null),
+      loadGscPageSignalsForTenant(tenantId).catch(() => null),
+    ]);
+    const visibility = decayRows === null ? {} : { visibility: { google: {
+      windowNowEnd: decayRows[0]?.windowNowEnd ?? "",
+      pages: [...decayRows]
+        .sort((a, b) => b.clicksNow - a.clicksNow).slice(0, VISIBILITY_PAGE_CAP)
         .map((d): ReleaseDecayRow => ({ page: d.page, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior,
           impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior,
           positionNow: d.positionNow, positionPrior: d.positionPrior })),
-    } };
+      queries: [...(pageSignals ? [...pageSignals.entries()] : [])]
+        .flatMap(([page, sig]) => (sig.topQueries ?? []).slice(0, VISIBILITY_QUERIES_PER_PAGE)
+          .map((q): ReleaseQueryRow => ({ page, query: q.query, clicks: q.clicks, impressions: q.impressions, position: q.position }))),
+    } } };
     const surface: CustomerSurface = {
       schemaVersion: 2,
       releaseId,
@@ -236,8 +231,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       tenantId,
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
-      ...laneCounts,
-      ...laneDecay,
+      ...visibility,
     };
     // Publish the one shared release consumed by Today + Changes. THE TWO WRITES END TOGETHER OR NOT AT ALL:
     // if the blob does not land, the order stamped a moment ago is rolled back onto the release still serving,

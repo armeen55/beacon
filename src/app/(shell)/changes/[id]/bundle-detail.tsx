@@ -1,7 +1,6 @@
-/** bundle-detail - THE TWO-LAYER CHANGE DETAIL, lifted out of the route file so `/changes/[id]/page.tsx` is
- *  only the loader and its honest end states. Layer 1 decides (the recommendation, the exact edits with the
- *  press that takes them, why this is the smartest move, what was checked); layer 2 proves, behind one
- *  expander. Nothing here reads the database: the route hands it the row it already resolved. */
+/** bundle-detail - THE TWO-LAYER CHANGE DETAIL: layer 1 decides (the recommendation, the exact edits, why it
+ *  is the smartest move, what was checked); layer 2 proves, behind one expander. Nothing here reads the
+ *  database: the route hands it the row it already resolved. */
 import Link from "next/link";
 import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
@@ -64,8 +63,7 @@ function Bullets({ items }: { items: (string | undefined | null)[] }) {
   );
 }
 
-/** Slice 7: the two-layer bundle detail. Layer 1 decides, layer 2 proves.  Slice 8: the same two layers render a new-page bundle. Nothing forks: the
- *  page-does-not-exist truth is stated once and every component is a pure  insertion, so the before/after framing simply drops away. */
+/** Layer 1 decides, layer 2 proves; a new-page bundle rides the same two layers with insert-only pieces. */
 export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeProposal; bundle: ChangeBundle; recorded: Set<string> }) {
   const facts = new Map(bundle.receipt.items.map((i) => [i.key, i]));
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
@@ -108,9 +106,24 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
         {isNew ? (
           <p className="text-[13px] leading-relaxed text-muted-foreground">This page does not exist yet.</p>
         ) : null}
-        {bundle.components.map((c, i) => (
-          <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} />
-        ))}
+        {/* A LONG CORRECTION LIST IS WORKED IN BATCHES: groups of ten fold, first open, each correction with
+            its own copy control and identity. Every other bundle renders its pieces exactly as before. */}
+        {bundle.components.length > 10 && bundle.components.every((c) => c.kind === "factual_correction")
+          ? Array.from({ length: Math.ceil(bundle.components.length / 10) }, (_, b) => (
+            <details key={b} open={b === 0} className="rounded-2xl border border-border bg-surface-inset/40 p-2" data-correction-batch={b + 1}>
+              <summary className="cursor-pointer px-2 py-1 text-[13px] font-semibold text-foreground">
+                Batch {b + 1} of {Math.ceil(bundle.components.length / 10)}: corrections {b * 10 + 1} to {Math.min((b + 1) * 10, bundle.components.length)}
+              </summary>
+              <div className="mt-2 space-y-3">
+                {bundle.components.slice(b * 10, (b + 1) * 10).map((c, i) => (
+                  <ComponentCard key={i} component={c} cited={cited[b * 10 + i] ?? []} isNew={isNew} held={held != null} />
+                ))}
+              </div>
+            </details>
+          ))
+          : bundle.components.map((c, i) => (
+            <ComponentCard key={i} component={c} cited={cited[i] ?? []} isNew={isNew} held={held != null} />
+          ))}
       </section>
 
       {reasons.length > 0 || chips.length > 0 ? (
@@ -186,9 +199,8 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   );
 }
 
-/** What one ranking factor did to the order, IN WORDS AND NO SCORE. "(moved it up 1.2 of a possible 3)" is the
- *  ranker's own arithmetic showing through, and a number nobody can act on is not proof. How hard it pushed, out
- *  of how hard it could ever push, is the whole fact; a factor that changed nothing says so instead of a zero. */
+/** One ranking factor's effect IN WORDS AND NO SCORE: how hard it pushed, out of how hard it could ever
+ *  push; a factor that changed nothing says so instead of a zero. */
 function weightWord(contribution: number, max: number): string {
   const share = max > 0 ? Math.abs(contribution) / max : 0;
   if (Math.round(Math.abs(contribution) * 10) / 10 === 0) return "did not move this one either way";
@@ -196,16 +208,10 @@ function weightWord(contribution: number, max: number): string {
   return share >= 0.66 ? "a strong push" : share >= 0.33 ? "a fair push" : "a small push";
 }
 
-/** LAYER 2: THE INVESTIGATION. Everything above this decides; this proves. It is behind one
- * expander because an operator who trusts the recommendation should never have to scroll past the reasoning to reach the copy, and an operator who does not trust it must be able to see
- * every step without asking anyone.
- *
- * All four parts are computed by the cause ladder (decision/diagnosis) and were carried on the proposal with nothing rendering them: the named cause and its explanation, what else was on
- * the table and why each lost, what would prove the whole thing wrong, and every cause that was never weighed at all because its evidence is not on file. That last one is the honest one:
- * "not considered" is a finding, never a silence, and it is never dressed up as ruled out.
- *
- * The ranking receipt sits with them, so the operator can see which inputs put this change where it is, and how much each one could ever contribute.
- */
+/** LAYER 2: THE INVESTIGATION, behind one expander. All four parts come off the cause ladder: the named
+ * cause and its explanation, what else was weighed and why each lost, the falsifier, and what was never
+ * weighed because its evidence is not on file ("not considered" is a finding, never a silence). The ranking
+ * receipt sits with them, so the operator sees which inputs put this change where it is. */
 function Investigation({ proposal, seen }: { proposal: ChangeProposal; seen: Set<string> }) {
   const finding = proposal.causeFinding;
   const receipt = proposal.rankingReceipt;
@@ -286,8 +292,7 @@ function ComponentCard({
   /** TRUE while the whole change is held for review, which takes the Copy control with it. */
   held: boolean;
 }) {
-  // The producer already answered where this lands, what it achieves and why it works, and named the sources
-  // still owed before it goes out. All four were carried on the row and rendered nowhere, so the operator was handed copy with no place to put it and a source pack they could not see.
+  // Where it lands, what it achieves, why it works and the sources still owed all ride the row and render here.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
   const pack = component.sourcePack ?? null;
   // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
@@ -330,7 +335,10 @@ function ComponentCard({
       <div className="space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[12px] text-muted-foreground">Use this</p>
-          {!moves && !held && component.after.trim() ? <CopyButton text={component.after} label="Copy" /> : null}
+          {/* A SOURCED CORRECTION IS DETERMINISTIC BANK WORK: its exact replacement stays copyable while the
+              bundle waits on review. Copying is reading; the record still goes through the same doors. */}
+          {!moves && component.after.trim() && (!held || component.kind === "factual_correction")
+            ? <CopyButton text={component.after} label="Copy" /> : null}
         </div>
         <CopyBlock component={component} />
       </div>

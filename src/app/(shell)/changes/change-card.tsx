@@ -233,13 +233,24 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
               </ol>
             </div>
           ) : null
+        ) : parts > 1 ? (
+          /* A BUNDLE'S DELIVERABLE IS ITS PIECES, so the collapsed card never offers the umbrella sentence as
+             the thing to copy: forty sourced corrections copied as "Replace the statements listed below" is not
+             the work (Codex, 2026-08-21). Each piece carries its own exact wording on the change's own page. */
+          <p className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2 text-[13px] leading-relaxed text-foreground" data-bundle-pieces="true">
+            {parts.toLocaleString("en-US")} exact pieces inside, each with its own wording to copy. Open the change to work through them.
+          </p>
         ) : (
           <div className="space-y-1" data-before-after="true">
             {before ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground">
                 Now: <span className="line-through">{before}</span>
               </p>
-            ) : isNew ? null : (
+            ) : isNew ? null : field === "section" || field === "answer block" ? (
+              /* NEW COPY REPLACES NOTHING, and a replacement never reads as an absence: "there is no section on
+                 the page today" under a correction of existing statements was plainly false. */
+              <p className="text-[12px] italic text-muted-foreground">This adds new copy; nothing on the page is replaced.</p>
+            ) : (
               <p className="text-[12px] italic text-muted-foreground">There is no {field} on the page today.</p>
             )}
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">

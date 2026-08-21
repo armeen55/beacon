@@ -139,25 +139,25 @@ function resolveAttemptKey(tenantId: string, runId: string, cycleKey: string, ph
   return phaseIdempotencyKey(tenantId, runId, phase, { seed: cycleKey });
 }
 
-/** WHAT THE RUN DURABLY BECAME, read off the state that actually landed and never off "the function returned". `completed` = the completion landed on the row.
- *  `paused` = a pause landed on it. `lost_lease` = another instance owns the row, so nothing here may write to it or hand anything back. `failed` = execution
- *  threw, or the state I meant to persist did not. The visit door may ignore this; the daily dispatch counts its receipt off exactly this, which is what stops
- *  a paused or lease-lost account being reported as a finished day. */
+/** WHAT THE RUN DURABLY BECAME, read off the state that actually landed and never off "the function returned": completed and paused landed on the row, lost_lease means another instance owns it, failed means execution threw or the state did not persist. The daily dispatch counts its receipt off exactly this. */
 type DriveReceipt = "completed" | "paused" | "failed" | "lost_lease";
 
 /** Execute the claimed run from its current_phase to done, or pause durably. The DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase;
  *  if a renew / advance / finish reports our lease was lost, we abort immediately. */
 async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date, deadline: number, steps: ResearchCycleSteps, work: DueWork): Promise<DriveReceipt> {
   const tenantId = run.tenant_id;
-  /** A PAUSE IS ONLY A PAUSE ONCE IT LANDED: finishRun answers false when the lease was gone or no row matched, and a pause nobody recorded is a failure. */
+  /** EVERY TERMINAL PATH STAMPS THE MONEY. The funnel counter sees only search buys, so a pass whose money went on model calls stamped $0 forever: 20 of 22 real runs. The day ledger holds EVERY platform's spend, so the BIGGER of the funnel number and the ledger's movement across the run is stamped; a run crossing midnight keeps the funnel number. A PAUSED RUN STAMPS EXACTLY AS A COMPLETED ONE DOES (operator, 2026-08-21): the live run sat paused at $0.00 while the day's ledger held $0.90, because only completion ever wrote the accumulator. A pause is only a pause once it LANDED: finishRun answers false when the lease was gone, and a pause nobody recorded is a failure. */
+  const dayAtStart = new Date().toISOString().slice(0, 10), ledgerAtStart = await getTenantSpentTodayUsd(tenantId).catch(() => null);
+  const spentSoFar = async (funnel: number): Promise<number> => {
+    const end = new Date().toISOString().slice(0, 10) === dayAtStart ? await getTenantSpentTodayUsd(tenantId).catch(() => null) : null;
+    const delta = ledgerAtStart != null && end != null ? Math.max(0, Math.round((end - ledgerAtStart) * 1e6) / 1e6) : 0;
+    return Math.max(Number(funnel) || 0, delta); };
   const pause = async (errorInfo: ResearchRunError | null = null): Promise<DriveReceipt> =>
-    (await finishRun(tenantId, run.id, ownerToken, "paused", errorInfo)) ? "paused" : "failed";
-  /** THE CLOSE, AND THE MONEY WITH IT. The funnel counter sees only search buys, so a pass whose money went on model calls stamped $0 forever: 20 of 22 real runs. The day ledger holds EVERY platform's spend, so the run's cost is the ledger's movement across the run and the BIGGER of the two numbers is stamped; a run crossing midnight keeps the funnel number rather than inventing a delta. */
-  const dayAtStart = new Date().toISOString().slice(0, 10), ledgerAtStart = await getTenantSpentTodayUsd(tenantId).catch(() => null); const complete = async (p: ResearchRunProgress): Promise<DriveReceipt> => {
-    const end = new Date().toISOString().slice(0, 10) === dayAtStart ? await getTenantSpentTodayUsd(tenantId).catch(() => null) : null, delta = ledgerAtStart != null && end != null ? Math.max(0, Math.round((end - ledgerAtStart) * 1e6) / 1e6) : 0;
-    return (await finishRun(tenantId, run.id, ownerToken, "completed", null, Math.max(Number(p.funnel?.spendUsd) || 0, delta))) ? "completed" : "failed"; };
-  // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER. The run writes the numbers every surface then reads back from this row: today's checks, the plan's live
-  // and waiting topics, the date a wait ends. They come from the ONE due-work read this pass already made, so no two requests can compute them differently.
+    (await finishRun(tenantId, run.id, ownerToken, "paused", errorInfo, await spentSoFar(Number(progress.funnel?.spendUsd) || 0))) ? "paused" : "failed";
+  const complete = async (p: ResearchRunProgress): Promise<DriveReceipt> =>
+    (await finishRun(tenantId, run.id, ownerToken, "completed", null, await spentSoFar(Number(p.funnel?.spendUsd) || 0))) ? "completed" : "failed";
+  // PROGRESS IS PERSISTED, NOT ASSEMBLED PER RENDER: every count comes from the ONE due-work read this pass
+  // already made, so no two requests can compute them differently.
   let progress: ResearchRunProgress = { ...(run.progress ?? {}), state: { ...(run.progress?.state ?? {}),
     checksDone: work.checks.done, checksTotal: work.checks.total, checksAnswers: work.checks.answers,
     checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
