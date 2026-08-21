@@ -60,6 +60,12 @@ export type {
   ProducerOutcome,
 } from "./produce-proposals";
 export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposals";
+/** THE ONE PURE RESOLVER for where a search the assistants ran ends up. Decision persists its outcome and
+ *  Visibility renders the same one, so the queue and the screen can never disagree about a search. */
+export { resolveFanoutCase } from "./producers/ai-cases";
+/** THE FILED VERDICT on every search the assistants ran, one row per case identity. Decision is the only
+ *  writer; Visibility and Changes read it rather than each deriving their own answer from partial evidence. */
+export { dispositionOf, readAiCaseDispositions, type AiCaseDisposition, type AiCaseFile, type AiCaseState } from "./ai-case-store";
 export { receiptComposition } from "./contracts";
 // What the research is stuck on, from the ONE canonical coverage pass, so Runtime buys only what an open investigation cannot close without and acts on the SAME topic it paid for.
 export { researchNeeds, type ResearchNeed } from "./coverage-pass";

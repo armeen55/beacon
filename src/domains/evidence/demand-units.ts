@@ -314,21 +314,41 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
       audience: { impressions90d: 0, aiAnswers: obs.length, lostClicksPerMonth: 0 } });
   }
   // Fan-outs that recurred and joined nothing: distinct days, engines or parent prompts make the claim.
-  const fanRec = new Map<string, { query: string; days: Set<string>; engines: Set<string>; parents: Set<string> }>();
+  // A UNIT WITH NOTHING BEHIND IT CANNOT BE CONSUMED. These carried a label and an empty `prompts` list, and
+  // every consumer joins a unit by prompt identity, so the strongest recurring search in the account could sit
+  // in the canonical demand layer for ever without reaching a page, a verdict, a draft or a refusal (operator,
+  // 2026-08-19). The parent questions the search was issued from ride the unit now, with the answers behind
+  // each one, so the same join every other unit answers to works here too. Volume stays UNKNOWN, never zero.
+  const fanRec = new Map<string, { query: string; days: Set<string>; engines: Set<string>; executions: number;
+    parents: Map<string, { text: string; answers: number; credited: number }>;
+    rivals: Map<string, { url: string; count: number }> }>();
   for (const o of input.observations) for (const q of new Set((o.fanOutQueries ?? []).map((x) => x.trim()).filter(Boolean))) {
     const k = canon(q);
     if (!k || k === canon(o.promptText) || claimedKeys.has(k)) continue;
-    const held = fanRec.get(k) ?? { query: q, days: new Set<string>(), engines: new Set<string>(), parents: new Set<string>() };
+    const held = fanRec.get(k) ?? { query: q, days: new Set<string>(), engines: new Set<string>(), executions: 0, parents: new Map(), rivals: new Map() };
     if (o.day) held.days.add(o.day);
     if (o.engine) held.engines.add(o.engine);
-    held.parents.add(o.promptId);
+    held.executions += 1;
+    const parent = held.parents.get(o.promptId) ?? { text: o.promptText, answers: 0, credited: 0 };
+    parent.answers += 1; if (o.creditedOwn) parent.credited += 1;
+    held.parents.set(o.promptId, parent);
+    if (!o.creditedOwn) for (const c of new Map((o.citations ?? []).map((x) => [x.domain, x])).values()) {
+      const r = held.rivals.get(c.domain) ?? { url: c.url, count: 0 }; r.count += 1; held.rivals.set(c.domain, r); }
     fanRec.set(k, held);
   }
   for (const [, f] of fanRec) {
-    if (f.days.size < 3 && f.engines.size < 2 && f.parents.size < 2) continue; // one sighting is noise, watched and never work
-    aiSeeded.push({ label: f.query, vocabulary: [f.query], queries: [], pages: [], history: null, volume: null,
-      serp: null, prompts: [], fanouts: [f.query], winningPages: [], recoverableClicks: 0,
-      tensions: [], seededBy: "ai", audience: { impressions90d: 0, aiAnswers: 0, lostClicksPerMonth: 0 } });
+    // The SAME rule the one fan-out projection applies (evidence/ai-visibility/fanout-evidence): time, or
+    // breadth that already cost something. One sighting on two assistants in one day is a coincidence.
+    const recurred = f.days.size >= 3 || (f.days.size >= 2 && (f.engines.size >= 2 || f.parents.size >= 2));
+    if (!recurred) continue;
+    const rivals = [...f.rivals.entries()].map(([domain, r]) => ({ domain, url: r.url, count: r.count }))
+      .sort((a, b) => b.count - a.count || a.domain.localeCompare(b.domain)).slice(0, 5);
+    aiSeeded.push({ label: f.query, vocabulary: [f.query, ...[...f.parents.values()].map((p) => p.text)],
+      queries: [], pages: [], history: null, volume: null, serp: null,
+      prompts: [...f.parents.entries()].map(([promptId, p]) => ({ promptId, text: p.text, answers: p.answers, credited: p.credited, citedRivals: rivals })),
+      fanouts: [f.query], winningPages: input.winning.filter((w) => [...f.parents.keys()].some((id) => w.promptIds.includes(id))).map((w) => ({ url: w.url, domain: w.domain })),
+      recoverableClicks: 0, tensions: [], seededBy: "ai",
+      audience: { impressions90d: 0, aiAnswers: f.executions, lostClicksPerMonth: 0 } });
   }
   return [...searchSeeded, ...aiSeeded].sort((a, b) => b.audience.lostClicksPerMonth - a.audience.lostClicksPerMonth
     || b.audience.impressions90d - a.audience.impressions90d || b.audience.aiAnswers - a.audience.aiAnswers || a.label.localeCompare(b.label));

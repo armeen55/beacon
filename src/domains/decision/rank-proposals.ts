@@ -163,7 +163,11 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       const closeness = a.stage === "owned_retrieved_not_cited" ? 1 : a.stage === "owned_mentioned_not_cited" ? 0.85 : 0.7;
       const standing = a.stage === "owned_retrieved_not_cited" ? "while this page is already read and passed over"
         : a.stage === "owned_mentioned_not_cited" ? "while the brand is named in prose and never credited" : "and never this one";
-      return { input: `asked on ${num(days)} ${days === 1 ? "day" : "days"} across ${num(engines)} ${engines === 1 ? "assistant" : "assistants"}, ${num(a.answers)} stored answers hand this question to ${num(a.citedRivals)} rival ${a.citedRivals === 1 ? "site" : "sites"} ${standing}`,
+      // A CARD MADE FROM A SEARCH THE ASSISTANTS RAN IS NOT "A QUESTION" ON THIS RECEIPT. It came from the
+      // assistants' own follow-up searching behind several tracked questions, and calling that a question
+      // read as though somebody had approved watching it, which nobody did.
+      const asked = (p.aiScope?.fanoutKey ?? "").length > 0 ? "a search the assistants ran themselves" : "this question";
+      return { input: `asked on ${num(days)} ${days === 1 ? "day" : "days"} across ${num(engines)} ${engines === 1 ? "assistant" : "assistants"}, ${num(a.answers)} stored answers hand ${asked} to ${num(a.citedRivals)} rival ${a.citedRivals === 1 ? "site" : "sites"} ${standing}`,
         value: (MAX.visibility / 3) * spread * closeness * Math.min(1, a.answers / 5) };
     })() : null;
   const rode = ai && (!google || ai.value > google.value) ? ai : google;

@@ -290,8 +290,14 @@ export type ChangeProposal = {
     days?: number; engines?: number; prompts?: number; reportedAnswers?: number; retrievedNotCited?: number;
     stage?: "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "owned_mentioned_not_cited" | "citations_unreported"; };
   /** THE EXACT AI SCOPE a shipment must remeasure: prompt ids, engines and the fan-out cluster this change
-   *  targets, preserved through Mark implemented instead of flattened into ten strings. */
-  aiScope?: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string };
+   *  targets, preserved through Mark implemented instead of flattened into ten strings.
+   *  `caseKey` is the CANONICAL CASE IDENTITY ("fanout:<key>" or "prompt:<id>"): every surface joins a search
+   *  to its Change on this and never on wording that merely resembles it. `fanouts` carries every exact
+   *  variant. `observationIds` is durable membership: the answers this claim was actually minted from, so a
+   *  retired or reworded question cannot strand its own measurement. Added fields are optional so every row
+   *  already on file still decodes. */
+  aiScope?: { caseKey?: string; promptIds: string[]; promptVersions?: number[]; engines: string[];
+    models?: string[]; modes?: string[]; fanoutKey?: string; fanouts: string[]; observationIds?: string[]; stage: string };
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
   bundle?: ChangeBundle;
   /** The onboarding/research basis this proposal was generated under. A proposal whose basis is not the account's CURRENT basis is WITHHELD at load, never deleted. Absent on pre-basis rows, which read stale. */
@@ -413,7 +419,9 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
     days: z.number().optional(), engines: z.number().optional(), prompts: z.number().optional(),
     reportedAnswers: z.number().optional(), retrievedNotCited: z.number().optional(),
     stage: z.enum(["owned_retrieved_not_cited", "rivals_cited_own_not_retrieved", "owned_mentioned_not_cited", "citations_unreported"]).optional() }).optional(),
-  aiScope: z.object({ promptIds: z.array(z.string()), engines: z.array(z.string()), fanouts: z.array(z.string()), stage: z.string() }).optional(),
+  aiScope: z.object({ caseKey: z.string().optional(), promptIds: z.array(z.string()), promptVersions: z.array(z.number()).optional(),
+    engines: z.array(z.string()), models: z.array(z.string()).optional(), modes: z.array(z.string()).optional(),
+    fanoutKey: z.string().optional(), fanouts: z.array(z.string()), observationIds: z.array(z.string()).optional(), stage: z.string() }).optional(),
   bundle: ChangeBundleSchema.optional(),
   basis: z.string().optional(),
   researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit

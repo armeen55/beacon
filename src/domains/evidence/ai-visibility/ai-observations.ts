@@ -127,12 +127,19 @@ const ANALYSIS_KEYS = "mention:analysis->ownedBrandMention,rivals:analysis->comp
 const OUTCOME_COLUMNS = `id,tenant_id,prompt_id,prompt_version,engine,reporting_day,sample_slot,status,analysis_hash,answer_hash,requested_at,prompt_text,${ANALYSIS_KEYS}`;
 /** THE OVERVIEW PROJECTION: the outcome columns, the instrument each answer was served on, and the two journey lists a citation count is derived from. Never the answer text, never the whole verdict, never the whole journey; a full-row read of this window is what left the AI tab blank. */
 const OVERVIEW_COLUMNS = `${OUTCOME_COLUMNS},site,model_served,observation_mode,cited:journey->cited_sources,retrieved:journey->retrieved_results`;
+/** THE SCOPED PROJECTION: the overview columns plus the fan-outs, for the one read that has to answer "did
+ *  this answer run the search this change was aimed at". Without the journey a shipment could only join on a
+ *  wording that had since become a tracked question, which is a claim the read could not keep. NEVER folded
+ *  into OVERVIEW: the daily trend reads that one under a 12 second deadline and never reads a fan-out. */
+const SCOPED_COLUMNS = `${OVERVIEW_COLUMNS},fans:journey->fan_outs`;
 /** A narrow projection arrives FLAT. The two bodies are rebuilt here holding ONLY the keys that were asked for, and a body whose every asked key came back null is null: the row's own claim that nothing was reported, never an empty object standing in for one. The journey is rebuilt only when it was asked for, so an outcome read keeps saying "this path reports no journey" exactly as it did before. */
 function narrowRow(r: Record<string, unknown>, wantJourney: boolean): AiObservationRecord {
-  const { mention, rivals, rejected, outcome, readOutcome, verdictRules, cited, retrieved, ...rest } = r;
+  const { mention, rivals, rejected, outcome, readOutcome, verdictRules, cited, retrieved, fans, ...rest } = r;
   const analysis = { ownedBrandMention: mention ?? null, competitors: rivals ?? null, rejected, outcome, readOutcome, verdictRules };
+  // `fan_outs` is present ONLY where the projection asked for it. The overview read never does, so it keeps
+  // saying "this path reports no fan-out" exactly as before rather than claiming the answer ran none.
   return { ...rest, analysis: Object.values(analysis).every((v) => v == null) ? null : analysis,
-    ...(wantJourney ? { journey: { cited_sources: cited ?? null, retrieved_results: retrieved ?? null, fan_outs: null, brand_mentions: null, web_search_reported: null } } : {}) } as unknown as AiObservationRecord;
+    ...(wantJourney ? { journey: { cited_sources: cited ?? null, retrieved_results: retrieved ?? null, fan_outs: fans ?? null, brand_mentions: null, web_search_reported: null } } : {}) } as unknown as AiObservationRecord;
 }
 /** THE LIST PROJECTION for a surface paging a day's readings: everything EXCEPT the one genuinely heavy column. A screen of whole AI answers is the shape that has timed a statement out here before, so `answer_text` is read only by the drill-down below, which asks for one row by id. */
 const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_requested,model_served,observation_mode,reporting_day,sample_slot,requested_at,completed_at,cache_key,cost_usd,status,failure_reason,answer_hash,journey,analysis,analysis_hash";
@@ -140,7 +147,7 @@ const LIST_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,eng
 /** THE FAN-OUT PROJECTION: the identity plus ONLY the three journey lists the fan-out evidence reads. Never
  *  the answer text, never the analysis, so a 28-day window is a fraction of the full rows and one read powers
  *  the whole Query fan-outs view (see ai-visibility/fanout-evidence). */
-const FANOUT_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,reporting_day,sample_slot,status,requested_at,fans:journey->fan_outs,cited:journey->cited_sources,retrieved:journey->retrieved_results";
+const FANOUT_COLUMNS = "id,tenant_id,site,prompt_id,prompt_version,prompt_text,engine,model_served,observation_mode,reporting_day,sample_slot,status,requested_at,fans:journey->fan_outs,cited:journey->cited_sources,retrieved:journey->retrieved_results";
 
 /** THE LEANEST PROJECTION, for asking WHETHER the readings have moved rather than what they say: the identity, the day, whether an answer is in hand, and the two settlement stamps. Never the answer text, never the journey, never the analysis body, so fingerprinting a whole account costs a few bytes a row. */
 const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash";
@@ -161,7 +168,7 @@ const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requeste
 export async function readAiObservations(
   tenantId: string,
   opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
-    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" | "fanout" } = {},
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" | "fanout" | "scoped" } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -171,7 +178,7 @@ export async function readAiObservations(
   while (!exhausted && rows.length < want) {
     const size = Math.min(PAGE_ROWS, want - rows.length);
     let q = getSupabaseAdmin().from(AI_OBSERVATIONS_TABLE)
-      .select(opts.projection === "overview" ? OVERVIEW_COLUMNS : opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : opts.projection === "fanout" ? FANOUT_COLUMNS : "*")
+      .select(opts.projection === "overview" ? OVERVIEW_COLUMNS : opts.projection === "outcome" ? OUTCOME_COLUMNS : opts.projection === "list" ? LIST_COLUMNS : opts.projection === "stamp" ? STAMP_COLUMNS : opts.projection === "fanout" ? FANOUT_COLUMNS : opts.projection === "scoped" ? SCOPED_COLUMNS : "*")
       .eq("tenant_id", tenantId);
     if (opts.id) q = q.eq("id", opts.id);
     if (opts.day) q = q.eq("reporting_day", opts.day);
@@ -194,8 +201,8 @@ export async function readAiObservations(
     if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
     // On the lean projections the row genuinely has no answer_text and no whole journey; every caller that asks
     // for one reads only the columns it named, which is why it asked for them.
-    const narrow = opts.projection === "overview" || opts.projection === "outcome";
-    const page = (narrow ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => narrowRow(r, opts.projection === "overview"))
+    const narrow = opts.projection === "overview" || opts.projection === "outcome" || opts.projection === "scoped";
+    const page = (narrow ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => narrowRow(r, opts.projection === "overview" || opts.projection === "scoped"))
       : opts.projection === "fanout" ? ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
         const { fans, cited, retrieved, ...rest } = r; // the three aliased journey lists, rebuilt in place
         return { ...rest, journey: { fan_outs: fans ?? null, cited_sources: cited ?? null, retrieved_results: retrieved ?? null, brand_mentions: null, web_search_reported: null }, analysis: null, analysis_hash: null };

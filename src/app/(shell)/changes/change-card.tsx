@@ -131,12 +131,16 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, proven, review = false, onAside, onDone, onToast }: {
+export function ChangeCard({ proposal, rank, proven, review = false, caseLine = null, onAside, onDone, onToast }: {
   proposal: ChangeProposal; rank: number; proven: boolean;
   /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would
    *  record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander.
    *  A control is a claim that the work is finished, and this stage is the stage where it is not. */
   review?: boolean;
+  /** What Decision concluded about the search this change answers, in its own words, read off the ONE case
+   *  file Visibility reads. Null when the change answers no tracked search, or when that file could not be
+   *  read: neither of those is a verdict, and neither is printed as one. */
+  caseLine?: string | null;
   onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -307,6 +311,12 @@ export function ChangeCard({ proposal, rank, proven, review = false, onAside, on
               <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
                 {checks.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
+            ) : null}
+            {/* THE SEARCH THIS CHANGE ANSWERS, AND WHAT WAS DECIDED ABOUT IT, read off the ONE case file
+                Visibility reads. Two screens deriving that verdict separately is how one of them offered work
+                on a case the other had already refused. */}
+            {caseLine ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground" data-ai-case="true">{caseLine}</p>
             ) : null}
             {proposal.limitations.length > 0 ? (
               <div className="space-y-1">

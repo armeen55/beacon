@@ -57,7 +57,10 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { retu
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
-    impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: "2026-07-22T00:00:00.000Z", ...over };
+    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING. Two tests in this file read the queue through the
+    // production path, which ages a receiptless row against the REAL clock (EVIDENCE_VALID_DAYS), and a pinned
+    // absolute date armed itself as a date bomb: the suite went red on 2026-08-21 with no change anywhere.
+    impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: new Date(Date.now() - 5 * 86_400_000).toISOString(), ...over };
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
 describe("existing-page cold proposal", () => { it("generates, validates, persists (serialize), and re-loads (deserialize)", async () => {

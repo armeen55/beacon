@@ -9,7 +9,8 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
 import { countLedgerLifecycle } from "@/domains/decision";
@@ -31,6 +32,10 @@ export type ChangesView = {
   /** OPPORTUNITIES BEING RESEARCHED: ranked signals with nothing exact written yet, shown as cards and never
    *  as a bare count. Carried on the release itself (one screen of them), never paged in the database. */
   research: ChangeProposal[];
+  /** WHAT DECISION CONCLUDED about the searches these changes answer, read from the ONE case file Visibility
+   *  reads. Both surfaces show the same verdict because both read the same record; neither re-derives it.
+   *  `unavailable` is carried through as itself, so an unreadable file never reads as "nothing was decided". */
+  aiCases: AiCaseFile;
   /** New-page briefs, kept distinct from existing-page edits. */
   summary: ChangesSummary;
   /** Whole-tenant measuring count (proof ledger, the ONE-COUNT RULE). */
@@ -104,14 +109,14 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);
-  return { ...view, proposals: standing, ready, toDo, research,
+  return { ...view, proposals: standing, ready, toDo, research, aiCases: view.aiCases ?? { state: "unavailable" },
     summary: { ...view.summary, ready: ready.length, todo: toDo.length, research: research.length },
     demotedStaleBasis: setAside, basisUnreadable: currentBasis == null,
     readyZeroHint: ready.length === 0 ? setAsideHint(toDo.length + research.length) : view.readyZeroHint };
 }
 
 const EMPTY_CHANGES_VIEW: ChangesView = {
-  proposals: [], ready: [], toDo: [], research: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
+  proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "unavailable" }, measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
   summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: null, surfaceBuilding: true,
 };
@@ -226,11 +231,14 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   // ONE basis per release: the queue, the ranking stamp and every page cut from it answer to the same bar, so the list can never page a
   // ranking built against a bar it is no longer filtering on.
   const currentBasis = await resolveCurrentBasis(tenantId).catch(() => null);
-  const [queue, ledger] = await Promise.all([
+  const [queue, ledger, aiCases] = await Promise.all([
     loadProposalQueue(tenantId, { currentBasis }).catch(() => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0, basisUnreadable: true })),
     // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "0 measuring, 0 results" during an outage, which reads
     // as "nothing you shipped is being watched" and is a lie they cannot check.
     loadProofLedgerCached(tenantId).then((rows) => ({ rows, read: true })).catch(() => ({ rows: [] as Awaited<ReturnType<typeof loadProofLedgerCached>>, read: false })),
+    // THE ONE CASE FILE, read here exactly as Visibility reads it, so a change and the search it answers can
+    // never carry two different verdicts on two screens.
+    readAiCaseDispositions(tenantId),
   ]);
 
   const ledgerCounts = countLedgerLifecycle(ledger.rows);
@@ -278,6 +286,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
     toDo: queue.toDo.slice(0, CHANGES_PAGE_SIZE),
     // RESEARCH IS NEVER CUT TO ONE PAGE: it rides the release blob whole, already in hand, so a page-size cut here only ever dropped a reachless opportunity behind an honest count. The feed decides how many render open, never how many exist.
     research: queue.research,
+    aiCases,
     summary,
     basisUnreadable: queue.basisUnreadable,
     measuringCountCanonical: ledgerCounts.measuring,

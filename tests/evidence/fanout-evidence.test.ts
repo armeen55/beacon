@@ -14,14 +14,58 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     const [r] = buildFanoutEvidence(rows, SITE).rows;
     expect([r!.executions, r!.days, r!.engines, r!.parents.length, r!.material]).toEqual([5, 1, ["chatgpt"], 1, false]);
   });
-  it("earns materiality on three days OR two assistants OR two parent questions, exactly", () => {
+  it("earns materiality on time, or on breadth that already cost something, and says which", () => {
     const days = ["2026-08-01", "2026-08-02", "2026-08-03"].map((d, i) => obs({ observationId: `d${i}`, reportingDay: d }));
-    expect(buildFanoutEvidence(days, SITE).rows[0]!.material).toBe(true);
-    const engines = ["chatgpt", "gemini"].map((e, i) => obs({ observationId: `e${i}`, engine: e }));
-    expect(buildFanoutEvidence(engines, SITE).rows[0]!.material).toBe(true);
-    const parents = [obs({ observationId: "p1o" }), obs({ observationId: "p2o", promptId: "p2", promptText: "what goes on a haft seen table" })];
+    const overDays = buildFanoutEvidence(days, SITE).rows[0]!;
+    expect([overDays.material, overDays.materialBecause]).toEqual([true, "ran on 3 separate days"]);
+    const twoDaysTwoEngines = [obs({ observationId: "a", engine: "chatgpt" }), obs({ observationId: "b", engine: "gemini", reportingDay: "2026-08-02" })];
+    expect(buildFanoutEvidence(twoDaysTwoEngines, SITE).rows[0]!.material).toBe(true);
+    const parents = [obs({ observationId: "p1o" }), obs({ observationId: "p2o", reportingDay: "2026-08-02", promptId: "p2", promptText: "what goes on a haft seen table" })];
     expect(buildFanoutEvidence(parents, SITE).rows[0]!.material).toBe(true);
     expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.material).toBe(false); // one sighting is watched, never work
+  });
+  it("does not call one same-day sighting on two assistants material until it has already cost something", () => {
+    // THE COINCIDENCE. Two assistants ran the same search once, on one day, and nothing here was read for it.
+    const coincidence = ["chatgpt", "gemini"].map((e, i) => obs({ observationId: `e${i}`, engine: e }));
+    const bare = buildFanoutEvidence(coincidence, SITE).rows[0]!;
+    expect(bare.material).toBe(false);
+    expect(bare.materialBecause).toContain("not a pattern yet");
+    // THE SAME SHAPE WITH A CONSEQUENCE: a page of this account was read for it and credited to somebody else.
+    const costly = coincidence.map((o) => ({ ...o, retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }));
+    const withCost = buildFanoutEvidence(costly, SITE).rows[0]!;
+    expect(withCost.material).toBe(true);
+    expect(withCost.materialBecause).toContain("read for it and passed over");
+  });
+  it("keeps every exact wording that collapsed onto one search, most executed first", () => {
+    const rows = [obs({ observationId: "v1", fanOutQueries: ["haft seen set delivery"] }),
+      obs({ observationId: "v2", reportingDay: "2026-08-02", fanOutQueries: ["haft seen set delivery"] }),
+      obs({ observationId: "v3", reportingDay: "2026-08-03", fanOutQueries: ["Haft Seen set delivery?"] })];
+    const r = buildFanoutEvidence(rows, SITE).rows[0]!;
+    expect(r.variants.map((v) => [v.text, v.executions])).toEqual([["haft seen set delivery", 2], ["Haft Seen set delivery?", 1]]);
+    expect(r.query).toBe("haft seen set delivery"); // the wording shown is the one the assistants typed most
+  });
+  it("divides recurrence by its own parent questions' answers, never by the whole account", () => {
+    // One loud question answered four times, one quiet question answered once, and the search rides the quiet one.
+    const loud = Array.from({ length: 4 }, (_, i) => obs({ observationId: `l${i}`, reportingDay: `2026-08-0${i + 1}`, promptId: "loud", promptText: "loud question", fanOutQueries: ["something else entirely"] }));
+    const quiet = obs({ observationId: "q1", promptId: "quiet", promptText: "quiet question", fanOutQueries: ["haft seen set delivery"] });
+    const row = buildFanoutEvidence([...loud, quiet], SITE).rows.find((r) => r.key.includes("haft"))!;
+    expect([row.parentExecutions, row.parentShare]).toEqual([1, 1]); // every answer to ITS parent ran it
+    expect(row.windowShare).toBe(0.2); // one of the account's five reporting answers, and it is labelled as that
+  });
+  it("names the pages of this account the assistants read for a search, and says what it did not list", () => {
+    const rows = Array.from({ length: 3 }, (_, i) => obs({ observationId: `x${i}`, reportingDay: `2026-08-0${i + 1}`,
+      retrievedResults: [{ url: "https://own.example/haft-seen?ref=x", domain: "own.example" }],
+      citations: Array.from({ length: 7 }, (_, j) => ({ url: `https://rival${j}.example/a`, domain: `rival${j}.example` })) }));
+    const r = buildFanoutEvidence(rows, SITE).rows[0]!;
+    expect(r.ownPages).toEqual([{ url: "https://own.example/haft-seen", cited: 0, retrieved: 3, retrievedNotCited: 3 }]);
+    expect([r.rivalPages.length, r.rivalPagesTotal]).toEqual([5, 7]); // five shown, seven said out loud
+    expect(r.observationIdsTruncated).toBe(false);
+  });
+  it("never merges two models or two modes into one instrument", () => {
+    const rows = [obs({ observationId: "m1", modelServed: "gpt-5", observationMode: "web" }),
+      obs({ observationId: "m2", reportingDay: "2026-08-02", modelServed: "gpt-5.1", observationMode: "web" })];
+    const r = buildFanoutEvidence(rows, SITE).rows[0]!;
+    expect(r.models.map((m) => m.modelServed)).toEqual(["gpt-5", "gpt-5.1"]);
   });
   it("never lists the tracked question itself as a search the assistant thought of", () => {
     const echo = obs({ fanOutQueries: ["Where to buy a haft seen set?", "haft seen set delivery"] });

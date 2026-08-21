@@ -8,6 +8,7 @@ import { reportingDay } from "@/lib/reporting-day";
 import { requireReadyAccount, loadBusinessProfile } from "@/domains/account";
 import { loadDailyTotalsForTenant } from "@/domains/decision";
 import { visibilitySeries } from "@/domains/measurement";
+import { dispositionOf, loadChangeProposals, readAiCaseDispositions, resolveFanoutCase } from "@/domains/decision";
 import { researchPermission, researchRunStatus } from "@/domains/runtime";
 import { answerIntelOf, canonicalPairOf, canonicalQueryKey, citesOwnSite, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
   loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
@@ -16,6 +17,7 @@ import { answerIntelOf, canonicalPairOf, canonicalQueryKey, citesOwnSite, compet
 import { GoogleWorkspace } from "./google-view";
 import { AiWorkspace } from "./ai-view";
 import { aiView, answerDetail, googleView, type AnswerRow } from "./visibility-view";
+import { fanoutDetail } from "./fanout-detail";
 
 /**
  * Visibility - THE one surface that answers "where do I stand, and why", in Google and in AI answers.
@@ -138,6 +140,9 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const range = Number(one(params, "range")) === 28 ? 28 : 7;
   const sub = (["prompts", "citations", "searches", "pages"] as const).find((s) => s === one(params, "sub")) ?? "prompts";
   const engine = one(params, "engine"), prompt = one(params, "prompt"), openId = one(params, "reading");
+  // ONE SEARCH OPENED, by the canonical key the fan-out projection already counted it under. It costs NO
+  // extra read: the rows behind it are the same fan-out window this tab loads for the table above it.
+  const fanoutKey = one(params, "fanout");
   // A READ I COULD NOT MAKE COMES BACK NULL, NEVER EMPTY. Falling back to a bare empty list told an account
   // with seven hundred stored answers that I had never read one of them, and the view says so instead.
   const [segments, run, landscape, collecting] = await Promise.all([
@@ -152,12 +157,18 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const allDays = (segments ?? []).flatMap((s) => s.days), observedDays = allDays.filter((d) => d.observed > 0);
   const latestDay = observedDays[observedDays.length - 1]?.day ?? reportingDay(new Date());
   const leanFrom = allDays.slice(-Math.min(range * 2, TREND_DAYS))[0]?.day ?? latestDay;
+  // THE FAN-OUT WINDOW IS THE WINDOW THE SCREEN NAMES. The lean read above deliberately takes twice the range
+  // so a rate has something to compare against, and the fan-out table borrowed that same range while printing
+  // "over the last 7 days": at range 7 it counted 14 days of recurrence, which inflates the one number
+  // materiality is decided on. Exactly `range` days here, so the days behind a card and the days on the screen
+  // are the same days.
+  const fanoutFrom = allDays.slice(-Math.min(range, TREND_DAYS))[0]?.day ?? latestDay;
   const [dayRows, windowRows, fanoutRows, focusRows, opened] = await Promise.all([
     valueWithDeadline(readAiObservations(tenantId, { day: latestDay, limit: DAY_ROWS, projection: "list" }).catch(() => null), null as AiObservationRecord[] | null),
     valueWithDeadline(readAiObservations(tenantId, { fromDay: leanFrom, toDay: latestDay, slot: 0, projection: "outcome" }).catch(() => null), null as AiObservationRecord[] | null, 6000),
     // THE FAN-OUT WINDOW: the whole range, lean (three journey lists, no answer text, no verdicts), so the
     // Query fan-outs view aggregates the RANGE rather than presenting the latest day as a trend.
-    valueWithDeadline(readAiObservations(tenantId, { fromDay: leanFrom, toDay: latestDay, slot: 0, projection: "fanout" }).catch(() => null), null as AiObservationRecord[] | null, 6000),
+    valueWithDeadline(readAiObservations(tenantId, { fromDay: fanoutFrom, toDay: latestDay, slot: 0, projection: "fanout" }).catch(() => null), null as AiObservationRecord[] | null, 6000),
     prompt ? valueWithDeadline(readAiObservations(tenantId, { promptId: prompt, limit: 200, projection: "list" }).catch(() => []), [] as AiObservationRecord[]) : Promise.resolve([]),
     openId ? valueWithDeadline(readAiObservations(tenantId, { id: openId, limit: 1 }).catch(() => []), [] as AiObservationRecord[]) : Promise.resolve([]),
   ]);
@@ -169,13 +180,53 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const fanouts = fanoutObs ? buildFanoutEvidence(fanoutObs, site) : null;
   const ownedPageRollup = fanoutObs ? ownedPageAiRollup(fanoutObs, site) : null;
   const trackedKeys = fanoutObs ? [...new Set(fanoutObs.map((o) => canonicalQueryKey(o.promptText)).filter(Boolean))] : null;
+  // THE JOURNEY-BEARING WINDOW, flattened once. The outcome read beside it carries no journey at all, so the
+  // sources table and the share tile divide by these rows or they would report a credited account as crediting
+  // nobody. Same rows, same window, one flattening: the fan-out table and the sources table cannot disagree.
+  const sources = fanoutRows?.map(answerRow) ?? null;
   const view = aiView({
     segments, rangeDays: range, engine, sub, landscape, intel, day: observedDays.length > 0 ? latestDay : null,
     checks: { done: run?.counters.aiChecksDone, total: run?.counters.aiChecksIntended, answered: run?.counters.aiChecksAnswered,
       unavailable: run?.counters.aiChecksUnavailable, unsupported: run?.counters.aiChecksUnsupported },
     liveness: run?.liveness?.line ?? null, collecting,
-    dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null, fanouts, ownedPageRollup, trackedKeys,
+    dayRows: dayRows?.map(answerRow) ?? null, window: windowRows?.map(answerRow) ?? null, sources, fanouts, ownedPageRollup, trackedKeys,
     focus: prompt ? { promptId: prompt, rows: focusRows.map(answerRow) } : null,
+  });
+  // ── ONE SEARCH OPENED, off rows already in memory ────────────────────────────────────────────────
+  const openFanout = fanoutKey && fanouts ? fanouts.rows.find((r) => r.key === fanoutKey) ?? null : null;
+  // WHAT DECISION ALREADY DID ABOUT THIS SEARCH, read ONCE and only when one is open. A store that will not
+  // read leaves the evidence verdict standing rather than claiming nothing was ever decided.
+  const openProposals = openFanout == null ? [] : [...(await loadChangeProposals(tenantId).catch(() => new Map())).values()];
+  // WHAT DECISION CONCLUDED ABOUT THIS SEARCH, read rather than re-derived. This screen holds the evidence and
+  // none of the landing facts: which pages exist, which have been read, and whether any of their jobs fit. On
+  // evidence alone it called a search Decision had already refused for want of a page "actionable" and put an
+  // Open Changes button under it (reviewer, 2026-08-19). The pure resolver stays as the FALLBACK for a search
+  // no pass has reached yet, and it is labelled as the evidence view rather than a verdict.
+  const filed = openFanout == null ? { state: "read" as const, rows: [] } : await readAiCaseDispositions(tenantId);
+  const fanout = openFanout == null ? null : fanoutDetail({
+    row: openFanout,
+    // Every reading in the window whose own fan-outs collapse onto this key, by the SAME canonicalization the
+    // projection counted them under. Matching on the printed wording would drop the four other wordings the
+    // assistants actually typed, which is exactly what the key exists to hold together.
+    rows: (fanoutRows ?? []).filter((r) => (r.journey?.fan_outs ?? []).some((q) => canonicalQueryKey(q) === openFanout.key)).map(answerRow),
+    spanDays: Math.min(range, allDays.length || range),
+    // THE ONE RESOLVER THE QUEUE ITSELF READS (decision/producers/ai-cases). The screen and the card decide a
+    // search's fate in the SAME function, so they can never disagree about it, and where Decision has already
+    // acted the persisted Change is what is shown: the resolver says what the evidence supports, the store
+    // says what was done about it, and the two are joined on the canonical case identity rather than on
+    // wording that merely resembles it.
+    // ONE PLACE DECIDES WHAT A SEARCH SHOWS AS (decision/ai-case-store). The change on file wins, then the
+    // verdict Decision filed, then the evidence alone, which offers no action because nobody has stood behind
+    // one yet. Three ways a Change owns this search, all identity and none of them wording: it IS this case,
+    // it targets this cluster, or the cluster was folded into a card already standing on the same page.
+    disposition: (() => {
+      const evidence = resolveFanoutCase(openFanout);
+      const held = openProposals.find((pr) => pr.aiScope?.caseKey === evidence.caseKey
+        || (pr.aiScope?.fanoutKey ?? "") === openFanout.key
+        || (pr.aiScope?.fanouts ?? []).some((f: string) => canonicalQueryKey(f) === openFanout.key));
+      return dispositionOf(evidence, filed, held ? { id: held.id, researchOnly: held.researchOnly === true,
+        pagePath: held.pagePath ?? null, missing: held.research?.missing ?? null } : null);
+    })(),
   });
   // THE WHOLE OF ONE RUN, and what it cost or that I cannot prove it: the row's own preserved receipt wins,
   // and with none the exact stored receipt it names is asked. NEVER zero dollars for an answer that was paid for.
@@ -185,5 +236,5 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
   const reading = openId == null ? null
     : row == null ? ["That run could not be read back just now. Close this and open it again in a moment."]
       : answerDetail(answerRow(row), new Map((landscape ?? []).map((k) => [k.domain, k.kind])), cost);
-  return <AiWorkspace view={view} range={range} engine={engine} sub={sub} reading={reading} />;
+  return <AiWorkspace view={view} range={range} engine={engine} sub={sub} reading={reading} fanout={fanout} />;
 }

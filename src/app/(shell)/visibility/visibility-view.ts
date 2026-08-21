@@ -157,8 +157,8 @@ type AiInput = {
   collecting?: "paused" | "running" | "unreadable" | null;
   /** The newest day that holds readings and every reading on it: the searches the assistants ran and the pages they credited live only on this shape, so both subviews name that one day out loud. */
   day: string | null; dayRows: AnswerRow[] | null;
-  /** Every canonical reading over the window, lean (no answer text, no journey): what the question table counts, and what the window before it is compared against. */
-  window: AnswerRow[] | null;
+  /** Every canonical reading over the window, lean (no answer text, no journey): what the question table counts, and what the window before it is compared against. `sources` is that SAME window CARRYING THE JOURNEY, which the outcome projection behind `window` drops along with every citation on it, so counting sources there would report an account crediting a thousand pages as crediting nobody. It is the rows the fan-out table is built from, and the sources table and the share tile divide by them. */
+  window: AnswerRow[] | null; sources: AnswerRow[] | null;
   landscape: ClassifiedDomain[] | null; intel: AnswerIntel | null;
   /** THE one derived fan-out projection over the WHOLE range, built by the same pure function Decision reads,
    *  so the counts here and the counts behind a Change can never disagree. Null = the window read fell over. */
@@ -194,16 +194,17 @@ export function aiView(input: AiInput) {
   const [observed, analyzed, mentioning, citeSample, ownedCiting, opened, passedOver] = (["observed", "analyzed", "mentioning", "citationSample", "ownedCiting", "ownedRetrieved", "retrievedNotCited"] as const).map((k) => pool(now, k));
   const mentionRate = rate(mentioning, analyzed), priorMention = rate(pool(prior, "mentioning"), pool(prior, "analyzed")),
     citeRate = rate(ownedCiting, citeSample), priorCite = rate(pool(prior, "ownedCiting"), pool(prior, "citationSample"));
+  // SOURCES AND CITATIONS OBEY THE STRETCH THAT WAS CHOSEN. This counted the LAST DAY READ while every table beside it aggregated 28, so one quiet day could rewrite who the assistants credit and the range picker above it changed nothing at all (operator, 2026-08-19). The journey-bearing window rows, cut to the very days the headline numbers name.
+  const cut = now[0]?.day ?? "", dayLabel = monthDayLabel(input.day), sourceRows = (input.sources ?? []).filter((r) => r.day >= cut);
   // CITATION SHARE, ONE VOTE PER ANSWER: an answer that credits the same domain five times is still one answer saying that domain's name, so counting links would sell a chatty citation style as authority.
   const votes = new Map<string, { answers: number; prompts: Set<string>; engines: Set<string>; owned: boolean; pages: Map<string, number> }>();
-  for (const r of dayRows) for (const d of new Set((r.citations ?? []).map((c) => c.domain))) {
+  for (const r of sourceRows) for (const d of new Set((r.citations ?? []).map((c) => c.domain))) {
     const held = votes.get(d) ?? { answers: 0, prompts: new Set<string>(), engines: new Set<string>(), owned: (r.citations ?? []).some((c) => c.domain === d && c.owned), pages: new Map<string, number>() };
     held.answers += 1; held.prompts.add(r.promptText); held.engines.add(r.engine); votes.set(d, held);
     for (const c of (r.citations ?? []).filter((c) => c.domain === d)) held.pages.set(c.url, (held.pages.get(c.url) ?? 0) + 1);
   }
   const allVotes = [...votes.values()].reduce((a, v) => a + v.answers, 0);
   const myVotes = [...votes.entries()].filter(([, v]) => v.owned).reduce((a, [, v]) => a + v.answers, 0);
-  const cut = now[0]?.day ?? "", dayLabel = monthDayLabel(input.day);
   const placed = windowRows.filter((r) => r.day >= cut && r.position != null).map((r) => r.position!);
   const tiles: Tile[] = !trend ? [] : [
     { label: "Answers that name you", value: mentionRate == null ? "not checked yet" : pct(mentionRate),
@@ -211,7 +212,7 @@ export function aiView(input: AiInput) {
     { label: "Answers crediting a page of yours", value: citeRate == null ? "not reported" : pct(citeRate),
       basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used`, ...points(citeRate, priorCite) },
     { label: "Your share of everything credited", value: allVotes > 0 ? pct(myVotes / allVotes) : "not reported", delta: null, tone: "flat",
-      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer` : "no answer named the pages it used on the last day read" },
+      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site over the last ${num(span)} days, counting one vote per answer` : `no answer over the last ${num(span)} days named the pages it used` },
     { label: "Where you land in the answer", value: placed.length > 0 ? `${(placed.reduce((a, p) => a + p, 0) / placed.length).toFixed(1)}` : "not reported", delta: null, tone: "flat",
       basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that reported where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days reported where in it you sat` },
     { label: "Answers checked", value: observed > 0 ? pct(analyzed / observed) : "nothing yet",
@@ -301,14 +302,14 @@ export function aiView(input: AiInput) {
       ] };
     }),
   });
-  // ── every page and domain the answers credited, on the day I read last ──
+  // ── every page and domain the answers credited, over the same stretch every table here is counted on ──
   const citations = table({
     columns: [{ key: "domain", label: "Site the answers credited", wide: true }, { key: "kind", label: "What it is", wide: true },
       { key: "answers", label: "Answers crediting it", numeric: true }, { key: "questions", label: "Questions", numeric: true },
       { key: "share", label: "Share of everything credited", numeric: true }, { key: "engines", label: "Assistants", numeric: true },
       { key: "page", label: "Page it credited most", wide: true }],
-    empty: input.dayRows == null ? UNREAD : "Not one answer on the last day read reported which pages it used, so there is no claim that it credited nobody.",
-    note: votes.size === 0 ? null : `Every site the assistants credited${dayLabel ? ` on ${dayLabel}` : ""}, counting one vote per answer so a chatty answer cannot outvote the rest. ${num(allVotes)} votes across ${num(votes.size)} sites.`,
+    empty: input.sources == null ? UNREAD : `Not one answer over the last ${num(span)} days reported which pages it used, so there is no claim that it credited nobody.`,
+    note: votes.size === 0 ? null : `Every site the assistants credited over the last ${num(span)} days, counting one vote per answer so a chatty answer cannot outvote the rest. ${num(allVotes)} votes across ${num(votes.size)} sites.`,
     rows: [...votes.entries()].sort((a, b) => b[1].answers - a[1].answers).map(([domain, v]) => {
       const kind = input.landscape?.find((l) => l.domain === domain)?.kind ?? null;
       const page = [...v.pages.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
@@ -325,7 +326,8 @@ export function aiView(input: AiInput) {
   });
   // ── QUERY FAN-OUTS: the searches the assistants ran, over the WHOLE window. The latest day is a sample,
   // never a trend: recurrence is DISTINCT days, assistants and parent questions, counted by the same pure
-  // function Decision reads, so this table and the queue can never disagree (operator, 2026-08-19).
+  // function Decision reads, so this table and the queue can never disagree (operator, 2026-08-19). EVERY ROW OPENS
+  // and carries why it is material: it used to print a number and nothing anybody could click or argue with.
   const FANOUT_ROWS_SHOWN = 100;
   const fe = input.fanouts;
   const ownLabel = (r: { ownState: string; ownCitedAnswers: number; retrievedNotCitedAnswers: number; reportingAnswers: number }): string =>
@@ -340,8 +342,8 @@ export function aiView(input: AiInput) {
     empty: fe == null ? UNREAD : "None of the assistants reported what they searched for over this window, so whether they searched at all is unknown.",
     note: fe == null || fe.rows.length === 0 ? null
       : `The searches an AI assistant ran while answering your tracked questions, over the last ${num(span)} days (${num(fe.reportingAnswers)} of ${num(fe.answers)} readings reported them). ${fe.rows.length > FANOUT_ROWS_SHOWN ? `Showing the ${num(FANOUT_ROWS_SHOWN)} most recurring of ${num(fe.rows.length)} distinct searches; the rest are on file, not gone. ` : `All ${num(fe.rows.length)} distinct searches are shown. `}A tracked question is never listed here as a search the assistant thought of.`,
-    rows: (fe?.rows ?? []).slice(0, FANOUT_ROWS_SHOWN).map((r) => ({ id: r.key, cells: [
-      { text: r.query, sub: r.material ? undefined : "seen once; watched, not yet work" },
+    rows: (fe?.rows ?? []).slice(0, FANOUT_ROWS_SHOWN).map((r) => ({ id: r.key, href: `?view=ai&sub=searches&fanout=${encodeURIComponent(r.key)}`, cells: [
+      { text: r.query, sub: r.material ? r.materialBecause : "seen once; watched, not yet work" },
       { text: num(r.days), sort: r.days }, { text: num(r.executions), sort: r.executions },
       { text: r.engines.map(engineName).join(", "), sort: r.engines.length },
       { text: ownLabel(r), tone: r.ownState === "cited" ? "own" : undefined, sort: r.ownCitedAnswers },

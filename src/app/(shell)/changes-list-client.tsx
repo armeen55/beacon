@@ -33,6 +33,14 @@ const SORTS: [Sort, string][] = [["rank", "Rank"], ["gap", "Biggest gap"], ["qui
 const UNDO_MS = 10_000;
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
+  // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads. Matched on the
+  // canonical case identity the card carries, never on wording that merely resembles it, and an unreadable
+  // file says nothing at all rather than letting a card imply a verdict nobody reached.
+  const caseLineOf = (p: ChangeProposal): string | null => {
+    const key = p.aiScope?.caseKey;
+    if (!key || view.aiCases.state !== "read") return null;
+    return view.aiCases.rows.find((d) => d.caseKey === key)?.reason ?? null;
+  };
   const [sort, setSort] = useState<Sort>("rank");
   // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT: the server cuts one page per lane in the database and counts
   // the rest there too, so what is behind this screen is a fact rather than a length. The two lanes survive as
@@ -126,7 +134,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
 
       <ul className="list-none space-y-3">
         {rows.map((p, i) => (
-          <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={readyIds.has(p.id)} onAside={putAside}
+          <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={readyIds.has(p.id)} caseLine={caseLineOf(p)} onAside={putAside}
             onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
         ))}
       </ul>
@@ -147,7 +155,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           </div>
           <ul className="list-none space-y-3">
             {review.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={rows.length + i + 1} proven={false} review onAside={putAside}
+              <ChangeCard key={p.id} proposal={p} rank={rows.length + i + 1} proven={false} review caseLine={caseLineOf(p)} onAside={putAside}
                 onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>

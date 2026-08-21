@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Panel } from "./parts";
 import { DataTable } from "./table";
 import type { aiView } from "./visibility-view";
+import type { fanoutDetail } from "./fanout-detail";
 
 /**
  * The AI answers workspace: how often the assistants name you, who they name instead, what they credit and
@@ -47,16 +48,20 @@ function Ranked({ title, items, empty }: { title: string; items: Array<{ text: s
   );
 }
 
-export function AiWorkspace({ view, range, engine, sub, reading }: {
+export function AiWorkspace({ view, range, engine, sub, reading, fanout }: {
   view: ReturnType<typeof aiView>; range: number; engine: string | null; sub: string; reading: string[] | null;
+  fanout: ReturnType<typeof fanoutDetail> | null;
 }) {
   if (view.empty) return <Panel title="AI answers"><p className="text-[13px] leading-relaxed text-muted-foreground">{view.empty}</p></Panel>;
+  // THE THREE DRILL-DOWNS ARE NEVER CARRIED BY ACCIDENT. `prompt`, `reading` and `fanout` all stay out of the
+  // base, so any link that does not name one closes it: switching assistant or stretch while a search is open
+  // used to leave a key in the address bar pointing at a row that stretch no longer holds.
   const at = (over: Record<string, string>): string => {
     const p = new URLSearchParams({ view: "ai", range: String(range), sub, ...(engine ? { engine } : {}) });
     for (const [k, v] of Object.entries(over)) { if (v === "") p.delete(k); else p.set(k, v); }
     return `?${p.toString()}`;
   };
-  const d = view.detail;
+  const d = view.detail, f = fanout;
   return (
     <div className="space-y-4">
       <Panel title="Where AI answers have you" note={view.watermark} tiles={view.tiles} chart={view.chart}
@@ -108,6 +113,31 @@ export function AiWorkspace({ view, range, engine, sub, reading }: {
                 </div>
               </div>
             ) : null}
+          </div>
+        </Panel>
+      ) : f ? (
+        /* ONE SEARCH, ALL THE WAY DOWN: every wording it was typed with, the questions it came out of, every
+           answer that ran it, who took the credit, and the one thing to do about it. */
+        <Panel title="One search, and every answer that ran it" note={f.basis}
+          actions={<Link href={at({ fanout: "" })} className="text-[12px] font-semibold text-accent-primary underline underline-offset-2">Back to all searches</Link>}>
+          <p className="text-[15px] font-semibold leading-snug text-foreground">{f.query}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-foreground">{f.headline}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{f.standing}</p>
+          {f.added ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{f.added}</p> : null}
+          <div className="mt-3 space-y-4">
+            <div className="rounded-xl border border-accent-primary/40 bg-surface-inset/50 px-3 py-2.5">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">What to do about it</h3>
+              <p className="mt-1 text-[13px] leading-relaxed text-foreground">{f.disposition.line}</p>
+              {f.disposition.href ? <Link href={f.disposition.href} className="mt-1.5 inline-block text-[12px] font-semibold text-accent-primary underline underline-offset-2">{f.disposition.label}</Link> : null}
+            </div>
+            <Ranked title="Every wording it was searched with" items={f.wordings} empty="" />
+            <DataTable columns={f.parents.columns} rows={f.parents.rows} empty={f.parents.empty} note={f.parents.note} />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <DataTable columns={f.ownPages.columns} rows={f.ownPages.rows} empty={f.ownPages.empty} note={f.ownPages.note} />
+              <DataTable columns={f.rivals.columns} rows={f.rivals.rows} empty={f.rivals.empty} note={f.rivals.note} />
+            </div>
+            <p className="text-[12px] leading-relaxed text-muted-foreground">{f.caveat}</p>
+            <DataTable columns={f.executions.columns} rows={f.executions.rows} empty={f.executions.empty} note={f.executions.note} tall />
           </div>
         </Panel>
       ) : (

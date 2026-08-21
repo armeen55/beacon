@@ -94,7 +94,7 @@ const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
-  proposals: rows, ready: rows, toDo: [], research: [], summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
+  proposals: rows, ready: rows, toDo: [], research: [], aiCases: { state: "read" as const, rows: [] }, summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 

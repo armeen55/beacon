@@ -35,6 +35,7 @@ export type ProduceProposalsOptions = ProposeOptions & {
   /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number;
   /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[];
   /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean;
+  zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
 };
 /** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they are VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
@@ -105,7 +106,7 @@ async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings
 
 /** Produce (and by default persist) ranked ChangeProposals for one tenant from cached evidence only. Never throws on a single-source outage: a failed source simply narrows the snapshot. */
 export async function produceProposalsForTenant(tenantId: string, opts: ProduceProposalsOptions = {}): Promise<ProduceProposalsResult> {
-  const maxDrafts = opts.maxDrafts ?? DEFAULT_MAX_DRAFTS, persist = opts.persist ?? true;
+  const maxDrafts = opts.zeroSpend === true ? 0 : opts.maxDrafts ?? DEFAULT_MAX_DRAFTS, persist = opts.persist ?? true;
   const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
   // A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING IN IT: a GSC read that threw makes every page read clean, so the pass ENDS HERE rather than retiring the whole queue. Empty is not failed. AND THE SAME FOR THE PAGE READ: an account whose own pages could not be read presents as an account that owns NO PAGE AT ALL, which is the one condition that earns a brand new page, so a storage outage could talk this pass into building a page for a subject the operator already covers.
   const blind = snapshot.sources.find((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed");
@@ -115,7 +116,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const profile = await loadBusinessProfile(tenantId).catch(() => null), allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
   const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
   /** TWO HARD BUDGETS, BOTH BORN HERE, and every paid Decision call this pass can reach decrements one of them BEFORE the call, whether it succeeded, refused or threw. 1. `attempts` (MAX_PAID_CALLS): the reading of the winning pages, the new page brief, the shallow field drafts, every deep bundle piece (title, section, link, opening), the sibling pages a differentiation writes on, the descriptions and answers below, and every judging of any of them. 2. `pageReads` (MAX_NEW_READS_PER_PASS): the durable page readings the $0 producers buy to place their cards (producers/page-job). These are a DIFFERENT thing bought at a different rate and they are not folded into the attempt pool, where sixty of them would starve every drafter; they are named, counted and reported instead. "One pool pays every attempt" was untrue by the winning-pattern read, four bundle drafters and every page reading, so it is not said any more: two pools, both countable, both on the receipt. */
-  const attempts = { left: MAX_PAID_CALLS }, pageReads = { left: MAX_NEW_READS_PER_PASS };
+  const attempts = { left: maxDrafts === 0 && opts.zeroSpend === true ? 0 : MAX_PAID_CALLS }, pageReads = { left: opts.zeroSpend === true ? 0 : MAX_NEW_READS_PER_PASS };
   // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   const basis = await resolveCurrentBasis(tenantId, profile);
   // ONE CURVE FOR THE WHOLE PASS, fitted once and handed to every surface that measures a gap, so the diagnosis, the coverage walk, the bundle and the suggestions cannot judge one page by four bars.
@@ -503,7 +504,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, ...(unitLoad ? { preloaded: unitLoad } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
   // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
-  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, ...(unitLoad ? { units: unitLoad.units } : {}) }))
+  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, persist, ...(unitLoad ? { units: unitLoad.units } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the producers own the verdict, the coverage walk owns what happens next, and it happens only once the search has earned it. Read defensively, so a producer not surfacing them yet banks nothing. THEN THE WORDS GO ON THE CARDS, after the $0 producers and never inside one, so a budget block changes which cards CARRY COPY, never which exist or which are swept.
   const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
@@ -533,8 +534,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
   // EACH PRODUCER SWEEPS ITS OWN FAMILIES, and only the one that finished sweeps at all.
   extraHeld.push(...(extra.held ?? []));
-  // Per-family precision: a dead evidence source holds ITS families out of the sweep without freezing the rest.
-  await sweepStale([suggested, { families: (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES], complete: extra.complete },
+  // Per-family precision: a dead evidence source holds ITS families out of the sweep without freezing the
+  // rest. `extra.families` ALREADY lists only the families whose evidence answered in full, so the run is
+  // complete for exactly what it lists; gating it on extra.complete froze internal_link and the defect sweeps
+  // whenever the AI read failed, which punished finished work for a neighbour's outage.
+  await sweepStale([suggested, { families: (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES], complete: ((extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES]).length > 0 },
     { families: ["demand_recovery"], complete: recovery.complete },
     // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["factual_correction"], complete: factual.complete },

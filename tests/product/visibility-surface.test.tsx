@@ -14,9 +14,11 @@ vi.mock("@/domains/decision", () => ({ loadDailyTotalsForTenant: async () => [] 
 vi.mock("@/domains/runtime", () => ({ researchRunStatus: async () => null, researchPermission: async () => "running" }));
 vi.mock("@/domains/measurement", () => ({ visibilitySeries: async () => SEGMENTS }));
 import type { AiOutcomeReport } from "@/domains/measurement";
-import { buildFanoutEvidence, canonicalQueryKey } from "@/domains/evidence";
+import { buildFanoutEvidence, canonicalQueryKey, FANOUT_LINKAGE_CAVEAT } from "@/domains/evidence";
 import { aiView, answerDetail, googleView, type AnswerRow } from "@/app/(shell)/visibility/visibility-view";
+import { fanoutDetail } from "@/app/(shell)/visibility/fanout-detail";
 import VisibilityPage from "@/app/(shell)/visibility/page"; import type { ReactElement } from "react";
+import { AiWorkspace } from "@/app/(shell)/visibility/ai-view";
 
 type Day = AiOutcomeReport["segments"][number]["days"][number];
 const day = (d: string, r: number | null, over: Partial<Day> = {}): Day => ({ day: d, observed: 10, analyzed: 10, mentioning: Math.round((r ?? 0) * 10), mentionRate: r,
@@ -46,8 +48,16 @@ const OLDER: AnswerRow = { ...ROW, id: "obs_1", day: "2026-07-28", position: 9 }
 const FANOUT_OBS = [ROW, OLDER].map((r) => ({ observationId: r.id, promptId: r.promptId, promptText: r.promptText, engine: r.engine, reportingDay: r.day,
   fanOutQueries: r.fanOuts, citations: r.citations?.map((c) => ({ url: c.url, domain: c.domain })) ?? null,
   retrievedResults: (r.retrievedNotCited ?? []).map((u) => ({ url: u, domain: new URL(u).hostname })) }));
+/** `sources` is the journey-bearing window, the SAME rows the fan-out projection reads: the lean outcome rows
+ *  in `window` carry no citation at all, so the sources table and the share tile divide by these. */
 const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segments: SEGMENTS, rangeDays: 3, engine: null, sub: "prompts", landscape: LANDSCAPE, intel: null,
-  checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], focus: null, fanouts: buildFanoutEvidence(FANOUT_OBS, "own.example"), ownedPageRollup: null, trackedKeys: [canonicalQueryKey(ROW.promptText)], ...over });
+  checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], sources: [ROW, OLDER], focus: null, fanouts: buildFanoutEvidence(FANOUT_OBS, "own.example"), ownedPageRollup: null, trackedKeys: [canonicalQueryKey(ROW.promptText)], ...over });
+/** THE ONE FAN-OUT ROW every drill-down test opens, off the same shared projection Decision reads. */
+const FANOUT_KEY = canonicalQueryKey("haft seen set delivery");
+const fanoutRow = () => buildFanoutEvidence(FANOUT_OBS, "own.example").rows.find((r) => r.key === FANOUT_KEY)!;
+const DISPOSITION = { state: "actionable" as const, href: "/changes",
+  line: "Other sites are taking the credit on a search that ran on 2 separate days. Open Changes for the page to write." };
+const fanout = () => fanoutDetail({ row: fanoutRow(), rows: [ROW, OLDER], spanDays: 3, disposition: DISPOSITION });
 const decay = (page: string, now: number, prior: number, over = {}) => ({ page, clicksNow: now, clicksPrior: prior, positionNow: 12.4, positionPrior: 6.1,
   impressionsNow: 900, impressionsPrior: 1200, windowNowEnd: "2026-08-01", ...over });
 const DAYS = Array.from({ length: 28 }, (_, i) => ({ date: `2026-07-${String(i + 1).padStart(2, "0")}`, clicks: 10 + i, impressions: 400 + i * 10 }));
@@ -98,9 +108,13 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const v = ai();
     expect(v.tiles[0]!.basis).toBe("9 of the 20 answers finished checking over 3 days");
     expect(v.tiles[0]!.delta).toBe("+18.3 points"); expect(v.tiles[3]!.basis).toContain("across the 1 answers over 3 days that reported where you sat"); // both windowed, both naming the window
-    // 15 credited pages across 15 domains, ONE vote each: a chatty answer cannot outvote the rest of the day.
+    // 15 credited pages across 15 domains, ONE vote each: a chatty answer cannot outvote the rest of the window.
     // ONE VOTE PER ANSWER, and this answer credits standards.example on TWO pages: counting links would make it 16 votes and two crediting answers.
-    expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site on Aug 2, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
+    // AND THE VOTES OBEY THE CHOSEN STRETCH: the older reading sits outside the 3 days these numbers name, so it is excluded here exactly as it is excluded from every rate above.
+    expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site over the last 3 days, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
+    // AND THE TABLE SAYS THE SAME WINDOW THE TILE DOES. It named the last day read while every table beside it aggregated the stretch, so the range picker above it changed nothing at all.
+    expect(v.citations!.note).toBe("Every site the assistants credited over the last 3 days, counting one vote per answer so a chatty answer cannot outvote the rest. 15 votes across 15 sites.");
+    expect(v.citations!.note).not.toContain("Aug 2");
     expect(v.tiles[4]!.basis).toContain("Every rate above divides by what was checked, never by what was collected");
     const busy = ai({ segments: SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, ownedRetrieved: 4, retrievedNotCited: 3 })) })) }); // READ AND PASSED OVER, over a denominator that is never every answer
     expect([busy.retrieval!.value, busy.retrieval!.basis, ai().retrieval, v.byEngine!.rows[0]!.cells.map((c) => c.text)]).toEqual(["75%", "9 of the 12 answers that opened a page of yours over the last 3 days credited somebody else instead, or nobody at all", null, ["ChatGPT", "30%", "6", "30"]]);
@@ -108,10 +122,10 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
     expect(v.coverage).toContain("Aug 1 came back with nothing, and a missed day is never filled in.");
     // A READ THAT DID NOT LAND IS NOT AN ACCOUNT WITH NO ANSWERS: the live account had 697 stored answers and one slow read told it I had never read one. And ONE READ THAT DID NOT LAND NEVER BLANKS THE OTHER TWO: the trend going missing costs the rates and the line and nothing else.
-    expect(ai({ segments: null, dayRows: null, window: null }).empty).toContain("That could not be read back in time just now");
+    expect(ai({ segments: null, dayRows: null, window: null, sources: null }).empty).toContain("That could not be read back in time just now");
     const part = ai({ segments: null }); expect([part.empty, part.tiles.length, part.chart, part.byEngine, part.citations!.rows.length > 0, part.prompts!.rows.length > 0]).toEqual([null, 0, null, null, true, true]);
     expect(part.coverage).toContain("The daily trend could not be read back in time, so no rate, no chart and no period is claimed here.");
-    for (const said of [ai({ dayRows: null, window: null }).citations!.empty, ai({ dayRows: null, window: null }).prompts!.empty]) expect(said).toContain("That could not be read back in time just now");
+    for (const said of [ai({ sources: null }).citations!.empty, ai({ dayRows: null, window: null }).prompts!.empty]) expect(said).toContain("That could not be read back in time just now");
   });
   it("never lists a question of mine as a search an assistant thought of, and links every question to the runs behind it", () => {
     const v = ai();
@@ -133,6 +147,38 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const quiet = d.executions.rows.find((r) => r.id === "obs_8")!.cells.map((c) => c.text);
     expect(quiet).toEqual(["Aug 2", "Claude", "nothing came back", "not checked", "never reported", "never reported", "never reported"]);
     expect(d.rivals[0]).toEqual({ text: "Rival Bazaar", count: 2 });
+  });
+  // PIN: A RECURRING SEARCH IS NOT A DEAD END. The fan-out table printed a number and nothing anybody could
+  // click, so the evidence under a search four assistants ran on six days stayed unreadable and unarguable.
+  it("opens every search the assistants ran into the answers, questions and pages behind it", () => {
+    const v = ai();
+    const listed = v.searches!.rows.find((r) => r.id === FANOUT_KEY)!;
+    expect(listed.href).toBe(`?view=ai&sub=searches&fanout=${encodeURIComponent(FANOUT_KEY)}`);
+    const f = fanout();
+    // The tracked question it came out of, and one exact run of it, each opening the drill-down that already exists.
+    expect(f.parents.rows[0]!.href).toBe("?view=ai&prompt=p1");
+    expect(f.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7"); // newest first
+    expect(f.executions.rows[0]!.cells.map((c) => c.text)).toEqual(["Aug 2", "ChatGPT", "gpt-x", "asked directly", "where to buy a haft seen set", "credited a page of yours"]);
+    // THE HONEST LIMIT, word for word off the one string Decision quotes too: co-occurrence is never cause.
+    expect(f.caveat).toBe(FANOUT_LINKAGE_CAVEAT);
+    expect(f.caveat).toContain("No assistant reports which of its searches produced which citation");
+    // WHAT TO DO ABOUT IT is decided in the kernel and printed here, with somewhere to go.
+    expect([f.disposition.line, f.disposition.href]).toEqual([DISPOSITION.line, "/changes"]);
+    expect(f.query).toBe("haft seen set delivery");
+    expect(f.wordings.map((w) => `${w.text}, ${w.basis}`)).toEqual(["haft seen set delivery, run 2 times"]);
+    expect(f.headline).toBe("Ran 2 times over 2 days on 1 assistant, behind 1 tracked question: ChatGPT.");
+    expect(f.standing).toContain("A page here was credited on 2 of the 2 answers that said which pages they used.");
+    expect(f.ownPages.rows[0]!.cells.map((c) => c.text)).toEqual(["own.example/haft-seen", "2", "0", "0"]);
+    expect(f.rivals.rows[0]!.cells[2]!.text).toBe("2"); expect(f.rivals.note).toContain("credited most often are listed");
+    // A CUT LIST SAYS IT CUT: 61 runs print 60 and name the rest rather than quietly losing them.
+    const many = fanoutDetail({ row: fanoutRow(), spanDays: 3, disposition: DISPOSITION,
+      rows: Array.from({ length: 61 }, (_, i) => ({ ...ROW, id: `obs_r${i}` })) });
+    expect(many.executions.rows).toHaveLength(60);
+    expect(many.executions.note).toContain("Showing the 60 newest of 61 executions. The rest are on file, not gone.");
+    // AND IT REACHES THE PAGE: the panel renders, the caveat is printed word for word, and every run is a link.
+    const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={f} />);
+    for (const s of ["One search, and every answer that ran it", "Back to all searches", "What to do about it",
+      FANOUT_LINKAGE_CAVEAT, DISPOSITION.line, "prompt=p1&amp;reading=obs_7"]) expect(markup, s).toContain(s);
   });
   // PIN: ONE RUN OPENS INTO THE WHOLE OF ITSELF, cut nowhere, and what the provider never reported says so.
   it("opens one run into the whole of itself, and never prints an unreported silence as a factual none", () => {
@@ -170,10 +216,12 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(store.fetched).toHaveLength(0); // nothing on this path ever asks an assistant anything
   });
   it("keeps every line it says free of dashes, raw date stamps and lab words", () => {
-    const v = ai(), g = google();
+    const v = ai(), g = google(), f = fanout();
     const said = [...v.tiles.flatMap((t) => [t.label, t.value, t.basis]), v.coverage, v.watermark, ...v.boundaries, g.watermark, g.coverage,
       ...Object.values(v.retrieval ?? {}), ...answerDetail(ROW), // PIN: a stored instant, a mode key, a cache key and a model id all reach a customer through these lines, and every one of them was leaking raw
-      ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
+      f.query, f.headline, f.basis, f.standing, f.added ?? "", f.caveat, f.disposition.line, f.disposition.label,
+      ...f.wordings.flatMap((w) => [w.text, w.basis]),
+      ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries, f.parents, f.executions, f.ownPages, f.rivals].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
     for (const s of said) {
       expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/);
       expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);

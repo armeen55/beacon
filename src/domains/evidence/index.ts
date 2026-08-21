@@ -115,7 +115,7 @@ export type {
   DueObservation,
 } from "./ai-visibility/ai-observations";
 export { canonicalPairOf, isAnalysisSettled, observationReceiptCost, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
-export { buildFanoutEvidence, ownedPageAiRollup, FANOUT_MATERIAL, type FanoutEvidence, type FanoutRow, type OwnedPageAiRow } from "./ai-visibility/fanout-evidence";
+export { buildFanoutEvidence, ownedPageAiRollup, FANOUT_LINKAGE_CAVEAT, type FanoutEvidence, type FanoutRow, type FanoutSourceObservation, type OwnedPageAiRow } from "./ai-visibility/fanout-evidence";
 // What the engines' OWN answers said, projected off readings already settled (pure, no I/O).
 export type { AnswerIntel, AnswerSignal } from "./answer-intel";
 export { answerIntelOf } from "./answer-intel";

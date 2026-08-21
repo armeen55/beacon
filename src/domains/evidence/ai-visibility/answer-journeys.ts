@@ -16,7 +16,7 @@ import { citesOwnSite } from "./canonicalize-citation-url";
 
 type Link = { url: string; domain: string; title?: string | null };
 
-export type AnswerJourney = {
+type AnswerJourney = {
   promptId: string;
   promptVersion: number | null;
   engine: string;
@@ -56,7 +56,7 @@ const ANSWER_CAP = 4_000, PASSAGE_RADIUS = 260, JOURNEY_CAP = 40;
 
 /** The passage of `text` around the first occurrence of the rival's domain or bare name. Null = the answer
  *  never names it in prose (the citation rode a link list), which is itself a fact worth stating. */
-export function passageAround(text: string, rivalDomain: string): string | null {
+function passageAround(text: string, rivalDomain: string): string | null {
   const bare = rivalDomain.replace(/^www\./, "").replace(/\.(com|org|net|io|co|ir)$/i, "");
   const at = [rivalDomain, bare].map((n) => text.toLowerCase().indexOf(n.toLowerCase())).find((i) => i >= 0);
   if (at == null || at < 0) return null;

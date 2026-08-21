@@ -62,11 +62,27 @@ describe("AI can seed demand, and only exact identity ever joins it (AEO reconst
     const search = units.find((u) => u.label === "persian girl names")!;
     expect([search.prompts.length, search.seededBy]).toEqual([1, "both"]); // the assistant itself ran this exact search while answering
   });
-  it("seeds a unit from a fan-out that recurs across assistants with no Google rows at all", () => {
-    const units = canonicalDemandUnits({ ...base, observations: ["chatgpt", "gemini"].map((engine) => (
-      { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["haft seen table items list"], engine, day: "2026-08-02" })) });
-    const fan = units.find((u) => u.label === "haft seen table items list");
-    expect(fan).toBeDefined(); // two assistants ran the same search: recurring demand no Google row reports
+  it("seeds a unit from a fan-out that recurs across assistants and days with no Google rows at all", () => {
+    const runs = ["chatgpt", "gemini"].map((engine, i) => (
+      { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["haft seen table items list"], engine, day: `2026-08-0${i + 2}` }));
+    const fan = canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "haft seen table items list");
+    expect(fan).toBeDefined(); // two assistants across two days: recurring demand no Google row reports
     expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);
+  });
+  it("carries the parent questions the search was issued from, so the AEO path can join it at all", () => {
+    // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the
+    // strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
+    const runs = ["2026-08-01", "2026-08-02", "2026-08-03"].map((day) => (
+      { promptId: "p9", promptText: "Where do families buy a haft seen set?", creditedOwn: false,
+        citations: [{ domain: "rival.example", url: "https://rival.example/h" }], fanOutQueries: ["haft seen set delivery"], engine: "chatgpt", day }));
+    const fan = canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "haft seen set delivery")!;
+    expect(fan.prompts.map((p) => [p.promptId, p.answers, p.credited])).toEqual([["p9", 3, 0]]);
+    expect(fan.audience.aiAnswers).toBe(3); // the answers behind it, so the ranker is not weighing a bare label
+    expect(fan.prompts[0]!.citedRivals[0]!.domain).toBe("rival.example"); // who takes the credit instead
+  });
+  it("refuses to seed a unit from one same-day sighting on two assistants", () => {
+    const runs = ["chatgpt", "gemini"].map((engine) => (
+      { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["one off curiosity"], engine, day: "2026-08-02" }));
+    expect(canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "one off curiosity")).toBeUndefined();
   });
 });
