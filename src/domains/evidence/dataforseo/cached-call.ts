@@ -6,28 +6,16 @@ import { classifyPaidResponse, classifyTaskStatus } from "./status-contract";
 import type { CachedCallResult, FunnelBoundaryDeps, ProviderEnvelope } from "./funnel-boundary";
 
 /**
- * cached-call (Slice 6 / 6E) - the money-safe, single-flight, TENANT-INDEPENDENT DataForSEO
- * cache/transport body behind the frozen funnel-boundary contract. Miss order: cacheKey ->
- * configured? -> claim -> dry-run? -> breaker -> ATOMIC reservation -> pre-call receipt ->
- * network -> reconcile -> cache write. Reservation is the ONLY money path (reserve BEFORE,
- * adjust to actual AFTER; a failed adjust keeps the reservation: overcount, never undercount).
- * CAP HONESTY: the monthly cap is RESERVATION based, not a hard per-dollar ceiling.
- * reserve_provider_spend refuses any call whose ESTIMATE would cross the cap; reconciliation may
- * then move recorded spend UP to the provider's actual, so spend can overshoot by at most
- * (actual minus estimate) on the single last call through. Every registry estCostUsd is high.
- * DISPOSITIONS: every error carries a structured FailureDisposition; callers never parse detail
- * strings. ONE durable hold column (quarantined_at) carries BOTH kinds of no-auto-retry state,
- * told apart by error_detail:
- *   "uncertain:" - the provider may have charged for a call we cannot name, so the reservation is
- *     KEPT, indefinitely. A Standard row can still exit for free via the tasks_ready listing
- *     matched on tag = cacheKey; a Live row cannot.
- *   "blocked:" - the provider REFUSED and REPORTED zero cost (documented pre-execution HTTP
- *     401/402/404, or a terminal/unknown in-body code): refunded, then held so nothing automatic
- *     re-runs it. It never lists tasks_ready (no task exists), never decays into quarantined.
- * A DAILY-CEILING refusal (40203) is NEITHER: refunded and RELEASED, since a resetting limit must
- * never need an operator to clear it.
- * The guarantee is not "exactly once": Beacon never auto-retries a paid request after an ambiguous
- * outcome or a refusal.
+ * cached-call (Slice 6 / 6E) - the money-safe, single-flight, TENANT-INDEPENDENT DataForSEO cache/transport
+ * body. Miss order: cacheKey -> configured? -> claim -> dry-run? -> breaker -> ATOMIC reservation ->
+ * pre-call receipt -> network -> reconcile -> cache write. Reservation is the ONLY money path (reserve
+ * BEFORE, adjust AFTER; a failed adjust keeps the reservation: overcount, never undercount). The monthly cap
+ * is RESERVATION based: reconciliation may move spend UP to actual, overshooting by at most (actual minus
+ * estimate) on the last call through; every registry estCostUsd is high. Every error carries a structured
+ * FailureDisposition. ONE durable hold column (quarantined_at) carries both no-auto-retry states, told apart
+ * by error_detail: "uncertain:" = possibly charged, reservation KEPT (Standard rows can still exit free via
+ * tasks_ready on tag = cacheKey); "blocked:" = refused at zero cost, refunded then held. A daily-ceiling
+ * refusal (40203) is neither: refunded and RELEASED. Never "exactly once": no auto-retry after ambiguity.
  */
 
 const API_BASE = "https://api.dataforseo.com/v3";
@@ -55,6 +43,9 @@ export type ResolvedCall = {
   device: string | null; modelRequested: string | null;
   payload: unknown[]; ttlMs: number; estCostUsd: number; mode: "live" | "task"; tenantId: string;
   purpose: "fact_check" | "bulk"; // the daily gate holds the fact-check reserve against bulk buying
+  /** WHO ASKED AND WHY, stamped onto the receipt (Codex, 2026-08-21): a ledger row nobody can attribute is
+   *  spend nobody can audit. All optional so every caller keeps compiling; absent stays absent, never "". */
+  who?: { unitKey?: string; runId?: string; caseKey?: string; promptId?: string };
 };
 type EvidenceCacheClaim = { // ── seams ──────────────────────────────────────
   outcome: "ready" | "claimed" | "pending"; payload: unknown | null; providerTaskId: string | null;
@@ -210,7 +201,7 @@ export async function runResolvedCall(r: ResolvedCall, deps: FunnelBoundaryDeps 
     status: "ready", payload: live.payload as Record<string, unknown>, model_served: live.modelServed,
     cost_usd: actual, ready_at: readyAt, expires_at: new Date(now.getTime() + r.ttlMs).toISOString(),
     fetch_claimed_until: null, posted_attempt_at: null, content_hash: sha256(stableStringify(live.payload)).slice(0, 40),
-    provenance: { provider: "dataforseo", endpoint: r.endpoint, ts: readyAt },
+    provenance: { provider: "dataforseo", endpoint: r.endpoint, ts: readyAt, purpose: r.purpose, tenantId: r.tenantId, ...(r.who ?? {}) },
   });
   if (!saved) return holdUncertain(d, r.mode, cacheKey, now, "I paid for this answer but could not save it after three tries, so I paused it instead of buying it again.");
   return { state: "ok", envelope: (live.payload ?? {}) as ProviderEnvelope, costUsd: actual, cacheKey, modelServed: live.modelServed, modelRequested: r.modelRequested };

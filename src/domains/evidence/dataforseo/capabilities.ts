@@ -140,8 +140,11 @@ const REGISTRY: Registry = {
   // calls current and bought the identical numbers back four times a month.
   labs_keyword_overview: {
     ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.25, dims: { device: false, model: false },
+    // Normalized BEFORE the identity, like its siblings: two orderings or casings of one keyword batch used
+    // to derive two cache identities and BUY the same rows twice (Codex, 2026-08-21).
+    normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, 700) }),
     route: () => ({ mode: "live", postPath: "dataforseo_labs/google/keyword_overview/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ keywords: i.keywords, location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
+    build: (i) => [{ keywords: i.keywords.slice(0, 700), location_code: LOCATION_US, language_code: LANG_EN }], parse: parseKeywords,
   },
   // Reserved at 0.2 on the arithmetic above: 700 rows lands near $0.096 and the 1000-row ceiling near $0.132.
   labs_keyword_ideas: {
@@ -188,24 +191,6 @@ const REGISTRY: Registry = {
   },
   serp_organic: serpEntry("serp/google/organic", 0.0021, SERP_DEPTH),
   serp_ai_mode: serpEntry("serp/google/ai_mode", 0.01),
-  // ── AI OPTIMIZATION: the provider's own AI demand and AI mention record. BOTH ARE FIXTURE-PROVEN ONLY until the operator funds a live receipt: no producer buys them yet, the reservations below are deliberate ceilings, and the first live call must land under a named budget. AI search volume is ITS OWN UNIT, never added to or standing in for Google volume, and unknown stays unknown. (docs: ai_optimization keywords_search_volume/live + llm_mentions/search/live, verified 2026-08-19) ──
-  ai_keyword_volume: {
-    ttlMs: freshnessMsFor("keyword_volume"), estCostUsd: 0.1, dims: { device: false, model: false },
-    normalize: (i) => ({ keywords: [...new Set(i.keywords.map((k) => String(k ?? "").trim().toLowerCase()).filter(Boolean))].sort().slice(0, 1000) }),
-    route: () => ({ mode: "live", postPath: "ai_optimization/ai_keyword_data/keywords_search_volume/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ keywords: i.keywords.slice(0, 1000), location_code: LOCATION_US, language_code: LANG_EN }],
-    parse: (env) => resultBlock(env).items.map((it) => ({ keyword: String(it.keyword ?? ""), aiSearchVolume: num(it.ai_search_volume) })),
-  },
-  llm_mentions_search: {
-    ttlMs: 7 * DAY, estCostUsd: 0.2, dims: { device: false, model: false },
-    normalize: (i) => ({ target: i.target.map((t) => clean({ domain: t.domain ? String(t.domain).trim().toLowerCase() : undefined, keyword: t.keyword ? String(t.keyword).trim().toLowerCase() : undefined })).filter((t) => Object.keys(t).length > 0).slice(0, 10) as Array<{ domain?: string; keyword?: string }>, platform: i.platform ?? "google", limit: Math.min(Math.max(1, Math.trunc(i.limit ?? 100)), 1000) }),
-    route: () => ({ mode: "live", postPath: "ai_optimization/llm_mentions/search/live", getPath: null, tasksReady: null }),
-    build: (i) => [{ target: i.target.slice(0, 10), platform: i.platform ?? "google", location_code: LOCATION_US, language_code: LANG_EN, limit: Math.min(Math.max(1, Math.trunc(i.limit ?? 100)), 1000) }],
-    parse: (env) => resultBlock(env).items.map((it) => ({ platform: String(it.platform ?? ""), modelName: it.model_name == null ? null : String(it.model_name), question: String(it.question ?? ""), aiSearchVolume: num(it.ai_search_volume),
-      sources: (Array.isArray(it.sources) ? (it.sources as Record<string, unknown>[]) : []).map((c) => ({ url: String(c.url ?? ""), domain: String(c.domain ?? ""), title: c.title == null ? null : String(c.title) })).filter((c) => c.url.length > 0),
-      fanOutQueries: (Array.isArray(it.fan_out_queries) ? (it.fan_out_queries as unknown[]) : []).map((q) => String(q ?? "").trim()).filter(Boolean),
-      lastResponseAt: it.last_response_at == null ? null : String(it.last_response_at) })),
-  },
   llm_chatgpt: llmDynamicEntry("chatgpt", chatGptBuild),
   llm_gemini: llmDynamicEntry("gemini", geminiBuild),
   llm_claude: llmDynamicEntry("claude", claudeBuild),
@@ -226,7 +211,7 @@ const REGISTRY: Registry = {
 export const capabilityAskable = (capability: string): boolean => Object.hasOwn(REGISTRY, capability);
 // ── composed provider call (the ONE model-resolution point) ───────────────────
 export async function providerCall<K extends CapabilityKey>(
-  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
+  capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string; runId?: string; caseKey?: string; promptId?: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
   // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller reads as "not buying now", so a paused day leaves the work owed, never failed.
   if (await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
@@ -258,6 +243,7 @@ export async function providerCall<K extends CapabilityKey>(
     publicInput, locationCode: LOCATION_US, languageCode: LANG_EN, device, modelRequested: modelDim,
     payload, ttlMs: entry.ttlMs, estCostUsd: entry.estCostUsd, mode: route.mode, tenantId: ids.tenantId,
     purpose: ids.unitKey.startsWith("fact-check:") ? "fact_check" : "bulk", // the daily gate holds the fact-check reserve on it
+    who: { unitKey: ids.unitKey, ...(ids.runId ? { runId: ids.runId } : {}), ...(ids.caseKey ? { caseKey: ids.caseKey } : {}), ...(ids.promptId ? { promptId: ids.promptId } : {}) },
   };
   const result = await runResolvedCall(resolved, deps);
   // Stamp the requested model back so the executor records it without re-resolving.
