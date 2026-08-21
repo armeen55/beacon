@@ -66,7 +66,10 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       measurement: r.measurementState ?? null,
       implementedAt: r.implementedAt ?? null,
       verification: r.verification ?? null,
-      baseline: r.shipmentBaseline
+      // THE SEARCH HALF MAY BE ABSENT and the AI half present: a change on a page Google has nothing to say
+      // about yet still froze its own AI starting numbers. No search baseline is no search baseline, never a
+      // row of zeroes that reads as a page which earned nothing.
+      baseline: r.shipmentBaseline?.search
         ? {
           clicks: r.shipmentBaseline.search.clicks,
           impressions: r.shipmentBaseline.search.impressions,
@@ -77,7 +80,17 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       basisMove: basis ? { clicks: basis.treatedDelta, impressions: basis.treatedImpressionsDelta ?? 0 } : null,
       // Which pages stood behind this one, so the screen can name them rather than assert similarity.
       controlsReceipt: r.controlsReceipt ?? null,
-      ai: aiReads[i] ? { direction: aiReads[i]!.direction, line: aiReads[i]!.line } : null,
+      // THE OBJECTIVE'S OWN NUMBERS TRAVEL WITH THE SENTENCE. A change raised to earn a citation showed only
+      // the mention line, so a flat citation rate beside rising mentions read on screen as the change working.
+      // THE DECLARATION TRAVELS WITH THE ROW: Results groups on the yardstick the change was pressed under,
+      // so a citation change that won its citation is filed as a win rather than as traffic that did not move.
+      judgedMetric: r.judgedMetric ?? null,
+      // The days that have passed ride with it, because the group holds an AI direction as still reading until this change's own 28 days
+      // have run: an early lean is never banked as a win, on either side of the same row.
+      ai: aiReads[i]
+        ? { direction: aiReads[i]!.direction, line: aiReads[i]!.line, metricLines: aiReads[i]!.metricLines,
+          boundary: aiReads[i]!.boundary, daysElapsed: aiReads[i]!.coverage.daysElapsed }
+        : null,
     };
   });
 }

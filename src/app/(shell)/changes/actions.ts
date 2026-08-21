@@ -11,7 +11,7 @@ import { actionableProposalFailures, answerReviewedProposal, componentIdOf, conf
   loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
-import { captureChangeMeta, loadShippedChanges, recordShipment, type MeasurementState } from "@/domains/measurement";
+import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, type MeasurementState } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
@@ -104,9 +104,15 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // A new page answers a research case; an edit's subject is its own page.
       caseId: proposal.kind === "new_page" ? (proposal.id.split("::")[1]?.trim().toLowerCase() || null) : null,
       bundleHypothesis: proposal.bundle?.objective ?? proposal.whyItMatters,
-      // THE YARDSTICK IS DECLARED AT THE PRESS: a change minted off stored AI answers is judged on mentions,
-      // everything else on clicks, and Results reads the declaration instead of picking one later.
-      judgedMetric: proposal.aiImpact ? "ai_mentions" : "clicks",
+      // THE YARDSTICK IS DECLARED AT THE PRESS, AND IT IS THE CARD'S OWN. Every AI card used to be judged on
+      // mentions, so a change raised because rivals were cited and this site was never read was graded a win
+      // the moment it was named more often, which is the thing it was already doing. The stage the card was
+      // minted in names the metric; everything else is judged on clicks. Results reads the declaration.
+      // ONE SOURCE, because two can disagree: the metric came off `aiImpact` while the baseline is frozen over
+      // `aiScope`, so a card carrying one and not the other, or two different stages, shipped a change judged
+      // on one thing and measured on another (reviewer, 2026-08-19). `aiScope.stage` is the canonical one:
+      // it is the same scope the baseline and every later reading are taken over.
+      judgedMetric: proposal.aiScope ? objectiveOfStage(proposal.aiScope.stage) : "clicks",
       // THE TYPED AI SCOPE RIDES WHOLE: prompt ids, assistants and the fan-out cluster, exactly as the card
       // claimed them. Flattening these into the ten targetQueries strings was how a shipment lost which
       // assistants and which follow-up searches its own result must be read on.

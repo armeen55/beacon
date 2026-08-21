@@ -30,6 +30,7 @@ import { readLastFinalizedDate } from "./gsc-window";
 import { matchedControlsFor, recordShippedChange } from "./measure-pass";
 import type { ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
+import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { MeasurementState } from "./types";
 
 /** What one applied piece carries: its kind, its label, and the EXACT copy the live check compares
@@ -57,14 +58,16 @@ type ShipmentFacts = {
   bundleHypothesis: string;
   componentsApplied: ShipmentComponent[];
   /** The ONE metric this change was made to move. Recorded, never re-derived. */
-  judgedMetric?: string | null;
+  judgedMetric?: ShipmentObjective | null;
   /** THE STAMP: when the change actually went live. Defaults to now for a press made as it happens. */
   implementedAt?: string;
   preChangeContentHash?: string | null;
   operatorNote?: string | null;
-  /** THE EXACT AI SCOPE the proposal targeted: prompt ids, assistants and the fan-out cluster, typed, never
-   *  flattened into targetQueries. Results remeasures exactly this. */
-  aiScope?: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string } | null;
+  /** THE EXACT AI SCOPE the proposal targeted, typed, never flattened into targetQueries: the case identity
+   *  every surface joins on, the exact prompt ids and wordings, the assistants, the fan-out cluster and the
+   *  answers the claim was minted from. Results remeasures exactly this, and the baseline is frozen over it.
+   *  `models` and `modes` ride along RECORDED and never filter. */
+  aiScope?: ShippedChangeRecord["aiScope"];
   now?: Date;
 };
 

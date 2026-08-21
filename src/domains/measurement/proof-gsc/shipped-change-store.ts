@@ -1,14 +1,7 @@
 import "server-only";
-/** Shipped-change ledger store - the durable home of manually-shipped changes, and THE canonical Shipment:
- * the operator-confirmed implementation of one ChangeProposal and its verified live state. Every historical
- * record is preserved (extra legacy columns are read as-is, never dropped) and the file fallback keeps local
- * dev working. Every Shipment column is nullable, so a pre-Shipment row decodes exactly as before.
- *
- * WRITTEN ONCE: `implementedAt` (the stamp the window is read from), `shipmentBaseline` (where the page stood
- * at mark time) and `pinnedRead` (the finished reading). A later writer arriving with different values keeps
- * what is on file and says so. `verification` is null until the live check runs, and null IS the due marker;
- * one exception: a site that did not answer at all carries a marker good for one retry.
- */
+/** Shipped-change ledger store - THE canonical Shipment: the operator-confirmed implementation of one
+ * ChangeProposal and its verified live state. History preserved; every Shipment column nullable. WRITTEN
+ * ONCE: implementedAt, shipmentBaseline, pinnedRead; verification null until the live check, null IS due. */
 
 import { cache } from "react";
 import { existsSync, readFileSync } from "node:fs";
@@ -19,14 +12,15 @@ import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { log } from "@/lib/logger";
 import { getDataDir } from "@/lib/tenant";
 import { getTenant } from "@/domains/account/tenants/store";
+import type { ShipmentObjective } from "../shipment-ai-outcome";
 import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult } from "./types";
 import type { PinnedRead } from "./pinned-read";
 import type { ControlReceipt } from "./contamination";
 
 const TABLE = "shipped_change_proof", STORE = "proof-gsc-ledger";
-/** What the live check found. FROZEN SHAPE, written only through `recordVerification`. `components` names
- *  each piece and whether it is on the page, so a partly-applied bundle reads as partly applied rather than
- *  as a pass or a failure. `operator_confirmed` is OUT of the vocabulary: it let a click stand in for a  reading, and it survives here only so the rows already carrying it decode. */
+/** What the live check found. FROZEN SHAPE, written only through `recordVerification`; `components` names
+ *  each piece so a partly-applied bundle reads as partly applied. `operator_confirmed` survives only so
+ *  rows already carrying it decode: a click never stands in for a reading. */
 export type ShipmentVerification = {
   status: "verified" | "partially_verified" | "not_found" | "blocked" | "differs" | "operator_confirmed";
   checkedAt: string;
@@ -37,10 +31,18 @@ export type ShipmentVerification = {
 };
 /** The immutable numbers this page stood at when the operator marked the change done. */
 type ShipmentBaseline = {
-  search: ProofBaseline;
-  /** The latest day's first AI reading per tracked question. Null = none on file. `analyzed` (the answers
-   *  read closely enough to say whether this account was named) IS the denominator the rate is computed on. */
-  ai: { day: string; checked: number; analyzed?: number; mentioning: number } | null;
+  /** NULL WHERE GOOGLE HAD NOTHING TO SAY YET. The halves freeze independently: holding the AI half hostage
+   *  to this one threw away the baseline of exactly the page an AEO change exists for. */
+  search: ProofBaseline | null;
+  /** The latest day's first AI reading. Null = none on file (Results says unmeasurable, never rebuilds a
+   *  before side). `analyzed` IS the denominator; the rest is optional so pre-existing rows decode. */
+  ai: {
+    day: string; checked: number; analyzed?: number; mentioning: number;
+    citationSample?: number; ownedCiting?: number; rankSum?: number; rankCount?: number;
+    retrievalSample?: number; ownedRetrieved?: number; retrievedNotCited?: number;
+    engines?: string[]; models?: string[]; modes?: string[];
+    scopeFingerprint?: string; objective?: ShipmentObjective;
+  } | null;
   capturedAt: string;
 };
 
@@ -81,10 +83,7 @@ export type ShippedChangeRecord = {
   caseId: string | null;
   /** What applying the bundle was meant to achieve, in one sentence. */
   bundleHypothesis: string | null;
-  /** Which components the operator says they applied, each with the EXACT copy it was handed (`after`, what
-   *  the live check compares the page against), the RISK it was graded at (a dangerous component earns the
-   *  fourth checkpoint whatever its kind), the new wording of a renamed link (`anchorAfter`) and the exact
-   *  address a forward must land on (`redirectTo`). A subset of the components = a partial bundle. */
+  /** The applied components, each with the EXACT copy the live check compares against, its graded risk, a renamed link's `anchorAfter` and a forward's `redirectTo`. Subset = partial bundle. */
   componentsApplied: Array<{ id?: string | null; kind: string; label: string; after?: string | null; risk?: string | null; anchorAfter?: string | null; redirectTo?: string | null }> | null;
   /** THE STAMP. When the operator marked it done; the window is read from it. Write-once. */
   implementedAt: string | null;
@@ -100,12 +99,16 @@ export type ShippedChangeRecord = {
   verification: ShipmentVerification | null;
   /** WHAT THE OPERATOR SAYS THEY ACTUALLY DID, in their own words, when the page was changed differently from the copy handed over. A NOTE beside the reading, never an override: it changes nothing about it. */
   operatorNote: string | null;
-  /** THE EXACT AI SCOPE this change targets, preserved typed from the proposal: prompt ids, assistants and
-   *  the fan-out cluster, never flattened into the ten targetQueries strings. Null on pre-AEO rows and on
-   *  changes with no AI claim. Results remeasures exactly this. */
-  aiScope: { promptIds: string[]; engines: string[]; fanouts: string[]; stage: string } | null;
-  /** WHAT THIS SHIPMENT IS JUDGED ON, declared at record time and never re-derived: the one metric the change was made to move ("clicks", "ai_mentions") and the primary window it is read over. Both sat as NULL columns for months, leaving Results free to judge on whatever it read first. Null only predates the write. */
-  judgedMetric: string | null; primaryWindowDays: number | null;
+  /** THE EXACT AI SCOPE this change targets, typed, never flattened; Results remeasures exactly this.
+   *  `caseKey` is the canonical case identity; `models`/`modes` the instrument (RECORDED, never a filter);
+   *  `fanoutKey` the cluster identity; `observationIds` durable membership. All optional: jsonb decodes. */
+  aiScope: {
+    caseKey?: string; promptIds: string[]; promptVersions?: number[]; engines: string[];
+    models?: string[]; modes?: string[]; fanoutKey?: string; fanouts: string[];
+    observationIds?: string[]; stage: string;
+  } | null;
+  /** WHAT THIS SHIPMENT IS JUDGED ON, declared at record time and never re-derived: the one metric the change was made to move and the primary window it is read over. Both sat as NULL columns for months, leaving Results free to judge on whatever it read first, and the AI half was hard-coded to mentions, so a change raised to earn a CITATION was graded a win the moment it was named more often. Null only predates the write. */
+  judgedMetric: ShipmentObjective | null; primaryWindowDays: number | null;
   /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
    *  so the background re-measure every fifteen minutes can no longer move a number the operator was already
    *  shown. Null while the reading can still legitimately change (see pinned-read.ts). */
@@ -165,6 +168,9 @@ const isMissingColumnError = (error: unknown): boolean => {
 const VALID_VERDICTS: ReadonlySet<string> = new Set(["measuring", "won", "lost", "inconclusive", "insufficient_data"]);
 const VALID_CONFIDENCES: ReadonlySet<string> = new Set(["high", "medium", "low"]);
 const VALID_MEASUREMENT_STATES: ReadonlySet<string> = new Set(["measuring", "measurement_unavailable", "insufficient_comparison", "verification_needed"]);
+/** The closed set of yardsticks a Shipment may be judged on; a stored value outside it reads as no
+ *  declaration at all rather than travelling as a metric nothing downstream can read. */
+const VALID_OBJECTIVES: ReadonlySet<string> = new Set(["ai_retrieval", "ai_citation_conversion", "ai_citation", "ai_mentions", "clicks"]);
 /** THE TWO COLUMNS ADDED AFTER THE FACT: a deploy that beats its migration still writes the Shipment. */
 const LATE_COLUMNS = ["pre_change_hash_unavailable", "measurement_state", "controls_receipt", "ai_scope"] as const;
 const ZERO_BASELINE: ProofBaseline = { clicks: 0, impressions: 0, ctr: 0, position: 0, windowDays: 28 };
@@ -198,7 +204,8 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     liveSourceUrl: row.live_source_url ?? null, recrawlRequestedAt: row.recrawl_requested_at ?? null,
     operatorVerdictOverride: row.operator_verdict_override === "inconclusive" ? "inconclusive" : null,
     // A row written before Phase 6 has none of these and reads as a manual record with no proposal behind it, rather than failing to decode at all.
-    judgedMetric: row.judged_metric ?? null, primaryWindowDays: row.primary_window_days ?? null, proposalId: row.proposal_id ?? null, proposalVersion: row.proposal_version ?? null,
+    judgedMetric: VALID_OBJECTIVES.has(row.judged_metric ?? "") ? (row.judged_metric as ShipmentObjective) : null,
+    primaryWindowDays: row.primary_window_days ?? null, proposalId: row.proposal_id ?? null, proposalVersion: row.proposal_version ?? null,
     basis: row.basis ?? null, caseId: row.case_id ?? null,
     bundleHypothesis: row.bundle_hypothesis ?? null, componentsApplied: row.components_applied ?? null,
     implementedAt: row.implemented_at ?? null, preChangeContentHash: row.pre_change_content_hash ?? null,
@@ -280,9 +287,8 @@ async function queryTenantLedger(
   if (error != null) {
     // A TABLE THAT IS NOT THERE YET IS A VALID EMPTY: the pre-migration deploy window reads the file mirror, exactly as it always has.
     if (isUndefinedTableError(error)) return sortNewest(await fallback());
-    // ANY OTHER ERROR IS AN OUTAGE, AND AN OUTAGE IS NOT AN EMPTY LEDGER. This returned [], so a revoked permission or a dead connection
-    // reached /results as "No changes are being measured yet", printed over a full ledger. It THROWS now; every caller that would rather
-    // degrade already catches, and the one caller that must tell the truth (results-ledger-data) does not.
+    // ANY OTHER ERROR IS AN OUTAGE, AND AN OUTAGE IS NOT AN EMPTY LEDGER: it THROWS; callers that would
+    // rather degrade already catch, and the one that must tell the truth (results-ledger-data) does not.
     throw new Error(`[shipped-change-store] ledger read failed for ${tid}: ${error.message ?? String(error)}`);
   }
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
@@ -401,9 +407,8 @@ export async function recordVerification(
     return false;
   }
 }
-/** THE SECOND SEAM, same shape as the verification one: ONE column on ONE Shipment, and ONLY while that
- *  column is still empty. A frozen reading is written once and never rewritten; a later recompute that
- *  disagrees is recorded BESIDE it (pinned-read withCorrection), never over it. False = nothing landed. */
+/** THE SECOND SEAM: ONE column on ONE Shipment, ONLY while empty. A frozen reading is never rewritten; a
+ *  later recompute that disagrees lands BESIDE it (withCorrection), never over it. False = nothing landed. */
 /** Replace an ALREADY-HELD reading with the same reading carrying one more audited correction. The  write is guarded to rows that hold a pin, so it can never race the first freeze. */
 export async function recordPinnedReadCorrection(tenantId: string, shipmentId: string, pinned: PinnedRead): Promise<boolean> {
   if (!tenantId || !shipmentId) return false;
@@ -455,11 +460,8 @@ async function recordVerificationInFile(shipmentId: string, verification: Shipme
 }
 
 /** The measurement window a shipped change owns, read from the stamp. */ const MEASUREMENT_WINDOW_DAYS = 28;
-/** The pages this account changed in the last 28 days and is still measuring: a fresh proposal for one of them
- * is work already in flight, not a new idea. Read from `implementedAt`, which is what the stamp exists for.
- * ONLY A RESOLVED ANSWER FREES THE PAGE. `not_found` is one: the live page was read and none of the change is
- * on it. `blocked` is NOT: the page could not be read at all, so it holds the page as an in-flight check does.
- */
+/** The pages still measuring a change from the last 28 days, read from `implementedAt`. ONLY A RESOLVED
+ * ANSWER FREES THE PAGE: `not_found` is one; `blocked` is not, and holds the page as an in-flight check does. */
 export async function pagesUnderMeasurementFromShipments(
   tenantId: string, now: Date = new Date(),
 ): Promise<string[]> {

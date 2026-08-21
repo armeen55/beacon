@@ -1,7 +1,8 @@
 /** AI OUTCOME MEASUREMENT (V1 Truth Convergence Phase 7). Protected here: only the canonical first reading of a question feeds a trend; a rate with nothing behind it is null and never zero; a model or mode change splits the series and is named; a Shipment is judged before against after on the same rule with its coverage visible; thin coverage is "unclear", not a verdict; a missed day stays missed; and one account never reads another's answers. Fixtures only: every read is injected, zero network, zero cost. */
 import { describe, it, expect, vi } from "vitest";
 
-import { aiOutcomeForShipment, aiOutcomes, aiOutcomesForShipments, visibilitySeries } from "@/domains/measurement/ai-outcomes";
+import { aiOutcomes, visibilitySeries } from "@/domains/measurement/ai-outcomes";
+import { aiBaselineFor, aiOutcomeForShipment, aiOutcomesForShipments } from "@/domains/measurement/shipment-ai-outcome";
 import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 
 const T = "acct-a", SITE = "fixture-outdoors.example";
@@ -195,6 +196,8 @@ describe("the model and mode boundary", () => {
 
 describe("what the AI answers did around one shipped change", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z");
+  /** A VERDICT LANDS AT DAY 28 (Codex, 2026-08-21): the mature clock, with the stamp's own 28 days elapsed. */
+  const NOW28 = new Date("2026-08-18T12:00:00.000Z"), TO28 = "2026-08-17";
   const STAMP = "2026-07-21T10:00:00.000Z", Q = ["where should I go"]; // the searches THIS change was aimed at, which is what every fixture answer asks
   /** Every day from `from` to `to`, four questions a day, `named` of them naming the account. */
   const stretch = (from: string, to: string, named: number) => {
@@ -207,62 +210,54 @@ describe("what the AI answers did around one shipped change", () => {
   };
   /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
-    // 140 answers, 100 read closely, 60 naming the account: the rate before is 0.6. Counted the old way it was 0.43, which is BELOW the 0.5 the answers since have run at, so the same day's data read as a rise.
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
-    const outcome = await aiOutcomeForShipment(T, {
-      scopeQueries: Q, implementedAt: STAMP,
-      shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 100, mentioning: 60 } },
-    }, { readObservations, now: NOW });
-    expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 100, mentioning: 60, rate: 0.6, from: "on_file" });
+    // 140 answers, 100 read closely, 90 naming: the rate before is 0.9, where the old count said 0.64.
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 100, mentioning: 90 } } },
+    { readObservations: reader(stretch("2026-07-21", TO28, 2)), now: NOW28 });
+    expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 100, mentioning: 90, rate: 0.9, from: "on_file" });
     expect(outcome?.after.rate).toBe(0.5);
     expect(outcome?.direction).toBe("worsened");
-    expect(outcome?.line).toContain("60 of 100 before it");
-  });
-  it("recounts a starting number written the old way from that day's own answers, and asks for that exact day", async () => {
-    // A baseline written before `analyzed` existed carries no denominator I can trust, and it is write-once, so it is never rewritten. The day itself is still on file, well outside the 28 days ahead of the stamp, so the store is asked for that one day and the before side is recounted the same way as the after.
-    const readObservations = reader([...stretch("2026-06-10", "2026-06-10", 3), ...stretch("2026-07-21", "2026-07-31", 3)]);
-    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-06-10", checked: 8, mentioning: 2 } }, }, { readObservations, now: NOW });
-    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-10", toDay: "2026-06-10", slot: 0, projection: "outcome" });
-    expect(outcome?.before).toMatchObject({ day: "2026-06-10", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
-    expect(outcome?.direction).toBe("flat"); // 0.75 then, 0.75 now. The stored 2 of 8 would have read as a rise.
-  });
-  it("refuses to turn a starting number counted the old way into a direction when its day is gone", async () => {
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
-    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-05-01", checked: 8, mentioning: 2 } }, }, { readObservations, now: NOW });
-    expect(outcome?.before).toMatchObject({ day: "2026-05-01", rate: null, from: "on_file_legacy" });
-    expect(outcome?.direction).toBe("unclear");
-    expect(outcome?.line).toContain("counted a different way");
-    expect(outcome?.line).not.toMatch(/[—–]/);
+    expect(outcome?.line).toContain("90 of 100 before it");
   });
   it("says unclear when the starting day itself was barely read, however clear the days since are", async () => {
-    // 40 of 140 answers read closely on the day this change starts from. The share those 40 carry is a fact about how much analysis finished that day, not about what AI said, so it is not one end of a direction.
+    // 40 of 140 read closely that day: a fact about how much analysis finished, not about what AI said.
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 40, mentioning: 24 } }, }, { readObservations, now: NOW });
     expect(outcome?.after.rate).toBe(1);
     expect(outcome?.direction).toBe("unclear");
   });
-  it("compares the starting number on file against every day since, and says which way it went", async () => {
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3));
-    const outcome = await aiOutcomeForShipment(T, {
-      scopeQueries: Q, implementedAt: STAMP,
-      shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } },
-    }, { readObservations, now: NOW });
+  it("compares the starting number on file against the full 28 days, and says which way it went", async () => {
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } } },
+    { readObservations: reader(stretch("2026-07-21", TO28, 3)), now: NOW28 });
     expect(outcome?.direction).toBe("improved");
-    expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 4, mentioning: 1, rate: 0.25, from: "on_file" });
-    expect(outcome?.after).toMatchObject({ from: "2026-07-21", to: "2026-07-31", checked: 44, mentioning: 33, rate: 0.75 });
-    expect(outcome?.coverage).toEqual({ daysObserved: 11, daysElapsed: 11 });
-    expect(outcome?.line).toContain("on 11 of the 11 days since you marked this done");
+    expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 40, mentioning: 10, rate: 0.25, from: "on_file" });
+    expect(outcome?.after).toMatchObject({ from: "2026-07-21", to: TO28, rate: 0.75 });
+    expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
+    expect(outcome?.line).toContain("on 28 of the 28 days since this was marked done");
     expect(outcome?.line).not.toMatch(/[\u2014\u2013]/); // no em or en dashes, ever
   });
+  it("reports a supported early move as movement, never as a verdict, before the 28 days have run", async () => {
+    // Eleven days in, a clear rise on adequate sides: the line says it is moving, and the direction waits,
+    // because day 7 and day 14 carry movement only (Codex, 2026-08-21).
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } } },
+    { readObservations: reader(stretch("2026-07-21", "2026-07-31", 3)), now: NOW });
+    expect(outcome?.direction).toBe("no_clear_movement");
+    expect(outcome?.line).toContain("Moving up so far; a verdict lands once 28 days are read.");
+  });
+  it("never supports a verdict on inadequate denominators, whatever the gap", async () => {
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 0 } } },
+    { readObservations: reader(stretch("2026-07-21", TO28, 4)), now: NOW28 });
+    expect(outcome?.direction).toBe("no_clear_movement"); // 0 to 1.0 on four answers is still four answers
+  });
   it("falls back to the last day of stored answers before the change when nothing was written down", async () => {
-    const readObservations = reader([
-      ...stretch("2026-07-19", "2026-07-20", 3), // the last day before the change is the one it uses
-      ...stretch("2026-07-21", "2026-07-31", 1),
-    ]);
+    const readObservations = reader([...stretch("2026-07-19", "2026-07-20", 3), ...stretch("2026-07-21", "2026-07-31", 1)]);
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: null } }, { readObservations, now: NOW });
     expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
-    expect(outcome?.direction).toBe("worsened");
-    expect(outcome?.line).toContain("down from 3 of 4 before it");
+    // Four before-answers can describe where things stood; they can never support a verdict.
+    expect(outcome?.direction).toBe("no_clear_movement");
   });
   it("counts the share over the answers it actually READ, so unfinished analysis is not a fall", async () => {
     // Every answer read closely named the account; a quarter of them have not been read yet. Dividing by everything that came back would report that backlog as AI turning against the account.
@@ -270,8 +265,8 @@ describe("what the AI answers did around one shipped change", () => {
       .map((r, i) => (i % 4 === 3 ? { ...r, analysis: null, analysis_hash: null } : r)));
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 10, analyzed: 10, mentioning: 10 } }, }, { readObservations, now: NOW });
     expect(outcome?.after).toMatchObject({ checked: 44, analyzed: 33, mentioning: 33, rate: 1 });
-    expect(outcome?.direction).toBe("flat");
-    expect(outcome?.line).toContain("named in 33 of the 33 I have finished checking");
+    expect(outcome?.direction).toBe("no_clear_movement"); // 1.0 to 1.0: nothing to call, and never "flat"
+    expect(outcome?.line).toContain("named in 33 of the 33 finished checking");
   });
   it("says null, never zero, when nothing since the change has been read closely", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3)
@@ -280,10 +275,13 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after).toMatchObject({ analyzed: 0, mentioning: 0, rate: null });
     expect(outcome?.direction).toBe("unclear");
   });
-  it("calls the same share flat", async () => {
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 2));
-    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 2 } }, }, { readObservations, now: NOW });
-    expect(outcome?.direction).toBe("flat");
+  it("calls the same share no clear movement, and an unsupported flat is never printed", async () => {
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+      shipmentBaseline: { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 20 } } },
+    { readObservations: reader(stretch("2026-07-21", TO28, 2)), now: NOW28 });
+    expect(outcome?.direction).toBe("no_clear_movement");
+    expect(outcome?.line).toContain("no clear movement from");
+    expect(outcome?.line).not.toContain("the same share as");
   });
   it("says unclear when I read fewer than half the days that have passed", async () => {
     // Eleven days have passed and only three carry a reading.
@@ -309,8 +307,17 @@ describe("what the AI answers did around one shipped change", () => {
     const other = await aiOutcomeForShipment(T, { scopeQueries: ["best rugs to buy"], implementedAt: STAMP, shipmentBaseline: held }, { readObservations, now: NOW });
     expect([mine?.after.rate, other?.after.rate]).toEqual([0, 1]); // two pages' answers never cross, and the account-wide read would have said 0.5 on both
     const noScope = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: held }, { readObservations, now: NOW });
-    expect(noScope).toMatchObject({ direction: "unclear", after: { checked: 0, analyzed: 0, rate: null } });
-    expect(noScope?.line).toContain("which searches this change was aimed at");
+    expect(noScope).toMatchObject({ direction: "unclear", terminal: true, after: { checked: 0, analyzed: 0, rate: null } });
+    expect(noScope?.line).toContain("Not measurable");
+    expect(noScope?.line).toContain("searches this change was aimed at was not kept");
+  });
+  it("ends a change that declared an AI claim with no frozen baseline as terminally Not measurable", async () => {
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, scopeQueries: Q,
+      aiScope: { promptIds: ["p0"], engines: ["chatgpt"], fanouts: [], stage: "owned_retrieved_not_cited" },
+      shipmentBaseline: { ai: null } }, { readObservations: reader(stretch("2026-07-21", "2026-07-31", 3)), now: NOW });
+    expect(outcome).toMatchObject({ direction: "unclear", terminal: true });
+    expect(outcome?.line).toContain("Not measurable");
+    expect(outcome?.line).not.toContain("Reading continues");
   });
   it("says unclear when most of the answers since were never read closely", async () => {
     const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3).map((r, i) => (i % 4 === 0 ? r : { ...r, analysis: null, analysis_hash: null })));
@@ -336,8 +343,8 @@ describe("what the AI answers did around one shipped change", () => {
     ];
     const batch = await aiOutcomesForShipments(T, shipments, { readObservations, now: NOW });
     expect(readObservations).toHaveBeenCalledTimes(1);
-    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the identity, the day, the slot, the status and the stored verdict. Never the answer text, never the journey.
-    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "outcome" });
+    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the identity, the day, the slot, the status, the stored verdict, the instrument and the journey the fan-out route needs. Never the answer text, never the whole verdict.
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "scoped" });
     expect(batch).toHaveLength(3);
     expect(batch[2]).toBeNull();
     // And each change is still judged on ITS OWN 28 days, byte for byte what it got when it read alone.
@@ -370,10 +377,11 @@ describe("what the AI answers did around one shipped change", () => {
     ]);
     // Fetched once: a day counted twice would double every one of these.
     expect(batch.slice(0, 3).map((o) => o?.after.checked)).toEqual([44, 108, 88]);
-    expect(batch.slice(0, 3).map((o) => o?.direction)).toEqual(["improved", "improved", "improved"]);
+    // Verdicts wait for day 28; the two mature windows call, the eleven-day one reports movement only.
+    expect(batch.slice(0, 3).map((o) => o?.direction)).toEqual(["no_clear_movement", "no_clear_movement", "no_clear_movement"]);
     // And the one whose answers I could not reach says so, instead of reading as a change AI never noticed.
     expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
-    expect(batch[3]?.line).toBe("I could not read the answers for this period just now. They are safe and I will read them on the next refresh.");
+    expect(batch[3]?.line).toBe("The answers for this period could not be read just now. They are safe, and the next refresh reads them.");
   });
   /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
   it("stamps the shipped day in the operator's own zone, so an evening change counts that evening after it", async () => {
@@ -387,7 +395,9 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.from).toBe("2026-08-04");                 // the operator's day, not the UTC one
     expect(outcome?.before.day).toBe("2026-08-03");                 // so the evening's own answers are not "before"
     expect(outcome?.after.checked).toBe(52);                        // 13 days x 4 answers, the 4th included
-    expect(outcome?.direction).toBe("improved");
+    // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone
+    // boundary above is the whole of what this pins.
+    expect(outcome?.direction).toBe("no_clear_movement");
   });
 });
 
@@ -405,11 +415,263 @@ describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction,
     { readObservations: reader(rows), now: NOW });
     expect(outcome?.after.checked).toBe(1); // p1 on chatgpt only: not the gemini answer, and never p9 riding a matching wording
   });
-  it("lets a preserved fan-out wording join the day that search becomes a tracked question", async () => {
-    const rows = [row({ day: "2026-07-25", prompt_id: "p7", prompt_text: "haft seen table items list", mentioned: true })];
+  /** A FAN-OUT IS MEASURED THE DAY IT IS TARGETED, not the day somebody promotes it to a tracked question:
+   *  with only an id and a wording route, a change aimed at a follow-up search measured zero until then. */
+  it("remeasures the parent answers whose stored journey RAN the fan-out, whatever they were asked", async () => {
+    const ran = (over: Partial<AiObservationRecord>) => row({ day: "2026-07-25", mentioned: true,
+      journey: { fan_outs: ["Haft-Seen table items list"], retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null }, ...over });
+    const rows = [
+      ran({ prompt_id: "p7", prompt_text: "what do iranians put on the nowruz table" }),  // asks something else, ran the search
+      ran({ prompt_id: "p8", prompt_text: "nowruz traditions explained" }),
+      row({ day: "2026-07-25", prompt_id: "p9", prompt_text: "best rugs to buy", mentioned: true }), // never ran it
+    ];
     const outcome = await aiOutcomeForShipment(T, { ...BASE,
-      aiScope: { promptIds: ["p1"], engines: [], fanouts: ["haft seen table items list"], stage: "rivals_cited_own_not_retrieved" } },
+      aiScope: { promptIds: [], engines: [], fanouts: ["haft seen table items list"], fanoutKey: "haft seen table items list", stage: "rivals_cited_own_not_retrieved" } },
     { readObservations: reader(rows), now: NOW });
-    expect(outcome?.after.checked).toBe(1); // the cluster the change targeted is remeasured on its own wording
+    expect(outcome?.after.checked).toBe(2); // both parents, and never the answer that ran a different search
+  });
+  it("joins the answers the claim was minted from, by their own ids, whatever the question is called now", async () => {
+    const rows = [
+      row({ day: "2026-07-25", id: "obs-kept", prompt_id: "p-retired", prompt_text: "a wording nobody tracks any more", mentioned: true }),
+      row({ day: "2026-07-25", id: "obs-other", prompt_id: "p-else", prompt_text: "best rugs to buy", mentioned: true }),
+    ];
+    const outcome = await aiOutcomeForShipment(T, { ...BASE,
+      aiScope: { promptIds: [], engines: [], fanouts: [], observationIds: ["obs-kept"], stage: "owned_mentioned_not_cited" } },
+    { readObservations: reader(rows), now: NOW });
+    expect(outcome?.after.checked).toBe(1);
+  });
+});
+
+/** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on
+ *  mentions, so a change raised because the site was read and never credited was banked as a win the moment
+ *  it was named more often, which is the thing it was already doing. */
+describe("a shipment is judged on the objective it declared (AEO reconstruction, 2026-08-19)", () => {
+  const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
+  const mine = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
+    row({ prompt_id: "p1", prompt_text: "where should I go", ...over });
+  const journeyOf = (cited: string[] | null, read: string[] | null): AiObservationRecord["journey"] => ({
+    fan_outs: null, brand_mentions: null, web_search_reported: null,
+    cited_sources: cited === null ? null : cited.map((d) => ({ url: `https://${d}/page`, domain: d, title: null })),
+    retrieved_results: read === null ? null : read.map((d) => ({ url: `https://${d}/page`, domain: d, title: null })),
+  });
+  /** Every day from `from` to `to`, four answers a day on this change's own question. */
+  const days = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) => {
+    const out: AiObservationRecord[] = [];
+    for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
+      for (let i = 0; i < 4; i += 1) out.push(mine({ day: d.toISOString().slice(0, 10), ...make(i) }));
+    }
+    return out;
+  };
+  const scope = (stage: string) => ({ promptIds: ["p1"], engines: [], fanouts: [], stage });
+  /** A baseline frozen over this change's own searches at an adequate size: 40 answers read closely, 10
+   *  naming, and what the 40 said about sources. Four-answer sides can never support a verdict now. */
+  const frozen = (over: Record<string, unknown> = {}) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10,
+    citationSample: 40, ownedCiting: 10, rankSum: 40, rankCount: 10, retrievalSample: 40, ownedRetrieved: 10, retrievedNotCited: 10,
+    engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"], scopeFingerprint: "fp", ...over } });
+
+  it("reports the citation it was aimed at, not the mentions that rose beside it", async () => {
+    // Named on every answer since, up from 1 of 4. Credited on 1 of 4, exactly where it started.
+    const readObservations = reader(days("2026-07-21", "2026-07-31", (i) => ({ mentioned: true, journey: journeyOf(i === 0 ? ["fixture-outdoors.example"] : ["rival.example"], null) })));
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    expect(outcome?.objective).toBe("ai_citation");
+    expect(outcome?.mentionDirection).toBe("improved");   // the mention line is still true
+    expect(outcome?.direction).toBe("no_clear_movement"); // and it is NOT what this change is judged on
+    expect(outcome?.citations.after).toEqual({ sample: 44, hits: 11, rate: 0.25 });
+    expect(outcome?.metricLines).toContain("Mentions rose, and the citation this change was aimed at has not moved yet.");
+    expect(outcome?.line).not.toMatch(/[\u2014\u2013]/); // no em or en dashes, ever
+  });
+  it("reads a rise in being read as progress, and never as the win", async () => {
+    // Every answer of the full 28 days read a page of yours; the baseline had 10 of 40. None credited it.
+    const readObservations = reader(days("2026-07-21", "2026-08-17", () => ({ mentioned: false, journey: journeyOf(["rival.example"], ["fixture-outdoors.example"]) })));
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("rivals_cited_own_not_retrieved") },
+      { readObservations, now: new Date("2026-08-18T12:00:00.000Z") });
+    expect(outcome?.objective).toBe("ai_retrieval");
+    expect(outcome?.retrieval).toEqual({ before: { sample: 40, hits: 10, rate: 0.25 }, after: { sample: 112, hits: 112, rate: 1 } });
+    expect(outcome?.direction).toBe("improved");
+    expect(outcome?.metricLines).toContain("Read on more answers than before, and not yet credited on them: progress, not the win.");
+  });
+  it("reports where in the list the answer credited the page, where the provider reports it", async () => {
+    const readObservations = reader(days("2026-07-21", "2026-07-31", () => ({ mentioned: true, journey: journeyOf(["rival.example", "fixture-outdoors.example"], null) })));
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    // Credited second on every answer since, against fourth on the frozen day.
+    expect([outcome?.citations.rankBefore, outcome?.citations.rankAfter]).toEqual([4, 2]);
+    expect(outcome?.metricLines).toContain("Credited in position 2 on average, from position 4.");
+  });
+  it("says null, never zero, for a metric no answer on that side reported", async () => {
+    // Not one answer since said which sources it used. Zero would claim AI credited the page on none of them.
+    const readObservations = reader(days("2026-07-21", "2026-07-31", () => ({ mentioned: true })));
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_retrieved_not_cited") },
+      { readObservations, now: NOW });
+    expect(outcome?.citations.after).toEqual({ sample: 0, hits: 0, rate: null });
+    expect(outcome?.retrieval.after.rate).toBeNull();
+    expect(outcome?.direction).toBe("unclear");
+    expect(outcome?.metricLines).toContain("No answer since the change reported which sources it used, so the citation cannot be read yet.");
+  });
+  it("names both instruments when two models answered, and says the instrument moved", async () => {
+    const readObservations = reader([
+      ...days("2026-07-21", "2026-07-25", () => ({ mentioned: true, model_served: "gpt-5" })),
+      ...days("2026-07-26", "2026-07-31", () => ({ mentioned: true, model_served: "gpt-5.5" })),
+    ]);
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    expect(outcome?.instruments).toEqual([
+      { engine: "chatgpt", modelServed: "gpt-5", mode: "api", answers: 20 },
+      { engine: "chatgpt", modelServed: "gpt-5.5", mode: "api", answers: 24 },
+    ]);
+    expect(outcome?.boundary).toBe("The instrument changed under this reading: ChatGPT moved from gpt-5 to gpt-5.5. A step here is the instrument, not the change.");
+    // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made
+    // on empties the after side, which reads on screen as the change losing everything it had.
+    expect(outcome?.after.checked).toBe(44);
+  });
+  /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is
+   *  recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
+  it("reports an unmeasurable AI outcome when no starting numbers were frozen, and rebuilds none", async () => {
+    const readObservations = reader([...days("2026-07-19", "2026-07-20", () => ({ mentioned: false })), ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true }))]);
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: null, aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    expect(outcome?.direction).toBe("unclear");
+    expect(outcome?.before).toMatchObject({ from: "unavailable", rate: null });
+    expect(outcome?.after.checked).toBe(0);              // and the days before it were NOT quietly promoted to a baseline
+    expect(outcome?.terminal).toBe(true); // Not measurable is terminal, never "reading" forever
+    expect(outcome?.line).toBe("Not measurable: where the AI answers stood when this was marked done was not on file, so what happened since cannot be read as a direction, and a starting point is never rebuilt after the fact. The change itself is recorded.");
+  });
+});
+
+/** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement,
+ *  so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to
+ *  stop exactly that. The whole table is here, because a sign error hides in the combination nobody wrote. */
+describe("a conversion objective is graded on both halves, each on its own polarity", () => {
+  // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
+  const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example";
+  const links = (d: string) => [{ url: `https://${d}/page`, domain: d, title: null }];
+  /** One answer to this change's own question, saying what it credited and what it read. Null on either side = the engine reported
+   *  nothing there, so that answer joins no sample at all. */
+  const answer = (day: string, i: number, cited: string | null, read: string | null) =>
+    row({ day, id: `obs-${day}-${i}`, prompt_id: "p1", prompt_text: "where should I go", mentioned: true,
+      journey: { fan_outs: null, brand_mentions: null, web_search_reported: null,
+        cited_sources: cited == null ? null : links(cited), retrieved_results: read == null ? null : links(read) } });
+  type Shape = [cited: string | null, read: string | null];
+  const CREDITED: Shape = [SITE, SITE];           // read a page of yours and credited it
+  const PASSED_OVER: Shape = [RIVAL, SITE];       // read a page of yours and credited a rival
+  const ELSEWHERE: Shape = [RIVAL, RIVAL];        // never read a page of yours
+  const CREDITED_UNREAD: Shape = [SITE, RIVAL];   // credited it without reporting that it read it
+  const SILENT: Shape = [null, null];             // reported neither, so it is in no denominator
+  /** The full 28 days since the change, four answers a day, the same four shapes every day. */
+  const since = (shapes: Shape[]) => {
+    const out: AiObservationRecord[] = [];
+    for (let t = Date.parse("2026-07-21T00:00:00Z"); t <= Date.parse("2026-08-17T00:00:00Z"); t += 86_400_000)
+      shapes.forEach(([c, r], i) => out.push(answer(new Date(t).toISOString().slice(0, 10), i, c, r)));
+    return out;
+  };
+  /** The frozen starting point at an adequate size: 40 answers, `citing` of each 10 crediting the page, and
+   *  `passedOver` of each 10 that read it passed over. Four-answer sides can never support a verdict now. */
+  const before = (citing: number, passedOver: number) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 40,
+    citationSample: 40, ownedCiting: citing * 10, rankSum: citing * 10, rankCount: citing * 10,
+    retrievalSample: 40, ownedRetrieved: 40, retrievedNotCited: passedOver * 10 } });
+  const judged = (held: ReturnType<typeof before>, shapes: Shape[]) =>
+    aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: held,
+      aiScope: { promptIds: ["p1"], engines: [], fanouts: [], stage: "owned_retrieved_not_cited" } },
+    { readObservations: reader(since(shapes)), now: NOW });
+  const CASES: Array<[string, ReturnType<typeof before>, Shape[], string]> = [
+    ["credited more often and passed over less often is the win", before(1, 3), [CREDITED, CREDITED, CREDITED, PASSED_OVER], "improved"],
+    ["credited more often and passed over MORE often is a loss on the thing it was raised to fix", before(1, 1), [CREDITED, CREDITED_UNREAD, PASSED_OVER, PASSED_OVER], "worsened"],
+    ["credited exactly as often and passed over less often is progress, not the win", before(1, 3), [CREDITED, ELSEWHERE, PASSED_OVER, ELSEWHERE], "no_clear_movement"],
+    ["credited exactly as often and passed over MORE often is a loss, never flat", before(1, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE], "worsened"],
+    ["credited less often and passed over less often is still a loss", before(3, 3), [CREDITED, ELSEWHERE, PASSED_OVER, ELSEWHERE], "worsened"],
+    ["credited less often and passed over MORE often is a loss on both halves", before(3, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE], "worsened"],
+    ["neither half reported by any answer is unreadable, never a verdict", before(1, 1), [SILENT, SILENT, SILENT, SILENT], "unclear"],
+  ];
+  it.each(CASES)("%s", async (_label, held, shapes, direction) => {
+    expect((await judged(held, shapes))?.direction).toBe(direction);
+  });
+  it("says out loud that being passed over rose, on the numbers, instead of reporting no change", async () => {
+    const outcome = await judged(before(1, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE]);
+    // Credited on exactly the share it started at, and passed over on two thirds of the answers that read the page, up from a quarter.
+    expect([outcome?.citations.before.rate, outcome?.citations.after.rate]).toEqual([0.25, 0.25]);
+    expect([outcome?.retrievedNotCited.before.rate, outcome?.retrievedNotCited.after.rate]).toEqual([0.25, 0.667]);
+    expect(outcome?.metricLines).toContain("Read and passed over on a larger share than before, which is the thing this change was raised to stop.");
+    expect(outcome?.line).not.toMatch(/[—–]/); // no em or en dashes, ever
+  });
+  it("still reads a rising GOOD rate as the improvement it is", async () => {
+    // The polarity is per metric, not a blanket flip: being read more often is exactly what a retrieval objective wants. It started
+    // read on ten of the forty answers on file and every answer since has read it.
+    const started = { ai: { ...before(1, 1).ai, ownedRetrieved: 10, retrievedNotCited: 10 } };
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: started,
+      aiScope: { promptIds: ["p1"], engines: [], fanouts: [], stage: "rivals_cited_own_not_retrieved" } },
+    { readObservations: reader(since([CREDITED, CREDITED, PASSED_OVER, PASSED_OVER])), now: NOW });
+    expect([outcome?.objective, outcome?.retrieval.after.rate, outcome?.direction]).toEqual(["ai_retrieval", 1, "improved"]);
+  });
+});
+
+/** THE CONTROLS ARE THE ACCOUNT'S OWN UNAFFECTED QUESTIONS (Codex, 2026-08-21), never bought: their drift
+ *  comes off the verdict, and two assistants that disagree come back split, never averaged. */
+describe("controls and per-assistant verdicts", () => {
+  const NOW28 = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
+  const mk = (day: string, i: number, promptId: string, promptText: string, mentioned: boolean, engine: "chatgpt" | "gemini" = "chatgpt") =>
+    row({ day, id: `o-${promptId}-${engine}-${day}-${i}`, prompt_id: promptId, prompt_text: promptText, engine, mentioned });
+  const daysOf = (from: string, to: string, make: (day: string, i: number) => AiObservationRecord[]) => {
+    const out: AiObservationRecord[] = [];
+    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000)
+      for (let i = 0; i < 2; i += 1) out.push(...make(new Date(t).toISOString().slice(0, 10), i));
+    return out;
+  };
+  const HELD = { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } };
+  const judge = (rows: AiObservationRecord[]) => aiOutcomeForShipment(T,
+    { scopeQueries: ["where should I go"], implementedAt: STAMP, shipmentBaseline: HELD }, { readObservations: reader(rows), now: NOW28 });
+  const C1 = "an unaffected question", C2 = "another unaffected question", MINE = "where should I go";
+
+  it("subtracts the unaffected questions' own drift before calling a verdict", async () => {
+    // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly
+    // as much: the world moved, not the change, and the receipt says so.
+    const outcome = await judge([
+      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
+      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
+    expect([outcome?.controls?.questions, outcome?.controls?.mentionDrift]).toEqual([2, 0.75]);
+    expect(outcome?.direction).toBe("no_clear_movement"); // the drift ate the whole rise
+    expect(outcome?.line).toContain("their movement is subtracted before anything is called");
+  });
+  it("calls the same rise a win when the unaffected questions held still", async () => {
+    const outcome = await judge([
+      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0)]),
+      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, i === 0)])]);
+    expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]);
+  });
+  it("reports a split when two assistants genuinely disagree, never an average", async () => {
+    // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both
+    // adequately sampled, and the one honest overall answer is that they split.
+    const outcome = await judge([
+      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
+      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);
+    expect(outcome?.direction).toBe("mixed");
+    expect(new Set(outcome?.perEngine.map((e) => e.direction))).toEqual(new Set(["improved", "worsened"]));
+    expect(outcome?.line).toContain("The assistants disagree");
+  });
+});
+
+/** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and
+ *  engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids
+ *  or stage had all moved on. Membership is what it must cover; write order is not membership. */
+describe("the identity of the scope a baseline was frozen over", () => {
+  const DAY = "2026-07-20";
+  const SCOPE = { caseKey: "fanout:haft-seen", promptIds: ["p1", "p2"], promptVersions: [1, 2], engines: ["chatgpt", "gemini"],
+    models: ["gpt-5", "gpt-5.5"], modes: ["api", "consumer_search"], fanoutKey: "haft seen table items list",
+    fanouts: ["alpha search", "beta search"], observationIds: ["obs-a", "obs-b"], stage: "owned_mentioned_not_cited" };
+  // A store that answers the probe AND the day it names, so every scope below freezes off the same single answer and only the scope moves.
+  const readObservations = vi.fn(async (_t: string, o: { day?: string }) =>
+    (o.day == null || o.day === DAY ? [row({ day: DAY, prompt_id: "p1", engine: "chatgpt", mentioned: true })] : []));
+  const print = async (over: Partial<typeof SCOPE> = {}): Promise<string> =>
+    (await aiBaselineFor(T, { ...SCOPE, ...over }, { readObservations }))!.scopeFingerprint!;
+  it("changes when ANY field that decides membership changes", async () => {
+    const prints = await Promise.all(([{}, { promptIds: ["p1", "p3"] }, { promptVersions: [1, 3] }, { engines: ["chatgpt", "claude"] },
+      { models: ["gpt-5", "gpt-6"] }, { modes: ["api", "app"] }, { fanoutKey: "another cluster" }, { fanouts: ["alpha search", "gamma search"] },
+      { observationIds: ["obs-a", "obs-c"] }, { stage: "owned_retrieved_not_cited" }] as Array<Partial<typeof SCOPE>>).map((o) => print(o)));
+    expect(prints).toHaveLength(10);
+    expect(new Set(prints).size).toBe(10); // ten scopes, ten identities: not one of them answers to another one's baseline
+  });
+  it("never changes when a list is merely written in another order", async () => {
+    expect(await print({ promptIds: ["p2", "p1"], promptVersions: [2, 1], engines: ["gemini", "chatgpt"], models: ["gpt-5.5", "gpt-5"],
+      modes: ["consumer_search", "api"], fanouts: ["beta search", "alpha search"], observationIds: ["obs-b", "obs-a"] })).toBe(await print());
   });
 });

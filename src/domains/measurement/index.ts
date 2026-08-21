@@ -54,12 +54,18 @@ export {
 // AI outcomes: the daily trend over stored answers, and what they did around one shipped change
 export {
   aiOutcomes,
-  aiOutcomeForShipment,
-  aiOutcomesForShipments,
   visibilitySeries,
   type AiOutcomeReport,
-  type ShipmentAiOutcome,
 } from "./ai-outcomes";
+
+// One shipment's own AI answers, on its own searches, judged on the objective it declared
+export {
+  aiOutcomeForShipment,
+  aiOutcomesForShipments,
+  objectiveOfStage,
+  type ShipmentAiOutcome,
+  type ShipmentObjective,
+} from "./shipment-ai-outcome";
 
 // Scoreboard + money line
 export { buildScoreboard, buildMoneyLine, type Scoreboard } from "./scoreboard/scoreboard";

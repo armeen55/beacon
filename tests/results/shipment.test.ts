@@ -10,7 +10,7 @@ const db = vi.hoisted(() => {
   return { state, client: {} as Record<string, unknown> };
 });
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
-const ai = vi.hoisted(() => ({ views: vi.fn() }));
+const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },
 }));
@@ -33,7 +33,7 @@ vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-pa
   assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,
 }));
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
-  ...((await orig()) as object), readAiObservationViews: ai.views,
+  ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records,
 }));
 /** The settle pass's own three seams: what it measured, and the two things a fresh verdict is worthless without. */
 const settle = vi.hoisted(() => ({ pass: vi.fn(), rebuilt: [] as string[], harvested: [] as string[] }));
@@ -83,7 +83,8 @@ beforeEach(() => {
   db.state.offline = false;
   db.state.upsertError = null;
   db.state.updateError = null;
-  [gsc.window, gsc.lastFinal, ai.views].forEach((m) => m.mockReset());
+  [gsc.window, gsc.lastFinal, ai.views, ai.records].forEach((m) => m.mockReset());
+  ai.records.mockResolvedValue([]);
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]]));
   gsc.lastFinal.mockResolvedValue("2026-07-30");
   ai.views.mockResolvedValue([
@@ -105,7 +106,7 @@ describe("the canonical Shipment", () => {
     expect(stored.implementedAt).toBe(NOW.toISOString());
     expect(stored.preChangeContentHash).toBe("hash-before");
     expect(stored.componentsApplied).toEqual(COMPONENTS);
-    expect(stored.shipmentBaseline?.search.clicks).toBe(9);
+    expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
     // The first reading of each question on the latest day it was asked, and nothing else.
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
@@ -151,7 +152,7 @@ describe("the canonical Shipment", () => {
     });
     const [after] = await loadShippedChangesForTenant(T);
     expect(after.implementedAt).toBe(NOW.toISOString());
-    expect(after.shipmentBaseline?.search.clicks).toBe(9);
+    expect(after.shipmentBaseline?.search?.clicks).toBe(9);
   });
   // PIN (B): the operator's words are kept as a NOTE, and the reading is still owed.
   it("keeps what the operator says they did as a note, and still owes the live check", async () => {
@@ -200,7 +201,7 @@ describe("recording what the live check found", () => {
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull();
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
     const [stored] = await loadShippedChangesForTenant(T);
-    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search.clicks])
+    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search?.clicks])
       .toEqual(["verified", NOW.toISOString(), 9]);
   });
 });
@@ -334,6 +335,51 @@ describe("the recording seam", () => {
   });
 });
 
+/** THE STARTING NUMBERS ARE FROZEN OVER THIS CHANGE'S OWN SEARCHES, at mark time, once: the account-wide
+ *  day compared an account-wide before against a scope-filtered after, two different measures. */
+describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
+  const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";
+  const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
+  const journey = (over: Record<string, unknown> = {}) =>
+    ({ fan_outs: null, brand_mentions: null, web_search_reported: null, retrieved_results: null, cited_sources: null, ...over });
+  const answer = (over: Record<string, unknown> = {}) => ({
+    id: "obs-1", tenant_id: T, site: SITE, prompt_id: "p1", prompt_version: 1, prompt_text: "where should I go",
+    engine: "chatgpt", model_requested: null, model_served: "gpt-5", observation_mode: "api", reporting_day: DAY,
+    sample_slot: 0, language: "en", location: 2840, requested_at: `${DAY}T09:00:00.000Z`, completed_at: null,
+    capability_version: "v1", cache_key: null, cost_usd: 0, status: "observed", failure_reason: null,
+    answer_text: "an answer", answer_hash: "abc", journey: journey(),
+    analysis: { ownedBrandMention: { mentioned: true } }, analysis_hash: "abc", ...over });
+  const SCOPE = { promptIds: ["p1"], engines: [], fanouts: [], stage: "owned_retrieved_not_cited" };
+  it("counts sources, instrument and objective over the scope's own answers, and nobody else's", async () => {
+    const rows = [
+      answer({ id: "o1", journey: journey({ cited_sources: [link("www.fixture-outdoors.example")] }) }),
+      answer({ id: "o2", journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link("fixture-outdoors.example")] }) }),
+      answer({ id: "o3", prompt_id: "p9", prompt_text: "best rugs to buy" }),  // another change's search, on the same day
+      answer({ id: "o4", reporting_day: "2026-06-01" }),                       // in scope, but an older day
+    ];
+    ai.records.mockImplementation(async (_t: string, o: { day?: string }) => rows.filter((r) => o.day == null || r.reporting_day === o.day));
+    await upsertShippedChange(await ship({ shipment: origin({ aiScope: SCOPE }) as never }));
+    const held = (await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai;
+    expect(held).toMatchObject({
+      day: DAY, checked: 2, analyzed: 2, mentioning: 2,          // o3 asks another search and o4 is another day
+      citationSample: 2, ownedCiting: 1, rankSum: 1, rankCount: 1,
+      retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, // read the page and credited a rival
+      engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"],
+      // THE YARDSTICK RIDES THE STARTING NUMBERS, so no later read may pick its own.
+      objective: "ai_citation_conversion",
+    });
+    expect(held?.scopeFingerprint).toMatch(/^[0-9a-f]{16}$/);
+  });
+  it("records the implementation with no AI starting numbers when the scope's answers are not on file", async () => {
+    ai.records.mockResolvedValue([]);
+    await upsertShippedChange(await ship({ shipment: origin({ aiScope: SCOPE }) as never }));
+    const [stored] = await loadShippedChangesForTenant(T);
+    // The change is on file, stamp and all; the AI half is honestly absent and is never rebuilt later.
+    expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]);
+    expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
+  });
+});
+
 describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
   it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
     const scope = { promptIds: ["p1"], engines: ["chatgpt", "gemini"], fanouts: ["haft seen table items list"], stage: "owned_retrieved_not_cited" };
@@ -343,5 +389,21 @@ describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-
     const row = (await loadShippedChangesForTenant(T))[0]!;
     expect(row.aiScope).toEqual(scope); // exactly what the card claimed, remeasurable
     expect(row.targetQueries).toEqual(["nowruz traditions"]); // and the Google scope is untouched by it
+  });
+});
+
+/** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI
+ *  numbers were captured only where Google already had something to say, so a new or quiet page lost the
+ *  baseline of exactly the change it existed for. */
+describe("an AI change on a page Google cannot see yet still measures", () => {
+  it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
+    const { objectiveOfStage } = await import("@/domains/measurement/shipment-ai-outcome");
+    // The card carries a stage on its scope. That is the one the press reads, so the metric and the
+    // baseline can never name two different things.
+    expect(objectiveOfStage("rivals_cited_own_not_retrieved")).toBe("ai_retrieval");
+    expect(objectiveOfStage("owned_retrieved_not_cited")).toBe("ai_citation_conversion");
+    expect(objectiveOfStage("owned_mentioned_not_cited")).toBe("ai_citation");
+    expect(objectiveOfStage("citations_unreported")).toBe("ai_citation"); // a reporting gap is never a mention problem
+    expect(objectiveOfStage(null)).toBe("ai_mentions");
   });
 });

@@ -19,7 +19,9 @@ type ResultsRow = ResultsView["rows"]["worked"][number];
 const TABS: Array<{ key: ResultsGroup; label: string; line: string }> = [
   { key: "worked", label: "Worked", line: "These beat pages that were not changed." },
   { key: "down", label: "Went down", line: "These fell behind pages that were not changed." },
-  { key: "flat", label: "No change", line: "These landed inside the normal range of similar pages." },
+  // NEUTRAL ENOUGH TO HOLD WHAT IS IN IT: inside the normal range, uncalled, split, and unmeasurable are
+  // four different outcomes, and naming the group "No change" spoke for all four (Codex, 2026-08-21).
+  { key: "flat", label: "No clear result", line: "Nothing here earned a verdict. Each row says which kind of silence it is." },
   { key: "reading", label: "Reading", line: "Nothing to decide here until the next read lands." },
 ];
 
@@ -53,11 +55,60 @@ function LiftBar({ value, opacity }: { value: number | null; opacity: number }) 
 }
 
 function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGroup; open: boolean; onToggle: () => void }) {
-  // The verdict word replaces the number where a number would be read as the answer.
-  const cell = group === "down" || group === "flat" ? row.verdictWord
+  // The verdict word replaces the number where a number would read as the answer, and where there is none to
+  // print: an AI-judged row can win with no Google click figure at all. On those rows `liftLabel` is the
+  // objective's own move in words, so this slot can never print a click decline in green under a win.
+  const cell = group === "down" || group === "flat" ? (row.yardstick ? row.liftLabel ?? row.verdictWord : row.verdictWord)
     : group === "reading" ? row.readLabel
-      : row.liftLabel;
+      : row.liftLabel ?? row.verdictWord;
   const cellTone = group === "worked" ? "text-emerald-700" : group === "down" ? "text-rose-700" : "text-muted-foreground";
+  // THE GOOGLE HALF OF THE PANEL, IN ONE PIECE: the before and after, the site's own move and the pages this one stood against. On a row
+  // judged on AI it is rendered inside the labelled aside below rather than in the answer slot, which is where it used to contradict the
+  // verdict out loud. On a row judged on clicks it renders exactly where it always did.
+  const googleBlock = (
+    <>
+      {row.numbers ? (
+        <table className="mt-2 text-[12px] tabular-nums">
+          <thead>
+            <tr className="text-muted-foreground">
+              <th className="w-16 text-left font-normal" />
+              <th className="pr-5 text-left font-normal">Clicks</th>
+              <th className="text-left font-normal">Appearances</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td className="text-muted-foreground">Before</td><td className="pr-5">{row.numbers.before[0]}</td><td>{row.numbers.before[1]}</td></tr>
+            <tr><td className="text-muted-foreground">After</td><td className="pr-5">{row.numbers.after[0]}</td><td>{row.numbers.after[1]}</td></tr>
+          </tbody>
+        </table>
+      ) : (
+        <p className="mt-2 text-[12px] text-muted-foreground">{row.numbersNote}</p>
+      )}
+      {row.unadjustedNote ? <p className="mt-1.5 text-[12px] text-muted-foreground">{row.unadjustedNote}</p> : null}
+      {row.comparedAgainst.length > 0 ? (
+        <div className="mt-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Compared against</p>
+          {row.comparedAgainst.map((c) => (
+            <p key={c} className="text-[11px] text-muted-foreground">{c}</p>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+  // WHICH YARDSTICK DECIDED THIS ROW. "Worked" has to mean the thing the change was aimed at, and a reader must never have to guess
+  // whether it meant traffic or citations. On an AI judged row this sits directly under the answer, ahead of anything Google says.
+  const aiBlock = row.aiLine ? (
+    <div className="mt-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{row.yardstick ?? "AI answers"}</p>
+      <p className="text-[11px] text-muted-foreground">{row.aiLine}</p>
+      {/* The objective's own numbers sit under the sentence: a change raised to earn a citation
+          showed only the mention line, so a flat citation rate read as the change working. */}
+      {row.aiMetricLines.map((m) => (
+        <p key={m} className="mt-1 text-[11px] text-muted-foreground">{m}</p>
+      ))}
+      {row.aiBoundary ? <p className="mt-1 text-[11px] text-status-warning">{row.aiBoundary}</p> : null}
+    </div>
+  ) : null;
   return (
     <div>
       <button type="button" onClick={onToggle} aria-expanded={open} className={`${GRID} h-11 w-full px-3 text-left hover:bg-surface-inset/60 ${FOCUS}`}>
@@ -97,38 +148,17 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">What happened</p>
               <p className="mt-1 text-[13px] text-foreground">{row.happened}</p>
-              {row.numbers ? (
-                <table className="mt-2 text-[12px] tabular-nums">
-                  <thead>
-                    <tr className="text-muted-foreground">
-                      <th className="w-16 text-left font-normal" />
-                      <th className="pr-5 text-left font-normal">Clicks</th>
-                      <th className="text-left font-normal">Appearances</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr><td className="text-muted-foreground">Before</td><td className="pr-5">{row.numbers.before[0]}</td><td>{row.numbers.before[1]}</td></tr>
-                    <tr><td className="text-muted-foreground">After</td><td className="pr-5">{row.numbers.after[0]}</td><td>{row.numbers.after[1]}</td></tr>
-                  </tbody>
-                </table>
-              ) : (
-                <p className="mt-2 text-[12px] text-muted-foreground">{row.numbersNote}</p>
-              )}
-              {row.unadjustedNote ? <p className="mt-1.5 text-[12px] text-muted-foreground">{row.unadjustedNote}</p> : null}
-              {row.comparedAgainst.length > 0 ? (
-                <div className="mt-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Compared against</p>
-                  {row.comparedAgainst.map((c) => (
-                    <p key={c} className="text-[11px] text-muted-foreground">{c}</p>
-                  ))}
+              {row.googleAside ? aiBlock : null}
+              {/* GOOGLE UNDER ITS OWN HEADING, never in the answer slot. A citation win printed the click decline as its story, so the
+                  same panel said "Worked" at the top and "the page did not move" underneath with nothing naming which was which. */}
+              {row.googleAside ? (
+                <div className="mt-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{row.googleAside.heading}</p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{row.googleAside.line}</p>
+                  {googleBlock}
                 </div>
-              ) : null}
-              {row.aiLine ? (
-                <div className="mt-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">AI answers</p>
-                  <p className="text-[11px] text-muted-foreground">{row.aiLine}</p>
-                </div>
-              ) : null}
+              ) : googleBlock}
+              {row.googleAside ? null : aiBlock}
               {row.caveats.map((c) => (
                 <p key={c} className="mt-1.5 text-[11px] text-amber-700">{c}</p>
               ))}

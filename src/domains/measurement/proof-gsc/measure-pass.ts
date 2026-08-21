@@ -18,6 +18,7 @@ import {
 } from "@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet";
 import { loadPageJobs } from "@/domains/decision/producers/page-job";
 import { loadChangeProposals } from "@/domains/decision/proposal-store";
+import { aiBaselineFor, type ShipmentObjective } from "../shipment-ai-outcome";
 import { contaminatedPaths, contaminationFor, pathOf as contaminationPathOf, selectMatchedControls, type ControlReceipt } from "./contamination";
 import { loadShippedChangesForTenant } from "./shipped-change-store";
 import { readWindowForPages, readLastFinalizedDate } from "./gsc-window";
@@ -234,8 +235,13 @@ const AI_BASELINE_ROWS = 60;
  *  DENOMINATOR the later comparison divides by, and it is stored here so both sides of a shipped change are the same measure. Counting
  *  mentions over every answer that came back made an answer nobody had read yet an implicit miss, while the after side divided by the
  *  answers actually read: a change was then judged by comparing one rate against a different one. */
-async function latestAiPresence(tenantId: string): Promise<{ day: string; checked: number; analyzed: number; mentioning: number } | null> {
+async function latestAiPresence(tenantId: string, aiScope: ShippedChangeRecord["aiScope"]): Promise<NonNullable<ShippedChangeRecord["shipmentBaseline"]>["ai"]> {
   try {
+    // A CHANGE THAT DECLARED AN AI CLAIM FREEZES ITS OWN SEARCHES, sources and instrument included. The
+    // account-wide day was the only starting number on file, so a shipment compared an account-wide before
+    // against a scope-filtered after: a subtraction of two different measures. A change with no AI claim is
+    // judged on clicks and keeps the account-wide day it has always carried.
+    if (aiScope != null) return await aiBaselineFor(tenantId, aiScope);
     // Slot 0 is asked for in the QUERY, not filtered afterwards: the extra volatility samples would otherwise eat the row cap and leave the
     // baseline reading a fraction of the day.
     const probe = (await readAiObservationViews(tenantId, { limit: AI_BASELINE_ROWS, slot: 0 }))
@@ -315,16 +321,9 @@ async function cachedPageJobs(tenantId: string, ctx: Awaited<ReturnType<typeof l
     .catch(() => new Map<string, { pageType: string }>());
 }
 
-/**
- * THE ONE COMPARISON-PAGE CHOOSER, for every door that writes a ledger record, WITH THE RECEIPT.
- *
- * Raw traffic order used to decide this: the three biggest pages on the site stood behind a small
- * one, and the difference they anchored was mostly the difference between a hub and a leaf. The pool
- * is now every page this account is not currently changing, and the three that stand behind a change
- * are the ones whose job on file says the same shape, whose traffic sits beside it, and whose
- * baseline window actually holds Search data. Read for THIS account explicitly and frozen at
- * selection time. NULL is a read that FAILED, a different sentence from a site with too few pages.
- */
+/** THE ONE COMPARISON-PAGE CHOOSER, with the receipt: the pool is every page not currently being changed,
+ * and the three behind a change match its job's shape, its traffic, and hold real baseline Search data.
+ * Frozen at selection; NULL is a FAILED read, a different sentence from a site with too few pages. */
 export async function matchedControlsFor(
   tenantId: string, treatedPage: string, shipDate: string, now: Date,
 ): Promise<{ controls: string[]; receipts: ControlReceipt[] } | null> {
@@ -388,8 +387,9 @@ export async function recordShippedChange(args: {
   /** Whether this one can be fairly compared, decided by the recording seam BEFORE the write. A shortage
    *  is recorded here, never used to refuse the write: an implementation fact is a fact. */
   measurementState?: MeasurementState | null;
-  /** The ONE metric this change was made to move. Defaults to clicks; an AI citation card passes ai_mentions. */
-  judgedMetric?: string | null;
+  /** The ONE metric this change was made to move. Defaults to clicks; an AI card passes the objective its own
+   *  stage names, so a change raised to earn a citation is never graded on mentions it was already earning. */
+  judgedMetric?: ShipmentObjective | null;
   now?: Date;
 }): Promise<ShippedChangeRecord> {
   // NO FLOOR ON THE WRITE. A shipment used to be refused outright below MIN_CONTROLS, so a true
@@ -444,9 +444,16 @@ export async function recordShippedChange(args: {
     preChangeHashUnavailable: ship?.preChangeHashUnavailable === true,
     measurementState: args.measurementState ?? null,
     // Written once, here, and never touched again: the store refuses a second write.
-    shipmentBaseline: ship && held
-      ? { search: searchBaseline, ai: await latestAiPresence(args.tenantId), capturedAt: now.toISOString() }
-      : null,
+    // THE TWO HALVES FREEZE INDEPENDENTLY. This captured the AI starting numbers only when Google already had
+    // something to say about the page, so a new or quiet page with a perfectly good AI baseline lost it, and
+    // that page is exactly the one an AEO change exists for (reviewer, 2026-08-19). A change that declared an
+    // AI scope freezes its AI side whether or not the search side exists, and either half may be null.
+    shipmentBaseline: await (async () => {
+      if (!ship) return null;
+      const ai = ship.aiScope ? await latestAiPresence(args.tenantId, ship.aiScope) : held ? await latestAiPresence(args.tenantId, null) : null;
+      if (!held && ai == null) return null; // nothing to freeze on either side is no baseline, not an empty one
+      return { search: held ? searchBaseline : null, ai, capturedAt: now.toISOString() };
+    })(),
     // NULL, ALWAYS, and null IS the due marker the verification runtime reads. Marking a change done starts the check; nothing the operator
     // can press or type ends it, so this is never written at mark time.
     verification: null,

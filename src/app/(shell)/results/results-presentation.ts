@@ -1,15 +1,15 @@
-/** results-presentation - EVERY operator-facing string the Results surface says about one measured change, as pure
- * functions over what the measurement kernel already computed. Nothing here decides anything: the kernel owns the
- * verdict, the lift and the read dates; the Shipment store owns what the live check found; this module only puts
- * those answers into the operator's own words, in ONE place, so a test can read every sentence the screen can print
- * without rendering a page. Three rules hold on every string below. No raw slug ever reaches the screen (an action,
- * a diagnosis and a comparison reason resolve through closed maps, and an unmapped one is left out rather than
- * printed). No raw date stamp reaches it either (a day renders as "Jul 3"). And a missing answer says it is missing:
- * a count nobody has read is said in words, never sold as a zero. */
+/** results-presentation - EVERY operator-facing string the Results surface says about one measured change, as
+ * pure functions over what the measurement kernel already computed: the kernel owns the verdict, the lift and
+ * the read dates, the Shipment store owns what the live check found, and this module only puts those answers
+ * into the operator's own words in ONE place, so a test reads every sentence without rendering a page. Three
+ * rules: no raw slug ever reaches the screen; no number is invented; every row ends on a next step. */
 
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { isMature as kernelIsMature } from "@/domains/measurement";
-import type { ControlReceipt, KernelRead, MeasurementState, ShipmentVerification } from "@/domains/measurement";
+import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification } from "@/domains/measurement";
+import { RESULT_LINES } from "./results-lines";
+const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, nextStepLine, reasonWords, receiptOf, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+
 
 /** What one measured change carries on the Results surface. */
 export type ShipmentPresentation = {
@@ -24,12 +24,17 @@ export type ShipmentPresentation = {
   /** Which pages stood behind this one, and why each qualified. Absent on a row recorded before the
    *  receipt was kept, and then the screen never calls the comparison pages similar. */
   controlsReceipt?: ControlReceipt[] | null;
-  /** THE AI HALF OF THE SAME CHANGE, off the stored answers around its stamp: the direction and the one sentence the outcome engine wrote. Null when the change carries no scope or stamp, and then the screen says nothing about AI rather than implying it was watched. */
-  ai?: { direction: "improved" | "worsened" | "flat" | "unclear"; line: string } | null;
+  /** THE AI HALF OF THE SAME CHANGE, off the stored answers around its stamp: the direction of the objective the change declared, the sentence the outcome engine wrote, that objective's own numbers, and one sentence when the instrument moved under the reading. Null when the change carries no scope or stamp, and then the screen says nothing about AI rather than implying it was watched. */
+  ai?: { direction: "improved" | "worsened" | "no_clear_movement" | "mixed" | "unclear"; line: string; metricLines?: string[]; boundary?: string | null; terminal?: boolean;
+    /** Days since the stamp, capped at the 28 day stretch this is judged over, so the group can hold an early lean as still reading. */ daysElapsed?: number } | null;
+  /** THE YARDSTICK THIS CHANGE DECLARED AT THE PRESS, typed as the closed set a Shipment may carry so no surface can invent a sixth. An
+   *  AI objective means the AI outcome is the verdict and Google is the context, not the other way round. Absent (a row recorded before
+   *  the declaration existed) or "clicks" leaves everything exactly as it was. */
+  judgedMetric?: ShipmentObjective | null;
 };
 
 /** The four things a change can be, in the order the strip shows them. */
-type ResultsGroup = "worked" | "down" | "flat" | "reading";
+export type ResultsGroup = "worked" | "down" | "flat" | "reading";
 
 type ResultsRow = {
   id: string; path: string; url: string;
@@ -38,19 +43,28 @@ type ResultsRow = {
   group: ResultsGroup;
   verdictWord: string;
   dot: "emerald" | "rose" | "grey" | "sky";
-  /** Bar fill, -1 to 1, on ONE shared scale. Null when there is nothing to draw. */
+  /** Bar fill, -1 to 1, on ONE shared scale. Null when there is nothing to draw. An AI judged row draws ITS OWN objective's
+   *  direction here: a bar sized and signed off Google painted a rose bar across a won citation. */
   bar: number | null;
   barOpacity: number;
-  /** The short number for the row. Null when no number is claimed. */
+  /** The short number for the row. Null when no number is claimed. On an AI judged row this is the objective's own move in words,
+   *  because no click figure can stand in for it and the Google one used to sit there saying the opposite. */
   liftLabel: string | null;
   /** What has been read, for a row that has no number yet. */
   readLabel: string | null;
+  /** The Google appearances delta. Null on an AI judged row: a bare unlabelled Google number beside an AI verdict is read as the verdict's own. */
   impressionsLabel: string | null;
   /** The AI half in one sentence, off stored answers around the stamp. Null = not watched, and the row says nothing rather than implying it was. */ aiLine: string | null;
+  /** WHICH YARDSTICK DECIDED THIS ROW'S verdict, when it was not clicks. A reader must never have to guess whether "Worked" means traffic or citations. */ yardstick: string | null;
+  /** The declared objective's own numbers, one sentence each, under that line. Empty on a change judged on clicks: its AI line is an observation, not its yardstick. */ aiMetricLines: string[];
+  /** One sentence when a model or a mode moved under the reading, so a step reads as the instrument rather than as the change. Null when the whole stretch was one instrument. */ aiBoundary: string | null;
   chip: { text: string; amber: boolean } | null;
   pips: Array<{ day: number; state: "read" | "pending" | "shared" }>;
   pipCaption: string | null;
   happened: string;
+  /** THE GOOGLE HALF OF A ROW JUDGED ON AI, under its own heading so it can never be read as this row's answer. Null on a row
+   *  judged on clicks, whose Google sentence IS the story above. */
+  googleAside: { heading: string; line: string } | null;
   numbers: { before: [string, string]; after: [string, string] } | null;
   numbersNote: string | null;
   /** The pages this one was measured against, one line each, or empty when none is on file. */
@@ -85,67 +99,6 @@ const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
 // -- the closed label maps (a slug never reaches the screen) -------------------
 
-/** What the change actually was, said the way an operator would say it. */
-const WORK_LABEL: Record<string, string> = {
-  title: "the page title", meta: "the search description", h1: "the page headline",
-  opening_answer: "the answer at the top", answer_block: "the answer at the top",
-  intro_answer_block: "the answer at the top",
-  section: "a section", section_add: "a new section", section_remove: "a removed section",
-  section_rewrite: "a rewritten section", restructure: "the order of the page",
-  full_rewrite: "a full rewrite", factual_correction: "a factual correction",
-  paragraph_correction: "a corrected paragraph", source_pack: "the sources on the page",
-  source_update: "the sources on the page", entity_expansion: "more detail",
-  table_or_list_add: "a table", faq: "a questions and answers block",
-  schema: "the structured data", internal_links: "the internal links", internal_link: "an internal link",
-  internal_link_add: "an internal link", internal_link_remove: "a removed internal link",
-  anchor_text: "the wording of a link", canonical: "the canonical address",
-  redirect: "a redirect", noindex: "hiding the page from search", navigation: "the site navigation",
-  consolidation: "merging two pages", new_page: "a brand new page", create_page: "a brand new page",
-  keep_current: "watching without changing", monitor: "watching without changing",
-  // THE SECOND VOCABULARY. A row's action word is a KIND from the older producers ("title") or the
-  // FAMILY the bundle producer stamps off changeFamily ("title-family"). Only the kinds were mapped,
-  // so every bundle this account shipped rendered as the shrug "this change" while a real label existed.
-  "title-family": "the title and headline", "description-family": "the search description",
-  "section-family": "the content on the page", "links-family": "the internal links",
-  "technical-family": "the technical setup",
-  title_meta: "the title and search description", meta_description: "the search description",
-  description: "the search description", answer: "the answer at the top", snippet: "the answer at the top",
-  link: "an internal link", content: "the content on the page", edit_page: "the content on the page",
-  section_reorder: "the order of the page",
-};
-
-/** Unmapped input reads as "this change", never as its slug. */
-const workLabel = (raw: string): string =>
-  WORK_LABEL[(raw || "").toLowerCase()]
-  ?? WORK_LABEL[(raw || "").toLowerCase().replace(/^(edit|change|add|fix|update|create)_/, "")]
-  ?? "this change";
-
-/** What the proposal said was wrong with the page. An unmapped cause is left out entirely. */
-const CAUSE_LABEL: Record<string, string> = {
-  cannibalization: "two of your own pages competing for the same search",
-  ctr_snippet: "the line searchers saw not matching what they typed",
-  competitor_content_gap: "the pages beating you answering something yours did not",
-  incomplete_coverage: "the page answering part of the question and stopping",
-  weak_opening: "the page taking too long to answer",
-  serp_shape_shift: "the results page changing shape around you",
-  intent_shift: "people wanting something different from that search",
-  internal_link_weakness: "the rest of your site barely pointing at this page",
-  ai_citation_gap: "AI assistants answering the question without crediting you",
-  demand_decline: "fewer people searching for this at all",
-  ranking_loss: "the page sliding down the results",
-  retrieved_not_cited: "AI assistants reading your page and crediting someone else",
-  technical_indexability: "search engines not being able to read the page properly",
-};
-
-/** The family of work the change belonged to, in the operator's words. */
-const FAMILY_LABEL: Record<string, string> = {
-  "title-family": "a title and headline change", "section-family": "a content change",
-  "links-family": "an internal linking change", "technical-family": "a technical change",
-  consolidation: "merging pages", new_page: "a new page",
-};
-
-// -- the shared shape of a read -----------------------------------------------
-
 /** ONE shared scale for every bar on the screen: a move of a quarter against this page's own  starting point fills the bar, and everything larger is held at the edge. */
 const CLAMP = 0.25;
 
@@ -154,33 +107,20 @@ const isMature = (d: number | null): boolean => kernelIsMature(d as 7 | 14 | 28 
 /** ONE MATURITY RULE, THE SAME ONE THE LEDGER BANDS USE (proof-gsc/kernel.ts bandOf): a read whose window has not closed is still
  *  reading, whichever way it leans, and only a finished one is a settled answer. An early lean filed under "Worked" or "Went down"
  *  is what had Today saying "out of 12 finished" over a Results header saying 14, and it promised a verdict nothing had earned. */
-const groupOf = (r: KernelRead): ResultsGroup => {
+export const groupOf = (r: KernelRead): ResultsGroup => {
   if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return isMature(r.basisDay) ? "worked" : "reading";
   if (r.verdict === "directional_decline") return isMature(r.basisDay) ? "down" : "reading";
   if (r.verdict === "no_clear_movement" || r.verdict === "confounded") return isMature(r.basisDay) ? "flat" : "reading";
   return "reading";
 };
 
-/** The size of a move, never its sign: the sentence around it owns the direction. */
-function liftSize(metric: KernelRead["metric"], lift: number): string {
-  if (metric === "ctr") {
-    const pp = Math.abs(Math.round(lift * 1000) / 10);
-    return `${pp} point${pp === 1 ? "" : "s"} of click rate`;
-  }
-  const n = metric === "position" ? Math.round(Math.abs(lift) * 10) / 10 : Math.abs(Math.round(lift));
-  return `${n} ${metric === "position" ? "rank" : "click"}${n === 1 ? "" : "s"}`;
-}
-
-/** The short signed number for one row, compact enough to sit on one line. */
-function liftLabel(metric: KernelRead["metric"], lift: number): string {
-  if (Math.abs(lift) < 1e-9) return "Level";
-  const size = liftSize(metric, lift).replace("points of click rate", "click rate").replace("point of click rate", "click rate");
-  return `${lift > 0 ? "+" : "-"}${size} ${lift > 0 ? "ahead" : "behind"}`;
-}
-
 /** Where this row's bar sits on the one shared scale. Null when nothing is claimed. */
 function barOf(p: ShipmentPresentation): number | null {
   const r = p.read;
+  // AN AI JUDGED ROW IS DRAWN IN ITS OWN DIRECTION, at the smallest honest size, on the same rule the no-starting-point case below already
+  // uses: the objective carries a direction and no ratio, so the bar shows which way it went and never invents a size. Scaled off Google
+  // clicks, it drew a full rose bar across a citation this change had won.
+  if (judgedOnAi(p)) { const d = aiMove(p); return d === "improved" ? 0.18 : d === "worsened" ? -0.18 : d === "no_clear_movement" || d === "mixed" ? 0 : null; }
   if (r.basisDay == null || r.verdict === "confounded" || r.verdict === "waiting" || r.verdict === "insufficient_evidence") return null;
   const b = p.baseline;
   let rel = 0;
@@ -200,144 +140,14 @@ function barOf(p: ShipmentPresentation): number | null {
 }
 
 /** The next read that has not landed, as a day. */
-const nextReadDay = (r: KernelRead): string | null =>
+export const nextReadDay = (r: KernelRead): string | null =>
   monthDayLabel(r.windows.find((w) => w.state !== "closed")?.closesOn ?? null);
 
-const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
+export const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
 
-/** THE COMPARISON RECEIPT the measurement kernel keeps beside a change: which pages stood behind it and
- *  why each qualified. "Similar" is a claim, so a row whose receipt cannot back it says the smaller true
- *  thing instead. And a page with no Google traffic before the change prints no appearances number at
- *  all, a test the header totals reuse so they add up to exactly the rows on the screen. */
-const receiptOf = (p: ShipmentPresentation): ControlReceipt[] => p.controlsReceipt ?? [];
-/** WHY THAT PAGE QUALIFIED, in the operator's words. The kernel writes its own shorthand ("no open or measuring
- *  changes; traffic within 5x") and it reached the screen raw; an unmapped reason is DROPPED, never printed. */
-const REASON_LABEL: [RegExp, string][] = [[/^same page type/, "same kind of page"], [/^traffic within/, "similar traffic"],
-  [/^no open or measuring changes$/, "no other change running on it"],
-  [/^search data across the whole baseline window$/, "search data for the whole period before the change"]];
-const reasonWords = (reasons: readonly string[]): string[] =>
-  reasons.map((r) => REASON_LABEL.find(([re]) => re.test(r.trim().toLowerCase()))?.[1]).filter((s): s is string => s != null);
-const peersWord = (p: ShipmentPresentation): string =>
-  receiptOf(p).length > 0 ? "similar pages that were not changed" : "pages that were not changed";
 const showsImpressions = (p: ShipmentPresentation): boolean => !(p.baseline && p.baseline.impressions <= 0);
 
 // -- the sentences ------------------------------------------------------------
-
-/** WHAT WAS RECORDED WHEN NO FAIR COMPARISON EXISTS. Marking a change done is a fact about the work and is kept whatever
- *  the data says; whether it can be compared is a separate fact. One sentence each, naming which one is missing. */
-const MEASUREMENT_NOTE: Record<string, string> = {
-  measurement_unavailable: "Recorded. A fair comparison is not available yet: Search Console data for this site could not be read.",
-  insufficient_comparison: "Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.",
-  verification_needed: "Recorded from what was applied. The live page still has to be read before any result is claimed.",
-};
-
-/** One sentence for what happened, on the read that was actually used. */
-function happenedLine(p: ShipmentPresentation): string {
-  const r = p.read;
-  // Recorded, and honestly not judged: nothing about this row names a Search number to grade it on.
-  if (r.metric === "unclassified") return "Recorded, and not judged: what was changed here is not a kind that Search data can fairly compare.";
-  // Recorded, and nothing to compare it against yet. Said before the "first result lands" promise, which nothing is keeping.
-  const state = p.measurement ? MEASUREMENT_NOTE[p.measurement] : undefined;
-  if (state && r.basisDay == null) return state;
-  const peers = peersWord(p);
-  // SHARED CREDIT KEEPS ITS NUMBER AND NAMES THE DEMOTION: hiding the estimate read as if nothing had been measured.
-  if (r.verdict === "confounded") {
-    const held = r.basisDay == null ? ""
-      : ` Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}, held as shared credit rather than a win.`;
-    const day = monthDayLabel(r.cleanUntil);
-    if (day) return `This page changed again on ${day}, so the days after that belong to both changes.${held}`;
-    const n = r.overlappingIds.length;
-    return `${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time, so the credit is shared.${held}`;
-  }
-  if (r.basisDay == null) {
-    const next = nextReadDay(r);
-    return next ? `Nothing read yet. The first result lands ${next}.` : "Nothing read yet. The first result lands once a read closes.";
-  }
-  // TOO FEW PAGES TO STAND BEHIND IT IS NOT TOO LITTLE DATA: the days ran and the page moved, and the pair below shows it.
-  if (r.verdict === "insufficient_evidence") {
-    return r.comparison === "insufficient"
-      ? `Ran ${r.basisDay} days. A fair comparison is not available: too few pages on this site can stand behind this one.`
-      : `Ran ${r.basisDay} days, and there is too little Google data on this page to call it.`;
-  }
-  // ESTIMATED, NEVER CAUSED: the number compares against pages left alone, so no sentence says the change added anything.
-  const estimate = r.verdict === "no_clear_movement"
-    ? `Estimated lift: level with ${peers}`
-    : `Estimated lift: ${liftSize(r.metric, r.lift)} ${r.lift > 0 ? "ahead of" : "behind"} ${peers}`;
-  return isMature(r.basisDay) ? `Ran ${r.basisDay} days. ${estimate}.` : `${r.basisDay} days in. ${estimate}.`;
-}
-
-/** THE SITE'S OWN BEFORE AND AFTER where no fair comparison exists, labeled as exactly that. Printed
- *  only when the kernel exposes the unadjusted pair; nothing is scaled, guessed or filled in here. */
-function unadjustedLine(p: ShipmentPresentation): string | null {
-  const u = p.read.unadjusted;
-  if (p.read.comparison !== "insufficient" || !u) return null;
-  return `Before ${num(u.clicksBefore)} clicks / After ${num(u.clicksAfter)} clicks, unadjusted: the site moved too.`;
-}
-
-/** What this read carries forward, plus how much stands behind it. Clauses drop rather than guess. */
-function taughtLine(r: KernelRead): string {
-  const l = r.learning;
-  const family = FAMILY_LABEL[l.actionFamily];
-  const cause = l.diagnosisCause ? CAUSE_LABEL[l.diagnosisCause] : undefined;
-  const moved =
-    l.outcomeDirection === "up" ? "the page moved up after it"
-      : l.outcomeDirection === "down" ? "the page moved down after it"
-        : l.outcomeDirection === "flat" ? "the page did not clearly move"
-          : "it is too early to say which way this went";
-  const parts: string[] = [];
-  if (cause) parts.push(`this page read as ${cause}`);
-  if (family) parts.push(`it was answered with ${family}`);
-  parts.push(moved);
-  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED.
-  const carried = l.outcomeDirection && l.outcomeDirection !== "unclear"
-    ? "That carries into what gets recommended next on pages like this one."
-    : "Nothing carries forward from this one until it settles.";
-  const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
-    ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.`
-    : "Read once so far.";
-  return `${cap(parts.join(", "))}. ${carried} ${backing}`;
-}
-
-/** WHAT TO DO NEXT, PER FAMILY OF WORK. Three sentences told every operator to put the old wording
- *  back, including the ones whose change was a redirect or an internal link, where there was no
- *  wording to restore. This is the closed map off the family the kernel already resolved. */
-const NEXT_STEP: Record<string, readonly [up: string, down: string, flat: string]> = {
-  "title-family": ["Do this again on a similar page.", "Put the previous title back, then measure again.", "The words were not the lever here. Try a content change on this page."],
-  "section-family": ["Add the same kind of section to a similar page.", "Review what the new section replaced; restoring the old order is the honest test.", "The added copy did not move readers. A title sharpening is the cheaper next test."],
-  "links-family": ["Link the next weakest page the same way.", "This page slid down the results after the new links. Drop the weakest one, then read the position again.", "The position held where it was. Link to this page from a stronger page next."],
-  "technical-family": ["Apply the same technical fix to a similar page.", "Reverse the redirect only if the page lost real traffic; otherwise leave it and measure the next read.", "The technical fix moved nothing on its own. Leave it in place and try a content change here."],
-  consolidation: ["Merge the next pair of pages competing for the same search.", "The merged page lost ground. Split the two pages apart again, then measure.", "Merging moved nothing. Sharpen the title on the page that survived."],
-  new_page: ["Write the next page on the same kind of question.", "The new page is losing ground. Link to it from the pages that already rank before touching it again.", "The new page has not been found yet. Link to it from the pages that already rank."],
-};
-
-/** An unmapped family gets a step that never talks about wording it cannot see. */
-const GENERIC_NEXT = ["Do this again on a similar page.", "Undo what was applied here, then measure again.", "Nothing moved here. Try a different kind of change on this page."] as const;
-
-/** The one thing to do about this row. */
-function nextStepLine(r: KernelRead): string {
-  if (r.metric === "unclassified") return "Nothing to wait for on this one.";
-  if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
-  const d = r.learning.outcomeDirection;
-  if (d !== "unclear") return (NEXT_STEP[r.learning.actionFamily] ?? GENERIC_NEXT)[d === "up" ? 0 : d === "down" ? 1 : 2];
-  const next = nextReadDay(r);
-  return next ? `Nothing to do until ${next}.` : "Nothing to do until the next read lands.";
-}
-
-/** At most two, and only the ones this row actually carries. */
-function caveatLines(r: KernelRead): string[] {
-  const out: string[] = [];
-  const day = monthDayLabel(r.cleanUntil);
-  if (day) out.push(`This page changed again on ${day}. The days after that belong to both changes.`);
-  else if (r.overlappingIds.length > 0) {
-    const n = r.overlappingIds.length;
-    out.push(`${n} other ${n === 1 ? "change" : "changes"} landed on this page at the same time.`);
-  }
-  if (r.windows.some((w) => w.state === "pending_data")) {
-    out.push("Google has not finalized the latest days yet. It reports a few days behind.");
-  }
-  if (r.confidence === "low" && r.basisDay != null && out.length < 2) out.push("Too few similar pages stood behind this one to call it a sure read.");
-  return out.slice(0, 2);
-}
 
 /** Marked done, the live check, the last read that landed and the next one owed. */
 function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: boolean }> {
@@ -348,17 +158,28 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
     p.verification && checked ? { label: `Live page checked ${checked}`, done: true } : { label: "Live page not read yet", done: false },
   ];
+  // A ROW JUDGED ON AI IS READ OVER ITS OWN 28 DAYS FROM THE STAMP, not over the Google windows: a change three days into its
+  // citation read carried "28 day read May 29, done" beside its own "Reading". No date is printed for it, because none is on file.
+  if (judgedOnAi(p)) {
+    const d = aiDays(p);
+    out.push({ label: d >= 28 ? "28 day read done" : `Day ${d} of the 28 day read`, done: d >= 28 });
+    return out;
+  }
   if (done) out.push({ label: `${done.day} day read ${monthDayLabel(done.closesOn) ?? ""}`.trim(), done: true });
   if (next) out.push({ label: `${next.day} day read ${monthDayLabel(next.closesOn) ?? ""}`.trim(), done: false });
   return out;
 }
 
-/** The one exception worth a chip, or none. Shared credit always wins the slot. */
+/** The one exception worth a chip, or none. Shared credit always wins the slot. AUTHORSHIP IS SAID OUT LOUD
+ *  (Codex, 2026-08-21): a live page carrying wording that differs from what Beacon wrote is still measured,
+ *  and its result is the operator's rather than Beacon-authored work, so the chip names whose wording won. */
 function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | null {
   if (p.read.verdict === "confounded") return { text: "Shared with a later change", amber: true };
   const v = p.verification;
   if (!v) return { text: "Live page not read yet", amber: false };
   if (v.status === "verified") return null;
+  if (v.status === "differs" || v.components?.some((c) => c.state === "changed_differently"))
+    return { text: "Measured on your own wording, not Beacon's", amber: false };
   if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };
   return { text: "Not on the live page yet", amber: false };
 }
@@ -386,7 +207,8 @@ function numbersOf(p: ShipmentPresentation): { numbers: ResultsRow["numbers"]; n
 
 function rowOf(p: ShipmentPresentation): ResultsRow {
   const r = p.read;
-  const group = groupOf(r);
+  const group = groupFor(p);
+  const onAi = judgedOnAi(p), aiDone = aiDays(p), move = onAi ? aiMove(p) : null;
   const shared = r.verdict === "confounded";
   const done = lastClosed(r);
   const next = r.windows.find((w) => w.state !== "closed");
@@ -400,35 +222,54 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
     url: r.page,
     work: workLabel(r.actionType),
     group,
-    verdictWord: shared ? "Shared with a later change"
-      : r.metric === "unclassified" ? "Not judged"
+    // THE COLLAPSED ROW IS HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): no clear movement, a split
+    // between assistants and a terminally unmeasurable result are three different silences, and only a real
+    // control-based flat result may say "No change".
+    verdictWord: shared && !onAi ? "Shared with a later change"
+      : r.metric === "unclassified" && !onAi ? "Not judged"
         : group === "worked" ? "Worked"
-        : group === "down" ? "Went down" : group === "flat" ? "No change" : "Reading",
+        : group === "down" ? "Went down"
+          : group !== "flat" ? "Reading"
+            : p.ai?.terminal === true ? "Not measurable"
+              : move === "mixed" ? "Assistants split"
+                : onAi ? "No clear movement" : "No change",
     dot: group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
     bar,
-    barOpacity: r.confidence === "high" ? 1 : r.confidence === "medium" ? 0.65 : 0.4,
-    liftLabel: claimNumber ? liftLabel(r.metric, r.lift) : null,
-    readLabel: done ? `${done.day} day read done` : "Nothing read yet",
+    // A Google confidence dims a GOOGLE bar only: dimmed to 0.4 under a won citation it printed a doubt no
+    // reading of that objective had expressed.
+    barOpacity: onAi ? 1 : r.confidence === "high" ? 1 : r.confidence === "medium" ? 0.65 : 0.4,
+    // THE ONE VALUE THE COLLAPSED LINE SHOWS. It preferred the Google number over the verdict word, so a citation win printed
+    // "-30 clicks behind" in green under "Worked". The objective's own move is a word, never a click figure standing in for it.
+    liftLabel: onAi ? (move ? `${aiStory(p)[0]} ${AI_MOVE[move].replace(/ (than|as) before$/, "")}` : null)
+      : claimNumber ? liftLabel(r.metric, r.lift) : null,
+    readLabel: onAi ? (aiDone >= 28 ? "28 day read done" : aiDone > 0 ? `${aiDone} of 28 days in` : "Nothing read yet")
+      : done ? `${done.day} day read done` : "Nothing read yet",
     // A page with no traffic on file before the change gets no delta at all: there is nothing to count from. Everything else prints what was read, and "Level" rather than a bare zero.
-    impressionsLabel: claimNumber && showsImpressions(p)
-      ? (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift))
-      : null,
+    impressionsLabel: onAi || !claimNumber || !showsImpressions(p) ? null
+      : (Math.abs(r.impressionsLift) < 0.5 ? "Level" : signed(r.impressionsLift)),
     chip: chipOf(p),
-    pips: r.windows.filter((w) => w.day !== 56).map((w) => ({
-      day: w.day,
-      state: w.confounded != null ? "shared" as const : w.state === "closed" ? "read" as const : "pending" as const,
-    })),
-    pipCaption: next ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}`
-      : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
-    happened: happenedLine(p),
+    // The dots count down the read THIS row is judged over. A citation change one day in showed three filled dots and "Done May 29",
+    // because those are the Google windows, beside its own "Reading".
+    pips: onAi ? [7, 14, 28].map((day) => ({ day, state: aiDone >= day ? "read" as const : "pending" as const }))
+      : r.windows.filter((w) => w.day !== 56).map((w) => ({
+        day: w.day,
+        state: w.confounded != null ? "shared" as const : w.state === "closed" ? "read" as const : "pending" as const,
+      })),
+    pipCaption: onAi ? (aiDone >= 28 ? "Read over 28 days" : aiDone > 0 ? `Day ${aiDone} of 28` : "Nothing read yet")
+      : next ? `Next ${monthDayLabel(next.closesOn) ?? "soon"}`
+        : done ? `Done ${monthDayLabel(done.closesOn) ?? ""}`.trim() : null,
+    happened: onAi ? aiHappenedLine(p) : happenedLine(p),
+    // GOOGLE STAYS ON THE ROW AND STOPS BEING THE ANSWER: same sentence, same before and after, under a heading that says whose they are.
+    googleAside: onAi ? { heading: "Google search, for context", line: happenedLine(p) } : null,
     numbers,
     numbersNote: note,
     comparedAgainst: receiptOf(p).map((c) => ((w) => (w.length > 0 ? `${c.path} (${w.join("; ")})` : c.path))(reasonWords(c.reasons))),
-    unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null,
-    caveats: caveatLines(r),
+    unadjustedNote: unadjustedLine(p), aiLine: p.ai?.line ?? null, yardstick: yardstickOf(p.judgedMetric),
+    aiMetricLines: p.ai?.metricLines ?? [], aiBoundary: p.ai?.boundary ?? null,
+    caveats: caveatLines(r, onAi),
     timeline: timelineLines(p),
-    taught: taughtLine(r),
-    nextStep: nextStepLine(r),
+    taught: taughtLine(p),
+    nextStep: nextStepLine(p),
     sort: group === "worked" ? -(bar ?? 0)
       : group === "down" ? (bar ?? 0)
         : group === "flat" ? -started
@@ -441,13 +282,15 @@ function rowOf(p: ShipmentPresentation): ResultsRow {
  */
 export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>): ResultsView {
   const rows: Record<ResultsGroup, ResultsRow[]> = { worked: [], down: [], flat: [], reading: [] };
-  for (const p of shipments) rows[groupOf(p.read)].push(rowOf(p));
+  for (const p of shipments) rows[groupFor(p)].push(rowOf(p));
   for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
   const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };
 
-  // The denominator is SETTLED changes only: the ones that finished their 28 day read.
-  const settled = shipments.filter((p) => isMature(p.read.basisDay) && groupOf(p.read) !== "reading");
-  const wins = settled.filter((p) => groupOf(p.read) === "worked");
+  // SETTLED = finished its 28 day read ON ITS OWN YARDSTICK, off the ONE grouping: reading it off the Google
+  // verdict while the strip grouped on the declared one let a citation win sit under a header saying nothing
+  // had finished. `groupFor` already holds an unfinished read of either kind as reading.
+  const settled = shipments.filter((p) => groupFor(p) !== "reading");
+  const wins = settled.filter((p) => groupFor(p) === "worked");
   const soonestDay = monthDayLabel(shipments
     .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
     .filter((d): d is string => d != null).sort()[0] ?? null);
@@ -455,8 +298,12 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>)
   // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost more than it
   // gained still read "+54 clicks added". They now add up EVERY settled row exactly as the screen prints it
   // (rounded, and nothing from a row that claims no number), and the gross from the wins drops to the second line.
-  const counted = settled.filter((p) => p.read.verdict !== "confounded" && p.read.verdict !== "insufficient_evidence");
-  const won = (p: ShipmentPresentation) => groupOf(p.read) === "worked";
+  // THE TOTALS ARE THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click figure at all, so folding its
+  // Google numbers in made a header nobody could reconcile against the list under it; a row with no closed
+  // window would add a zero reading as "earned nothing" rather than "nothing read yet". Its Google movement
+  // stays on the row itself, in the labelled aside, as context and never as a claim.
+  const counted = settled.filter((p) => !judgedOnAi(p) && p.read.verdict !== "confounded" && p.read.verdict !== "insufficient_evidence" && isMature(p.read.basisDay));
+  const won = (p: ShipmentPresentation) => groupFor(p) === "worked";
   const total = (list: ShipmentPresentation[], of: (p: ShipmentPresentation) => number) => list.reduce((s, p) => s + Math.round(of(p)), 0);
   // Clicks are summed only where the read was measured in clicks; a rate read adds its count instead of a number pretending to be one.
   const clicked = counted.filter((p) => p.read.metric === "clicks");
