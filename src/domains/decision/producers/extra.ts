@@ -301,3 +301,18 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
   return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank };
 }
+
+/** THE ONE ENTRANCE FOR A PASS: loads the canonical demand units once (the collapse producer and the AI
+ *  producer must join the SAME audiences) and runs the $0 queue. It exists because the paid funnel's early
+ *  return skipped this producer entirely on a quiet day, and a paused quiet account then never judged or
+ *  filed a single AI case (found on the first canonical $0 acceptance run, 2026-08-21). Both produce paths
+ *  call this; a failed unit load narrows the pass, never fails it. */
+export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
+  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean }): Promise<{
+  run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {
+  const unitLoad = await import("@/domains/evidence/demand-unit-loader")
+    .then((m) => m.loadCanonicalDemandUnits(input.tenantId, input.snapshot, input.curve, input.now)).catch(() => null);
+  const run = await extraQueueCards({ ...input, ...(unitLoad ? { units: unitLoad.units } : {}) })
+    .catch(() => ({ cards: [], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
+  return { run, unitLoad };
+}

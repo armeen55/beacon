@@ -68,6 +68,9 @@ vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => {
     if (env.aiWindow === "fail") throw new Error("canceling statement due to statement timeout");
     return env.aiWindow;
   } }; });
+vi.mock("@/domains/decision/coverage-pass", async (orig) => {
+  const actual = (await orig()) as typeof import("@/domains/decision/coverage-pass");
+  return { ...actual, readCoverage: async () => null, recordCoverageNeeds: async () => undefined }; });
 vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/answer-journeys");
   return { ...actual, readAnswerJourneys: async () => [] }; });
@@ -268,6 +271,18 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(onVisibility.state).toBe("unreported");
     expect(onVisibility.href).toBeNull();
     expect(onChanges).toBe(onVisibility.line);
+  });
+
+  it("judges and files the AI cases on a QUIET day, through the whole produce pass", async () => {
+    // The first canonical $0 acceptance run: paused account, no actionable Google candidate, and the pass
+    // returned before the $0 queue ever ran, so the case file stayed empty forever. The quiet path runs the
+    // AI producer now, and what it decided is durably on file when the pass returns.
+    env.snapshot = aiSnapshot();
+    env.aiWindow = [];
+    const out = await produceProposalsForTenant(TENANT, { zeroSpend: true });
+    expect(out.outcome).not.toBe("persistence_failed");
+    expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
+    expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported");
   });
 
   it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {

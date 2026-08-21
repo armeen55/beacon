@@ -206,10 +206,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const RECOVERS_A_FALL = new Set(["title", "h1", "answer_block", "thin_page", "missing_description"]);
   const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
   const recovered = (p: ChangeProposal): ChangeProposal => {
-    // AN ACCURACY DEFECT NEVER INHERITS A FALL. Every bundle used to be handed the page's lost clicks and a
-    // sentence saying that fall is what it is ranked on, so a card about statements contradicting their own
-    // sources arrived claiming 192 clicks nothing tied it to: the exact merge of two separate truths the
-    // operator forbade on 2026-08-17. A cause that claims no clicks by construction is left alone.
+    // AN ACCURACY DEFECT NEVER INHERITS A FALL: handed the page's lost clicks, a card about statements contradicting their own sources arrived claiming 192 clicks nothing tied it to (the merge of two separate truths the operator forbade, 2026-08-17). A cause that claims no clicks by construction is left alone.
     if ((p.causeFinding?.cause ?? p.diagnosisCause) === "factual_error") return p;
     if (!p.bundle && !RECOVERS_A_FALL.has(p.changeFamily)) return p;
     const lost = lostByKey.get((p.pageUrl ?? "").trim().toLowerCase()) ?? lostByKey.get((p.pagePath ?? "").trim().toLowerCase()) ?? 0;
@@ -320,20 +317,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return { families: SUGGESTED_FAMILIES, complete: gscComplete };
   };
   /** A CARD THIS PASS DID NOT RE-EMIT IS ONE THE GENERATOR NO LONGER STANDS BEHIND, so it is taken back. Serving it beside the card that replaced it is how a query-pasted title outlived its own fix. Only untouched needs_review rows in the families a producer that FINISHED rewrites IN FULL qualify: anything the operator acted on, every bundle, and every family nobody finished, all stay. */
-  // THE PAGES THE BUNDLE DOOR ACTUALLY WALKED THIS PASS. A bundle row was exempt from every sweep, so a door
-  // that stopped emitting one left it standing for ever: two refuted "settle which page owns this search"
-  // rows outlived the evidence that minted them and had to be withdrawn by hand, and while they stood their
-  // page-level suppression hid the real card for that page (operator, 2026-08-17). A bundle may now be swept,
-  // but ONLY on a page this pass genuinely re-walked: silence about a page nobody looked at proves nothing.
+  // THE PAGES THE BUNDLE DOOR ACTUALLY WALKED THIS PASS. Exempt from every sweep, two refuted "settle which page owns this search" rows outlived their evidence and their page-level suppression hid the real card (operator, 2026-08-17). A bundle may be swept, but ONLY on a page this pass genuinely re-walked: silence about a page nobody looked at proves nothing.
   const doorWalked = new Set<string>();
   const sweepStale = async (runs: readonly ProducerRun[]): Promise<void> => {
     if (!persist) return;
     const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]);
     if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
     const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`), ids = new Set(proposals.map((p) => p.id));
-    // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence on
-    // a page the paid bound never reached is a real withdrawal; shielding it kept thirty-five titles minted
-    // under a boundary that no longer exists alive for days (operator, 2026-08-17: the cheetah card).
+    // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence past the paid bound is a real withdrawal; shielding it kept thirty-five stale titles alive for days (operator, 2026-08-17: the cheetah card).
     const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})$`);
     let taken = 0;
     for (const [id, row] of existing) {
@@ -364,14 +355,12 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const deep = selectDeepCandidates({ candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
   /** Pages already carrying a change under measurement: a second change on one of them cannot be saved. */
-  const measuringPagesEarly = new Set([...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => (r.pagePath ?? "").trim().toLowerCase()));
+  // The ONE measuring context the pass already derived, plus every implemented store row whatever its age:
+  // reading only the store here let a page the caller declared under measurement take a fresh $0 card.
+  const measuringPagesEarly = new Set([...measuring.measuringPagePaths, ...[...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => r.pagePath ?? "")].map((path) => path.trim().toLowerCase()));
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   const consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
-  // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks and nothing else, so a
-  // correction is reproducible instead of typed into the store once (operator, 2026-08-17). READ BEFORE THE
-  // QUIET-DAY RETURN: this producer costs nothing and reads only stored evidence, and leaving it below the
-  // early exit meant a day when no page earned a paid draft could never regenerate a correction bundle at
-  // all (Codex, 2026-08-18: two ordinary passes must reproduce it).
+  // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks alone, so a correction is reproducible (operator, 2026-08-17). READ BEFORE THE QUIET-DAY RETURN: this $0 producer below the early exit meant a quiet day could never regenerate a correction bundle (Codex, 2026-08-18: two ordinary passes must reproduce it).
   const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
   for (const c of factual.cards) {
@@ -380,10 +369,30 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const p = { ...c, ...(basis ? { basis } : {}) };
     if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); await persistIfChanged(p); }
   }
+  // THE $0 QUEUE RUNS ON EVERY PATH. The bank of coverage debt and the held refusals land the same way both
+  // times, and only ONE run happens per pass because the two paths are exclusive.
+  const runExtraQueue = async () => {
+    const out = await import("./producers/extra").then((m) => m.extraQueuePass({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, persist }))
+      .catch(() => ({ run: { cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [] as { query: string; refusedPages?: string[] }[], families: [] as string[] }, unitLoad: null }));
+    extraHeld.push(...(out.run.held ?? []));
+    // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the coverage walk owns what happens next.
+    if (persist && out.run.needsOwnPage.length > 0) await recordCoverageNeeds(tenantId, out.run.needsOwnPage, opts.now ?? new Date()).catch(() => undefined);
+    return out;
+  };
   if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
+    // A QUIET DAY STILL JUDGES THE AI CASES. Returning before the $0 queue meant a paused account with no
+    // actionable Google candidate never ran the AI producer at all: no verdict filed, no AI family swept,
+    // which the first canonical $0 acceptance run surfaced as an empty case file (2026-08-21).
+    const quiet = (await runExtraQueue()).run;
+    for (const c of quiet.cards) {
+      if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue;
+      const p = { ...c, ...(basis ? { basis } : {}) };
+      if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); await persistIfChanged(p); }
+    }
     // A proven gap with no explanation yet is NOT a quiet day, and neither is one that cannot be drafted.
-    await sweepStale([await withSuggestions(proposals), { families: ["factual_correction"], complete: factual.complete }]);
+    await sweepStale([await withSuggestions(proposals), { families: ["factual_correction"], complete: factual.complete },
+      { families: quiet.families, complete: quiet.families.length > 0 }]);
     return { proposals: await rankAndStamp(proposals), candidates: runReceipt(),
       outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating"
         : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
@@ -493,25 +502,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
 
   const suggested = await withSuggestions(proposals);
-  // THE COLLAPSE PRODUCER: the largest losses this account's own sixteen months of history can PROVE become
-  // cards before any defect sweep fills the queue. Guarded like every producer: absent or throwing narrows
-  // the pass, and a failed history read sweeps nothing.
-  // THE UNITS ARE LOADED ONCE FOR THE PASS: the collapse producer and the AI producer join the SAME audiences
-  // or the canonical unit is canonical in name only. A failed load narrows both, never fails the pass.
-  const unitLoad = await import("@/domains/evidence/demand-unit-loader")
-    .then((m) => m.loadCanonicalDemandUnits(tenantId, snapshot, curve, opts.now ?? new Date())).catch(() => null);
+  // THE COLLAPSE PRODUCER: the largest losses the account's own history can PROVE become cards before any defect sweep fills the queue; a failed history read sweeps nothing. The $0 queue rides its ONE entrance (producers/extra.extraQueuePass), which owns the unit load so both producers join the SAME audiences.
+  const { run: extra, unitLoad } = await runExtraQueue();
   const recovery = await import("./producers/demand-recovery").then((m) => m.demandRecoveryCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, ...(unitLoad ? { preloaded: unitLoad } : {}) }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false, window: { earlyDays: 0, earlyFrom: null, earlyTo: null }, losses: [] }));
-  // EVERY OTHER WAY THE QUEUE FILLS ITSELF, off stored evidence and no dollars. Guarded on purpose: a producer that is not there, or throws, narrows this pass rather than failing it.
-  const extra = await import("./producers/extra").then((m) => m.extraQueueCards({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, persist, ...(unitLoad ? { units: unitLoad.units } : {}) }))
-    .catch(() => ({ cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [], families: [] as string[] }));
-  // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the producers own the verdict, the coverage walk owns what happens next, and it happens only once the search has earned it. Read defensively, so a producer not surfacing them yet banks nothing. THEN THE WORDS GO ON THE CARDS, after the $0 producers and never inside one, so a budget block changes which cards CARRY COPY, never which exist or which are swept.
-  const owed = (extra as { needsOwnPage?: Array<{ query: string; refusedPages?: string[] }> }).needsOwnPage ?? [];
-  if (persist && owed.length > 0) await recordCoverageNeeds(tenantId, owed, opts.now ?? new Date()).catch(() => undefined);
-  // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize is not worth paying to write.
-  // AND NEITHER IS A CARD THE STORE WILL REFUSE TO SAVE: a page holding an implemented change under
-  // measurement rejects every new draft at save time, and drafting one anyway spent up to four charged calls
-  // per pass on copy that could never land while the cards behind it starved.
+  // THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize, or that the store will refuse (a page under measurement rejects new drafts at save time), is not worth paying to write; drafting one anyway spent four charged calls a pass on copy that could never land.
   const measuringPages = measuringPagesEarly;
   const allowed: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
     if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
@@ -532,8 +527,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     proposals.push(card); await persistIfChanged(card);
   }
   // EACH PRODUCER SWEEPS ITS OWN FAMILIES, per family: `extra.families` lists only the ones whose evidence answered in full, so gating them on extra.complete froze finished sweeps for a neighbour's outage.
-  extraHeld.push(...(extra.held ?? []));
-  const extraFamilies = (extra as { families?: string[] }).families ?? [...EXTRA_FAMILIES];
+  const extraFamilies = extra.families ?? [...EXTRA_FAMILIES];
   await sweepStale([suggested, { families: extraFamilies, complete: extraFamilies.length > 0 },
     { families: ["demand_recovery"], complete: recovery.complete },
     // A page whose corrected words are live checks out on the next run, so its card retires itself here.

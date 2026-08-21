@@ -140,9 +140,13 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     // WHETHER A ROW MAY BE SHOWN IS NOT A SCORE. A row waiting on a look used to be sunk 250 points here, more than every other factor put together, so nothing riding on a change could outweigh it and a description on a page shown three times ranked beside a page bleeding 152 clicks. Settled where it belongs instead: the queue admits only finished work and the surface keeps the two apart.
     const waiting = baseProposal({ id: "waiting", status: "needs_review", impactScore: 9999 });
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), waiting, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["waiting", "small-real-gap", "huge-no-gap"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(baseProposal({ impactScore: 0 }))); });
-  it("treats nothing worth doing as a SUCCESS with no proposals, and never calls the drafter", async () => {
-    reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns an action, so nothing is drafted
-    expect([res.outcome, res.actionable, res.proposals.length, res.candidates.length]).toEqual(["no_actionable_candidate", 0, 0, 1]); expect(called).toBe(0); expect(env.saved).toEqual([]); }); // no paid call, no persisted row
+  it("treats nothing worth PAYING for as a quiet day for the drafter, while the $0 queue still works it", async () => {
+    reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns a PAID action
+    // The early return used to skip the $0 producers entirely, so a quiet (or paused) account never judged
+    // its AI cases or minted its free defect work at all (canonical $0 acceptance run, 2026-08-21).
+    expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called
+    expect(res.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); // only $0 work, nothing paid
+    expect(env.saved.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); }); // and nothing persisted claims to be drafted copy
   // ABSENCE OF A SOURCE MAY NEVER BECOME DELETION OF THE QUEUE: a live pass whose search read timed out judged every page clean and published that over a release holding real work.
   it("changes nothing at all when the search data did not answer, and still publishes when the account genuinely holds none", async () => {
     const stored = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today" });
@@ -203,7 +207,7 @@ describe("the pass says what it is investigating without turning any of it into 
     let called = 0; const complete: CompleteFn = async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; };
     reset(world()); const first = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW }); reset(world()); const again = await produceProposalsForTenant("fixture-tenant", { complete, now: NOW });
     expect(first.investigations.length).toBeGreaterThan(0); expect(first.coverage).toEqual(again.coverage); // the packet reaches the pass, and the same evidence reaches the same answer every time
-    expect([first.outcome, first.proposals.length, called, env.saved.length]).toEqual(["no_actionable_candidate", 0, 0, 0]); }); // no candidate, no draft, no row
+    expect([called, first.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")]).toEqual([0, true]); }); // no candidate earns a DRAFT; the $0 queue may still mint research-only work
   it("queues one search per topic and only what buying can actually close", async () => {
     const asked = canon({ promptId: "p1", promptText: "where do I see nowruz fire jumping", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: ["nowruz fire jumping"], observedAt: LOOKED_AT });
     reset(snap([GAP, WEAK], { ...GUIDED, aiObservations: [asked] }, DEMAND)); // one topic never looked at, one whose winners I have not read, and two searches my own pages are losing that are no topic at all
