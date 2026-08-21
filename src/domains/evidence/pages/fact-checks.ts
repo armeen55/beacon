@@ -27,7 +27,7 @@ export type SourceKind = "scholarly" | "dictionary" | "encyclopedia" | "referenc
 
 /** THE CLAIM'S OWN LIFECYCLE, which is also the resume cursor. `owed` = the page makes it and nobody checked
  *  it yet. `checked` = researched at this version. `superseded` = history, kept, never deleted, never work. */
-export type ClaimState = "owed" | "checked" | "superseded";
+type ClaimState = "owed" | "checked" | "superseded";
 
 /** WHICH RULES PRODUCED A VERDICT. Version 1 is everything researched before 2026-08-18: it searched the
  *  SUBJECT alone, and it banked `checked` on sources it never managed to read. Version 2 searches the whole

@@ -57,9 +57,8 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { retu
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
-    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING. Two tests in this file read the queue through the
-    // production path, which ages a receiptless row against the REAL clock (EVIDENCE_VALID_DAYS), and a pinned
-    // absolute date armed itself as a date bomb: the suite went red on 2026-08-21 with no change anywhere.
+    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING: a pinned absolute date armed itself as a date bomb
+    // against EVIDENCE_VALID_DAYS and the suite went red with no change anywhere (2026-08-21).
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: new Date(Date.now() - 5 * 86_400_000).toISOString(), ...over };
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
@@ -142,8 +141,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), waiting, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["waiting", "small-real-gap", "huge-no-gap"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(baseProposal({ impactScore: 0 }))); });
   it("treats nothing worth PAYING for as a quiet day for the drafter, while the $0 queue still works it", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns a PAID action
-    // The early return used to skip the $0 producers entirely, so a quiet (or paused) account never judged
-    // its AI cases or minted its free defect work at all (canonical $0 acceptance run, 2026-08-21).
+    // The early return used to skip the $0 producers entirely (canonical $0 acceptance run, 2026-08-21).
     expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called
     expect(res.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); // only $0 work, nothing paid
     expect(env.saved.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); }); // and nothing persisted claims to be drafted copy
@@ -259,6 +257,17 @@ const pageSeam = (brief: unknown, sections = true): CompleteFn => async ({ kind,
   ({ value: (kind === "new_page_brief" ? brief : kind === "section_draft" ? (sections || user.includes("Section to write: What a haft seen table is") ? sectionDraft(user) : {}) : VALID_ATOMIC_EDIT) as never });
 const briefSeam = (brief: unknown = BRIEF): { complete: CompleteFn; kinds: string[] } => { const kinds: string[] = []; const inner = pageSeam(brief);
   return { kinds, complete: async (r) => { kinds.push(r.kind); return inner(r); } }; };
+describe("a new page needs a positive yes, never just the absence of a no", () => {
+  it("authorizes a topic the account's own confirmations or demand tie to, and refuses one nothing ties to", async () => {
+    const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage");
+    const world = snap([GAP], READY(), DEMAND);
+    const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
+    expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
+    const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] };
+    expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
+  });
+});
+
 describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
   it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);

@@ -1,18 +1,7 @@
 import "server-only";
 
 /**
- * warm-caches - the surface-release warm build. The one job: settle who the competition actually is, rebuild the shared demand-graph snapshot, then rebuild
- * and publish the Today + Changes surface release, so the first render after fresh data is instant AND complete. Composition only: each step calls the
- * EXISTING loader/builder, and the one piece of judgment below exists because Evidence may not reach a provider and this is the pass that pays for one.
- *
- * WHY IT EXISTS: the manual "Update data" refresh pulls fresh data and then repaints via `revalidatePath("/")`, and without this that repaint pays the full
- * ~6s cold demand-graph build right when the operator is watching while the deadline-raced Today sections fall back to "here on your next visit". Warming here
- * (build-then-write always rebuilds from the just-pulled data) makes the post-refresh repaint instant and complete. MONEY POSTURE: the graph, changes and today
- * loaders are cached or durable reads only ($0), and the competitor inspection is capped, cached against the exact evidence it was decided on, and asks nobody
- * anything while that evidence has not moved. FAILURE POSTURE (Slice 4 truth boundary): this PROPAGATES a build failure, because the Research Run
- * publish_surface phase may set surfacePublished:true only after a real publish resolved and must pause rather than advance when it fails. Callers that want
- * fail-soft warming (the connectors "Update data" action) own an explicit .catch at their call site.
- */
+/** warm-caches - the surface-release warm build: settle the competition, rebuild the shared demand-graph snapshot, publish the Today + Changes release, so the post-refresh repaint is instant and complete instead of a ~6s cold build under the operator's eyes. Composition only over existing loaders. MONEY: $0 reads except the capped, evidence-cached competitor inspection. FAILURE: a build failure PROPAGATES (publish_surface may set surfacePublished only after a real publish); fail-soft callers own their .catch. */
 
 import { z } from "zod";
 
@@ -62,7 +51,7 @@ export async function finalizeFreeSurfaces(tenantId: string): Promise<void> {
  *  ride along: an excluded domain is never inspected and a pinned one never buys a verdict. Fail-soft:
  *  unsettled is honest, never a hold. The old name, warmFreeSurfaces, claimed free and could spend; the two
  *  halves are separate calls now so no caller can buy by accident. */
-export async function warmPaidCompetitorContext(tenantId: string): Promise<void> {
+async function warmPaidCompetitorContext(tenantId: string): Promise<void> {
   const profile = await loadBusinessProfile(tenantId).catch(() => null);
   const overrides = (profile?.competitors.value ?? []).filter((c) => !!c.domain)
     .map((c) => ({ domain: c.domain!, action: c.action ?? ("pin" as const), kind: c.kind as CompetitorKind | undefined }));

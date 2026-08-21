@@ -63,7 +63,7 @@ export const pageHashOf = (body: string): string => createHash("sha256").update(
 
 /** WHAT KIND OF CLAIM THIS IS, which SHAPES how you look for a source but never erases what is being verified.
  *  Deterministic and total: an unrecognised claim is a plain definition, which searches plainly. */
-export type ClaimType = "word_meaning" | "date_or_event" | "quantity" | "definition" | "specification" | "entity_fact" | "geography";
+type ClaimType = "word_meaning" | "date_or_event" | "quantity" | "definition" | "specification" | "entity_fact" | "geography";
 
 export function claimTypeOf(subject: string, current: string): ClaimType {
   const t = `${subject} ${current}`.toLowerCase();
@@ -132,11 +132,11 @@ type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string
 /** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
  *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
  *  not be reached. Each is a different debt and each leaves the claim owed (Codex, 2026-08-18). */
-export type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
+type ProviderHold = "capped" | "waiting" | "refused" | "unavailable";
 
 /** The one model call a unit may make. `kind` names the STRUCTURED OUTPUT SCHEMA the answer must satisfy, so
  *  a caller cannot quietly ask the editor judge for a claim list and read zero statements for ever. */
-export type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judgement";
+type StructuredRead = (input: { kind: "fact_claim_extraction" | "fact_claim_judgement";
   system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number })
   => Promise<{ value: Record<string, unknown> } | { hold: ProviderHold }>;
 
@@ -148,12 +148,12 @@ type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed"
   | `extraction_${ProviderHold}` | `search_${ProviderHold}` | `fetch_${ProviderHold}` | `judge_${ProviderHold}`;
 
 /** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
-export type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
+type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
 /** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
-export type SourceAnswer = { text: string } | { hold: ProviderHold };
+type SourceAnswer = { text: string } | { hold: ProviderHold };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
-export type FactCheckCursor = {
+type FactCheckCursor = {
   page: string; pageContentHash: string | null; evidenceBasis: string | null;
   /** How many of this page version's claims are researched, out of how many are inventoried SO FAR. */
   checked: number; total: number;
@@ -180,7 +180,7 @@ type FactCheckUnitDeps = {
 /** WHAT ONE UNIT DID. `advanced` = durable progress was STORED (a claim banked, or the next section
  *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the
  *  claim is still owed, which is not the same answer and must never move a run on to publishing. */
-export type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
+type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
   cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
@@ -368,7 +368,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}`.trim() });
 }
 
-export type FactCheckPassDeps = {
+type FactCheckPassDeps = {
   tenantId: string; basis: string | null; deadlineAt: number;
   /** Pages in the order they should be worked, bodies loaded lazily so an untouched page costs nothing. */
   pages: { url: string; path: string; loadBody: () => Promise<string> }[];
@@ -385,7 +385,7 @@ export type FactCheckPassDeps = {
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;
 };
 
-export type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number;
+type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number;
   pagesComplete: number; attempts: number; failure?: UnitFailure; reason?: string };
 
 /** ONE PASS: at most ATTEMPTS_PER_PASS claim attempts GLOBALLY, however many pages that spans. A failed unit

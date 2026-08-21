@@ -14,9 +14,7 @@ const env = vi.hoisted(() => ({
   dispositions: new Map<string, Record<string, unknown>>(),
   upserts: 0,
 }));
-/** A Supabase admin whose every builder method chains and whose await resolves the queued answer. The
- *  disposition writer is implemented per its migration's documented semantics (insert, else update only where
- *  the incoming decided_at is not older, count what landed), so the durability tests exercise the contract. */
+/** A Supabase admin whose every builder method chains; the disposition writer implements its migration's documented semantics, so the durability tests exercise the contract. */
 vi.mock("@/lib/persistence/supabase", () => {
   const chain = (answer: RpcAnswer): unknown =>
     new Proxy({} as Record<string, unknown>, {
@@ -61,7 +59,7 @@ vi.mock("@/lib/persistence/supabase", () => {
         : chain({ data: [] }),
     }),
   }; });
-/** The producer's own window read, failable on demand; everything else in the module stays real. */
+/** The producer's own window read, failable on demand. */
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/ai-visibility/ai-observations");
   return { ...actual, readAiObservations: async () => {
@@ -202,19 +200,14 @@ describe("a zero-spend regeneration is non-destructive", () => {
   });
 });
 
-/** THE REAL COUNTEREXAMPLE, through the REAL AI producer: fresh stored answers, a 28-day window read that
- *  fails, and the pass may neither file a verdict nor authorize its family's sweep. The old test asserted the
- *  AI card survived a path the extras producer never even ran on, which proved nothing. Here the producer
- *  runs for real, twice, as two cold instances sharing one durable table: the blind instance files nothing
- *  and holds its families; the seeing instance files durably and stands its families back up; and what it
- *  filed is what BOTH surfaces then render, from the same row. */
+/** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable
+ *  table: the blind instance files nothing and holds its families; the seeing one files durably; and what it
+ *  filed is what BOTH surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
-  /** One page with real content, so the extras producer genuinely walks its whole pass. */
   const wixPage = (path: string, title: string, outline: string[]) => ({
     url: `https://fixture.example${path}`, title, metaDescription: "Plan the visit with what locals actually do.",
     h1: title, h2: [], outline, schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 900,
     internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
-  /** One canonical stored answer, as the research payload files it. */
   const storedAnswer = (promptId: string, promptText: string, citations: Array<{ url: string; domain: string; title: string }> | null) => ({
     promptId, promptVersion: 1, promptText, engine: "chatgpt", observationMode: "consumer_search" as const,
     modelRequested: null, modelServed: null, answerHash: "h", webSearchReported: true, fanOutQueries: null,
@@ -229,40 +222,31 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
       wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"])]),
       research: src({ ...emptyResearchEvidence(), aiObservations: [
         storedAnswer("pA", "things to do in shiraz", [{ url: "https://rival.example/shiraz", domain: "rival.example", title: "Shiraz guide" }]),
-        storedAnswer("pB", "best time to visit shiraz", null)] }),
-      aiAnswersUnread: false });
+        storedAnswer("pB", "best time to visit shiraz", null)] }), aiAnswersUnread: false });
   };
-  /** One COLD instance of the producer: a fresh module registry, sharing only the durable table. */
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
-  const runExtras = async (snapshot: unknown) => {
-    const m = await coldExtras();
-    return m.extraQueueCards({ tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"),
-      reads: { left: 0 } }); // no reading is bought in a test, ever
-  };
+  const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({
+    tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
 
   it("holds the AI families out of the sweep and files no verdict when the window read fails, while its finished families still answer", async () => {
     env.aiWindow = "fail";
     const run = await runExtras(aiSnapshot());
     expect(run.families).not.toContain("ai_answer_gap");
     expect(run.families).not.toContain("engine_followup");
-    expect(run.families).toContain("missing_description"); // the pass genuinely ran and finished its $0 work
-    expect(env.upserts).toBe(0); // a blind pass writes no verdict for a surface to mistake for judgment
-    expect(env.dispositions.size).toBe(0);
+    expect(run.families).toContain("missing_description"); // the pass genuinely ran its $0 work
+    expect([env.upserts, env.dispositions.size]).toEqual([0, 0]); // a blind pass writes no verdict
   });
 
   it("files durably on a seeing pass, stands its families back up, and both surfaces render the filed row", async () => {
-    // COLD INSTANCE ONE went blind and filed nothing (above). COLD INSTANCE TWO sees the window.
-    env.aiWindow = "fail";
+    env.aiWindow = "fail"; // cold instance one goes blind and files nothing; instance two sees the window
     await runExtras(aiSnapshot());
     env.aiWindow = [];
     const run = await runExtras(aiSnapshot());
     expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
     expect(env.upserts).toBeGreaterThan(0);
-    // The reporting gap was decided and written down: a question whose answers report no sources.
     const unreported = env.dispositions.get(`${TENANT}|prompt:pB`);
     expect(unreported?.state).toBe("unreported");
-    // PERSISTENCE TO BOTH SURFACES: the row is read back through the store, and Visibility's resolver and
-    // Changes' lookup print the same sentence from the same row, with no action offered under it.
+    // BOTH SURFACES print the same sentence from the same row, read back through the store.
     const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store");
     const file = await readAiCaseDispositions(TENANT);
     expect(file.state).toBe("read");
@@ -274,9 +258,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   });
 
   it("judges and files the AI cases on a QUIET day, through the whole produce pass", async () => {
-    // The first canonical $0 acceptance run: paused account, no actionable Google candidate, and the pass
-    // returned before the $0 queue ever ran, so the case file stayed empty forever. The quiet path runs the
-    // AI producer now, and what it decided is durably on file when the pass returns.
     env.snapshot = aiSnapshot();
     env.aiWindow = [];
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true });
@@ -286,30 +267,23 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   });
 
   it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {
-    // TWO PASSES RACE ON TWO INSTANCES. The one that read the world later files first; the one that woke up
-    // late files second with an older decidedAt on every row. The database refuses its rows, and the pass may
-    // not then read "the RPC worked" as a license to sweep: its conclusions never became canonical.
     env.aiWindow = [];
     await runExtras(aiSnapshot()); // the NEWER pass files (decidedAt = 2026-08-20T09:00Z)
     const standing = new Map(env.dispositions);
     const m = await coldExtras();
-    const stale = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never,
-      now: new Date("2026-08-19T09:00:00Z"), reads: { left: 0 } }); // woke up late: every row older
+    const stale = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never, now: new Date("2026-08-19T09:00:00Z"), reads: { left: 0 } });
     expect(stale.families).not.toContain("ai_answer_gap"); // no license to sweep
     expect(stale.families).not.toContain("engine_followup");
     expect([...env.dispositions.entries()]).toEqual([...standing.entries()]); // the newer verdicts stand untouched
   });
 
   it("files a search a tracked question already asks as covered, a decision with the covering thing named, never silence", async () => {
-    // One question's follow-up search IS another question this account already tracks: declining to open a
-    // second case for it is right, and before the covered vocabulary that refusal lived in a log counter
-    // nobody could read, so the screen showed the account's search as never judged. (A fan-out echoing its
-    // OWN prompt never becomes a row at all: the projection drops the echo at the door.)
+    // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its
+    // OWN prompt never becomes a row: the projection drops the echo at the door.)
     const windowRow = (id: string, promptId: string, promptText: string, fanOuts: string[] | null) => ({
-      id, prompt_id: promptId, prompt_version: 1, prompt_text: promptText,
-      cache_key: null, engine: "chatgpt", model_requested: null, model_served: null,
-      observation_mode: "consumer_search", reporting_day: "2026-08-19", completed_at: "2026-08-19T00:00:00.000Z",
-      answer_hash: "h", analysis: null, analysis_hash: null, site: "fixture.example",
+      id, prompt_id: promptId, prompt_version: 1, prompt_text: promptText, cache_key: null, engine: "chatgpt",
+      model_requested: null, model_served: null, observation_mode: "consumer_search", reporting_day: "2026-08-19",
+      completed_at: "2026-08-19T00:00:00.000Z", answer_hash: "h", analysis: null, analysis_hash: null, site: "fixture.example",
       journey: { cited_sources: [{ url: "https://rival.example/shiraz", domain: "rival.example", title: "Shiraz guide" }],
         fan_outs: fanOuts, retrieved_results: null, brand_mentions: null, web_search_reported: true } });
     env.aiWindow = [windowRow("row1", "pA", "things to do in shiraz", ["best time to visit shiraz"]),

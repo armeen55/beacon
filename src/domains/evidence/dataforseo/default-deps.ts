@@ -93,12 +93,9 @@ function buildDefaultDeps(env: NodeJS.ProcessEnv): CachedCallDeps {
   };
 }
 
-/** THE TASKS ALREADY PAID FOR AND NEVER RETRIEVED: posted, still pending, not yet expired, oldest first.
- *  Money already left for these, so finishing them is a FREE task_get, and a paused account is exactly the
- *  account most likely to be sitting on them: the pause closes the buying door and the live run that would
- *  have collected them never comes. The enumeration is bounded by the caller and fail-soft, because "cannot
- *  list" must never read as "nothing owed". evidence_cache is content addressed with no tenant column, so
- *  this is a fleet-level listing by construction. */
+/** THE TASKS ALREADY PAID FOR AND NEVER RETRIEVED, oldest first: finishing them is a FREE task_get. Bounded
+ *  by the caller, fail-soft ("cannot list" is never "nothing owed"), fleet-level because evidence_cache is
+ *  content addressed with no tenant column. */
 export async function pendingProviderTaskKeys(limit: number): Promise<string[]> {
   try {
     const { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cache_key")

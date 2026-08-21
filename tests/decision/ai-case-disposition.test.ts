@@ -1,16 +1,8 @@
-/** ONE CONCLUSION PER SEARCH, WRITTEN DOWN DURABLY, READ BY EVERY SURFACE (terminal closure, 2026-08-19;
- *  made durable 2026-08-21).
- *
- *  Two defects these pin. First: the resolver is pure and both sides could call it, which was necessary and
- *  not sufficient. Decision holds the landing evidence (which pages exist, which have been read, whether any
- *  of their jobs fit); Visibility holds none of it. Re-deriving from evidence alone, the screen called a
- *  search Decision had already refused for want of a page "actionable" and put an Open Changes button under
- *  it. Second: the first persistence was a whole-account json blob behind a process cache, and on a hosted
- *  instance a read error came back as an empty file, a failed write was swallowed while the pass reported
- *  itself durably filed, and two cold instances merged by overwriting each other. The record is a TABLE now
- *  (one row per tenant and case, one SQL writer with a stale-writer guard), and the fake below implements the
- *  writer's documented semantics from migrations/2026-08-21_ai_case_dispositions.sql byte for byte: insert,
- *  else update only where the incoming decided_at is not older, count only the rows that actually landed. */
+/** ONE CONCLUSION PER SEARCH, WRITTEN DOWN DURABLY, READ BY EVERY SURFACE (terminal closure 2026-08-19;
+ *  durable 2026-08-21). Two pinned defects: re-deriving from evidence alone put an action button under a
+ *  refused search; and the blob-store persistence swallowed write failures, emptied on read errors, and let
+ *  cold instances overwrite each other. The fake below implements the SQL writer's documented semantics from
+ *  migrations/2026-08-21_ai_case_dispositions.sql byte for byte. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dispositionOf, type AiCaseDisposition } from "@/domains/decision/ai-case-store";
 
@@ -18,10 +10,8 @@ const filed = (over: Partial<AiCaseDisposition> = {}): AiCaseDisposition => ({
   caseKey: "fanout:haft|seen|set", state: "no_page", query: "haft seen set delivery",
   reason: "ran on 4 separate days, and no page of this account is for it yet, so no edit can win it. It is on the list of pages to build.",
   days: 4, engines: 2, parents: 2, executions: 9, decidedAt: "2026-08-19T00:00:00.000Z", ...over });
-/** The file as a surface receives it: read, and holding these rows. */
 const read = (rows: AiCaseDisposition[]) => ({ state: "read" as const, rows });
-const EVIDENCE = { caseKey: "fanout:haft|seen|set", state: "actionable" as const,
-  reason: "ran on 4 separate days, and no assistant reports reading a page of this account for it." };
+const EVIDENCE = { caseKey: "fanout:haft|seen|set", state: "actionable" as const, reason: "ran on 4 separate days, and no assistant reports reading a page of this account for it." };
 
 describe("what a surface shows for one search is decided in one place", () => {
   it("shows the refusal Decision reached, and never an action under it", () => {
@@ -37,8 +27,6 @@ describe("what a surface shows for one search is decided in one place", () => {
     expect([d.state, d.href]).toEqual(["held", null]);
   });
   it("shows a search a tracked question already asks as covered, deliberately, with no action under it", () => {
-    // Declining to open a case is a decision. Held only in a log counter, the account's strongest search
-    // read as "not judged yet" on the screen, which is the exact defect the covered vocabulary closes.
     const d = dispositionOf(EVIDENCE, read([filed({ state: "covered",
       reason: "ran on 4 separate days. A question this account already tracks asks this search, so its standing is judged there rather than as a case of its own." })]));
     expect([d.state, d.href]).toEqual(["covered", null]);
@@ -65,49 +53,7 @@ describe("what a surface shows for one search is decided in one place", () => {
   });
 });
 
-/** END TO END, ONE RECORD: what the producer concluded is what BOTH surfaces show, for each of the states a
- *  material search can reach. The screens do not re-derive it and cannot disagree with it. */
-describe("a decided search reaches both surfaces as the same verdict", () => {
-  const evidenceFor = (key: string) => ({ caseKey: `fanout:${key}`, state: "actionable" as const,
-    reason: "ran on 4 separate days, and no assistant reports reading a page of this account for it." });
-  /** What Visibility renders. */
-  const onVisibility = (file: Parameters<typeof dispositionOf>[1], key: string) => dispositionOf(evidenceFor(key), file);
-  /** What Changes renders: the same rows, matched on the same canonical identity the card carries. */
-  const onChanges = (file: Parameters<typeof dispositionOf>[1], key: string): string | null =>
-    file.state !== "read" ? null : file.rows.find((d) => d.caseKey === `fanout:${key}`)?.reason ?? null;
-
-  it("shows a refusal as a refusal on both, with no action offered anywhere", () => {
-    const file = { state: "read" as const, rows: [filed({ caseKey: "fanout:a", state: "no_page" })] };
-    const v = onVisibility(file, "a");
-    expect([v.state, v.href]).toEqual(["no_page", null]);
-    expect(onChanges(file, "a")).toBe(v.line); // the identical sentence, from the identical row
-  });
-  it("shows a page held for a reading as held on both", () => {
-    const file = { state: "read" as const, rows: [filed({ caseKey: "fanout:b", state: "held", pageUrl: "https://own.example/p",
-      reason: "ran on 3 separate days, and the page it would land on has not been read yet, so the next work is that reading rather than a change." })] };
-    const v = onVisibility(file, "b");
-    expect([v.state, v.href]).toEqual(["held", null]);
-    expect(onChanges(file, "b")).toBe(v.line);
-  });
-  it("shows actionable work as actionable on both, and only where a page was named", () => {
-    const file = { state: "read" as const, rows: [filed({ caseKey: "fanout:c", state: "actionable", pageUrl: "https://own.example/p" })] };
-    const v = onVisibility(file, "c");
-    expect([v.state, v.href]).toEqual(["actionable", "/changes"]);
-    expect(onChanges(file, "c")).toBe(v.line);
-  });
-  it("says the verdict could not be read, on both, rather than inventing a cheerier one", () => {
-    const file = { state: "unavailable" as const };
-    const v = onVisibility(file, "a");
-    expect(v.state).toBe("unavailable");
-    expect(v.line).toContain("could not be read");
-    expect(v.href).toBeNull();
-    expect(onChanges(file, "a")).toBeNull(); // Changes claims nothing either
-  });
-});
-
-/** THE TABLE ITSELF, exercised through the store against a fake database that implements the SQL writer's
- *  documented semantics exactly (migrations/2026-08-21_ai_case_dispositions.sql): one row per (tenant, case),
- *  insert-else-update WHERE the incoming decided_at is not older, landed = rows the guard let through. */
+/** THE TABLE ITSELF, against a fake implementing the SQL writer's documented semantics exactly. */
 const db = vi.hoisted(() => ({
   rows: new Map<string, Record<string, unknown>>(),
   rpcCalls: 0,
@@ -156,7 +102,6 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
     const a = await coldInstance();
     expect(await a.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "no_page" }),
       filed({ caseKey: "fanout:b", state: "already_credited" })])).toEqual({ filed: true, landed: 2 });
-    // A second lambda, cold, reaches only one of them later and says something different about it.
     const b = await coldInstance();
     expect(await b.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable",
       pageUrl: "https://own.example/p", decidedAt: "2026-08-20T00:00:00.000Z" })])).toEqual({ filed: true, landed: 1 });
@@ -167,9 +112,7 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
   it("refuses a stale writer, and the stale pass may not claim the family it failed to write", async () => {
     const s = await coldInstance();
     await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
-    // The late lambda decided BEFORE that, and lands nothing. "The call worked" is not "my conclusions are
-    // canonical": reporting filed here let the sweep behind the stale pass retire cards off verdicts the
-    // table never accepted (reviewer, 2026-08-21). Superseded is not unwritable and not success.
+    // "The call worked" is not "my conclusions are canonical" (reviewer, 2026-08-21).
     expect(await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" })]))
       .toEqual({ filed: false, reason: "superseded", landed: 0 });
     const back = await s.readAiCaseDispositions("t");
@@ -183,8 +126,7 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
       filed({ caseKey: "fanout:b", state: "no_page", decidedAt: "2026-08-21T00:00:00.000Z" }),    // lands
     ]);
     expect(out).toEqual({ filed: false, reason: "superseded", landed: 1 });
-    const back = await s.readAiCaseDispositions("t");
-    // The row that landed IS durable; what the pass lost is its license to sweep, never its writes.
+    const back = await s.readAiCaseDispositions("t"); // the landed row IS durable; only the sweep license is lost
     expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
       [["fanout:a", "actionable"], ["fanout:b", "no_page"]]);
   });

@@ -369,8 +369,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const p = { ...c, ...(basis ? { basis } : {}) };
     if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); await persistIfChanged(p); }
   }
-  // THE $0 QUEUE RUNS ON EVERY PATH. The bank of coverage debt and the held refusals land the same way both
-  // times, and only ONE run happens per pass because the two paths are exclusive.
+  // THE $0 QUEUE RUNS ON EVERY PATH; only ONE run happens per pass because the two paths are exclusive.
   const runExtraQueue = async () => {
     const out = await import("./producers/extra").then((m) => m.extraQueuePass({ tenantId, snapshot, now: opts.now ?? new Date(), curve, reads: pageReads, persist }))
       .catch(() => ({ run: { cards: [] as ChangeProposal[], complete: false, held: [], needsOwnPage: [] as { query: string; refusedPages?: string[] }[], families: [] as string[] }, unitLoad: null }));
@@ -381,9 +380,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   };
   if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
-    // A QUIET DAY STILL JUDGES THE AI CASES. Returning before the $0 queue meant a paused account with no
-    // actionable Google candidate never ran the AI producer at all: no verdict filed, no AI family swept,
-    // which the first canonical $0 acceptance run surfaced as an empty case file (2026-08-21).
+    // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever
+    // on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
     const quiet = (await runExtraQueue()).run;
     for (const c of quiet.cards) {
       if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue;

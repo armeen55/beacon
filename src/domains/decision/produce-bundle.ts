@@ -406,7 +406,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)));
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
-      body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? [])) }; // the last one is what the site prints on everything, read off the whole inventory: furniture is not content to move
+      body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // furniture is not content to move, and the set is computed from the SAME body headings the merge check reads: the canonical outline is stripped at the assembler now, so a set built from it would be empty and the defense would die silently
     const produced = await slot(ctx);
     steps = produced.operatorSteps ?? null; alternatives.push(...(produced.considered ?? [])); dispositions = produced.dispositions ?? null;
     for (const c of produced.components) {

@@ -38,7 +38,7 @@ const THIN_RENDER_MIN_IMPRESSIONS = 200;
 /** The account's own pages whose NEWEST snapshot the raw fetch cannot be trusted on: a zero-word 200 (a
  *  javascript body, always eligible), or an implausibly thin capture on a page with real demand that has
  *  never had its one rendered look. A page whose newest row already came from a rendered read is settled. */
-export async function unreadOwnedPages(tenantId: string): Promise<{ url: string; impressions: number }[]> {
+async function unreadOwnedPages(tenantId: string): Promise<{ url: string; impressions: number }[]> {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb.from("page_snapshots")
     .select("url, word_count, http_status, fetched_at, structural_warnings")

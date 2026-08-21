@@ -39,10 +39,7 @@ export type SchedulerReceipt = {
 
 type SchedulerOptions = { now?: () => Date; budgetMs?: number; steps?: Partial<ResearchCycleSteps> };
 
-/** Claim ONE account that still owes work for its current reporting day (America/Los_Angeles until tenant timezones exist: see src/lib/reporting-day.ts), drive it, then claim the next while the
- *  budget allows. ONE LIVE CLAIM AT A TIME, deliberately. Claiming the batch up front and then driving it serially meant the second and third accounts held live foreign leases for minutes while
- *  nothing ran on them, and an operator who opened Beacon in that window was refused by a lease taken on their behalf. An account is now claimed only when this dispatch is about to work on it, and is
- *  RELEASED (paused, lease cleared) rather than held whenever it cannot be driven to the end. */
+/** Claim ONE account that owes work for its reporting day, drive it, claim the next while the budget allows. ONE LIVE CLAIM AT A TIME: batch-claiming held foreign leases for minutes while nothing ran, and an operator opening Beacon in that window was refused. An account is claimed only when about to be worked, and RELEASED rather than held whenever it cannot be driven to the end. */
 export async function runDueAccounts(options: SchedulerOptions = {}): Promise<SchedulerReceipt> {
   const nowFn = options.now ?? (() => new Date());
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
@@ -104,16 +101,11 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       log.warn("[research-run] the stale surface could not republish on this tick", { tenantId, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
     }
   };
-  /** A PAUSED ACCOUNT IS STILL A CUSTOMER. Pausing research takes an account out of the claim entirely, so the
-   *  republish above (which only ever reaches accounts this dispatch CLAIMED) could never reach a paused one:
-   *  its Today and its Changes froze at whatever the last unpaused pass left, for as long as the pause lasted.
-   *  Bounded per tick, zero spend, no lease taken, and every failure stays local to one account. */
-  /** ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT. A posted Standard task was paid for at task_post,
-   *  and the pause then stranded it: the buying door refuses before it would ever have discovered the pending
-   *  receipt, and the run that would have collected it never comes, so evidence the account already owns sat
-   *  provider-side until it expired. This step is the free half only: a bounded number of pending receipts
-   *  per tick, GET-only through collectCapability (task_get / tasks_ready), nothing posted, nothing reserved,
-   *  results persisted by the collector itself, and the republish below then rebuilds from what landed. */
+  /** A PAUSED ACCOUNT IS STILL A CUSTOMER: the claim never reaches it, so its surfaces froze at the last
+   *  unpaused pass. Bounded per tick, zero spend, no lease taken, failures local to one account. */
+  /** ALREADY-BOUGHT TASKS FINISH FOR FREE, PAUSED OR NOT: the pause stranded posted tasks until they expired
+   *  provider-side. Bounded per tick, GET-only through collectCapability, nothing posted, nothing reserved;
+   *  the republish below rebuilds from what landed. */
   const FREE_COLLECT_PER_TICK = 5;
   const collectBoughtTasks = async (): Promise<void> => {
     try {

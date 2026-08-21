@@ -1,16 +1,6 @@
 import "server-only";
 
-/** ai-visibility/fanout-evidence - THE searches assistants actually ran, as first-class evidence. Beacon
- *  stored every provider-issued fan-out and then summarized them from the LATEST DAY only, buried under
- *  "Searches they ran" and disconnected from Decision, so a search four assistants ran on six days looked the
- *  same as one somebody saw once (operator, 2026-08-19). This is the ONE derived projection of that evidence:
- *  Visibility renders it and Decision consumes it, built by the SAME pure function from the SAME canonical
- *  observations, so the counts on the screen and the counts behind a Change can never disagree.
- *
- *  NOT A SECOND CANONICAL RECORD: everything here derives from ai_observations rows already on file, keyed
- *  back to them by observation id, and is recomputed per read. RAW ROWS ARE NEVER AUDIENCE: the same tracked
- *  question asked on twenty days measures stability, so recurrence is counted in DISTINCT days, engines and
- *  parent questions, never in row totals. Unknown volume stays unknown, never zero. EVERY TRUNCATION SAYS SO. */
+/** ai-visibility/fanout-evidence - THE searches assistants ran, as first-class evidence: ONE derived projection built by the SAME pure function for Visibility and Decision, so screen and card can never disagree (operator, 2026-08-19). NOT a second canonical record: derived per read from ai_observations, keyed back by observation id. Recurrence is DISTINCT days/engines/parents, never row totals; unknown volume stays unknown; every truncation says so. */
 
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { citesOwnSite } from "./canonicalize-citation-url";
@@ -26,10 +16,23 @@ export type FanoutSourceObservation = {
   retrievedResults: readonly { url: string; domain: string }[] | null;
 };
 
-/** WHERE THIS SITE STOOD in the answers that ran this search. Four different worlds, four different actions:
- *  cited = credited; retrieved_not_cited = read and passed over; not_retrieved = rivals were read instead;
- *  unreported = the engines that ran it never said what they read or credited. */
-type FanoutOwnState = "cited" | "retrieved_not_cited" | "not_retrieved" | "unreported";
+/** WHAT ONE INSTRUMENT CAN ACTUALLY SAY, from the frozen observation mode: consumer_search is the ChatGPT
+ *  scraper (sources = pages RELIED ON per DataForSEO's contract; retrieval reported); standardized_response
+ *  is llm_responses (strict annotation citations; NO retrieval reporting). An unknown mode says nothing, and
+ *  saying nothing is never evidence of absence: "never read this page" from an instrument that cannot report
+ *  reading is the exact overclaim this exists to stop. */
+type SourceSemantics = "explicit_citation" | "selected_or_relied_on" | "unavailable";
+export function instrumentFacts(engine: string, mode: string | null | undefined): { retrievalReporting: boolean; sourceSemantics: SourceSemantics } {
+  if (mode === "consumer_search") return { retrievalReporting: engine === "chatgpt", sourceSemantics: "selected_or_relied_on" };
+  if (mode === "standardized_response") return { retrievalReporting: false, sourceSemantics: "explicit_citation" };
+  return { retrievalReporting: false, sourceSemantics: "unavailable" };
+}
+
+/** WHERE THIS SITE STOOD: cited; retrieved_not_cited (read, passed over); not_retrieved (a retrieval-
+ *  reporting instrument read rivals, never this site); not_credited (sources were other sites and NO row
+ *  reports retrieval, so whether this site was read is unknown); unreported. `not_retrieved` used to be
+ *  claimed from citation lists alone, prescribing reachability work no evidence supported (Codex, 2026-08-21). */
+type FanoutOwnState = "cited" | "retrieved_not_cited" | "not_retrieved" | "not_credited" | "unreported";
 
 export type FanoutRow = {
   /** The most executed exact wording. Display only: identity is `key` and every wording is kept in `variants`. */
@@ -55,6 +58,12 @@ export type FanoutRow = {
   ownCitedAnswers: number; ownRetrievedAnswers: number; retrievedNotCitedAnswers: number;
   /** The answers behind this search that reported citations at all: the honest denominator. */
   reportingAnswers: number;
+  /** The answers whose instrument actually reported what it retrieved: the only denominator a claim about
+   *  reading or not reading a page may stand on. */
+  retrievalReportingAnswers: number;
+  /** What the reported sources MEAN across these answers: strict citation annotations, pages the answer
+   *  relied on, a mixture, or nothing usable. Presentation reads this so it never calls reliance a citation. */
+  sourceSemantics: SourceSemantics | "mixed";
   /** THE PAGES OF THIS ACCOUNT the assistants reported READING on these answers. This is the landing evidence
    *  a card should stand on: the engine itself named the page, so nothing has to be guessed by word overlap. */
   ownPages: { url: string; cited: number; retrieved: number; retrievedNotCited: number }[];
@@ -123,6 +132,11 @@ export function buildFanoutEvidence(observations: readonly FanoutSourceObservati
     const ownCited = reportingObs.filter((o) => citesOwnSite(o.citations, site));
     const retrievedOwn = r.obs.filter((o) => citesOwnSite(o.retrievedResults, site));
     const rnc = retrievedOwn.filter((o) => !citesOwnSite(o.citations, site));
+    // RETRIEVAL EVIDENCE EXISTS ONLY WHERE IT WAS REPORTED: the row itself carrying a retrieved list is the
+    // direct proof, and the instrument contract is the conservative floor for rows that carry none.
+    const retrievalReporting = r.obs.filter((o) => o.retrievedResults != null
+      || instrumentFacts(o.engine, o.observationMode).retrievalReporting);
+    const semanticsSeen = new Set<SourceSemantics>(reportingObs.map((o) => instrumentFacts(o.engine, o.observationMode).sourceSemantics));
     // THE PAGES OF THIS ACCOUNT THE ENGINE ITSELF NAMED, counted per answer so a page listed twice in one
     // journey is still one answer having read it.
     const ownPages = new Map<string, { url: string; cited: number; retrieved: number; retrievedNotCited: number }>();
@@ -152,7 +166,9 @@ export function buildFanoutEvidence(observations: readonly FanoutSourceObservati
     }
     const ownState: FanoutOwnState = ownCited.length > 0 ? "cited"
       : rnc.length > 0 ? "retrieved_not_cited"
-        : reportingObs.length > 0 ? "not_retrieved" : "unreported";
+        : reportingObs.length > 0
+          ? (retrievalReporting.length > 0 ? "not_retrieved" : "not_credited")
+          : "unreported";
     const parentExecutions = [...parentRuns.keys()].reduce((a, id) => a + (reportingByPrompt.get(id) ?? 0), 0);
     const ids = [...new Set(r.obs.map((o) => o.observationId))];
     // MATERIALITY IS TIME, OR BREADTH THAT HAS ALREADY COST SOMETHING. Three days is a pattern. Two days with
@@ -180,6 +196,8 @@ export function buildFanoutEvidence(observations: readonly FanoutSourceObservati
       addedWords: [...wordsOf([...r.wordings.keys()][0] ?? "")].filter((w) => !parentWords.has(w)).slice(0, 8),
       ownState, ownCitedAnswers: ownCited.length, ownRetrievedAnswers: retrievedOwn.length,
       retrievedNotCitedAnswers: rnc.length, reportingAnswers: reportingObs.length,
+      retrievalReportingAnswers: retrievalReporting.length,
+      sourceSemantics: (semanticsSeen.size === 0 ? "unavailable" : semanticsSeen.size === 1 ? [...semanticsSeen][0]! : "mixed") as SourceSemantics | "mixed",
       ownPages: [...ownPages.values()].sort((a, b) => b.retrievedNotCited - a.retrievedNotCited || b.retrieved - a.retrieved || a.url.localeCompare(b.url)),
       rivalPages: [...rivals.values()].sort((a, b) => b.answers - a.answers || a.url.localeCompare(b.url)).slice(0, RIVALS_SHOWN),
       rivalPagesTotal: rivals.size,

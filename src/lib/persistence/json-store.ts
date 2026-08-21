@@ -1,39 +1,11 @@
 /**
- * On-disk JSON store + in-process cache for `.data/*.json`.
- *
- * **Role today:** Source of truth on disk when `DATA_SOURCE=file`, and the
- * write-through / dual-write target when `DATA_SOURCE=supabase`. Route reads
- * go through `SeedDataRepository` — app code should not call `readStore` for
- * route-critical entities except inside repository backends, writers, CLI, or
- * `storage/canonical-store.ts` (Profound pipeline only).
- *
- * - **Async** read on first access (cached in-process under the resolved
- *   tenant/global cache key thereafter)
- * - Atomic writes via temp-file + rename
- * - Serialized writes per resolved cache key (NOT bare store name) so two
- *   tenants writing to differently-routed files don't serialize on each other
- *
- * Sprint 7 Phase 7.8b-2-b (2026-04-25) — async + tenant-aware. Routes
- * per-tenant / singleton stores to `.data/tenants/{slug}/{name}.json`
- * and global stores to `.data/global/{name}.json`.
- *
- * Sprint 7 Phase 7.8d-1 (2026-04-26) — flat fallback removed. Reads
- * for known stores resolve to their routed path or fall back to the
- * empty/default array; reads for **unknown** stores throw fail-loud
- * with a message naming the classification module. The migration
- * (7.8c) moved every flat file into the routed layout, and 7.8d-2
- * relocates the flat originals to `.data/_legacy/`. Any new `.data`
- * store added without a classification entry is a dev error and must
- * surface immediately, not get hidden behind a silent flat path.
- *
- * Writes never fall back to flat — they always go to the routed path.
- *
- * Cache key contract (from resolveDataPath):
- *   - per-tenant + singleton: `${name}::tenant:${slug}`
- *   - global                : `${name}::global`
- *   - unknown               : never reached at runtime (throws above)
+ * On-disk JSON store + in-process cache for `.data/*.json`. Source of truth on disk when DATA_SOURCE=file,
+ * write-through target when DATA_SOURCE=supabase; route reads go through SeedDataRepository. Async first
+ * read (cached per resolved tenant/global key), atomic temp-file+rename writes, writes serialized per
+ * resolved cache key. Tenant-aware routing to `.data/tenants/{slug}/{name}.json` / `.data/global/{name}.json`
+ * (Sprint 7, 2026-04-25/26): unknown stores throw fail-loud naming the classification module, never a silent
+ * flat path; writes never fall back to flat. Cache keys: `${name}::tenant:${slug}` / `${name}::global`.
  */
-
 import "server-only";
 
 import {
@@ -48,18 +20,9 @@ import { randomUUID } from "node:crypto";
 import { resolveDataPath } from "./resolve-data-path";
 
 /**
- * Supabase-mirrored stores (2026-07-01, "make the evidence real in prod").
- *
- * The research caches below hold the team's paid/crawled knowledge (DataForSEO keyword
- * demand, live-SERP patterns, competitor teardowns). As plain json-stores they were
- * FILE-ONLY: writes skip disk on Vercel, so hosted prod rendered from empty caches and
- * the 14-day cost-discipline cache was a local-only guarantee. Stores named here are
- * mirrored to the `json_store_blobs` table (one jsonb blob per resolved scope key -
- * the same whole-array read/write semantics as the file store):
- *   - read: Supabase row wins when present; missing row/table/env falls through to file
- *   - write: file (or cache on Vercel) THEN best-effort upsert to Supabase
- * Fail-soft everywhere: any Supabase error degrades to exactly the old file behavior.
- * Migration: migrations/2026-07-01_json_store_blobs.sql (additive).
+ * Supabase-mirrored stores (2026-07-01): file-only writes skip disk on Vercel, so hosted prod rendered from
+ * empty caches. Names here mirror to `json_store_blobs` (one jsonb blob per resolved scope key; read: row
+ * wins, else file; write: file then best-effort upsert). Fail-soft to exactly the old file behavior.
  */
 export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Pruned to the stores with a SURVIVING live reader/writer: a mirror registration for a
@@ -175,22 +138,11 @@ const writeLocks = new Map<string, Promise<void>>();
  * lets a background caller (e.g. a next/server after() rebuild) read the tenant it
  * already has explicitly, instead of falling back to ambient currentTenantSlug().
  */
-/** ONE DURABLE HOLD, WON BY EXACTLY ONE CALLER. A read, a check and then a write is not a claim: two
- *  dispatchers on two instances both read "stale", both decide to rebuild, and both do the whole job. The
- *  in-process single flight cannot see across instances, and duplicating a release rebuild is duplicated
- *  database work of exactly the kind that has exhausted this project's connection budget before.
- *
- *  So the claim is decided by the DATABASE, in one statement: the row is inserted if it does not exist, and
- *  otherwise updated ONLY where the hold it carries has already expired. PostgREST hands back the rows it
- *  actually changed, so winning is "I changed the row" and losing is "I changed nothing", with no window in
- *  between. The hold expires on its own, so a caller that dies mid-rebuild never wedges the account.
- *
- *  IT FAILS CLOSED EVERYWHERE THAT IS NOT EXPLICITLY LOCAL. Only `DATA_SOURCE=file` off a hosted platform is
- *  one process with nothing to race, and only there is a claim granted without a database saying so. A hosted
- *  instance whose client will not initialize, whose table is missing, or whose statement fails is a broken
- *  configuration, not a quiet single-process machine, and granting the hold to everybody in that state is the
- *  exact opposite of what a claim is for. Refusing costs one skipped rebuild; granting costs the duplicated
- *  work this exists to prevent. */
+/** ONE WINNER PER SCOPE, DECIDED BY THE DATABASE: insert wins a virgin scope, a conditional update takes only
+ *  an EXPIRED hold, and everything else is refused. The winner gets an owner token; releaseScope lands only
+ *  while that exact token still holds, so a holder that outlived its TTL frees nothing on its way out.
+ *  FAIL-CLOSED in every hosted failure mode (a broken instance must not hand the hold to everybody at once);
+ *  only explicitly local file mode, and the vitest hermetic case, grant without a database. */
 export async function claimScope(name: string, key: string, ttlSeconds: number): Promise<string | null> {
   const scopeKey = `${name}::${key}`;
   // THE CLAIM IS OWNED, not just timed. A release keyed on the scope alone let a holder that outlived its TTL

@@ -25,7 +25,7 @@ const addDays = (iso: string, n: number): string => { const t = new Date(`${iso}
 const spanDays = (from: string, to: string): number => Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000));
 
 /** Per-query two-window history plus the exact window lengths it was computed over. */
-export async function loadUnitHistory(tenantId: string, now: Date = new Date()): Promise<{ rows: UnitHistoryRow[]; earlyDays: number; recentDays: number; earlyFrom: string | null; earlyTo: string | null }> {
+async function loadUnitHistory(tenantId: string, now: Date = new Date()): Promise<{ rows: UnitHistoryRow[]; earlyDays: number; recentDays: number; earlyFrom: string | null; earlyTo: string | null }> {
   const none = { rows: [] as UnitHistoryRow[], earlyDays: 0, recentDays: RECENT_DAYS, earlyFrom: null, earlyTo: null };
   try {
     const sb = getSupabaseAdmin();

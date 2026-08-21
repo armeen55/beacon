@@ -1,27 +1,17 @@
 import "server-only";
 
-/** decision/ai-case-store - WHERE EVERY SEARCH THE ASSISTANTS RAN ENDED UP, written down durably.
- *
- *  The resolver is pure and both sides can call it, which is necessary and was not sufficient: Decision knows
- *  things the screen does not (which pages exist, which have been read, whether any job fits), so the verdict
- *  is PERSISTED once and both surfaces READ it. The first cut kept it in a whole-account json blob behind a
- *  process cache, and that failed three ways at once on a hosted instance: a read error came back as an empty
- *  file, a write failure was swallowed while the pass reported itself durably filed, and two cold instances
- *  merged by overwriting each other (reviewer, 2026-08-20). It is a TABLE now, one row per (tenant, case),
- *  written through one SQL function whose per-row upsert refuses to let an older pass overwrite a newer
- *  verdict, so concurrent passes merge by row and nothing is ever erased by a lambda that woke up late.
- *
- *  Decision is the only writer. Nothing here is a second canonical record of the evidence: it is the verdict
- *  about the evidence, carrying the moment it was reached so a stale verdict is legible. */
+/** decision/ai-case-store - WHERE EVERY SEARCH THE ASSISTANTS RAN ENDED UP, written down durably. Decision
+ *  knows what the screen does not (which pages exist, which were read, whether any job fits), so the verdict
+ *  is PERSISTED once and both surfaces READ it. A json blob behind a process cache failed three ways on a
+ *  hosted instance (read error = empty file; swallowed write reported filed; cold instances overwrote each
+ *  other; reviewer 2026-08-20), so it is a TABLE: one row per (tenant, case), one SQL writer whose per-row
+ *  upsert refuses stale overwrites, merging concurrent passes by row. Decision is the only writer; this is
+ *  the verdict about the evidence, never a second record of it, stamped so a stale verdict is legible. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
-/** Seven ways a search ends, and every material one ends in exactly one of them. `monitoring` belongs to
- *  one-off noise alone. `held` is honest: the page that would answer it has never been read, so the next work
- *  is a reading and not a change. `covered` is the vocabulary that was missing: a tracked question already
- *  asks this search, or a change minted this pass already targets it, so it is deliberately not its own case,
- *  which is a decision and never "not judged yet". */
+/** Eight ways a search ends. `monitoring` belongs to noise and single-dimension repetition; `held` means the landing page has never been read; `covered` means a tracked question or a change this pass already owns it, a decision and never "not judged yet". */
 export type AiCaseState = "already_credited" | "actionable" | "no_page" | "unreported" | "monitoring" | "held" | "covered";
 
 export type AiCaseDisposition = {
@@ -48,11 +38,7 @@ const TABLE = "ai_case_dispositions";
  *  has needed yet; nothing is deleted to make this true. */
 const READ_LIMIT = 400;
 
-/** WHAT DECISION CONCLUDED, for a surface to render. Never recomputed here: read only.
- *  A READ THAT FAILED IS NOT AN ACCOUNT WITH NO VERDICTS. Swallowing the failure into an empty list made an
- *  outage indistinguishable from a queue that had never judged anything, and the screen then told the operator
- *  "the queue has not judged this one yet" about a search it had refused a week ago. The two states are
- *  different and both are said out loud. */
+/** WHAT DECISION CONCLUDED, for a surface to render; read only. A READ THAT FAILED IS NOT AN ACCOUNT WITH NO VERDICTS: both states are said out loud, or an outage reads as a queue that never judged anything. */
 export type AiCaseFile = { state: "read"; rows: AiCaseDisposition[] } | { state: "unavailable" };
 
 export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFile> {
@@ -77,12 +63,7 @@ export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFi
   }
 }
 
-/** WHAT A SURFACE SHOWS FOR ONE SEARCH, decided in ONE place so two screens cannot answer it differently.
- *  Order matters and it is the whole point: the change on file wins, because a card is the strongest thing
- *  that can be true about a search; then the verdict Decision filed, because that pass held the landing
- *  evidence; and only a search nothing has judged yet falls through to what the evidence alone can say, where
- *  it offers NO action, because an action nobody has stood behind is how "Open Changes" appeared under a case
- *  that had already been refused for want of a page. PURE. */
+/** WHAT A SURFACE SHOWS FOR ONE SEARCH, in ONE place. Order IS the point: the change on file wins, then Decision's filed verdict, and only an unjudged search falls through to the evidence, which offers NO action, because an action nobody stood behind put "Open Changes" under a refused case. PURE. */
 export function dispositionOf(
   evidence: { caseKey: string; state: AiCaseState; reason: string },
   filed: AiCaseFile,
@@ -111,11 +92,9 @@ export function dispositionOf(
  *  rows lost to newer verdicts gets `superseded`, which is not a failure and is not this pass's success
  *  either, and above all it is not a license to sweep: the sweep behind a filing retires cards on the claim
  *  that this pass's conclusions are the standing record, and for a superseded pass they are not. */
-export type AiCaseWrite = { filed: true; landed: number } | { filed: false; reason: "unwritable" | "superseded"; landed?: number };
+type AiCaseWrite = { filed: true; landed: number } | { filed: false; reason: "unwritable" | "superseded"; landed?: number };
 
-/** THE ONE WRITER. Called once per producer pass with every case that pass decided. Per-row atomic through
- *  the SQL function, stale-writer-guarded by decided_at, and a failure is a failure: the caller must not
- *  report this family durably rewritten when nothing can read these conclusions back. */
+/** THE ONE WRITER, called once per pass with every decided case: per-row atomic, stale-writer-guarded, and a failure is a failure the caller must not paper over. */
 export async function recordAiCaseDispositions(tenantId: string, decided: readonly AiCaseDisposition[]): Promise<AiCaseWrite> {
   if (decided.length === 0) return { filed: true, landed: 0 };
   try {

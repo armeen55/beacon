@@ -333,7 +333,8 @@ export function aiView(input: AiInput) {
   const ownLabel = (r: { ownState: string; ownCitedAnswers: number; retrievedNotCitedAnswers: number; reportingAnswers: number }): string =>
     r.ownState === "cited" ? `credited in ${num(r.ownCitedAnswers)} of ${num(r.reportingAnswers)}`
       : r.ownState === "retrieved_not_cited" ? `read and passed over, ${num(r.retrievedNotCitedAnswers)}x`
-        : r.ownState === "not_retrieved" ? "never you" : "sources unreported";
+        : r.ownState === "not_retrieved" ? "never opened, per its own reading list"
+          : r.ownState === "not_credited" ? "credit went elsewhere; reading unreported" : "sources unreported";
   const searches = table({
     columns: [{ key: "query", label: "What the assistant searched for", wide: true },
       { key: "days", label: "Days it recurred", numeric: true }, { key: "times", label: "Answers that ran it", numeric: true },

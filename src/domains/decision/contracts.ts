@@ -288,7 +288,7 @@ export type ChangeProposal = {
      *  the answers that actually reported sources (the honest denominator), how often this site was read and
      *  passed over, and the AI stage the case is in. Absent on rows minted before 2026-08-19. */
     days?: number; engines?: number; prompts?: number; reportedAnswers?: number; retrievedNotCited?: number;
-    stage?: "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "owned_mentioned_not_cited" | "citations_unreported"; };
+    stage?: "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "own_not_in_reported_sources" | "owned_mentioned_not_cited" | "citations_unreported"; };
   /** THE EXACT AI SCOPE a shipment must remeasure: prompt ids, engines and the fan-out cluster this change
    *  targets, preserved through Mark implemented instead of flattened into ten strings.
    *  `caseKey` is the CANONICAL CASE IDENTITY ("fanout:<key>" or "prompt:<id>"): every surface joins a search
@@ -418,7 +418,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   aiImpact: z.object({ answers: z.number(), mentionRate: z.number(), citedRivals: z.number(), audienceWeight: z.number().nullable(),
     days: z.number().optional(), engines: z.number().optional(), prompts: z.number().optional(),
     reportedAnswers: z.number().optional(), retrievedNotCited: z.number().optional(),
-    stage: z.enum(["owned_retrieved_not_cited", "rivals_cited_own_not_retrieved", "owned_mentioned_not_cited", "citations_unreported"]).optional() }).optional(),
+    stage: z.enum(["owned_retrieved_not_cited", "rivals_cited_own_not_retrieved", "own_not_in_reported_sources", "owned_mentioned_not_cited", "citations_unreported"]).optional() }).optional(),
   aiScope: z.object({ caseKey: z.string().optional(), promptIds: z.array(z.string()), promptVersions: z.array(z.number()).optional(),
     engines: z.array(z.string()), models: z.array(z.string()).optional(), modes: z.array(z.string()).optional(),
     fanoutKey: z.string().optional(), fanouts: z.array(z.string()), observationIds: z.array(z.string()).optional(), stage: z.string() }).optional(),

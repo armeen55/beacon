@@ -1,13 +1,6 @@
-/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19).
- *
- *  The defect these pin: `research_paused` took an account out of the research claim and left every other door
- *  into the paid drafter open. A stale Today visit, a stale Changes visit and the cache warmer all rebuild the
- *  customer surface, the rebuild runs the proposal producer, and the producer minted its two paid budgets
- *  unconditionally. Decision side model spend landed at 23:08 UTC on a paused day with no research run in
- *  flight, and `maxDrafts: 0` did not stop it because that bounds one pool of three.
- *
- *  ZERO IS PROVED DIRECTLY HERE, never inferred from a ledger counter after the fact: the model door and the
- *  provider door are called inside the scope and asked whether they touched the network at all. */
+/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale
+ *  surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one
+ *  pool of three. ZERO IS PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
 import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
@@ -38,7 +31,6 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
   });
 
   it("is ambient, so a path nobody remembered to thread the flag through still refuses", async () => {
-    // The whole point of the scope: no producer has to be told, and one added tomorrow inherits the refusal.
     const deepInside = async () => ({ refused: spendingRefused() });
     expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
     expect(await deepInside()).toEqual({ refused: false }); // and it never leaks outside its own call stack
@@ -50,9 +42,7 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
   });
 });
 
-/** THE ONE GATE, AND WHY IT IS NOT AT THE CALLERS. Four doors reach the rebuild body: a stale Today visit, a
- *  stale Changes visit, the cache warmer and the scheduler. Three of them passed no budget at all, so the rule
- *  is read inside the body every one of them goes through, and a fifth door added later inherits it. */
+/** THE ONE GATE IS INSIDE THE BODY all four rebuild doors share, so a fifth door added later inherits it. */
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
     readStore: async () => held, writeStore: async () => undefined,
@@ -105,9 +95,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
   });
 });
 
-/** THE DOORS THEMSELVES READ THE SWITCH. The scope closes every caller that opened one, and the leak proved a
- *  path nobody wrapped keeps buying, so the two paid doors now refuse on the account's own pause bit with no
- *  scope open at all. A caller added tomorrow inherits this without anyone remembering anything. */
+/** THE DOORS THEMSELVES READ THE SWITCH, with no scope open at all: a caller added tomorrow inherits it. */
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
@@ -147,14 +135,10 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
   });
 });
 
-/** ONE REBUILD PER ACCOUNT, DECIDED BY THE DATABASE (reviewer, 2026-08-19). Reading the release, checking it
- *  and then acting is not a claim: two dispatchers on two instances both read "stale", both decide, and both
- *  do the whole job. It buys nothing, and it doubles database work of exactly the kind that has exhausted this
- *  project's connection budget before. */
+/** ONE REBUILD PER ACCOUNT, DECIDED BY THE DATABASE (reviewer, 2026-08-19): read-check-act is not a claim. */
 describe("two dispatchers cannot both rebuild one account, and only the owner can free the hold", () => {
   type Hold = { content: [{ until: string; owner?: string }] };
-  /** One fake claims table honoring exactly the three statements the store issues: the winning insert, the
-   *  expired-hold takeover, and the owner-matched release. */
+  /** One fake claims table honoring the three statements the store issues: winning insert, expired takeover, owner-matched release. */
   const claimsTable = (rows: Map<string, Hold>) => ({
     getSupabaseAdmin: () => ({
       from: () => ({
@@ -205,9 +189,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
   it("lets a holder that outlived its TTL release NOTHING, so its successor keeps the hold", async () => {
-    // The race this pins: A claims and stalls past its TTL; B takes the expired hold; A finishes late and
-    // releases on its way out. Keyed on the scope alone that release freed B's LIVE hold and C rebuilt
-    // concurrently with B. Keyed on the owner token, A's late release changes nothing.
+    // A stalls past TTL; B takes the hold; A's late release must free NOTHING or C rebuilds beside B.
     vi.resetModules();
     const rows = new Map<string, Hold>();
     vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
@@ -225,9 +207,8 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
   });
 });
 
-/** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE (reviewer, 2026-08-19). The claim used to be
- *  granted whenever the database could not answer, which hands the hold to every dispatcher at once in exactly
- *  the state where that is most likely. Only explicitly local file mode may grant without a database. */
+/** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a
+ *  database (reviewer, 2026-08-19). */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
   const hosted = async (impl: () => unknown): Promise<string | null> => {
     vi.resetModules();
@@ -271,11 +252,8 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
   });
 });
 
-/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21). The boundary memoized both
- *  answers for a minute, so a cached "running" outlived the operator's Pause and paid calls kept passing
- *  until the memo died. Permission to spend is never remembered now: only the refusal is, and the verified
- *  pause write settles the memo directly. These run the REAL read path, so VITEST's hermetic short-circuit
- *  is lifted for exactly their duration. */
+/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never
+ *  remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
     vi.resetModules();
@@ -294,17 +272,15 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
     let paused = false;
     await withRealPausePath(async ({ spendingClosed }) => {
       expect(await spendingClosed("tenant-fx")).toBe(false); // running is read
-      paused = true; // the operator presses Pause; no memo shields the stale grant
-      expect(await spendingClosed("tenant-fx")).toBe(true); // the very next ask refuses
+      paused = true; // the operator presses Pause
+      expect(await spendingClosed("tenant-fx")).toBe(true); // no memo shields the stale grant
     }, { paused: () => paused });
   });
 
   it("remembers only the refusal, so a paused drafting pass reads the switch once, not dozens of times", async () => {
     const count = { n: 0 };
     await withRealPausePath(async ({ spendingClosed }) => {
-      expect(await spendingClosed("tenant-fx")).toBe(true);
-      expect(await spendingClosed("tenant-fx")).toBe(true);
-      expect(await spendingClosed("tenant-fx")).toBe(true);
+      for (let i = 0; i < 3; i += 1) expect(await spendingClosed("tenant-fx")).toBe(true);
       expect(count.n).toBe(1); // one read, then the memoized refusal
     }, { paused: () => true, count });
   });
@@ -326,7 +302,7 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
     await withRealPausePath(async () => {
       const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
       const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
-      paused = true; // Pause lands; the doors are asked next, with no probe and no scope
+      paused = true; // Pause lands; the doors are asked next
       const model = await openAIStructuredResponse({
         promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
         model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
@@ -340,10 +316,8 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
   });
 });
 
-/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21). The free collect existed as
- *  a function nothing called: the pause refused providerCall before it ever discovered a pending receipt, and
- *  the run that would have collected it never came, so paid-for evidence expired provider side. The scheduler
- *  tick now runs one bounded GET-only collection and republishes after it. */
+/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed
+ *  as a function nothing called, and paid-for evidence expired provider side. */
 describe("a paused tick collects what was already paid for, free, then republishes", () => {
   it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {
     vi.resetModules();
@@ -354,12 +328,9 @@ describe("a paused tick collects what was already paid for, free, then republish
     vi.doMock("@/domains/evidence/dataforseo/capabilities", () => ({
       collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },
     }));
-    vi.doMock("@/domains/runtime/research-run", () => ({
-      claimDueRuns: async () => [], finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null,
-    }));
+    vi.doMock("@/domains/runtime/research-run", () => ({ claimDueRuns: async () => [], finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null }));
     vi.doMock("@/app/(shell)/surface-release", () => ({
-      readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }),
-      isCustomerSurfaceStale: () => true,
+      readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }), isCustomerSurfaceStale: () => true,
       refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },
     }));
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({

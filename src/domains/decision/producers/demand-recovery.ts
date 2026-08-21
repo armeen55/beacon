@@ -28,7 +28,7 @@ const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 const n = (x: number): string => Math.round(x).toLocaleString("en-US");
 
-export type DemandRecoveryRun = { cards: ChangeProposal[]; complete: boolean;
+type DemandRecoveryRun = { cards: ChangeProposal[]; complete: boolean;
   window: { earlyDays: number; earlyFrom: string | null; earlyTo: string | null };
   /** The largest losses this pass measured, card or not: the collapse explanation, on the receipt. */
   losses: { unit: string; lostPerMonth: number; priorPage: string | null; currentPage: string | null; swapped: boolean }[] };

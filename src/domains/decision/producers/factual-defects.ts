@@ -55,7 +55,7 @@ function componentOf(c: FactCheck, index: number): BundleComponent {
   };
 }
 
-export type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
+type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
 /** Every page whose banked checks contradict it, as one card each. Guarded like every producer: a read that
  *  fails narrows the pass and sweeps nothing. */

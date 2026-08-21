@@ -12,7 +12,7 @@
  *
  * PURE: no model call, no store, no clock of its own, no I/O. */
 
-import { canonicalQueryKey, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { answerIntelOf } from "@/domains/evidence/answer-intel";
@@ -76,10 +76,9 @@ const brandOf = (title: string, parts = title.split(/\s*\|\s*/).map((s) => s.tri
   parts.length > 1 ? parts[parts.length - 1]! : null;
 /** HOW MANY OF A THING THIS PAGE RUNS THROUGH, counted off its own outline: short headings that are not
  *  site wide furniture and are not questions. Never a figure from anywhere else. */
-const itemsOn = (outline: readonly string[], furniture: ReadonlySet<string>): number =>
+const itemsOn = (outline: readonly string[]): number =>
   outline.filter((h) => { const t = h.trim();
-    return t.length > 0 && !t.endsWith("?") && t.split(/\s+/).length <= ITEM_WORDS
-      && !furniture.has(t.toLowerCase().replace(/\s+/g, " ")); }).length;
+    return t.length > 0 && !t.endsWith("?") && t.split(/\s+/).length <= ITEM_WORDS; }).length;
 /** A search that asks for one person, and a line that names many of them. */
 const singularPerson = (q: string, ws = words(q)): boolean => {
   const last = ws[ws.length - 1] ?? "";
@@ -255,8 +254,7 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
   // THIS SITE'S OWN ENGLISH, read once off every page it holds: the corpus the language gate judges against.
   const corpus = new Set(snapshot.ownedPages.flatMap((p) => words(`${pathOf(p.url)} ${p.content
     ? `${p.content.title ?? ""} ${p.content.h1 ?? ""} ${p.content.metaDescription ?? ""} ${(p.content.outline ?? []).join(" ")}` : ""}`)));
-  // The headings this site prints on every page. They are furniture, so they are never list items.
-  const furniture = templateHeadings(snapshot.ownedPages.map((p) => p.content?.outline ?? []));
+
   const out: ChangeProposal[] = [];
   const file = (c: Card, page: OwnedPageEvidence, url: string, path: string, query: string, cand: QualifiedCandidate | null): boolean => {
     if (skip.has(c.id) || skip.has(path.toLowerCase()) || out.some((p) => p.id === c.id)) return false;
@@ -355,7 +353,7 @@ export function suggestedEdits(snapshot: EvidenceSnapshot, candidates: readonly 
       continue;
     }
     // THE MERGE. Title first, heading second: the store files a title and an h1 under one identity for one page.
-    const items = itemsOn(content.outline ?? [], furniture);
+    const items = itemsOn(content.outline ?? []);
     const listPage = items >= LIST_SECTIONS && (namesMany(content.h1) || namesMany(content.title));
     // ONE PERSON ASKED FOR, MANY HANDED OVER. A page running through fifteen people cannot be the page for
     // one of them, so no line on it is renamed after one: that is a promise Google reads and readers do not.

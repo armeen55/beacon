@@ -28,19 +28,12 @@ export function spendingRefused(): boolean {
   return noSpend.getStore() === true;
 }
 
-/** THE PAUSE, ASKED AT THE DOOR ITSELF. The ambient scope closes every caller that opened one, and the leak
- *  proved that is not enough: a paid path nobody wrapped (the competitor overlap judgment behind Update data)
- *  kept buying on a paused account. So the two paid doors now also ask the account's own switch, HERE, so a
- *  caller added tomorrow inherits the refusal without anyone remembering to open a scope.
- *
- *  PERMISSION TO SPEND IS NEVER REMEMBERED. The first cut memoized both answers for a minute, so an operator
- *  who pressed Pause could watch paid calls keep passing on a cached "running" until the memo died. Only the
- *  REFUSAL is memoized (a paused account's drafting pass must not turn one pause bit into dozens of reads);
- *  an open door is re-asked on every paid call, in every instance, so Pause lands on the very next one. The
- *  verified pause write also settles the memo here directly, so the same process refuses without a read at
- *  all. An UNREADABLE switch counts as paused: the expensive assumption is never the safe one. Hermetic under
- *  vitest exactly as checkBudget is: unit tests never read a live tenants table, and a test that pins the
- *  pause injects the probe. */
+/** THE PAUSE, ASKED AT THE DOOR ITSELF, so a caller added tomorrow inherits the refusal without opening a
+ *  scope (the competitor-overlap path nobody wrapped kept buying on a paused account). PERMISSION TO SPEND
+ *  IS NEVER REMEMBERED: only the refusal is memoized, an open door is re-asked on every paid call in every
+ *  instance, and the verified pause write settles the memo directly, so Pause lands on the very next call.
+ *  An UNREADABLE switch counts as paused. Hermetic under vitest exactly as checkBudget is; a test that pins
+ *  the pause injects the probe. */
 type PauseProbe = (tenantId: string) => Promise<boolean>;
 let probeForTests: PauseProbe | null = null;
 export function setSpendPauseProbeForTests(probe: PauseProbe | null): void { probeForTests = probe; }

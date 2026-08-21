@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 
-import { anchoredTopicMatch, domainOf, topicTokens, weakAnchorTokens } from "./relevance-gate";
+import { anchoredTopicMatch, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
@@ -343,7 +343,18 @@ export function buildEvidenceSnapshot(input: EvidenceSnapshotInput): EvidenceSna
   }
   for (const r of input.wix.payload) {
     const row = ensure(r.url);
-    if (row) { const { url: _url, ...content } = r; void _url; row.content = content; }
+    if (row) { const { url: _url, ...content } = r; void _url; row.content = { ...content, outline: [...content.outline] }; }
+  }
+  // SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, not in three producers' private filters. A heading
+  // this site prints on a third of its pages is navigation, and left in the canonical outline it grounded
+  // drafts, earned words a page never earned, and counted as list items. Stripped HERE, every consumer
+  // (drafters, page jobs, fit, journeys) reads the same clean outline; nothing needs its own copy of this
+  // defense, and no phrase list is ever hardcoded: the set is computed from the account's own pages.
+  {
+    const furniture = templateHeadings([...ownedByUrl.values()].map((p) => p.content?.outline ?? []));
+    if (furniture.size > 0) for (const row of ownedByUrl.values()) {
+      if (row.content?.outline?.length) row.content.outline = row.content.outline.filter((h) => !furniture.has(h.trim().toLowerCase().replace(/\s+/g, " ")));
+    }
   }
   for (const r of input.clarity.payload) {
     const row = ensure(r.url);

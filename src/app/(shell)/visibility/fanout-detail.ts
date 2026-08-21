@@ -133,14 +133,19 @@ export function fanoutDetail(input: {
     ] })),
   };
 
-  // WHERE THIS ACCOUNT STOOD ACROSS ALL OF THEM, over the denominator that reported anything at all.
+  // WHERE THIS ACCOUNT STOOD ACROSS ALL OF THEM, over the denominator that reported anything at all, and in
+  // words each instrument can actually stand behind: "never opened a page of yours" is legal only where
+  // opening pages is reported at all; assistants that only name the sources they relied on support "not
+  // among them" and nothing stronger (Codex, 2026-08-21).
   const standing = row.ownState === "cited"
     ? `A page here was credited on ${num(row.ownCitedAnswers)} of the ${plural(row.reportingAnswers, "answer", "answers")} that said which pages they used.`
     : row.ownState === "retrieved_not_cited"
       ? `A page here was opened and passed over on ${num(row.retrievedNotCitedAnswers)} of the ${plural(row.reportingAnswers, "answer", "answers")} that said which pages they used. That page earned the read and lost the credit.`
       : row.ownState === "not_retrieved"
         ? `Not one of the ${plural(row.reportingAnswers, "answer", "answers")} that said which pages they used opened a page of yours for this search.`
-        : "None of the answers that ran this search said what they read or credited, so where this account stood on it is unknown.";
+        : row.ownState === "not_credited"
+          ? `The ${plural(row.reportingAnswers, "answer", "answers")} that named their sources relied on other sites for this search. These assistants do not report which pages they read, so whether a page of yours was opened is unknown; the credit going elsewhere is not.`
+          : "None of the answers that ran this search said what they read or credited, so where this account stood on it is unknown.";
 
   return {
     key: row.key, query: row.query,

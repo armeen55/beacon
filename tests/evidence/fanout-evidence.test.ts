@@ -6,6 +6,9 @@ const SITE = "own.example";
 const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservation => ({
   observationId: `o-${Math.abs(JSON.stringify(over).split("").reduce((a, c) => a + c.charCodeAt(0), 0))}-${over.reportingDay ?? "d"}-${over.engine ?? "e"}-${over.promptId ?? "p"}`,
   promptId: "p1", promptText: "where to buy a haft seen set", engine: "chatgpt", reportingDay: "2026-08-01",
+  // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages
+  // and which reports what it retrieved, so claims about reading are legal on these rows.
+  observationMode: "consumer_search",
   fanOutQueries: ["haft seen set delivery"], citations: [{ url: "https://rival.example/a", domain: "rival.example" }], retrievedResults: null, ...over });
 
 describe("recurrence is distinct days and assistants, never row totals", () => {
@@ -74,16 +77,29 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
   });
 });
 
-describe("where the site stood is four different worlds, with an honest denominator", () => {
-  it("says cited, read and passed over, never you, or unreported, off the same rows Visibility renders", () => {
+describe("where the site stood is five different worlds, with an honest denominator", () => {
+  it("says cited, read and passed over, never you, not credited, or unreported, off the same rows Visibility renders", () => {
     const cited = obs({ citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }] });
     expect(buildFanoutEvidence([cited], SITE).rows[0]!.ownState).toBe("cited");
     const rnc = obs({ retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] });
     expect(buildFanoutEvidence([rnc], SITE).rows[0]!.ownState).toBe("retrieved_not_cited");
+    // The scraper reports retrieval, so "never read this site" is a claim its rows can carry.
     expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.ownState).toBe("not_retrieved");
+    // llm_responses shows absence from the credit, never absence from the reading (Codex, 2026-08-21).
+    const responses = obs({ engine: "claude", observationMode: "standardized_response" });
+    const [nc] = buildFanoutEvidence([responses], SITE).rows;
+    expect([nc!.ownState, nc!.retrievalReportingAnswers, nc!.sourceSemantics]).toEqual(["not_credited", 0, "explicit_citation"]);
     const silent = obs({ citations: null });
     const [u] = buildFanoutEvidence([silent], SITE).rows;
     expect([u!.ownState, u!.reportingAnswers]).toEqual(["unreported", 0]); // missing reporting is a state, never a zero share
+  });
+  it("names what the reported sources mean, and never merges reliance with strict citation silently", () => {
+    const scraper = obs({ observationId: "s1" });
+    const responses = obs({ observationId: "s2", engine: "gemini", observationMode: "standardized_response" });
+    expect(buildFanoutEvidence([scraper], SITE).rows[0]!.sourceSemantics).toBe("selected_or_relied_on");
+    expect(buildFanoutEvidence([scraper, responses], SITE).rows[0]!.sourceSemantics).toBe("mixed");
+    const unknown = obs({ observationMode: undefined }); // saying nothing is never evidence of absence
+    expect(buildFanoutEvidence([unknown], SITE).rows[0]!.ownState).toBe("not_credited");
   });
   it("keeps the reporting denominator beside every claim and ranks rivals by answers crediting them", () => {
     const rows = [obs({ observationId: "a" }), obs({ observationId: "b", engine: "gemini", citations: null })];
@@ -97,5 +113,28 @@ describe("where the site stood is four different worlds, with an honest denomina
     ];
     const [p] = ownedPageAiRollup(rows, SITE);
     expect([p!.url, p!.cited, p!.retrieved, p!.retrievedNotCited, p!.engines]).toEqual(["https://own.example/haft-seen", 1, 2, 1, ["chatgpt", "gemini"]]);
+  });
+});
+
+/** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never
+ *  a hardcoded phrase list (Codex, 2026-08-21). */
+describe("the canonical outline arrives without site furniture", () => {
+  it("strips a heading printed across the site and keeps every page's own sections", async () => {
+    const { buildEvidenceSnapshot } = await import("@/domains/evidence/snapshot");
+    const { emptyResearchEvidence } = await import("@/domains/evidence/funnel/research-evidence");
+    const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
+    const wixPage = (path: string, own: string) => ({
+      url: `https://fixture.example${path}`, title: own, metaDescription: "d", h1: own, h2: [],
+      outline: ["Explore More", own, "Related Articles"], schemaTypes: [], hasFaq: false, faqCount: 0,
+      wordCount: 500, internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
+    const snap = buildEvidenceSnapshot({
+      scope: { tenantId: "t", site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" },
+      gsc: src([]), ga4: src([]), clarity: src([]), dataforseo: src([]),
+      wix: src([wixPage("/a", "Haft Seen Explained"), wixPage("/b", "Nowruz Recipes"), wixPage("/c", "Sizdah Bedar")]),
+      research: src(emptyResearchEvidence()), aiAnswersUnread: false });
+    const outlines = snap.ownedPages.map((p) => p.content?.outline ?? []);
+    expect(outlines.flat()).not.toContain("Explore More"); // chrome on every page is not content anywhere
+    expect(outlines.flat()).not.toContain("Related Articles");
+    expect(outlines.flat().sort()).toEqual(["Haft Seen Explained", "Nowruz Recipes", "Sizdah Bedar"]);
   });
 });

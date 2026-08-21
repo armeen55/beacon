@@ -122,11 +122,9 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  at init, so the loaders that read the release can import it statically.) */
 export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts?: number } = {}): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
-    // TWO DISPATCHERS MUST NOT BOTH REBUILD ONE ACCOUNT, and the in-process single flight above cannot see
-    // another instance. The DATABASE decides who builds: one conditional statement takes the hold, everybody
-    // else is handed the release already on file. Held HERE, at the one body every entrance shares, so the
-    // scheduler, a stale visit and the Update data press can never duplicate the work; released on the way
-    // out so the next legitimate rebuild does not wait out the TTL.
+    // TWO DISPATCHERS MUST NOT BOTH REBUILD ONE ACCOUNT, and in-process single flight cannot see another
+    // instance: the DATABASE decides who builds, held HERE at the one body every entrance shares, released
+    // on the way out so the next legitimate rebuild does not wait out the TTL.
     const hold = await claimScope("surface-claims", tenantId, SURFACE_CLAIM_SECONDS);
     if (hold == null) {
       const held = await readCustomerSurface(tenantId).catch(() => null);
@@ -134,11 +132,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       throw new Error("Another instance is rebuilding this account's surfaces right now. The next visit reads the fresh release.");
     }
     try {
-    // THE PAUSE IS DECIDED HERE, ONCE, FOR EVERY DOOR. Four callers reach this body (a stale Today visit, a
-    // stale Changes visit, the cache warmer and the scheduler) and three of them passed no budget at all, so
-    // pausing research stopped the research cycle while the proposal producer kept buying: Decision side model
-    // spend landed at 23:08 UTC on a paused day with no run in flight (operator, 2026-08-19). Reading the
-    // switch HERE means a caller cannot forget it and a fifth caller added later inherits it.
+    // THE PAUSE IS DECIDED HERE, ONCE, FOR EVERY DOOR: three of the four callers passed no budget at all, so
+    // model spend landed on a paused day (operator, 2026-08-19). A fifth caller added later inherits it.
     // THE PAUSE OUTRANKS THE CALLER: whatever `maxDrafts` was asked for, a paused account drafts nothing.
     // AN UNREADABLE SWITCH COUNTS AS PAUSED, because the expensive assumption is never the safe one.
     const { researchPermission } = await import("@/domains/runtime");
@@ -151,19 +146,9 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
         import("./changes-data"),
         import("./today-view-data"),
       ]);
-    // PRODUCE first: the cold, gated, budgeted drafter turns cached evidence into
-    // persisted ChangeProposals, so a newly drafted move is Ready in the release we
-    // are about to publish. A FAILURE HERE PROPAGATES on purpose. Swallowing it
-    // republished yesterday's proposals behind today's timestamp, so the operator
-    // read stale work as fresh. Now the throw aborts the publish, the previous
-    // release stays exactly as it was, and the phase fails where a human can see it.
-    // A clean run that finds NO actionable candidate resolves normally and publishes
-    // with zero new proposals: nothing to do is an answer, not an outage.
-    //
-    // PARTIAL FAILURE IS STILL FAILURE. When every write of this pass failed, the
-    // proposals exist only in memory: publishing would stamp a fresh timestamp on a
-    // release nobody can load back. That aborts here, so the previous release stays
-    // byte-identical and the phase pauses where a human can see it.
+    // PRODUCE first, and A FAILURE HERE PROPAGATES on purpose: swallowing it republished yesterday's
+    // proposals behind today's timestamp. No actionable candidate resolves normally (an answer, not an
+    // outage); a pass whose every write failed aborts, so the previous release stays byte-identical.
     // THE RELEASE THIS ONE REPLACES, held from before the build. The queue stamp lands inside the build and
     // the blob lands at the end, so a blob write that fails left the NEW order stamped in the database beside
     // the OLD release: "show more" paged a ranking the screen above it did not belong to. Read now, used only

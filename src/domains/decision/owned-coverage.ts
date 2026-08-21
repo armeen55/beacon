@@ -201,3 +201,23 @@ export function topicOutOfScope(snapshot: EvidenceSnapshot, investigation: Topic
   const subject = [investigation.label, ...investigation.queries].join(" ");
   return (profile?.topicsToExclude?.value ?? []).filter((t) => anchoredTopicMatch(t, subject, weak).relevant);
 }
+
+/** A NEW PAGE NEEDS POSITIVE AUTHORIZATION, not the absence of an exclusion (Codex, 2026-08-21). Three ties
+ *  make a topic this business's ground: an approved tracked question, a filled business field, or the
+ *  account's own demonstrated demand. "You never said no" is how off-vertical pages got built. PURE. */
+export function topicPositivelyAuthorized(snapshot: EvidenceSnapshot, investigation: TopicInvestigation, profile: BusinessProfile | null | undefined): boolean {
+  const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
+  const subject = [investigation.label, ...investigation.queries].join(" ");
+  const approved = [...new Set(snapshot.research.aiObservations.map((o) => o.promptText))];
+  const confirmed = [...(profile?.topicsToOwn?.value ?? []), ...(profile?.offerings?.value ?? []),
+    ...(profile?.customerProblems?.value ?? []), ...approved].filter((t): t is string => typeof t === "string" && t.length > 0);
+  if (confirmed.some((t) => anchoredTopicMatch(t, subject, weak).relevant)) return true;
+  const askedKeys = new Set([investigation.label, ...investigation.queries].map((q) => canonicalQueryKey(q)).filter(Boolean));
+  if (snapshot.ownedPages.some((p) => (p.search?.topQueries ?? []).some((q) =>
+    q.impressions > 0 && askedKeys.has(canonicalQueryKey(q.query))))) return true;
+  // A keyword bought THROUGH the operator's own anchors carries its authorization; the machine-suggested
+  // routes are exactly the drift this gate exists for. Absence of a route is not a route.
+  const ANCHORED = new Set(["site", "ranked", "gsc", "profile", "prompt", "related", "suggestion", "ideas"]);
+  return snapshot.research.retainedKeywords.some((k) =>
+    k.discoveredVia != null && ANCHORED.has(k.discoveredVia) && askedKeys.has(canonicalQueryKey(k.query)));
+}

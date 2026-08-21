@@ -1,9 +1,8 @@
-/** A FAN-OUT IS EVIDENCE, NEVER A PAGE TOPIC. The engine's own follow-up search is a trace of how it went looking, not a subject anybody asked to read about, and turning one straight into a section shipped "Add a section on Encyclopaedia Iranica Persian literature Ferdowsi Hafez Saadi Rumi Nezami": a search trace printed as a heading. Content may be authorized off a fan-out only once it is tied to its parent prompt, intent-clustered, checked against the confirmed business scope, matched to a page whose job actually fits, checked against what that page already answers and compared with the shape that wins it, and none of that is a word-overlap count. Until every one of those exists, a fan-out stays internal evidence and mints nothing. THE PRODUCER IS DELETED, not flagged off, and its family stays in the sweep below so the cards it already wrote withdraw themselves. */
-/** decision/producers/extra: THREE MORE WAYS THE QUEUE FILLS ITSELF, all off evidence this account already paid for. Every card is minted from stored rows (the stored AI answers, page snapshots and link graph) and every number on one traces back to a row. The strict path and suggested-edits are untouched; these land beside them at `needs_review`. Every card carries what is riding on it: the audience its page is shown to, and the clicks its page is measurably leaving behind wherever its own search rows can say so. THE ONE THING THIS PASS BUYS is a page reading (producers/page-job.ts): one durable sentence saying what a page is FOR, held per page and re-read only when that page changes. It decides WHERE a card lands, and for a card carrying a subject from elsewhere onto a page it decides WHETHER one exists at all: a page nobody has read holds its card and lands on this pass's receipt instead of taking a guess. WHAT IS NOT HERE: a schema card. The stored results pages carry organic rows, AI Overview references, follow-up questions and related searches and NO rich-result flag, so "the winners show an FAQ result and this page has none" is a claim this evidence cannot support. Skipped rather than guessed. ONE CARD PER PAGE PER CHANGE FAMILY: the store files a change under (page, family) and a save SUPERSEDES whatever held it, so every candidate is checked against the queue on file AND against this pass's own. */
+/** A FAN-OUT IS EVIDENCE, NEVER A PAGE TOPIC: turning one into a section shipped a search trace as a heading. Content off a fan-out is authorized only via parent prompt, intent cluster, business scope, and a page whose job fits; until then it mints nothing. The old producer is DELETED and its family stays in the sweep so its cards withdraw themselves. */
 import "server-only";
 import { getRepository } from "@/lib/persistence/repositories";
 import { log } from "@/lib/logger";
-import { canonicalQueryKey, domainOf, templateHeadings, topicTokens } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/relevance-gate";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence } from "@/domains/evidence/ai-visibility/fanout-evidence";
 import { canonicalPairOf, readAiObservations, type CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
@@ -37,20 +36,19 @@ const topQueryOf = (p: OwnedPageEvidence): string => {
   return q ? q.query : labelOf(p); };
 const clicksOf = (p: OwnedPageEvidence): number => p.search?.clicks90d ?? 0;
 const flat = (s: string): string => s.trim().toLowerCase().replace(/\s+/g, " ");
-/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. Furniture, paragraphs in a heading tag and its own FAQ questions are none of those: a question a page ASKS is not one it covers. */
-const earnedWords = (p: OwnedPageEvidence, furniture: ReadonlySet<string>, weak: ReadonlySet<string>): Set<string> =>
-  new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []).filter((h) => !furniture.has(flat(h))
-    && !h.trim().endsWith("?") && h.trim().split(/\s+/).length <= MAX_HEADING_WORDS)].filter(Boolean).join(" ")).filter((t) => !weak.has(t)));
+/** THE WORDS A PAGE HAS EARNED THE RIGHT TO BE ASKED ABOUT: its title, heading and section headings. The
+ *  canonical outline arrives with site furniture already stripped at the snapshot assembler; what stays out
+ *  here is this file's own rules: paragraphs in a heading tag and the page's own FAQ questions, because a
+ *  question a page ASKS is not one it covers. */
+const earnedWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<string> =>
+  new Set(topicTokens([p.content?.title, p.content?.h1, ...(p.content?.outline ?? []).filter((h) =>
+    !h.trim().endsWith("?") && h.trim().split(/\s+/).length <= MAX_HEADING_WORDS)].filter(Boolean).join(" ")).filter((t) => !weak.has(t)));
 /** ONE PAGE, WHATEVER SPELLING ASKED FOR IT: the address the read landed on, else the address the page names as its own, else the address asked for. Three retired slugs forwarding to one product are ONE page. */
 const identityOf = (p: OwnedPageEvidence): string =>
   canonicalUrlKey(p.content?.finalUrl || p.content?.canonicalUrl || p.url);
 import { aiCaseCards } from "./ai-cases";
 
-/** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when
- *  the queue on file was read AND every source these producers judge on answered: "none this pass" and "I
- *  could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every
- *  card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead
- *  source holds only its own out of that sweep. `held` puts refusals on the receipt. */
+/** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
 import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
@@ -255,9 +253,8 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
   if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
-  // WHAT THIS SITE PRINTS ON EVERY PAGE, and what is left once it is taken out: the words each page has actually earned the right to be asked about.
-  const furniture = templateHeadings(pages.map((p) => p.content?.outline ?? []));
-  const earned = new Map(pages.map((p) => [p.url, earnedWords(p, furniture, weak)]));
+  // The words each page has actually earned the right to be asked about, off the already-clean outline.
+  const earned = new Map(pages.map((p) => [p.url, earnedWords(p, weak)]));
   // How much of this site hangs UNDER each page: what makes one address a hub and another a leaf.
   const children = new Map(pages.map((p) => [pathOf(p.url), pages.filter((o) => o !== p && pathOf(o.url).startsWith(`${pathOf(p.url)}/`)).length]));
   // WHAT THIS ACCOUNT ALREADY HOLDS, so a card never supersedes a change the strict path drafted for the same page and family, and an unreadable queue emits nothing rather than writing over work it cannot see. A ROW THIS PRODUCER MINTED ITSELF IS NOT SOMEBODY ELSE'S WORK: only a family held under ANOTHER id blocks.
@@ -271,13 +268,15 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
   const links = await linkCards(tenantId, pages, weak, u);
-  // THE STORED AI WINDOW, one lean read through the same projection Visibility renders: the recurrence on a
-  // card and the recurrence on the screen come off identical rows, so the two can never disagree. A failed
-  // read hands null through, and the staged producer then claims no recurrence it cannot show.
+  // THE STORED AI WINDOW, one lean read through the same projection Visibility renders; a failed read hands
+  // null through, and the staged producer then claims no recurrence it cannot show.
   const day = (d: Date): string => d.toISOString().slice(0, 10);
   const windowRows = await readAiObservations(tenantId, { fromDay: day(new Date(now.getTime() - 27 * 86_400_000)), toDay: day(now), slot: 0, projection: "fanout" }).catch(() => null);
   const windowObs = windowRows?.map((r) => canonicalPairOf(r)) ?? null;
-  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false);
+  // THE COMPLETE GOOGLE UNIVERSE, not the top-40 grain. Null = unknown, never no.
+  const universe = await import("@/domains/evidence/readers/gsc-query-universe")
+    .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
+  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, universe?.keys ?? null);
   const drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
   const out: ChangeProposal[] = [];
@@ -302,11 +301,9 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank };
 }
 
-/** THE ONE ENTRANCE FOR A PASS: loads the canonical demand units once (the collapse producer and the AI
- *  producer must join the SAME audiences) and runs the $0 queue. It exists because the paid funnel's early
- *  return skipped this producer entirely on a quiet day, and a paused quiet account then never judged or
- *  filed a single AI case (found on the first canonical $0 acceptance run, 2026-08-21). Both produce paths
- *  call this; a failed unit load narrows the pass, never fails it. */
+/** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and
+ *  runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet
+ *  account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
 export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
   curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean }): Promise<{
   run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {

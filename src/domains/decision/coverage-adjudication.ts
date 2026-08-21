@@ -151,6 +151,10 @@ const UNAVAILABLE: Record<IntersectionUnavailable, string> = {
 type AdjudicateCoverageOptions = {
   /** The account's OWN profile topics this collides with. Non-empty means the operator ruled it out. */
   outOfScopeTopics?: readonly string[];
+  /** POSITIVE AUTHORIZATION for building anything new: the topic ties to something the operator confirmed
+   *  (an approved question, a named offering, a topic to own). Absent = the caller did not judge it, which
+   *  behaves as authorized so older callers keep their behavior; FALSE withholds create_new by name. */
+  positivelyAuthorized?: boolean;
   /** The comparison Evidence bought for THIS topic, or why it is not in hand. Absent = never asked for. */
   intersection?: IntersectionEvidence;
   /** The PERSISTED reason a page of my own is unread (never fetched here): a robots refusal is the site
@@ -250,6 +254,7 @@ function evidenceOf(inv: TopicInvestigation, candidates: readonly OwnedCandidate
  */
 function readIntersection(
   inv: TopicInvestigation, ids: string[], x: IntersectionEvidence, r: PageCoverageReading | null, contenders: readonly OwnedCandidate[], at: number,
+  authorized?: boolean,
 ): CoverageDecision {
   if (r == null || "unavailable" in x) return refuse(inv, ids, "page_intersection",
     `The pages that win for "${inv.label}" have not been compared against your own yet because ${"unavailable" in x ? UNAVAILABLE[x.unavailable] : "what came back could not be read"}, so nothing is worth building until they have been. It gets tried again on your next visit.`,
@@ -283,6 +288,11 @@ function readIntersection(
         explanation: `Nothing you own answers "${inv.label}", but the sites that win it will not allow their pages to be read, so what a page of yours would have to cover cannot be shown. This is left alone rather than guessed at.`,
         alternativesRuledOut: [{ alternative: "Write the page anyway", reason: "Writing it blind is a guess, and no guess is handed over. This picks back up on its own the day a readable site comes up for this search." }] });
   }
+  // A NEW PAGE NEEDS A POSITIVE YES, not the absence of a no (Codex, 2026-08-21): the verdict is withheld
+  // with the missing authorization named, and one approval is the next step.
+  if (authorized === false) return park(inv, ids,
+    `The winning pages for "${inv.label}" share ${n} searches no page of yours covers, but nothing you have approved ties your business to it: no tracked question asks it, and none of your named offerings or topics covers it.`,
+    "Add it to your topics or track a question about it, and this becomes a page worth building.");
   return decide(inv, "create_new", { evidenceKeys: ids,
     explanation: r.ownedCoveredKeywords === 0
       ? `The pages that win for "${inv.label}" have ${n} searches in common that no page of yours comes up for at all, so this is a real gap and a page of your own is the right answer.`
@@ -441,7 +451,7 @@ async function ladder(
   }
   // EVERY CHEAPER CHECK IS BEHIND US, so this is the one topic that earned the paid comparison. With it in hand the verdict is final and free; without it the topic
   // stays an investigation, whichever way the rest of the evidence leans.
-  if (x) return readIntersection(inv, ids, x, reading, contenders, (opts.now ?? new Date()).getTime());
+  if (x) return readIntersection(inv, ids, x, reading, contenders, (opts.now ?? new Date()).getTime(), opts.positivelyAuthorized);
   // NOTHING OF YOURS IS AT RISK HERE, SO THERE IS NOTHING FOR THE COMPARISON TO PROTECT. That purchase exists
   // to stop me shipping a copy of a page this account already owns, and no page of this account even touches
   // this subject: no contender, no duplicate, no reason to hold real work behind a provider. With the shape

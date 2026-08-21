@@ -17,7 +17,7 @@ import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { askIdentity, normalizePageIntersection, type PageCoverageReading, type PageIntersectionAsk } from "@/domains/evidence/page-intersection";
 import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
-import { ownedCandidatesFor, topicOutOfScope, type OwnedCandidate } from "./owned-coverage";
+import { ownedCandidatesFor, topicOutOfScope, topicPositivelyAuthorized, type OwnedCandidate } from "./owned-coverage";
 import { resolveCurrentBasis } from "./load-proposals";
 import { adjudicateCoverage, intersectionComparison, readComparison,
   type CoverageDecision, type CoverageVerdict, type IntersectionEvidence, type MissingRequirement } from "./coverage-adjudication";
@@ -288,7 +288,8 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     // STOPPING ON A PARK IS HOW THE RULE BELOW BECAME DEAD CODE: production reads this pass with no research budget, so the walk ended the moment ANY verdict landed, and a park ranks first.
     if (decided && ACTS.has(decided.decision.verdict) && queries >= max && (max <= 0 || needs.some((n) => n.comparison))) break;
     let candidates = ownedCandidatesFor(snapshot, inv, bodies);
-    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null,
+    const judge = { outOfScopeTopics: topicOutOfScope(snapshot, inv, opts.profile ?? null),
+      positivelyAuthorized: topicPositivelyAuthorized(snapshot, inv, opts.profile ?? null), now: opts.now, site: snapshot.scope?.site ?? null,
       ...(opts.technical ? { technical: opts.technical } : {}),
       ...(opts.patternFor && opts.patternFor.topicKey === inv.key ? { pattern: opts.patternFor.pattern } : {}) };
     let decision: CoverageDecision;

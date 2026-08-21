@@ -160,9 +160,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       const a = p.aiImpact!;
       const days = Math.max(1, a.days ?? 1), engines = Math.max(1, a.engines ?? 1);
       const spread = Math.min(1, 0.6 * (days / 7) + 0.4 * (engines / 4));
-      const closeness = a.stage === "owned_retrieved_not_cited" ? 1 : a.stage === "owned_mentioned_not_cited" ? 0.85 : 0.7;
+      const closeness = a.stage === "owned_retrieved_not_cited" ? 1 : a.stage === "owned_mentioned_not_cited" ? 0.85 : a.stage === "own_not_in_reported_sources" ? 0.75 : 0.7;
       const standing = a.stage === "owned_retrieved_not_cited" ? "while this page is already read and passed over"
-        : a.stage === "owned_mentioned_not_cited" ? "while the brand is named in prose and never credited" : "and never this one";
+        : a.stage === "owned_mentioned_not_cited" ? "while the brand is named in prose and never credited"
+          : a.stage === "own_not_in_reported_sources" ? "while this site is not among the sources they relied on" : "and never this one";
       // A CARD MADE FROM A SEARCH THE ASSISTANTS RAN IS NOT "A QUESTION" ON THIS RECEIPT. It came from the
       // assistants' own follow-up searching behind several tracked questions, and calling that a question
       // read as though somebody had approved watching it, which nobody did.
