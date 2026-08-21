@@ -31,7 +31,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { shipmentBustedAt, verifyDueShipments } from "@/domains/measurement/verify-shipment";
 import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-measure-on-use";
 import { log } from "@/lib/logger";
-import { warmFreeSurfaces } from "./warm-caches";
+import { publishCustomerSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
@@ -276,8 +276,8 @@ export const defaultSteps: ResearchCycleSteps = {
   async analyzeAnswers(tenantId, reportingDay, budgetMs) { return runAnswerAnalyses(tenantId, reportingDay, { budgetMs }); },
   async verifyShipments(tenantId) { return verifyDueShipments(tenantId); },
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
-  // warmFreeSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
-  async publishSurface(tenantId) { await warmFreeSurfaces(tenantId); },
+  // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
+  async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
   // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a
   // pass, statements it has not already checked at this version of the page, and every finding banked as a
   // row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run.

@@ -1,4 +1,5 @@
 import "server-only";
+import { spendingClosed } from "@/lib/spend-scope";
 import { createHash } from "node:crypto";
 import { isDataForSeoConfigured, runDataForSeoTransport } from "./client";
 import { collectResolvedTask, identityCacheKey, runResolvedCall, type ResolvedCall } from "./cached-call";
@@ -229,6 +230,8 @@ export const capabilityAskable = (capability: string): boolean => Object.hasOwn(
 export async function providerCall<K extends CapabilityKey>(
   capability: K, input: CapabilityInputByKey[K], ids: { tenantId: string; unitKey: string }, deps: FunnelBoundaryDeps = {},
 ): Promise<CachedCallResult> {
+  // SAME BOUNDARY AS THE MODEL DOOR (lib/spend-scope): `capped` is what every caller already reads as "not buying now", so a paused day leaves the work owed rather than recording a failure nobody caused.
+  if (await spendingClosed(ids.tenantId)) return { state: "capped", cacheKey: null, detail: "Research is paused for this account, so nothing was bought. This is owed, not failed." };
   const entry = REGISTRY[capability];
   let resolution: EngineModelResolution | null = null, modelRequested: string | null = null;
   if (entry.engine) { // ONE resolution: the method routes the call AND the model rides the request

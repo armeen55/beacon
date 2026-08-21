@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { continueResearch, requestExtraSample, warmFreeSurfaces } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
+import { continueResearch, publishCustomerSurfaces, requestExtraSample, researchPermission } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -850,12 +850,21 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // under this route's maxDuration) so a pathological hang can never wedge the action; if the cap wins,
     // the build keeps warming in the background for the next visit.
     const WARM_AFTER_REFRESH_DEADLINE_MS = 45_000;
+    // THE PAUSE IS READ BEFORE ANYTHING THIS PRESS COULD BUY. Update data used to run the paid competitor
+    // settle and grant an extra AI reading with no permission read at all, which is how a paused account kept
+    // spending from a button (operator, 2026-08-20). Paused: the free finalization still runs so the screens
+    // repaint from stored evidence, nothing is bought, and no reading is promised. Unreadable counts as
+    // paused. The doors below refuse independently; this read is what keeps the PROMISES honest too.
+    const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
+    const running = permission === "running";
     await Promise.race([
-      // warmFreeSurfaces PROPAGATES a build failure (the Research Run publish phase
-      // relies on that truth). This "Update data" action is deliberately fail-soft:
-      // a warm failure must never turn a successful data refresh into an error, so
-      // we own the .catch here rather than inside warmFreeSurfaces.
-      warmFreeSurfaces(tenantId).catch(() => {}),
+      // publishCustomerSurfaces PROPAGATES a build failure (the Research Run publish phase relies on that
+      // truth). This "Update data" action is deliberately fail-soft: a warm failure must never turn a
+      // successful data refresh into an error, so we own the .catch here.
+      (running ? publishCustomerSurfaces(tenantId) : (async () => {
+        const { finalizeFreeSurfaces } = await import("@/domains/runtime");
+        return finalizeFreeSurfaces(tenantId);
+      })()).catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
     ]);
 
@@ -865,7 +874,10 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // new surface. With nothing connected the line below is the whole answer the operator gets, so it says
     // WHAT ACTUALLY HAPPENED: that refusal used to reach a log line while the operator read "I refreshed
     // what I gather myself".
-    const extra = await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null);
+    // NO READING IS GRANTED ON A PAUSED ACCOUNT: the grant is a promise of paid work, and a promise the
+    // pause forbids keeping must never be made. The line below then says so instead of "taking N readings".
+    const extra = running ? await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null)
+      : { granted: false, due: [], reason: "Research is paused, so no fresh AI reading is taken. Your stored data was refreshed and your surfaces were rebuilt from it." };
     if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
     if (connected.length === 0) results.push({ provider: "beacon_research", label: "Beacon's own research.", ok: true,
       detail: `${extra == null ? "Whether a fresh AI reading is due could not be told just now, so none is promised."

@@ -25,7 +25,11 @@ vi.mock("@/lib/connector-store", () => ({
 vi.mock("@/domains/runtime", () => ({
   continueResearch: async () => ({ hop: 1, more: false }),
   requestExtraSample: async (_t: string, day: string) => { CALLS.extraSample += 1; CALLS.extraDays.push(day); return CALLS.verdict; },
-  warmFreeSurfaces: async () => { CALLS.warm += 1; },
+  // The action reads the pause before anything it could buy: running here, so the paid settle and the
+  // reading grant behave exactly as these tests always pinned them.
+  researchPermission: async () => "running" as const,
+  publishCustomerSurfaces: async () => { CALLS.warm += 1; },
+  finalizeFreeSurfaces: async () => { CALLS.warm += 1; },
   recordSourceRefresh: async () => {},
 }));
 

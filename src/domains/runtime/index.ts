@@ -29,7 +29,7 @@ export {
 } from "./ops/refresh-runs-store";
 
 // Cache warming (used by the connectors "Update data" action + the publish phase)
-export { warmFreeSurfaces } from "./ops/warm-caches";
+export { finalizeFreeSurfaces, publishCustomerSurfaces } from "./ops/warm-caches";
 
 // The daily AI-answer plan: one canonical reading per question, per engine, per
 // Pacific reporting day. "Update data" asks the extra-sample gate for a verdict.

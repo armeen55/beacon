@@ -175,6 +175,75 @@ const writeLocks = new Map<string, Promise<void>>();
  * lets a background caller (e.g. a next/server after() rebuild) read the tenant it
  * already has explicitly, instead of falling back to ambient currentTenantSlug().
  */
+/** ONE DURABLE HOLD, WON BY EXACTLY ONE CALLER. A read, a check and then a write is not a claim: two
+ *  dispatchers on two instances both read "stale", both decide to rebuild, and both do the whole job. The
+ *  in-process single flight cannot see across instances, and duplicating a release rebuild is duplicated
+ *  database work of exactly the kind that has exhausted this project's connection budget before.
+ *
+ *  So the claim is decided by the DATABASE, in one statement: the row is inserted if it does not exist, and
+ *  otherwise updated ONLY where the hold it carries has already expired. PostgREST hands back the rows it
+ *  actually changed, so winning is "I changed the row" and losing is "I changed nothing", with no window in
+ *  between. The hold expires on its own, so a caller that dies mid-rebuild never wedges the account.
+ *
+ *  IT FAILS CLOSED EVERYWHERE THAT IS NOT EXPLICITLY LOCAL. Only `DATA_SOURCE=file` off a hosted platform is
+ *  one process with nothing to race, and only there is a claim granted without a database saying so. A hosted
+ *  instance whose client will not initialize, whose table is missing, or whose statement fails is a broken
+ *  configuration, not a quiet single-process machine, and granting the hold to everybody in that state is the
+ *  exact opposite of what a claim is for. Refusing costs one skipped rebuild; granting costs the duplicated
+ *  work this exists to prevent. */
+export async function claimScope(name: string, key: string, ttlSeconds: number): Promise<boolean> {
+  const scopeKey = `${name}::${key}`;
+  // Hermetic under vitest exactly as the budget check is: a test run with no database configured is one
+  // process with nothing to race, so the claim is granted rather than refusing every unmocked fixture. A
+  // test that pins the hosted fail-closed behaviour sets DATA_SOURCE, exactly as those tests already do.
+  if (process.env.VITEST && !process.env.DATA_SOURCE && !process.env.NEXT_PUBLIC_SUPABASE_URL) return true;
+  // THE ONE STATE THAT MAY GRANT WITHOUT A DATABASE: file mode, and not on the hosted platform.
+  const localFileMode = process.env.DATA_SOURCE === "file" && process.env.VERCEL !== "1";
+  const refuse = (why: string): boolean => {
+    if (localFileMode) return true;
+    console.error(`[json-store] claim refused for ${scopeKey}: ${why}`);
+    return false; // nobody won, which is always safer than everybody winning
+  };
+  let admin: Awaited<ReturnType<typeof import("./supabase")["getSupabaseAdmin"]>>;
+  try {
+    admin = (await import("./supabase")).getSupabaseAdmin();
+  } catch (error) {
+    return refuse(`the database client would not start: ${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
+  }
+  try {
+    const now = new Date(), until = new Date(now.getTime() + Math.max(1, ttlSeconds) * 1000).toISOString();
+    const content = [{ until }];
+    // Nobody has ever claimed this scope: the insert IS the claim, and a duplicate key means somebody beat us here.
+    const first = await admin.from(BLOBS_TABLE).insert({ scope_key: scopeKey, store_name: name, content, updated_at: now.toISOString() }).select("scope_key");
+    if (first.error == null) return Array.isArray(first.data) ? first.data.length > 0 : refuse("the insert answer could not be read");
+    if (isMissingBlobsTable(first.error)) return refuse("the claims table is not migrated here");
+    // The row exists, so the claim is a conditional overwrite of an EXPIRED hold and nothing else.
+    const taken = await admin.from(BLOBS_TABLE)
+      .update({ content, updated_at: now.toISOString() })
+      .eq("scope_key", scopeKey).lt("content->0->>until", now.toISOString()).select("scope_key");
+    if (taken.error != null) return refuse(`the claim statement failed: ${taken.error.message ?? String(taken.error)}`);
+    // AN ANSWER THAT IS NOT A LIST IS NOT AN ANSWER. A null or malformed response says nothing about who holds
+    // the scope, and reading it as "no rows, so somebody else has it" is a guess either way.
+    if (!Array.isArray(taken.data)) return refuse("the claim answer could not be read");
+    return taken.data.length > 0;
+  } catch (error) {
+    return refuse(`the claim threw: ${error instanceof Error ? error.message.slice(0, 120) : String(error)}`);
+  }
+}
+
+/** Free a hold this caller won, so the next legitimate rebuild does not wait out the TTL. Best effort: a
+ *  release that fails simply leaves the hold to expire on its own, which is the safety the TTL exists for. */
+export async function releaseScope(name: string, key: string): Promise<void> {
+  try {
+    const { getSupabaseAdmin } = await import("./supabase");
+    await getSupabaseAdmin().from(BLOBS_TABLE)
+      .update({ content: [{ until: new Date(0).toISOString() }], updated_at: new Date().toISOString() })
+      .eq("scope_key", `${name}::${key}`);
+  } catch {
+    // expiry handles it
+  }
+}
+
 export async function readStore<T>(name: string, fallback?: T[], opts: { tenantId?: string } = {}): Promise<T[]> {
   const resolved = await resolveDataPath(name, opts.tenantId);
 

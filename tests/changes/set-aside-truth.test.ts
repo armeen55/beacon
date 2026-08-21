@@ -199,7 +199,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
         investigating: 2, heldForMeasurement: 3, producerOutcome: "investigating",
         declineNotes: [{ page: "/famous-iranian-comedians", note: "Its click-through is healthy, so I am watching it." }] } } };
     vi.resetModules();
-    vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [stored], writeStore: async () => {} }));
+    vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [stored], writeStore: async () => {}, claimScope: async () => true, releaseScope: async () => undefined }));
     vi.doMock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
       resolveCurrentBasis: async () => NOW }));
     vi.doMock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),

@@ -48,18 +48,29 @@ async function askOverlap(tenantId: string, input: { domain: string; pages: stri
   return parsed.success ? { ...parsed.data, model: out.provenance.servedModel ?? OVERLAP_MODEL } : null;
 }
 
-/**
- * Rebuild the fused Today + Changes surface release and publish it. Throws on a
- * build/publish failure so the caller can decide whether to fail soft.
- */
-export async function warmFreeSurfaces(tenantId: string): Promise<void> {
-  // Settle who the competition is BEFORE the release is built, so the surface reads decided verdicts, not
-  // nominations. The operator's overrides ride along: an excluded domain is never inspected and a pinned one
-  // never buys a verdict, exactly as the display promises. Fail-soft: unsettled is honest, never a hold.
+/** THE FREE HALF, on its own so the call shape says what it costs: rebuild and publish the fused Today +
+ *  Changes release off stored evidence. Buys nothing itself, and the refresh boundary reads the pause switch
+ *  besides. Throws on a build/publish failure so the caller decides whether to fail soft. */
+export async function finalizeFreeSurfaces(tenantId: string): Promise<void> {
+  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
+  await refreshCustomerSurface(tenantId);
+}
+
+/** THE PAID HALF, named as one: settle who the competition is BEFORE the release is built, so the surface
+ *  reads decided verdicts rather than nominations. This CAN buy one bounded overlap judgment per undecided
+ *  rival, through the one OpenAI door, which itself refuses on a paused account. The operator's overrides
+ *  ride along: an excluded domain is never inspected and a pinned one never buys a verdict. Fail-soft:
+ *  unsettled is honest, never a hold. The old name, warmFreeSurfaces, claimed free and could spend; the two
+ *  halves are separate calls now so no caller can buy by accident. */
+export async function warmPaidCompetitorContext(tenantId: string): Promise<void> {
   const profile = await loadBusinessProfile(tenantId).catch(() => null);
   const overrides = (profile?.competitors.value ?? []).filter((c) => !!c.domain)
     .map((c) => ({ domain: c.domain!, action: c.action ?? ("pin" as const), kind: c.kind as CompetitorKind | undefined }));
   await competitorLandscape(await loadEvidenceSnapshot(tenantId), overrides, (input) => askOverlap(tenantId, input)).catch(() => []);
-  const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-  await refreshCustomerSurface(tenantId);
+}
+
+/** The research cycle's publish step: settle rivals (paid, door-gated), then publish (free). */
+export async function publishCustomerSurfaces(tenantId: string): Promise<void> {
+  await warmPaidCompetitorContext(tenantId);
+  await finalizeFreeSurfaces(tenantId);
 }

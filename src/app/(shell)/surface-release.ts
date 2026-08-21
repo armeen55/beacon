@@ -3,6 +3,9 @@ import "server-only";
 import { readStore, writeStore } from "@/lib/persistence/json-store";
 import { currentTenantId, runWithTenant } from "@/lib/tenant-context";
 import { runSingleFlight } from "@/lib/single-flight";
+import { log } from "@/lib/logger";
+import { runWithoutSpending } from "@/lib/spend-scope";
+import { claimScope, releaseScope } from "@/lib/persistence/json-store";
 import type { ChangesView } from "./changes-data";
 import type { TodayComposite } from "./today-view-data";
 
@@ -98,6 +101,13 @@ export async function invalidateCoreSurfaces(tenantId?: string): Promise<void> {
   await invalidateCustomerSurface(tenantId).catch(() => {});
 }
 
+/** The pass runs inside the no-spend scope, or exactly as it always did. One expression, so the paid and the
+ *  free path can never drift apart. */
+const runWithoutSpendingIf = <T>(closed: boolean, fn: () => Promise<T>): Promise<T> => (closed ? runWithoutSpending(fn) : fn());
+/** Longer than a rebuild takes, short enough that a dispatcher killed mid-build never wedges the account
+ *  past the next tick; a finished build releases the hold itself. */
+const SURFACE_CLAIM_SECONDS = 300;
+
 export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boolean {
   const t = Date.parse(computedAt);
   return !Number.isFinite(t) || nowMs - t > CUSTOMER_SURFACE_FRESH_MS;
@@ -112,6 +122,28 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  at init, so the loaders that read the release can import it statically.) */
 export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts?: number } = {}): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
+    // TWO DISPATCHERS MUST NOT BOTH REBUILD ONE ACCOUNT, and the in-process single flight above cannot see
+    // another instance. The DATABASE decides who builds: one conditional statement takes the hold, everybody
+    // else is handed the release already on file. Held HERE, at the one body every entrance shares, so the
+    // scheduler, a stale visit and the Update data press can never duplicate the work; released on the way
+    // out so the next legitimate rebuild does not wait out the TTL.
+    if (!(await claimScope("surface-claims", tenantId, SURFACE_CLAIM_SECONDS))) {
+      const held = await readCustomerSurface(tenantId).catch(() => null);
+      if (held) return held;
+      throw new Error("Another instance is rebuilding this account's surfaces right now. The next visit reads the fresh release.");
+    }
+    try {
+    // THE PAUSE IS DECIDED HERE, ONCE, FOR EVERY DOOR. Four callers reach this body (a stale Today visit, a
+    // stale Changes visit, the cache warmer and the scheduler) and three of them passed no budget at all, so
+    // pausing research stopped the research cycle while the proposal producer kept buying: Decision side model
+    // spend landed at 23:08 UTC on a paused day with no run in flight (operator, 2026-08-19). Reading the
+    // switch HERE means a caller cannot forget it and a fifth caller added later inherits it.
+    // THE PAUSE OUTRANKS THE CALLER: whatever `maxDrafts` was asked for, a paused account drafts nothing.
+    // AN UNREADABLE SWITCH COUNTS AS PAUSED, because the expensive assumption is never the safe one.
+    const { researchPermission } = await import("@/domains/runtime");
+    const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
+    const paused = permission !== "running";
+    if (paused) log.info("[surface-release] research is paused, so this release is rebuilt from stored evidence and buys nothing", { tenantId, permission });
     const [{ produceProposalsForTenant, reconcileImplementedWithoutShipment }, { buildChangesViewUncached }, { buildTodayCompositeFromChanges }] =
       await Promise.all([
         import("@/domains/decision"),
@@ -139,7 +171,10 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // `maxDrafts` rides through so a pass can be asked to REGENERATE the queue from stored evidence alone: at 0 the
     // paid drafter never fires, which is how the queue is rebuilt and inspected without spending a cent. Omitted, the
     // producer keeps its own bounded default, so every ordinary visit and every scheduled pass is unchanged.
-    const produced = await produceProposalsForTenant(tenantId, opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts });
+    // EVERY PAID DOOR CLOSED ON THE STACK, not just the two budgets: the model gateway and the provider call
+    // each ask the ambient scope before a client is built, so a path this option never reached still refuses.
+    const produced = await runWithoutSpendingIf(paused, () => produceProposalsForTenant(tenantId,
+      paused ? { maxDrafts: 0 } : opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts }));
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }
@@ -233,5 +268,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       throw publishFailure;
     }
     return surface;
+    } finally {
+      await releaseScope("surface-claims", tenantId).catch(() => {});
+    }
   }));
 }

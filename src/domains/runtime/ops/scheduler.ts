@@ -1,3 +1,4 @@
+import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import "server-only";
 
 /** scheduler (2026-08-03) - THE DAILY DISPATCH. Beacon promises a reading of your AI answers every calendar day, and until now a reading only happened because somebody opened the app: an operator who
@@ -92,11 +93,33 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       const { readCustomerSurface, isCustomerSurfaceStale, refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
       const held = await runWithTenant(tenantId, () => readCustomerSurface(tenantId));
       if (!held || isCustomerSurfaceStale(held.computedAt, nowFn().getTime())) {
+        // THE CROSS-INSTANCE HOLD LIVES INSIDE refreshCustomerSurface NOW, at the one body every entrance
+        // shares, so this tick claims nothing of its own: a second dispatcher inside the boundary is handed
+        // the release on file instead of duplicating the build, and a nested claim here would only collide
+        // with the boundary's own. The pause is read there too, so a paused account's rebuild buys nothing.
         await runWithTenant(tenantId, () => refreshCustomerSurface(tenantId, { maxDrafts: 0 }));
-        log.info("[research-run] a paused day still publishes: the stale surface was rebuilt at zero dollars", { tenantId });
+        log.info("[research-run] a paused day still publishes: the stale surface was rebuilt and bought nothing", { tenantId });
       }
     } catch (error) {
       log.warn("[research-run] the stale surface could not republish on this tick", { tenantId, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
+    }
+  };
+  /** A PAUSED ACCOUNT IS STILL A CUSTOMER. Pausing research takes an account out of the claim entirely, so the
+   *  republish above (which only ever reaches accounts this dispatch CLAIMED) could never reach a paused one:
+   *  its Today and its Changes froze at whatever the last unpaused pass left, for as long as the pause lasted.
+   *  Bounded per tick, zero spend, no lease taken, and every failure stays local to one account. */
+  const PAUSED_REPUBLISH_PER_TICK = 3;
+  const republishPaused = async (): Promise<void> => {
+    try {
+      const { data, error } = await getSupabaseAdmin().from("tenants").select("id")
+        .eq("status", "active").eq("research_paused", true).order("id", { ascending: true }).limit(PAUSED_REPUBLISH_PER_TICK);
+      if (error != null) return void log.warn("[research-run] the paused fleet could not be read, so nothing was republished for it", { error: error.message.slice(0, 160) });
+      for (const row of (data ?? []) as Array<{ id: string }>) {
+        if (nowFn().getTime() >= endsAt) break;
+        await republishStale(String(row.id));
+      }
+    } catch (error) {
+      log.warn("[research-run] the paused republish could not run on this tick", { error: error instanceof Error ? error.message.slice(0, 160) : String(error) });
     }
   };
   let claiming = true; // the claim comes first; once it drains, or hands back an account already worked, the rest of this dispatch belongs to the probe
@@ -144,6 +167,7 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
     failed += 1;
     if (outcome !== "lost_lease" && await handBack(run)) released += 1;
   }
+  await republishPaused(); // the accounts the claim can never see, and the only work they are owed
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
   else for (const t of worked) if (nowFn().getTime() < endsAt) await republishStale(t);
   else log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
