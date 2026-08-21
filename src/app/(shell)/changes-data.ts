@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -70,8 +70,12 @@ export type ChangesView = {
   queuedPages?: string[];
   /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
    *  stamped leaves a hole, and counting rows through it repeats one change. */
-  queueCursor?: { ready: number; todo: number };
-  queueMore?: { ready: boolean; todo: boolean };
+  queueCursor?: { all: number };
+  queueMore?: { all: boolean };
+  /** The database's own count of every nonterminal row in the live ranking, behind the one Show more. */
+  queueTotal?: number;
+  /** The STAMPED lane per row id: the one source of which controls a card carries. */
+  laneById?: Record<string, "ready" | "todo" | "research">;
 };
 
 /** DATE-BOMB GUARD: an epoch-0 / pre-2026 stamp is never a real ranking time. */
@@ -128,7 +132,7 @@ export const loadChangesView = cache(async (): Promise<ChangesView> => loadChang
 /** What one press of "Show more" gets back. `total` is a COUNT in the database, never a loaded length; `cursor` is where the NEXT press
  *  resumes; `refreshed` is set ONLY when the ranking they were paging is gone, and they get the fresh FIRST page and the sentence why. */
 export type ChangesPage = {
-  rows: ChangeProposal[]; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
+  rows: ChangeProposal[]; laneById: Record<string, "ready" | "todo" | "research">; total: number; cursor: number; releaseId: string | null; refreshed: string | null;
   /** Whether the database read a FULL raw page: the only honest basis for offering another press. */ more: boolean;
   /** Changes THIS page was stamped for and then refused. The screen takes them off its own count, so a refusal sitting on page nineteen
    *  lowers the number the operator reads instead of inflating it. */ dropped: number;
@@ -138,15 +142,15 @@ export type ChangesPage = {
  *  query for this account, the bar it holds now, still waiting on the operator, and the lane, so page nineteen costs what page one costs.
  *  A CURSOR IS A POSITION IN A RANKING: a stale cursor is caught here and answered with the fresh first page. */
 export async function readChangesPage(
-  tenantId: string, lane: "ready" | "todo", cursor: number, releaseId?: string | null,
+  tenantId: string, lane: "ready" | "todo" | "all", cursor: number, releaseId?: string | null,
 ): Promise<ChangesPage> {
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   // A bar I cannot read is not proof anything is current, so I show nothing rather than yesterday's work.
-  if (basis == null) return { rows: [], total: 0, cursor: 0, releaseId: null, refreshed: null, more: false, dropped: 0 };
+  if (basis == null) return { rows: [], laneById: {}, total: 0, cursor: 0, releaseId: null, refreshed: null, more: false, dropped: 0 };
   const asked = await readQueuePage(tenantId, lane, basis, cursor, CHANGES_PAGE_SIZE);
   const moved = releaseId != null && asked.release != null && releaseId !== asked.release;
   const page = moved ? await readQueuePage(tenantId, lane, basis, 0, CHANGES_PAGE_SIZE) : asked;
-  return { rows: page.rows, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
+  return { rows: page.rows, laneById: page.laneById, total: page.total, cursor: page.nextRank, releaseId: page.release, more: page.more, dropped: page.dropped,
     refreshed: moved ? "The list moved under you while you were reading it, so here is the fresh first page." : null };
 }
 
@@ -157,19 +161,18 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   const view = await readReleasedChanges(tenantId);
   const basis = await resolveCurrentBasis(tenantId).catch(() => null);
   if (basis == null) return view;
-  const [ready, toDo] = await Promise.all([
-    readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE),
-    readQueuePage(tenantId, "todo", basis, 0, CHANGES_PAGE_SIZE),
-  ]);
+  // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
+  // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
+  const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE);
   // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has
   // nothing behind it.
-  if (ready.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
-  // The two paged lanes come out of the database; the research lane rides the release itself and is spread in
-  // beside them, so an account whose only open work is being researched is never read as an account with none.
-  return { ...view, proposals: [...ready.rows, ...toDo.rows, ...(view.research ?? [])], ready: ready.rows, toDo: toDo.rows,
-    summary: { ...view.summary, ready: ready.total, todo: toDo.total }, surfaceVersion: ready.release,
-    queueCursor: { ready: ready.nextRank, todo: toDo.nextRank },
-    queueMore: { ready: ready.more, todo: toDo.more } };
+  if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
+  const lane = (l: "ready" | "todo" | "research") => page.rows.filter((p) => page.laneById[p.id] === l);
+  const counts = await queueLaneCounts(tenantId, page.release, basis);
+  return { ...view, proposals: page.rows, laneById: page.laneById,
+    ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
+    summary: { ...view.summary, ready: counts.ready, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
+    queueCursor: { all: page.nextRank }, queueMore: { all: page.more }, queueTotal: page.total };
 }
 
 /** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry
@@ -266,8 +269,13 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   // in the database and the release carries one page. The stamp names the ID this release publishes under, so Today, Changes and every
   // "show more" name one release; a stamp that does not land ABORTS THE PUBLISH and the previous complete release keeps serving.
   const nowMs = Date.now();
+  // THE ONE GLOBAL ORDER IS STAMPED, research included: `queue.ranked` interleaves every lane by worth, and
+  // the lane rides beside each id as the control fact. Stamping lanes as separate lists was how research
+  // never ranked and Today and Changes could only agree lane by lane (Codex, 2026-08-21).
+  const laneOf = (p: ChangeProposal): "ready" | "todo" | "research" =>
+    queue.research.some((r) => r.id === p.id) ? "research" : queue.ready.some((r) => r.id === p.id) ? "ready" : "todo";
   if (!(await stampQueueRanking(tenantId, releaseId,
-    queue.ready.map((p) => p.id), queue.toDo.map((p) => p.id)).catch(() => false))) {
+    queue.ranked.map((p) => ({ id: p.id, lane: laneOf(p) }))).catch(() => false))) {
     throw new Error("The order of your changes could not be written down, so your previous list was kept rather than publishing one that cannot be paged.");
   }
   const receiptLine = buildReceiptLine({

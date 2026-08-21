@@ -1,4 +1,5 @@
 import "server-only";
+import { dayLabel } from "@/lib/presenter";
 
 /**
  * decision/coverage-adjudication: the ONE verdict on whether this account ALREADY has the right page for a
@@ -176,7 +177,7 @@ type Ev = { id: string; fact: string };
 /** The receipt lines one verdict may carry: never an unbounded blob riding a decision. */
 const MAX_EVIDENCE = 24;
 const num = (n: number): string => n.toLocaleString("en-US");
-const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day nobody recorded");
+const day = (iso: string | null): string => dayLabel(iso) ?? "a day nobody recorded";
 /** A DAY I AM PROMISING, in words, never a stamp. A raw 2026-08-11 in front of an operator standing in
  *  2026-08-11 reads as a delay that is already over, so a date that has arrived says so and is due now. */
 const when = (iso: string, at: number): string => {

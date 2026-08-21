@@ -7,6 +7,7 @@ import "server-only";
  *  is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE
  *  card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
 import { log } from "@/lib/logger";
+import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence, FANOUT_LINKAGE_CAVEAT, instrumentFacts, type FanoutRow } from "@/domains/evidence/ai-visibility/fanout-evidence";
@@ -166,14 +167,14 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const stage = passedOver ? ("owned_retrieved_not_cited" as const) : mentioned ? ("owned_mentioned_not_cited" as const)
       : retrievalCapable ? ("rivals_cited_own_not_retrieved" as const) : ("own_not_in_reported_sources" as const);
     const unreach = stage === "rivals_cited_own_not_retrieved";
-    const standLine = stand.answers > 0 ? `Across ${count(stand.answers, "stored answer")} on file (${stand.engines.join(", ")}), this site is cited on ${stand.cited}${stand.lastCitedAt ? `, last on ${stand.lastCitedAt.slice(0, 10)}` : ""} and retrieved on ${stand.retrieved}.` : "";
+    const standLine = stand.answers > 0 ? `Across ${count(stand.answers, "stored answer")} on file (${engineList(stand.engines)}), this site is cited on ${stand.cited}${stand.lastCitedAt ? `, last on ${dayLabel(stand.lastCitedAt)}` : ""} and retrieved on ${stand.retrieved}.` : "";
     const recurLine = w ? `Over the stored window this question ran on ${count(w.days.size, "day")} across ${count(w.engines.size, "assistant")}, and ${count(w.reporting, "answer")} reported sources.` : "";
     // THE ASSISTANTS' OWN FOLLOW-UP SEARCHES behind this question, recurring ones only, off the same projection Visibility renders: the cluster travels with the card into shipment scope, so Results can remeasure it.
     const cluster = (fanouts?.rows ?? []).filter((f) => f.material && f.parents.some((pr) => pr.promptId === g.promptId)).slice(0, 5);
     const clusterLine = cluster.length > 0 ? `While answering it, assistants ran their own searches on repeat: ${cluster.map((f) => `"${f.query}" (${count(f.days, "day")}, ${count(f.engines.length, "assistant")})`).join("; ")}.` : "";
     const fact = mentioned ? facts.find((f) => f.page.toLowerCase() === path.toLowerCase()) ?? null : null;
-    const engines = [...g.engines].sort().join(", "), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
-    const readers = stand.retrievedNotCitedEngines.length > 0 ? stand.retrievedNotCitedEngines.join(" and ") : "An assistant";
+    const engines = engineList([...g.engines].sort()), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
+    const readers = stand.retrievedNotCitedEngines.length > 0 ? stand.retrievedNotCitedEngines.map(engineLabel).join(" and ") : "An assistant";
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
       headline: passedOver ? `${readers} reads ${path} for "${g.prompt}" and cites ${domain} instead; give it the answer it can lift`
@@ -191,9 +192,9 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         : mentioned ? [`Open the site editor on ${path}`, `Write the direct answer to "${g.prompt}" with its source named in the passage`, fact ? `Build on the banked verified fact: ${fact.subject}` : "Hold publishing until the fact pass banks a verified source for the claim", "Mark it done here and the next answers get checked against it"]
           : unreach ? [`Open the site editor on ${path}`, "Align the title and H1 with the question's own words", `Link to ${path} from the strongest related pages`, "Mark it done here and the next answers get checked against it"]
             : [`Open the site editor on ${path}`, `Add a section that answers "${g.prompt}" outright`, "Put the answer in the first two sentences, before any background", "Mark it done here and the next answers get checked against it"],
-      hints: [`${cite.engine} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
+      hints: [`${engineLabel(cite.engine)} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
         ...passages, ...linkOnly, ...(standLine ? [standLine] : []), ...(recurLine ? [recurLine] : []), ...(clusterLine ? [clusterLine] : []),
-        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? stand.retrievedNotCitedEngines.join(", ") : "The stored window"} shows this page retrieved while answering and credited nowhere, so the page is reachable and not liftable`] : []),
+        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited nowhere, so the page is reachable and not liftable`] : []),
         ...(mentioned ? [`Assistants say the name in prose on ${count(g.mentioned, "stored answer")} without crediting any page of this site`] : []),
         ...(fact ? [`Verified fact banked for this page: ${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}`] : []),
         `The newest answer from each of ${engines} credited other sites and none credited this one`,
@@ -347,7 +348,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         `Behind ${row.parents.slice(0, 2).map((pr) => `"${plain(pr.promptText)}"`).join(" and ")}${row.parents.length > 2 ? ` and ${count(row.parents.length - 2, "more question")}` : ""}`,
         ...(rival ? [`${rival.url} is credited on ${count(rival.answers, "answer")} that ran it`] : []),
         ...(readOver ? [`A page here was read for it and passed over ${count(row.retrievedNotCitedAnswers, "time")}`] : []),
-        `Assistants that ran it: ${row.engines.join(", ")}`],
+        `Assistants that ran it: ${engineList(row.engines)}`],
       aiImpact: { answers: row.reportingAnswers, mentionRate: 0, citedRivals: row.rivalPagesTotal,
         audienceWeight: fit.match.page.search?.impressions90d ?? null, days: row.days, engines: row.engines.length,
         prompts: row.parents.length, reportedAnswers: row.reportingAnswers, retrievedNotCited: row.retrievedNotCitedAnswers, stage },

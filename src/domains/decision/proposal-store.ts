@@ -11,7 +11,6 @@ import { serializeChangeProposal, deserializeChangeProposal, type BundleComponen
 import { confirmedVersion, deliverableGaps } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy";
-
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
 const TABLE = PROPOSAL_TABLE;
@@ -140,11 +139,9 @@ function decode(payload: unknown): ChangeProposal | null {
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
-  // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT, so its stamp clears here and the next release build gives it a fresh position. A paged lane can never serve a change that has moved on.
-  // AND A ROW THAT LIVES AGAIN IS NO LONGER RETIRED: the retirement reason clears with the disposition,
-  // because a live row wearing "withdrawn: ..." is two states at once (operator, 2026-08-17: never
-  // Ready plus a withdrawal reason). The objection it recorded survives where it belongs, on the
-  // limitations of whatever draft answered it.
+  // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT (stamp clears; fresh position next build),
+  // and a row that lives again is no longer retired: the reason clears with the disposition, or a live row
+  // wears two states at once (operator, 2026-08-17). The objection survives on the answering draft's limitations.
   status: p.status, terminal_disposition: null, superseded_by: null, queue_lane: null, queue_rank: null, withdrawn_reason: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
@@ -264,10 +261,8 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
   try {
     const row = await rowById(tenantId, id), stored = row ? decode(row.payload) : null;
     if (!row || !stored) return { status: "failed" };
-    // THE ACCOUNT HALF OF THE BASIS IS THE IDENTITY; the ::dN generation half is the kernel's own clock. A row
-    // drafted under an older generation that the operator is confirming RIGHT NOW, through THIS door's checks,
-    // is not somebody else's row: refusing it "stale" stranded every re-admitted opportunity one confirmation
-    // short of ready forever. Two nulls still match (a pre-basis row confirmed by a pre-basis caller).
+    // THE ACCOUNT HALF OF THE BASIS IS THE IDENTITY; the ::dN half is the kernel's clock: refusing a
+    // re-admitted row "stale" stranded it one confirmation short of ready forever. Two nulls still match.
     const strip = (s: string): string => s.replace(/::d\d+$/, "");
     const sameAccount = (row.basis ?? null) == null && basis == null
       ? true : row.basis != null && basis != null && strip(row.basis) === strip(basis);
@@ -350,11 +345,15 @@ export async function loadChangeProposal(tenantId: string, id: string, opts: { r
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }
 
-/** STAMP THE RANKING THAT IS LIVE, in ONE statement per release: the unlimited queue's positions are written down, not carried in a blob, so page two is cut from the SAME database order page one was. Both lanes and the clearing of the old ranking commit together (never half an order); a stamp that cannot land leaves the  ranking on file serving, which is why this is fail-soft. */
-export async function stampQueueRanking(tenantId: string, release: string, ready: readonly string[], toDo: readonly string[]): Promise<boolean> {
+/** STAMP THE LIVE RANKING in ONE statement per release: ONE GLOBAL RANK across every nonterminal
+ *  opportunity, the id list IS the order, and the lane rides beside it as a control fact, never a second
+ *  order (v1 numbered lanes separately and never stamped research; Codex, 2026-08-21). A stamp that cannot
+ *  land leaves the ranking on file serving, which is why this is fail-soft. */
+export async function stampQueueRanking(tenantId: string, release: string, rows: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>): Promise<boolean> {
   try {
     const { error } = await getSupabaseAdmin()
-      .rpc("stamp_change_queue", { p_tenant_id: tenantId, p_release: release, p_ready: ready, p_todo: toDo });
+      .rpc("stamp_change_queue_v2", { p_tenant_id: tenantId, p_release: release,
+        p_ids: rows.map((r) => r.id), p_lanes: rows.map((r) => r.lane) });
     if (!error) return true;
     log.error("[proposal-store] the new ranking did not stamp, so the list keeps paging the one on file", { tenantId, release, error: error.message });
   } catch (e) { log.error("[proposal-store] stamping the ranking threw", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
@@ -363,10 +362,10 @@ export async function stampQueueRanking(tenantId: string, release: string, ready
 
 /** ONE BOUNDED PAGE of the live ranking, cut in the database and never in memory. `total` is a COUNT taken without loading the queue; `release` names the ranking these rows came from, so paging a replaced order is told rather than fed a different one. `nextRank` is the last rank actually READ, never a row count: a dismissal leaves a hole, and counting rows through it would serve the change after it twice. */
 export async function readQueuePage(
-  tenantId: string, lane: "ready" | "todo", basis: string, afterRank: number, limit: number,
-): Promise<{ rows: ChangeProposal[]; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
+  tenantId: string, lane: "ready" | "todo" | "research" | "all", basis: string, afterRank: number, limit: number,
+): Promise<{ rows: ChangeProposal[]; laneById: Record<string, "ready" | "todo" | "research">; total: number; dropped: number; release: string | null; nextRank: number; more: boolean }> {
   const at = Math.max(0, Math.floor(afterRank));
-  const nothing = { rows: [], total: 0, dropped: 0, release: null, nextRank: at, more: false };
+  const nothing = { rows: [], laneById: {}, total: 0, dropped: 0, release: null, nextRank: at, more: false };
   try {
     const sb = getSupabaseAdmin();
     // Both lanes of one ranking share a release, so rank 1 of either names the ranking that is live.
@@ -374,36 +373,50 @@ export async function readQueuePage(
     const release = ((head ?? []) as Array<{ queue_lane: string | null }>)
       .map((r) => (r.queue_lane ?? "").split("::")[0] ?? "").find((s) => s.length > 0) ?? null;
     if (release == null) return nothing;
-    // EVERY FILTER THE QUEUE OWES IS ASKED HERE: this account, the bar it holds right now, still waiting on the operator, and the lane of the ranking that is live. Nothing is filtered after the fact.
-    // THE ACCOUNT HALF OF THE BASIS GATES IN THE DATABASE; the ::dN generation half belongs to the checks
-    // (actionableProposalFailures below), so a row the current bar re-admitted is not dropped by an exact
-    // string match against a stamp only the kernel's own version moved. LIKE wildcards in the prefix are
-    // escaped so an account fingerprint containing an underscore matches itself and nothing else.
+    // EVERY FILTER THE QUEUE OWES IS ASKED HERE; nothing is filtered after the fact. The ACCOUNT half of the
+    // basis gates in the database, the ::dN half belongs to the checks below, and LIKE wildcards are escaped.
     const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&");
-    const scoped = (cols: string, count?: { count: "exact"; head: true }) => sb.from(TABLE).select(cols, count)
-      .eq("tenant_id", tenantId).eq("queue_lane", `${release}::${lane}`).like("basis", `${accountBasis}%`).is("terminal_disposition", null);
+    const scoped = (cols: string, count?: { count: "exact"; head: true }) => {
+      const q = sb.from(TABLE).select(cols, count).eq("tenant_id", tenantId).like("basis", `${accountBasis}%`).is("terminal_disposition", null);
+      return lane === "all" ? q.like("queue_lane", `${release.replace(/[\%_]/g, "\$&")}::%`) : q.eq("queue_lane", `${release}::${lane}`);
+    };
     const [counted, page] = await Promise.all([
       scoped("id", { count: "exact", head: true }),
-      scoped(`${CANON_COLUMNS}, queue_rank`).gt("queue_rank", at)
+      scoped(`${CANON_COLUMNS}, queue_rank, queue_lane`).gt("queue_rank", at)
         .order("queue_rank", { ascending: true }).order("id", { ascending: true }).limit(limit),
     ]);
     if (page.error) throw new Error(page.error.message);
-    const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number }>;
+    const read = (page.data ?? []) as unknown as Array<CanonRow & { queue_rank: number; queue_lane: string | null }>;
     const rows: ChangeProposal[] = [];
+    // THE STAMPED LANE IS THE ONE SOURCE of what controls a row carries.
+    const laneById: Record<string, "ready" | "todo" | "research"> = {};
     // THE SAME ANSWER THE FIRST SCREEN GIVES. Position, lane and basis are stamped once and read for weeks, so a change whose own receipt stopped resolving kept paging out of a ranking taken when it still did.
     for (const r of read) {
       if (r.terminal_disposition != null) continue;
       const p = decode(r.payload);
-      if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) rows.push(p);
+      if (p && actionableProposalFailures(p, { tenantId, currentBasis: basis }).length === 0) {
+        rows.push(p);
+        const stamped = (r.queue_lane ?? "").split("::")[1];
+        laneById[p.id] = stamped === "ready" || stamped === "research" ? stamped : "todo";
+      }
     }
     // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted. The count is what the lane holds LESS what this page just refused, never the raw stamp: offering to show more of a number that includes changes I will not hand over is a promise the next press cannot keep. `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it learns of them. No scan: I only ever subtract what I have actually read.
-    return { rows, dropped: read.length - rows.length, release,
+    return { rows, laneById, dropped: read.length - rows.length, release,
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)),
       nextRank: read[read.length - 1]?.queue_rank ?? at, more: read.length === limit };
   } catch (e) {
     log.error("[proposal-store] the queue page did not read", { tenantId, lane, error: e instanceof Error ? e.message : String(e) });
     return nothing;
   }
+}
+
+/** THE LANE COUNTS OF THE LIVE RANKING, counted in the database, beside the one global order. */
+export async function queueLaneCounts(tenantId: string, release: string, basis: string): Promise<{ ready: number; todo: number; research: number }> {
+  const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&");
+  const count = async (lane: "ready" | "todo" | "research"): Promise<number> => (await getSupabaseAdmin().from(TABLE).select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId).eq("queue_lane", `${release}::${lane}`).like("basis", `${accountBasis}%`).is("terminal_disposition", null)).count ?? 0;
+  try { const [ready, todo, research] = await Promise.all([count("ready"), count("todo"), count("research")]); return { ready, todo, research }; }
+  catch { return { ready: 0, todo: 0, research: 0 }; }
 }
 
 /** ONE bounded page of the canonical current rows, and the ceiling on a whole account. */

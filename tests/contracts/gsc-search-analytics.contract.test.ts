@@ -1,12 +1,6 @@
-/**
- * N40 contract test - Google Search Console searchanalytics.query + sites.list.
- *
- * Feeds a checked-in fixture of the REAL response shape through the ACTUAL
- * client code path (gscSearchAnalyticsQuery / gscListSites with an injected
- * fetchImpl - the same functions the nightly sync calls), so a silent upstream
- * change that breaks our parsing fails a named test here instead of surfacing
- * as a quietly-empty sync. NO live calls: the fetch is a local fixture.
- */
+/** N40 contract test - GSC searchanalytics.query + sites.list: a checked-in REAL response shape through the
+ *  ACTUAL client path (injected fetchImpl), so a silent upstream change fails a named test instead of a
+ *  quietly-empty sync. NO live calls. */
 
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";

@@ -1,4 +1,5 @@
 import "server-only";
+import { dayLabel } from "@/lib/presenter";
 
 /**
  * decision/new-page: the ONE builder of a researched new page, and the only thing on the far side of an EARNED
@@ -41,7 +42,7 @@ import type { ProposeOptions } from "./propose";
 type NewPageOutcome = { status: "built"; proposal: ChangeProposal } | { status: "none"; reason: string };
 
 const num = (n: number): string => n.toLocaleString("en-US");
-const day = (iso: string | null): string => (iso ? iso.slice(0, 10) : "a day nobody recorded");
+const day = (iso: string | null): string => dayLabel(iso) ?? "a day nobody recorded";
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
 /** What the pages that win here ARE, in words an operator reads. */
 const SHAPE: Record<string, string> = { informational_guide: "a guide that explains the subject", list: "a list", definition: "a short definition",

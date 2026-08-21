@@ -4,14 +4,12 @@ import { supabaseFake, type Row } from "../helpers/supabase-fake";
 
 const db = vi.hoisted(() => ({ rows: [] as Row[], legacy: [] as Row[], reads: [] as number[], basis: "b1" as string | null, stampFails: false }));
 const client: Record<string, unknown> = {
-  // The one production statement that stamps a ranking: clear this account, then number each lane in order.
-  rpc(_name: string, a: { p_tenant_id: string; p_release: string; p_ready: string[]; p_todo: string[] }) {
+  // The v2 stamp: clear this account, then ONE global ordinality with the lane riding beside each id.
+  rpc(_name: string, a: { p_tenant_id: string; p_release: string; p_ids: string[]; p_lanes: string[] }) {
     if (db.stampFails) return Promise.resolve({ data: null, error: { message: "the ranking did not stamp" } });
     for (const r of db.rows) if (r.tenant_id === a.p_tenant_id) { r.queue_lane = null; r.queue_rank = null; }
-    for (const [lane, ids] of [["ready", a.p_ready], ["todo", a.p_todo]] as const) {
-      ids.forEach((id, i) => { const r = db.rows.find((x) => x.tenant_id === a.p_tenant_id && x.id === id);
-        if (r) { r.queue_lane = `${a.p_release}::${lane}`; r.queue_rank = i + 1; } });
-    }
+    a.p_ids.forEach((id, i) => { const r = db.rows.find((x) => x.tenant_id === a.p_tenant_id && x.id === id);
+      if (r) { r.queue_lane = `${a.p_release}::${a.p_lanes[i]}`; r.queue_rank = i + 1; } });
     return Promise.resolve({ data: null, error: null });
   },
 };
@@ -65,7 +63,7 @@ const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id:
   payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: `2026-07-30T00:00:${String(p.impactScore).padStart(4, "0")}Z`, ...over });
 
 const ALL = Array.from({ length: N }, (_, i) => proposal(i));
-async function stamp(release: string, ready = ALL) { await stampQueueRanking(T, release, ready.map((p) => p.id), []); }
+async function stamp(release: string, ready = ALL) { await stampQueueRanking(T, release, ready.map((p) => ({ id: p.id, lane: "ready" as const }))); }
 beforeEach(async () => {
   db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
   await stamp("rel-1"); });
@@ -122,11 +120,21 @@ describe("one release identity, or no release at all", () => {
     expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9"); // the complete release on file is untouched
   }); });
 
+describe("one global rank across every lane", () => {
+  it("interleaves research and drafts with ready work by worth, and the stamped lane rides each row", async () => {
+    await stampQueueRanking(T, "rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]);
+    const page = await readQueuePage(T, "all", "b1", 0, 10);
+    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]);
+    expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
+    await stamp("rel-1"); // restore the fixture ranking for the suites below
+  });
+});
+
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {
     const view = await loadChangesView();
     const seen = view.ready.map((p) => p.id);
-    let cursor = view.queueCursor!.ready; // the RANK the screen reached, which is what the client sends back
+    let cursor = view.queueCursor!.all; // the RANK the screen reached, in the ONE global order
     for (let guard = 0; guard < 40 && seen.length < N; guard += 1) {
       const page = await readChangesPage(T, "ready", cursor, "rel-1");
       seen.push(...page.rows.map((p) => p.id));
@@ -155,7 +163,7 @@ describe("the ranked queue pages in the database", () => {
   it("no longer caps the canonical current queue at 500, and Today still takes only three", async () => {
     expect((await loadChangeProposals(T)).size).toBe(N);
     const view = await loadChangesView(); // the count is the count, and the screen is one page
-    expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]);
+    expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]); // one page of the one order, all ready in this fixture
     expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); }); });
 
 /** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */

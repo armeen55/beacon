@@ -1,4 +1,5 @@
 import "server-only";
+import { dayLabel } from "@/lib/presenter";
 
 /**
  * recent-upkeep (Phase 4B Lane 1 fold, 2026-07-21) - the compact "Recent activity"
@@ -102,7 +103,7 @@ export async function loadRecentUpkeep(tenantId: string): Promise<RecentUpkeepEn
     .slice(0, RECENT_UPKEEP_LIMIT)
     .map((row) => ({
       key: row.id,
-      dateLabel: row.finished_at.slice(0, 10),
+      dateLabel: dayLabel(row.finished_at) ?? row.finished_at.slice(0, 10),
       sentence: recentUpkeepSentence(row),
     }))
     .filter((e): e is RecentUpkeepEntry => e.sentence !== null);

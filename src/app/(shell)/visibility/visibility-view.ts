@@ -34,8 +34,7 @@ const table = (over: Partial<Table> & Pick<Table, "columns" | "empty">): Table =
 /** A READ THAT DID NOT LAND IS NOT AN EMPTY ACCOUNT. A bare empty list told an account with seven hundred stored answers that not one had ever been read, the worst lie this surface could tell. It claims nothing about collection either: every stored answer stays exactly where it is whether the daily round is on or off. */
 const UNREAD = "That could not be read back in time just now. Nothing is lost: the stored answers are safe and this fills in on the next visit.";
 
-const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
-const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
+import { engineLabel as engineName } from "@/lib/presenter";
 /** HOW an answer was asked for, in words. The mode key is what a provider is called with, never what a customer reads. */
 const MODE_LABEL: Record<string, string> = { api: "asked directly", consumer_search: "asked the way a person searching would be" };
 /** AN INSTANT A STRANGER CAN READ: "Aug 2 at 4:02 PM UTC". A stored timestamp is never printed as it was written. */

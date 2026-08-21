@@ -44,27 +44,16 @@ type LedgerRow = {
 /** How many rows a lane shows before it says how many more it holds. A feed nobody can read is the same
  *  silence as an empty one. */
 const LANE_LIMIT = 6;
-const RESEARCH_LIMIT = 8;
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
-/** A day in the operator's words. A bare YYYY-MM-DD is a finalized day read in UTC, so the day I name is the
- *  day the data actually ends on. */
-function dayLabel(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const t = Date.parse(iso.length === 10 ? `${iso}T00:00:00Z` : iso);
-  if (!Number.isFinite(t)) return null;
-  return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-}
+import { dayLabel } from "@/lib/presenter";
 
 /** The page path, full length for matching. */
 const pathOf = (url: string): string => url.replace(/^https?:\/\/[^/]+/, "") || "/";
-/** The page, short enough to read. */
-const prettyPage = (url: string): string => {
-  const path = pathOf(url);
-  return path.length > 48 ? `${path.slice(0, 45)}...` : path;
-};
+/** The page, whole: a chopped path is a different page, and CSS owns the overflow. */
+const prettyPage = (url: string): string => pathOf(url);
 
 /** The stored slug in the operator's words. Anything unmapped falls back to its own plain words. */
 const PART_WORD: Record<string, string> = { meta: "description", faq: "FAQ", h1: "main heading", h2: "section",
@@ -127,42 +116,6 @@ function Lane({ title, blurb, children }: { title: string; blurb: string; childr
 
 // ── the opportunity lane, one card per ranked signal ─────────────────────────
 
-/** ONE OPPORTUNITY THAT HAS NO FINISHED WORDS YET, SHOWN WHOLE. It was a number in a sentence until 2026-08-15
- *  ("7 opportunities are still being developed"), which is the account's own ranked research reported as
- *  weather. Every card says the page, the exact search behind it, how big the audience is, what Beacon believes
- *  is wrong, what it already holds, what is still missing and what happens next. Nothing here is offered as
- *  work: there is no copy to take and no control that records it done. */
-function ResearchCard({ p }: { p: ChangeProposal }) {
-  const path = p.pagePath ?? p.pageUrl ?? "";
-  const missing = p.research?.missing ?? "what is missing has not been named in a typed field yet"; // typed, never guessed from operatorSteps order (operator, 2026-08-15)
-  const believes = p.causeFinding?.explanation ?? p.whyItMatters;
-  const next = p.research?.next ?? "what happens next has not been named in a typed field yet";
-  const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !missing.includes(h.trim())).slice(0, 2);
-  const facts = [p.demandImpressions90d ? `${num(p.demandImpressions90d)} views in Google over 90 days` : null,
-    p.impactScore ? `${num(p.impactScore)} clicks recoverable` : null].filter(Boolean);
-  return (
-    <li className="space-y-1.5 rounded-2xl border border-border bg-surface-raised p-4" data-research-card="true">
-      <p className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[14px] font-semibold text-foreground">{path ? pageLabel(path) : p.pageLabel}</span>
-        {path ? <span className="text-[12px] text-muted-foreground">{prettyPage(path)}</span> : null}
-      </p>
-      <p className="text-[13px] font-semibold leading-relaxed text-foreground">{p.opportunityType}</p>
-      <p className="text-[12px] tabular-nums text-muted-foreground">
-        Searched as &ldquo;{p.primaryQuery}&rdquo;{facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}
-      </p>
-      <p className="text-[13px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">What the evidence says: </span>{believes}</p>
-      <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-owed="true"><span className="font-semibold text-foreground">Still missing: </span>{missing}</p>
-      <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-next="true"><span className="font-semibold text-foreground">Next: </span>{next}</p>
-      {held.length > 0 ? (
-        <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-research-evidence="true">
-          {held.map((h, i) => <li key={i}>{h}</li>)}
-        </ul>
-      ) : null}
-      <Link href={`/changes/${encodeURIComponent(p.id)}`} data-research-detail="true" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Open details &rarr;</Link>
-    </li>
-  );
-}
-
 // ── the feed ─────────────────────────────────────────────────────────────────
 
 /** THE one Changes screen. `queue` is the ranked list (its own client component, which owns paging, set aside
@@ -212,7 +165,6 @@ export function ChangesFeed({ view, queue, decay, declineNotes, measuring, resul
   // A live read that failed falls back to the count the release stamped, said with its age.
   const watchLabel = evidenceRead === false ? staleCounts?.watching ?? null : watchingCount;
   // THE THREE LANES ARE COUNTED ONCE, HERE, off the same release Today reads, so the two screens agree exactly.
-  const research = view.research ?? [], shownResearch = research.slice(0, RESEARCH_LIMIT);
 
   return (
     <div className="space-y-8" data-changes-feed="true">
@@ -224,25 +176,8 @@ export function ChangesFeed({ view, queue, decay, declineNotes, measuring, resul
         {queue}
       </Lane>
 
-      {/* THE THIRD LANE, AND IT IS A LIST OF CARDS RATHER THAN A NUMBER (operator, 2026-08-15). Genuine
-          opportunities whose exact words are not written stay VISIBLE here with everything known about each
-          one; what the gates decide is that none of them carries copy to take or a control that records it
-          done. Nothing is hidden but a duplicate, a page mapping the evidence refuses, an idea the evidence
-          contradicts and a gap too small to be worth a morning, and each of those keeps its existing exit. */}
-      {research.length > 0 ? (
-        <Lane title="Opportunities being researched" blurb="Real signals off your own data with no finished wording yet. Each one says what is known, what is still missing and what happens next. Nothing here is ready to make.">
-          <p className="text-[14px] font-semibold tabular-nums text-foreground" data-research-count="true">
-            {num(view.summary?.research ?? research.length)} {plural(view.summary?.research ?? research.length, "opportunity is", "opportunities are")} being researched
-          </p>
-          <ul className="list-none space-y-3">{shownResearch.map((p) => <ResearchCard key={p.id} p={p} />)}</ul>
-          {research.length > shownResearch.length ? (
-            <details className="rounded-xl border border-dashed border-border" data-lane-more="research">
-              <summary className="cursor-pointer px-3 py-2 text-[12px] tabular-nums text-muted-foreground">Show {num(research.length - shownResearch.length)} more {plural(research.length - shownResearch.length, "opportunity", "opportunities")}, worked in this order</summary>
-              <ul className="list-none space-y-3 p-3 pt-0">{research.slice(shownResearch.length).map((p) => <ResearchCard key={p.id} p={p} />)}</ul>
-            </details>
-          ) : null}
-        </Lane>
-      ) : null}
+      {/* RESEARCH RIDES THE ONE RANKED FLOW ABOVE at its global rank (Codex, 2026-08-21): a list of full
+          cards, never a number (operator, 2026-08-15), with nothing on them that records work as done. */}
 
       <Lane title="Measuring and results" blurb="Changes you have already made. Each page is read against how it did before and against similar pages that were not changed.">
         {view.countsUnavailable || !ledgerRead ? (

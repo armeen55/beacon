@@ -117,7 +117,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "waiting on your review", "Why it is held", "moves or hides a page", "Copy draft"]) expect(held, s).toContain(s);
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "draft to review", "Why it is held", "moves or hides a page", "Copy draft"]) expect(held, s).toContain(s);
     for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {

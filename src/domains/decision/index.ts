@@ -48,6 +48,7 @@ export {
   loadChangeProposals,
   transitionProposalToImplemented,
   dismissChangeProposal,
+  queueLaneCounts,
   readQueuePage,
   stampQueueRanking,
 } from "./proposal-store";

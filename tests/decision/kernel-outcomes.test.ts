@@ -321,7 +321,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
     // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so it keeps the caveat and the page is held for review.
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after;
-    expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on 2026-07-25: it is one of the pages that win "${HAFT}"`);
+    expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
     expect(page.limitations).toContain("Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out.");
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis! }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready

@@ -38,8 +38,7 @@ type Disposition = {
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const pct = (n: number): string => `${n > 0 && n < 0.1 ? (n * 100).toFixed(1) : Math.round(n * 100)}%`;
 const shortUrl = (raw: string): string => (raw ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
-const ENGINE_LABEL: Record<string, string> = { chatgpt: "ChatGPT", perplexity: "Perplexity", gemini: "Gemini", claude: "Claude" };
-const engineName = (raw: string): string => ENGINE_LABEL[(raw || "").toLowerCase()] ?? "An AI assistant";
+import { engineLabel as engineName } from "@/lib/presenter";
 /** HOW an answer was asked for, in words. A mode key is what a provider is called with, never what a customer reads. */
 const MODE_LABEL: Record<string, string> = { api: "asked directly", consumer_search: "asked the way a person searching would be" };
 

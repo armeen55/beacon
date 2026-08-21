@@ -250,7 +250,8 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       const { stampQueueRanking } = await import("@/domains/decision");
       const prior = previous?.changes ?? null;
       await stampQueueRanking(tenantId, prior?.surfaceVersion ?? `${tenantId}:rolled-back`,
-        (prior?.ready ?? []).map((p) => p.id), (prior?.toDo ?? []).map((p) => p.id)).catch(() => false);
+        [...(prior?.ready ?? []).map((p) => ({ id: p.id, lane: "ready" as const })),
+          ...(prior?.toDo ?? []).map((p) => ({ id: p.id, lane: "todo" as const }))]).catch(() => false);
       throw publishFailure;
     }
     return surface;

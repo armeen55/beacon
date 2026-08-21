@@ -308,7 +308,7 @@ export async function reviewDraftAction(args: { proposalId: string; version: str
 
 /** THE NEXT PAGE OF THE RANKED QUEUE. Read-only, ONE page, cut at a rank offset inside the release the caller names. A release replaced since is answered with the fresh first page and the sentence saying so. */
 export async function loadMoreChangesAction(args: {
-  lane: "ready" | "todo"; cursor: number; releaseId?: string | null;
+  lane: "ready" | "todo" | "all"; cursor: number; releaseId?: string | null;
 }): Promise<ChangesPage> {
   return readChangesPage(await currentTenantId(), args.lane, args.cursor, args.releaseId ?? null);
 }

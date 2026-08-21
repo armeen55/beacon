@@ -1,99 +1,76 @@
 "use client";
 
-/** changes-list-client: ONE flat ranked queue of every change, best first. THE FLIP THIS FILE EXISTS FOR
- *  (2026-08-11): the Ready / Needs review tabs made half the work invisible behind a tab nobody pressed, and
- *  the half that showed was framed as work in progress rather than work to do. Every card is now in one list,
- *  fully rendered, carrying its own chip saying how proven it is. This file owns the LIST (the filter and sort
- *  the operator drives, the database paging, and the one place a put-aside can be taken back); one card owns
- *  everything said about one change. Publishing is MANUAL: the only mutating controls anywhere in here are
- *  "Mark done" and "Skip". */
+/** changes-list-client: ONE flat ranked queue of every nonterminal opportunity, best first, whatever its
+ *  stage. THE TWO LESSONS THIS LAYOUT HOLDS TOGETHER: (2026-08-11) tabs made half the work invisible;
+ *  (2026-08-15) merging lanes while every card wore Copy and Mark done presented unvalidated work as
+ *  paste-ready. So the ORDER is the one persisted global rank and never the lane, and the LANE gates the
+ *  CONTROLS on each card: ready rows carry Mark done, review rows carry nothing that records work, research
+ *  rows present what is owed. High-impact research ranks above tiny ready work because importance and
+ *  finishedness are different facts (Codex, 2026-08-21). Publishing is MANUAL: the only mutating controls
+ *  are "Mark done" and "Skip". */
 
 import { useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
 import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
-type Lane = "ready" | "todo";
+type Lane = "ready" | "todo" | "research";
 type Sort = "rank" | "gap" | "quick";
-
-/** THE PROVEN / EARLY / BEST GUESSES FILTER IS GONE. It sorted the queue by how finished the work LOOKED, over a
- *  list that mixed finished changes with instructions to go and write one, so "Best guesses" read as a tray of
- *  things to do. Evidence strength stays on the card, where it is a fact about the argument.
- *
- *  BUT ONE FLAT LIST WAS THE WRONG LESSON. The two lanes were merged into one ranked list and the card offered
- *  Copy and Mark done on every row in it, so a change still waiting on a human look ("needs_review", the stage
- *  Product Truth puts BEFORE ready) presented as a paste-ready deliverable: three of the five cards on this
- *  screen were work nobody had validated, wearing the same buttons as work that had cleared every gate. Ready
- *  work is one list. Everything still waiting on a look sits below it, plainly labelled, with nothing on it to
- *  press: reading it is the whole of what an operator can do with it, and that is said rather than implied. */
 const SORTS: [Sort, string][] = [["rank", "Rank"], ["gap", "Biggest gap"], ["quick", "Quickest"]];
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
-  // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads. Matched on the
-  // canonical case identity the card carries, never on wording that merely resembles it, and an unreadable
-  // file says nothing at all rather than letting a card imply a verdict nobody reached.
+  // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads, matched on
+  // the canonical case identity and never on wording. An unreadable file says nothing at all.
   const caseLineOf = (p: ChangeProposal): string | null => {
     const key = p.aiScope?.caseKey;
     if (!key || view.aiCases.state !== "read") return null;
     return view.aiCases.rows.find((d) => d.caseKey === key)?.reason ?? null;
   };
   const [sort, setSort] = useState<Sort>("rank");
-  // THE QUEUE IS UNLIMITED AND THE SCREEN IS NOT: the server cuts one page per lane in the database and counts
-  // the rest there too, so what is behind this screen is a fact rather than a length. The two lanes survive as
-  // PAGING lanes only; the operator never sees them.
-  const [more, setMore] = useState<Record<Lane, ChangeProposal[]>>({ ready: [], todo: [] });
-  // THE CURSOR IS A POSITION IN A RANKING, so the ranking it was taken against travels with every press. When
-  // the background rebuild has replaced it, the server says so and this lane restarts from the top.
-  const [at, setAt] = useState<Record<Lane, number>>(view.queueCursor ?? { ready: view.ready.length, todo: view.toDo.length });
+  // ONE CURSOR IN ONE RANKING. The cursor is a position; when the background rebuild replaced the ranking,
+  // the server says so and the list restarts from the fresh first page.
+  const [more, setMore] = useState<ChangeProposal[]>([]);
+  const [moreLanes, setMoreLanes] = useState<Record<string, Lane>>({});
+  const [at, setAt] = useState<number>(view.queueCursor?.all ?? view.proposals.length);
   const [release, setRelease] = useState<string | null>(view.surfaceVersion ?? null);
-  // THE BUTTON DIES ON WHAT THE DATABASE READ: a short raw page means the lane is exhausted however many rows a
-  // count still names. A view with no page verdict yet defaults open; the first press settles it.
-  const [canMore, setCanMore] = useState<Record<Lane, boolean>>(view.queueMore ?? { ready: true, todo: true });
-  const [moved, setMoved] = useState<{ lane: Lane; note: string; total: number } | null>(null);
-  const [lost, setLost] = useState<Record<Lane, number>>({ ready: 0, todo: 0 }); // refusals a deeper page found
+  const [canMore, setCanMore] = useState<boolean>(view.queueMore?.all ?? true);
+  const [moved, setMoved] = useState<{ note: string; total: number } | null>(null);
+  const [lost, setLost] = useState<number>(0); // refusals a deeper page found
   const [hidden, setHidden] = useState<string[]>([]);
   // Marked done in this session. The row stays on screen saying so; the open count drops on the press.
   const [finished, setFinished] = useState<string[]>([]);
   const [toast, setToast] = useState<{ text: string; undo: (() => void) | null } | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [loadingMore, startLoadMore] = useTransition();
-  // A RESTARTED LANE SHOWS THE FRESH PAGE AND NOTHING ELSE: rows from the ranking that went away are dropped
+  // A RESTARTED LIST SHOWS THE FRESH PAGE AND NOTHING ELSE: rows from a ranking that went away are dropped
   // rather than stacked under the new ones, which is the only way "each change once" survives.
-  const laneRows = useMemo(() => (l: Lane): ChangeProposal[] =>
-    moved?.lane === l ? more[l] : [...(l === "ready" ? view.ready : view.toDo), ...more[l]], [moved, more, view]);
-  // THE ONE DIVIDING LINE ON THIS SCREEN: the row's own stage. Nothing about how it looks, how strong its
-  // evidence is or which lane it was paged out of decides it, so a card can never present above its stage.
-  const raw = useMemo(() => [...laneRows("ready"), ...laneRows("todo")], [laneRows]);
-  const readyIds = useMemo(() => new Set(raw.filter((p) => p.status === "ready").map((p) => p.id)), [raw]);
+  const raw = useMemo(() => (moved ? more : [...view.proposals, ...more]), [moved, more, view]);
+  // THE STAMPED LANE IS THE ONE SOURCE of what a card may offer; a row the stamp does not know is review.
+  const laneOf = useMemo(() => (p: ChangeProposal): Lane =>
+    moreLanes[p.id] ?? view.laneById?.[p.id] ?? (p.researchOnly === true ? "research" : p.status === "ready" ? "ready" : "todo"),
+    [moreLanes, view]);
   const order = useMemo(() => (kept: ChangeProposal[]) => {
-    // QUICKEST TIES BREAK ON STAGE: two one-minute changes are not equal work, and the validated one is the one
-    // to do first.
-    const proven = (p: ChangeProposal) => (readyIds.has(p.id) ? 0 : 1);
-    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes || proven(a) - proven(b));
+    // The sorts reorder the WHOLE flow: finishedness never outranks worth (Codex, 2026-08-21).
+    if (sort === "quick") return [...kept].sort((a, b) => a.estimatedEffortMinutes - b.estimatedEffortMinutes);
     if (sort === "gap") return [...kept].sort((a, b) => (b.upsidePerMonth ?? b.impactScore ?? 0) - (a.upsidePerMonth ?? a.impactScore ?? 0));
     return kept;
-  }, [sort, readyIds]);
-  const shown = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
-  const rows = useMemo(() => order(shown.filter((p) => p.status === "ready")), [order, shown]);
-  const review = useMemo(() => order(shown.filter((p) => p.status !== "ready")), [order, shown]);
-  // THE COUNT ON THE SCREEN IS THE COUNT OF THE LIST UNDER IT: a replaced ranking restarts its lane (the old
-  // total said 35 above a list holding 12), `lost` takes off what a DEEPER page refused, and a change the
-  // operator just put aside comes off it too, so it only ever falls.
-  const countOf = (l: Lane) => (moved?.lane === l ? moved.total : l === "ready" ? view.summary.ready : view.summary.todo) - lost[l];
-  // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE. It used to add both lanes together, so the number
-  // above the list counted cards nobody had validated as "finished changes ready to make".
-  const openTotal = Math.max(0, rows.filter((p) => !finished.includes(p.id)).length + Math.max(0, countOf("ready") - laneRows("ready").length));
-  const leftIn = (l: Lane) => Math.max(0, countOf(l) - laneRows(l).length);
-  const remaining = leftIn("ready") + leftIn("todo");
-  // ONE BUTTON, TWO LANES BEHIND IT: finish the proven ones, then keep going into the rest.
-  const nextLane: Lane = canMore.ready && leftIn("ready") > 0 ? "ready" : "todo";
+  }, [sort]);
+  const rows = useMemo(() => order(raw.filter((p) => !hidden.includes(p.id))), [order, raw, hidden]);
+  const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);
+  const reviewCount = useMemo(() => rows.filter((p) => laneOf(p) === "todo").length, [rows, laneOf]);
+  const researchCount = useMemo(() => rows.filter((p) => laneOf(p) === "research").length, [rows, laneOf]);
+  // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE (2026-08-15): drafts and research are named beside
+  // it in their own words, never folded into "ready to make".
+  const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
+    + Math.max(0, (view.summary.ready ?? 0) - readyRows.length));
+  const remaining = Math.max(0, (view.queueTotal ?? (moved?.total ?? rows.length)) - raw.length - lost);
 
-  /** OPTIMISTIC, AND TAKEABLE BACK. The row goes now because that is what the press meant; nothing reaches the
-   *  store until the ten seconds are up, so "Undo" costs no write at all. */
+  /** OPTIMISTIC, AND TAKEABLE BACK: nothing reaches the store until the ten seconds are up. */
   function putAside(id: string) {
     setHidden((prev) => [...prev, id]);
     const timer = setTimeout(() => { timers.current.delete(id); void dismissProposalAction({ proposalId: id }); }, UNDO_MS);
@@ -115,11 +92,13 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       }</p> : null}
       {moved ? <p data-list-moved="true" className="text-[12px] text-amber-800">{moved.note}</p> : null}
 
-      {/* THE COUNT IS FINISHED WORK ONLY, so it is said as changes ready to make and never as ideas open. */}
       <p className="text-[14px] font-semibold tabular-nums text-foreground" data-open-count="true">
         {openTotal.toLocaleString("en-US")} finished {openTotal === 1 ? "change" : "changes"} ready to make
+        {reviewCount + researchCount > 0 ? (
+          <span className="font-normal text-muted-foreground"> · {reviewCount > 0 ? `${reviewCount.toLocaleString("en-US")} ${reviewCount === 1 ? "draft" : "drafts"} to review` : null}{reviewCount > 0 && researchCount > 0 ? ", " : null}{researchCount > 0 ? `${researchCount.toLocaleString("en-US")} being researched` : null}</span>
+        ) : null}
       </p>
-      {openTotal > 1 ? (
+      {rows.length > 1 ? (
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
           <span className="text-muted-foreground">Sorted by</span>
           {SORTS.map(([k, l]) => <TabButton key={k} active={sort === k} onClick={() => setSort(k)}>{l}</TabButton>)}
@@ -132,51 +111,28 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </p>
       ) : null}
 
+      {/* ONE LIST, THE PERSISTED ORDER. Each card's controls come from its lane: a review row carries nothing
+          that records work as done, and a research row presents exactly what is owed and what happens next. */}
       <ul className="list-none space-y-3">
-        {rows.map((p, i) => (
-          <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={readyIds.has(p.id)} caseLine={caseLineOf(p)} onAside={putAside}
-            onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
-        ))}
+        {rows.map((p, i) => laneOf(p) === "research"
+          ? <ResearchRow key={p.id} p={p} rank={i + 1} />
+          : <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={laneOf(p) === "ready"}
+              review={laneOf(p) !== "ready"} caseLine={caseLineOf(p)} onAside={putAside}
+              onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />)}
       </ul>
 
-      {/* WAITING ON A LOOK. Separated, labelled, and carrying no control that would record work as done: what
-          is here is not finished, and a screen that offers Copy and Mark done on it says otherwise. */}
-      {review.length > 0 ? (
-        <section className="space-y-3 rounded-2xl border border-dashed border-border bg-surface-inset p-4" data-review-area="true">
-          <div className="space-y-1">
-            <p className="text-[14px] font-semibold tabular-nums text-foreground" data-review-count="true">
-              {review.length.toLocaleString("en-US")} {review.length === 1 ? "draft is" : "drafts are"} waiting on your review
-            </p>
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Each one carries its proposed wording, where it goes, why it is held and what backs it. Take the
-              draft as a starting point, approve the wording where only judgement is holding it, or send it back
-              for better words. Nothing here counts as finished until it is approved.
-            </p>
-          </div>
-          <ul className="list-none space-y-3">
-            {review.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={rows.length + i + 1} proven={false} review caseLine={caseLineOf(p)} onAside={putAside}
-                onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {canMore[nextLane] && remaining > 0 ? (
+      {canMore && remaining > 0 ? (
         <button type="button" disabled={loadingMore} data-show-more="true"
           onClick={() => startLoadMore(async () => {
-            const lane = nextLane;
-            const res = await loadMoreChangesAction({ lane, cursor: at[lane], releaseId: release });
-            // A LIST THAT MOVED IS NOT PAGED ON. The ranking being read is gone, so the server sent the
-            // fresh first page and the sentence saying why, and this lane starts again from it.
+            const res = await loadMoreChangesAction({ lane: "all", cursor: at, releaseId: release });
             setRelease(res.releaseId);
-            setAt((prev) => ({ ...prev, [lane]: res.cursor }));
-            setCanMore((prev) => ({ ...prev, [lane]: res.more }));
+            setAt(res.cursor);
+            setCanMore(res.more);
             // A fresh first page's refusals are already out of its own total; only DEEPER pages accumulate.
-            setLost((prev) => ({ ...prev, [lane]: res.refreshed ? 0 : prev[lane] + res.dropped }));
-            setMoved((prev) => (res.refreshed ? { lane, note: res.refreshed, total: res.total }
-              : prev?.lane === lane ? { ...prev, total: res.total } : prev));
-            setMore((prev) => ({ ...prev, [lane]: res.refreshed ? res.rows : [...prev[lane], ...res.rows] }));
+            setLost((prev) => (res.refreshed ? 0 : prev + res.dropped));
+            setMoved((prev) => (res.refreshed ? { note: res.refreshed, total: res.total } : prev ? { ...prev, total: res.total } : prev));
+            setMoreLanes((prev) => ({ ...prev, ...res.laneById }));
+            setMore((prev) => (res.refreshed ? res.rows : [...prev, ...res.rows]));
           })}
           className="w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground tabular-nums hover:text-foreground disabled:opacity-60"
         >
@@ -194,6 +150,42 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** ONE OPPORTUNITY THAT HAS NO FINISHED WORDS YET, SHOWN WHOLE at its global rank (operator, 2026-08-15;
+ *  one flow, Codex 2026-08-21). Every card says the page, the exact search behind it, the audience, what the
+ *  evidence says, what is still missing and what happens next. Nothing here is offered as work: no copy to
+ *  take, no control that records it done; reading it is the work. */
+function ResearchRow({ p, rank }: { p: ChangeProposal; rank: number }) {
+  const path = p.pagePath ?? p.pageUrl ?? "";
+  const missing = p.research?.missing ?? "what is missing has not been named in a typed field yet"; // typed, never guessed (operator, 2026-08-15)
+  const believes = p.causeFinding?.explanation ?? p.whyItMatters;
+  const next = p.research?.next ?? "what happens next has not been named in a typed field yet";
+  const held = (p.evidence?.hints ?? []).filter((h) => h.trim() && h !== believes && !missing.includes(h.trim())).slice(0, 2);
+  const facts = [p.demandImpressions90d ? `${p.demandImpressions90d.toLocaleString("en-US")} views in Google over 90 days` : null,
+    p.impactScore ? `${Math.round(p.impactScore).toLocaleString("en-US")} clicks recoverable` : null].filter(Boolean);
+  return (
+    <li className="space-y-1.5 rounded-2xl border border-border bg-surface-raised p-4" data-research-card="true">
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="tabular-nums text-muted-foreground">{rank}</span>
+        <span className="rounded-full border border-border px-2 py-0.5 font-semibold text-muted-foreground">Being researched</span>
+        {path ? <span className="text-muted-foreground">{path}</span> : null}
+      </div>
+      <p className="text-[14px] font-semibold leading-snug text-foreground">{p.opportunityType}</p>
+      <p className="text-[12px] tabular-nums text-muted-foreground">
+        Searched as &ldquo;{p.primaryQuery}&rdquo;{facts.length > 0 ? ` · ${facts.join(" · ")}` : ""}
+      </p>
+      <p className="text-[13px] leading-relaxed text-muted-foreground"><span className="font-semibold text-foreground">What the evidence says: </span>{believes}</p>
+      <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-owed="true"><span className="font-semibold text-foreground">Still missing: </span>{missing}</p>
+      <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-next="true"><span className="font-semibold text-foreground">Next: </span>{next}</p>
+      {held.length > 0 ? (
+        <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-research-evidence="true">
+          {held.map((h, i) => <li key={i}>{h}</li>)}
+        </ul>
+      ) : null}
+      <Link href={`/changes/${encodeURIComponent(p.id)}`} data-research-detail="true" className="inline-flex text-[12px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">Open details &rarr;</Link>
+    </li>
   );
 }
 

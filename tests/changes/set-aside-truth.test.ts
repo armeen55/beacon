@@ -147,7 +147,7 @@ describe("an account that skipped the connectors still reaches its own Today", (
 
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
-  // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen. Zero ready still renders every draft and every opportunity under research, in full; a draft shows its exact copy and says out loud it is not finished; a research card carries what is missing; the same three counts appear on Today and on Changes, and no row is in two lanes.
+  // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes.
   it("shows every open opportunity with zero ready, never calls a draft finished, and counts the same on both screens", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
     const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
@@ -157,18 +157,18 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    for (const said of ["1 draft is waiting on your review", EXACT, "Copy draft", "Why it is held", "1 opportunity is being researched", "has not been read, and that read is what turns this into exact work", "Still missing"]) expect(html).toContain(said);
+    for (const said of ["1 draft to review", EXACT, "Copy draft", "Why it is held", "1 being researched", "has not been read, and that read is what turns this into exact work", "Still missing"]) expect(html).toContain(said);
     expect(html).not.toMatch(/Proven|Mark done/);
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
       .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. 1 draft is waiting on your review in Changes. 1 opportunity is being researched, each one shown with what is missing."]);
     expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and the research card is its own shape
-  // EVERY GENUINE OPPORTUNITY IS REACHABLE, PAST WHATEVER ONE SCREEN SHOWS OPEN. Twelve is past the feed's own fold (RESEARCH_LIMIT), so the rest used to sit under a count with no way to reach them; every one now renders, and every card carries its own link to the same detail page a draft opens on.
+  // EVERY GENUINE OPPORTUNITY IS REACHABLE: every research card renders in the one flow with its own detail link.
   it("exposes all 12 research opportunities past the fold, each with its own detail link", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Missing for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } };
     const html = await renderChanges(view);
-    expect([html.match(/data-research-card="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("12 opportunities are being researched")])
+    expect([html.match(/data-research-card="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("12 being researched")])
       .toEqual([12, 12, true]); });
   // TYPED, NOT GUESSED FROM ARRAY POSITION (fix, 2026-08-15): the last string in operatorSteps used to be read as "Next", so reordering that array changed the answer. A producer-minted card carries `research.missing`/`research.next` and the feed reads only those.
   it("reads Still missing / Next off the typed research field, never off operatorSteps order", async () => {
