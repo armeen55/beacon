@@ -1,5 +1,4 @@
-/** THE COMPLETE PAGE-QUERY UNIVERSE FOR DECISION (Codex, 2026-08-21): pages through everything, a bound
- *  that cuts says so, and a failed read is corroboration UNKNOWN, never an account Google holds nothing for. */
+/** THE COMPLETE PAGE-QUERY UNIVERSE FOR DECISION (Codex, 2026-08-21): pages through everything, a bound that cuts says so, and a failed read is corroboration UNKNOWN, never an account Google holds nothing for. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const env = vi.hoisted(() => ({ pages: [] as Array<Array<{ query: string }>>, fail: false, calls: 0 }));

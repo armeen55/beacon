@@ -109,7 +109,17 @@ export type ResearchCycleSteps = {
   /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
+  /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under
+   *  the target, finish the strongest stored opportunities through the ONE canonical producer before this
+   *  cycle buys exploratory evidence. Bounded per drive; null = the count could not be read, which defers
+   *  nothing and claims nothing. */
+  replenishReady: (tenantId: string, now: Date) => Promise<{ ready: number; deficit: number; persisted: number } | null>;
 };
+
+/** The Ready stock the scheduler keeps ahead of acquisition. Internal: never a customer setting, never UI. */
+const READY_STOCK_TARGET = 5;
+/** How many deliverables one drive may finish toward the target: bounded so drafting stays inside the lease. */
+const REPLENISH_DRAFTS_PER_DRIVE = 2;
 
 /** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself
  *  (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
@@ -175,6 +185,20 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
 }
 
 export const defaultSteps: ResearchCycleSteps = {
+  async replenishReady(tenantId, now) {
+    const d = await import("@/domains/decision");
+    const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
+    const queue = await d.loadProposalQueue(tenantId, { currentBasis: basis }).catch(() => null);
+    if (queue == null) return null;
+    const deficit = Math.max(0, READY_STOCK_TARGET - queue.ready.length);
+    if (deficit === 0) return { ready: queue.ready.length, deficit: 0, persisted: 0 };
+    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, its
+    // drafting walks the global ranking, and every finished result persists before acquisition runs.
+    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE) }).catch(() => null);
+    // WHAT BLOCKED EACH ATTEMPTED CANDIDATE IS ON THE RECEIPT, never a silent shortfall.
+    if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
+    return { ready: queue.ready.length, deficit, persisted: out?.persisted ?? 0 };
+  },
   async refreshSources(tenantId, now) {
     // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources
     // contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not run, and the runner must pause rather than record a false

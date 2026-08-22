@@ -2,8 +2,7 @@
  * oldest-missing-first; an already-answered pair is never asked twice; extra readings only on an explicit ask, only after the canonical round, never past three; a version bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back step: one gateway call per NEW answer hash, and
  * zero calls on a re-run. Fixtures only, zero network. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-/** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here
- *  is pure fixtures and injects its own readers, so nothing else ever reaches it. */
+/** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here is pure fixtures and injects its own readers, so nothing else ever reaches it. */
 const pg = vi.hoisted(() => ({ queued: [] as { data: unknown; error: unknown }[], queries: 0, cols: [] as string[], inserted: [] as Record<string, unknown>[] }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {
@@ -17,8 +16,7 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async (usd: number) => void ledger.spent.push(usd),
   reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},
 }));
-/** WHAT THE PROVIDER REGISTRY CAN ASK TODAY. The planner derives its engine set from the registry through
- *  this one predicate, so turning a capability off here is the only way to prove the derivation is live. */
+/** WHAT THE PROVIDER REGISTRY CAN ASK TODAY. The planner derives its engine set from the registry through this one predicate, so turning a capability off here is the only way to prove the derivation is live. */
 const registry = vi.hoisted(() => ({ off: new Set<string>() }));
 vi.mock("@/domains/evidence/dataforseo/funnel-boundary", async (orig) => ({
   ...((await orig()) as object), capabilityAskable: (cap: string) => !registry.off.has(cap),
@@ -480,8 +478,7 @@ it("never plans more perplexity than one pass can drain, and fills the freed slo
   const plan = planObservations(DAY, { prompts, observed: [] });
   const perp = plan.filter((d) => d.engine === "perplexity").length;
   expect([plan.length, perp]).toEqual([20, 3]); }); // the old plan carried 5+, the pass drained 3, and the skipped rows re-sorted to the head forever
-/** WHEN A PAIR'S DAY IS OVER. A row that only ever said "failed" read as owed on every look, so an engine that
- *  could not answer one question was re-bought on every pass of every day, forever. */
+/** WHEN A PAIR'S DAY IS OVER. A row that only ever said "failed" read as owed on every look, so an engine that could not answer one question was re-bought on every pass of every day, forever. */
 describe("work that is genuinely finished", () => {
   const ONE = [PROMPTS[0]!], REASON = "The provider refused this request.", engines: DueObservation["engine"][] = ["chatgpt"];
   const plan = (observed: AiObservationView[], retries: Record<string, number> = {}) => planObservations(DAY, { prompts: ONE, observed, engines, retries, maxBatch: 99 });
@@ -525,8 +522,7 @@ describe("work that is genuinely finished", () => {
         settled.push([id, status]); const r = store.find((x) => x.id === id)!; r.status = "unavailable"; },
     };
     const pass = async () => (await dueObservations(T, DAY, world))!.length;
-    /** What the executor does with a plan it actually drains: it asks, the provider breaks again, and the
-     *  row is rewritten on its own identity with a FRESH ask stamp. That stamp is the proof of the ask. */
+    /** What the executor does with a plan it actually drains: it asks, the provider breaks again, and the row is rewritten on its own identity with a FRESH ask stamp. That stamp is the proof of the ask. */
     const executorAsks = () => { asks += 1; store[0]!.requestedAt = `${DAY}T09:0${asks}:00.000Z`; };
     expect(await pass()).toBe(1);                                    // retry one is planned
     expect(markers!.observationRetries!.counts).toEqual({ "p1|1|chatgpt|0": 0 }); // and nothing is spent yet

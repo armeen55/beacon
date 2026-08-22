@@ -254,7 +254,8 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
               <p className="text-[12px] italic text-muted-foreground">There is no {field} on the page today.</p>
             )}
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-              <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
+              {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
+              <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
                 <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
               </p>
               <CopyButton text={after} onToast={onToast}

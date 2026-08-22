@@ -6,8 +6,7 @@ const SITE = "own.example";
 const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservation => ({
   observationId: `o-${Math.abs(JSON.stringify(over).split("").reduce((a, c) => a + c.charCodeAt(0), 0))}-${over.reportingDay ?? "d"}-${over.engine ?? "e"}-${over.promptId ?? "p"}`,
   promptId: "p1", promptText: "where to buy a haft seen set", engine: "chatgpt", reportingDay: "2026-08-01",
-  // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages
-  // and which reports what it retrieved, so claims about reading are legal on these rows.
+  // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages and which reports what it retrieved, so claims about reading are legal on these rows.
   observationMode: "consumer_search",
   fanOutQueries: ["haft seen set delivery"], citations: [{ url: "https://rival.example/a", domain: "rival.example" }], retrievedResults: null, ...over });
 
@@ -116,8 +115,7 @@ describe("where the site stood is five different worlds, with an honest denomina
   });
 });
 
-/** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never
- *  a hardcoded phrase list (Codex, 2026-08-21). */
+/** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never a hardcoded phrase list (Codex, 2026-08-21). */
 describe("the canonical outline arrives without site furniture", () => {
   it("strips a heading printed across the site and keeps every page's own sections", async () => {
     const { buildEvidenceSnapshot } = await import("@/domains/evidence/snapshot");

@@ -165,9 +165,8 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS }); expect(out.status).toBe("none"); if (out.status !== "none") return; expect(out.reason).toContain("nothing is handed over rather than filler"); });
 }); describe("one pass, one row per change", () => { it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
-    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result. A MEASURED GAP WITH NO DIAGNOSED CAUSE
-    // MINTS NO TITLE GUESS (operator, 2026-08-17): the compost page's 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest output is the investigation
-    // path plus the page's real defects, never a rewrite nobody can justify.
+    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result. A MEASURED GAP WITH NO DIAGNOSED CAUSE MINTS NO TITLE GUESS (operator,
+    // 2026-08-17): the compost page's 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest output is the investigation path plus the page's real defects, never a rewrite nobody can justify.
     expect(res.proposals.map((p) => [p.id, p.status]).sort()).toEqual([[`${TENANT}::/compost::existing_edit::missing_description`, "needs_review"], [`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"]]);
     expect(res.held.some((h) => h.pageUrl.includes("/rain-barrels"))).toBe(true);
     // FIVE GUARDS ON ONE PASS: host and path key the page (two hosts share /compost and the weak row must carry ITS OWN title), an em dash in a brand tail is never pasted, a page the strict path covered takes no second weaker row, a page beating its own curve on its ONE measured search is refused even through the AEO clause that waives the click test, and a search whose results page I never bought still earns ONE best-guess card, at the lowest confidence I have, rather than the silence that left a losing page with nothing to do.
@@ -508,18 +507,25 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Learn about the History of Iran Flags and the Achaemenid Empire Flag (550-330 BCE).", after: "Achaemenid Empire Flag (550 - 330 BCE) in Persian Flags History: symbolism, role, changes and origins. Explore more." } });
     const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { ...banked.evidence, evidenceRefCount: 9 },
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that says what only this page answers." } });
-    // AND THE PAGE THE WORDS WERE WRITTEN FOR KEEPS THEM ALIVE. The basis alone decided, and a basis is a reading of the ACCOUNT: it does not move when the page is re-crawled, so copy written for a page that has since changed shape outlived it.
+    // IDENTITY IS MATERIAL, NOT PROVENANCE (operator, 2026-08-22): a basis stamp, a reworded hint or a new agreeing observation preserves finished words; only the page moving under them destroys, with the stale-basis demotion and the
+    // banked-copy re-reads still guarding truth on their own doors.
     const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked);
     const recrawled = preferFinished({ ...brief, copyStamp: "a page that reads differently now" }, { ...banked, copyStamp: "the page as it read when this line was written" });
     expect((recrawled.recommendedChange as { after: string }).after.slice(0, 5)).toBe("Write");
     const fresher = preferFinished(prop({ ...banked, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "A newer finished line about the Achaemenid flag and what it meant." } }), banked);
     expect([deliverableGaps(kept), kept.recommendedChange, kept.researchOnly, kept.estimatedEffortMinutes, kept.limitations, kept.evidence.evidenceRefCount, kept.claims,
       moved.researchOnly, (moved.recommendedChange as { after: string }).after.slice(0, 5), (fresher.recommendedChange as { after: string }).after.slice(0, 7), preferFinished(brief, null).researchOnly,
-      // UNSUPPORTED BANKED COPY IS NOT FINISHED WORK, and a support that DISAPPEARS kills the words written on it: the ids a claim names are this card's own hints in order, so a hint that went away leaves the claim pointing at nothing.
+      // UNSUPPORTED BANKED COPY IS NOT FINISHED WORK: a row with no claims, or claims naming facts nobody banked, is redrafted rather than served on. The banked facts ride the ROW, so an incoming pass's own hint list moving says nothing about them.
       preferFinished(brief, { ...banked, claims: undefined }).researchOnly, preferFinished({ ...brief, evidence: { ...brief.evidence, hints: [] } }, banked).researchOnly,
       kept.supportFacts, preferFinished(brief, { ...banked, supportFacts: undefined }).researchOnly])
-      .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, banked.claims, true, "Write", "A newer", true, true, true, banked.supportFacts, true]); });
+      .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, banked.claims, false, "Achae", "A newer", true, true, false, banked.supportFacts, true]); });
   // THE CLOSING "READ THIS PAGE" LINE, on the two descriptions that carried one into the live queue on 2026-08-15. A description whose last sentence tells the reader to read the page carries filler where a fact belongs, which is the description equivalent of "click here". Trimmed where the field still fills without it, sent back for ONE redraft where it does not, and NEITHER card is special-cased: the achaemenid line loses too much (104 characters left, under the 110 a description takes) and the accessories line does not (142 left).
+  // LIST-SHAPED COPY (review, 2026-08-22): a CTA that is a whole last LINE is dropped whole, and the " - " separating a phrase from its meaning on an honest list item is never a cut point on multi-line copy.
+  it("drops a CTA last line from list-shaped copy and never amputates a phrase-meaning item", () => {
+    const LIST = "Persian greetings people actually use every day, from the first hello to the goodbye at the door:\nSalam - hello, the everyday greeting you can use with anyone at any time of day.\nKhodahafez - goodbye, literally may God protect you, said when parting.\nMerci - thank you, borrowed from French and completely common in Iran.";
+    expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST);
+    expect(withoutCta(LIST, "section")).toBe(LIST);
+  });
   it("takes the call to action off the end of a description, or sends it back for one redraft", () => {
     const A = "Achaemenid Empire Flag (550-330 BCE): its symbolism, origins, role and changes in Persian flags history. Read this page for the focused summary.", B = "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion. Browse unique pieces.";
     const FACT = "Persian Accessories: hats, phone cases and designs inspired by Iranian culture, made for everyday wear and shipped from the shop.";
@@ -536,9 +542,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
       .toEqual([true, true, false]); });
-  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and
-  // stripped the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped
-  // without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
+  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped the words its own searches earn clicks on,
+  // and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
   it("never drops a word the page earns clicks on, and demand vocabulary overrides the banned list", () => {
     const body = "Persian boy names with meanings, a list of classic and modern Iranian names for boys.";
     const pk = (demand: { preserve: string[]; vocabulary: string[] }, bannedTerms: string[] = [], fact = 'people search "persian boy names list" 4,100 times in 90 days') => ({
@@ -614,9 +619,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([await acceptDeliverable(meta([...REAL, { text: "These Persian shoes are waterproof", supportedBy: ["page-title"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops, and these Persian shoes are waterproof.") as never, P as never, yes), await acceptDeliverable(meta([...REAL, { text: "The page includes Love \"Eshgh\" black and white variants", supportedBy: ["page-heading-3", "page-heading-4"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops; the page includes black and white slip-ons.") as never, P as never, yes), await acceptDeliverable(meta(REAL, "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops and white and black Persian calligraphy slip-ons.") as never, P as never, yes)])
       .toEqual([["its copy says \"waterproof\" on a claim of its own, and the evidence that claim names does not carry it"], [], []]); }); // "include" is carrier grammar now: the verb that states a list is not a fact about the page
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
-    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt,
-    // never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression
-    // description.
+    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says
+    // what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
@@ -768,5 +772,31 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
       aiProp("never-read", { ...shared, stage: "rivals_cited_own_not_retrieved" }),
       aiProp("passed-over", { ...shared, stage: "owned_retrieved_not_cited" })]);
     expect(ranked.map((p) => p.id)).toEqual(["passed-over", "never-read"]); // closer to the citation ranks first
+  });
+});
+
+/** FINISHED COPY SURVIVES EVERYTHING BUT A MATERIAL CHANGE (operator, 2026-08-22): a paused $0 pass reworded its generator's prose and DESTROYED the one Ready change in production. Identity is material now, and a genuine replacement of finished words stamps an inspectable retirement receipt. */
+describe("finished copy survives a pass that cannot redraft", () => {
+  const finished = (over: Partial<ChangeProposal> = {}) => prop({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O",
+    diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["card-1"] }], supportFacts: [{ id: "card-1", fact: "f" }],
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The finished words, one item per line.", where: 'A new section headed "H", placed after "x"' },
+    evidence: { query: "rain barrel sizing", hints: ["original hint wording"], evidenceRefCount: 1 }, ...over });
+  const brief = (over: Partial<ChangeProposal> = {}) => prop({ status: "needs_review", researchOnly: true, copyStamp: "T|H|D|O",
+    diagnosisCause: "ai_citation_gap",
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The next pass compares the credited pages first." },
+    evidence: { query: "rain barrel sizing", hints: ["COMPLETELY REWORDED HINT", "and a new agreeing observation"], evidenceRefCount: 2 }, ...over });
+  it("a reworded brief with new observations and no drafting preserves the finished words, status and receipt-free row", () => {
+    const kept = preferFinished(brief(), finished());
+    expect([kept.recommendedChange.kind === "existing_edit" ? kept.recommendedChange.after : "", kept.status, kept.researchOnly, kept.previousCopy])
+      .toEqual(["The finished words, one item per line.", "ready", false, undefined]);
+  });
+  it("a MATERIAL change replaces the copy and stamps the retirement receipt with the fact that moved", () => {
+    for (const [over, said] of [[{ copyStamp: "THE PAGE WAS RECRAWLED DIFFERENT" }, "content changed"],
+      [{ diagnosisCause: "ranking_loss" as const }, "cause changed"]] as const) {
+      const out = preferFinished(brief(over), finished());
+      expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("credited pages");
+      expect(out.previousCopy?.after).toBe("The finished words, one item per line.");
+      expect(out.previousCopy?.retiredBecause).toContain(said);
+    }
   });
 });

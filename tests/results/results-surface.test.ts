@@ -178,15 +178,13 @@ describe("what the screen calls the work, and what it will not promise", () => {
 
 });
 
-/** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict,
- *  a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved
- *  no citation sat under "Worked" for traffic it never aimed at. */
+/** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under
+ *  "Worked" for traffic it never aimed at. */
 describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(14, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(28, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 })] }), WINDOWS, []);
-  // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is
-  // still reading rather than a verdict, exactly as a 7 day Google lean is.
+  // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is still reading rather than a verdict, exactly as a 7 day Google lean is.
   const ai = (direction: "improved" | "worsened" | "no_clear_movement" | "unclear", daysElapsed = 28) =>
     ({ direction, line: "Credited on 6 of the 20 answers that reported their sources, up from 1 of 18 before.", metricLines: [], boundary: null, daysElapsed });
 
@@ -215,8 +213,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(declared.yardstick).toBeNull(); // nothing new is claimed on a row judged the old way
   });
 
-  /** AND THE REST OF THE ROW GOES WITH IT: the group, the verdict word and the yardstick came off the declared
- *  objective while the number, the bar, the sentence and the step still came off Google. */
+  /** AND THE REST OF THE ROW GOES WITH IT: the group, the verdict word and the yardstick came off the declared objective while the number, the bar, the sentence and the step still came off Google. */
   const CONTRADICTS = /behind|slid|undo|put the previous|restor|revers|did not clearly move|moved down|lost ground|less often/i;
   const fields = (r: ReturnType<typeof first>) =>
     [r.verdictWord, r.liftLabel ?? "", r.readLabel ?? "", r.pipCaption ?? "", r.happened, r.taught, r.nextStep, ...r.timeline.map((t) => t.label), ...r.caveats];
@@ -250,8 +247,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.googleAside!.line).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
     for (const s of fields(row)) expect(s, `reads as a win: ${s}`).not.toMatch(/\bworked\b|ahead|\bwin\b|more often/i);
   });
-  // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch
-  // gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
+  // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
   it("speaks the same way on every objective: no slug, no first person, no dash, no lab word, and always a next step", () => {
     for (const m of ["ai_citation", "ai_citation_conversion", "ai_retrieval", "ai_mentions"] as const)
       for (const d of ["improved", "worsened", "no_clear_movement", "unclear"] as const) for (const days of [0, 3, 28]) {
@@ -273,8 +269,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
   });
 });
 
-/** THE HEADER IS THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click and no appearances figure, so
- *  adding its Google numbers into the totals made a header nobody could reconcile against the list under it. */
+/** THE HEADER IS THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click and no appearances figure, so adding its Google numbers into the totals made a header nobody could reconcile against the list under it. */
 describe("the totals reconcile with what the rows actually show", () => {
   it("leaves an AI-judged row out of the Google money totals, and keeps a click row in", () => {
     const clickOnly = buildResultsView([shipment()], NOW);
@@ -287,9 +282,8 @@ describe("the totals reconcile with what the rows actually show", () => {
   });
 });
 
-/** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different
- *  silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement
- *  repair exists to stop. RENDERED, never read off the view object: what a customer sees is what is pinned. */
+/** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop.
+ *  RENDERED, never read off the view object: what a customer sees is what is pinned. */
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
     const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([
@@ -310,8 +304,7 @@ describe("the surface never renders uncertainty as No change", () => {
       expect(html).not.toContain("landed inside the normal range");
     }
   });
-  // A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): on a day after the window
-  // close, the surface says the read is overdue because Google reports behind, never "lands May 8".
+  // A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): on a day after the window close, the surface says the read is overdue because Google reports behind, never "lands May 8".
   it("never renders a past date as the next future result", () => {
     const late = buildResultsView([shipment({ read: measuring })], new Date("2026-08-21T00:00:00Z"));
     const texts = [late.header.worked.value, late.header.reading.sub, ...late.rows.reading.map((r) => `${r.pipCaption} ${r.happened} ${r.nextStep}`)].join(" | ");
@@ -320,8 +313,7 @@ describe("the surface never renders uncertainty as No change", () => {
     expect(texts).toContain("Google reports a few days behind");
   });
   it("still says No change on a real control-based Google flat result", async () => {
-    // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely
-    // landed inside the normal range, and that sentence stays true where it is earned.
+    // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
     const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 };
     const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []);
     expect(await render({ read: flat })).toContain("No change");

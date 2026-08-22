@@ -70,6 +70,11 @@ describe("Today renders, and tells the truth about its own queue", () => {
       buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
       .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
         NO_WORK]);
+    // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): a research row outranking the one ready change globally still cedes the top slot to the finished work.
+    const rv = readyView(1, 0), research = { ...rv.ready[0]!, id: "t::/r::existing_edit::researching", researchOnly: true };
+    const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!],
+      summary: { ready: 1, todo: 0, research: 1 } } as never);
+    expect(led.nextOpportunities[0]!.lane).toBe("ready");
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
 });

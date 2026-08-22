@@ -1,9 +1,6 @@
-/** WHERE A SEARCH THE ASSISTANTS RAN ENDS UP (AEO terminal closure, 2026-08-19). Fan-outs used to decorate a
- *  card built from something else: the strongest recurring search in an account could sit in the canonical
- *  demand layer for ever and reach no page, no verdict, no draft and no refusal. These pins hold the one pure
- *  resolver both sides read, so the queue and the screen can never disagree about a search, and so no material
- *  search can quietly terminate nowhere. The resolver is EVIDENCE ONLY on purpose: a search that had to consult
- *  the queue to decide whether the queue should hold it could never produce the first card. */
+/** WHERE A SEARCH THE ASSISTANTS RAN ENDS UP (AEO terminal closure, 2026-08-19). Fan-outs used to decorate a card built from something else: the strongest recurring search in an account could sit in the canonical demand layer for ever and
+ *  reach no page, no verdict, no draft and no refusal. These pins hold the one pure resolver both sides read, so the queue and the screen can never disagree about a search, and so no material search can quietly terminate nowhere. The
+ *  resolver is EVIDENCE ONLY on purpose: a search that had to consult the queue to decide whether the queue should hold it could never produce the first card. */
 import { describe, expect, it } from "vitest";
 import { AI_CASE_COPY, resolveFanoutCase } from "@/domains/decision/producers/ai-cases";
 import { buildFanoutEvidence, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";

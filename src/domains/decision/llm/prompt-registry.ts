@@ -27,6 +27,7 @@ export const PROMPT_REGISTRY = {
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
   "draft.atomic_edit": 1,
   "draft.editor_judgement": 1,
+  "draft.factual_review": 1,
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
   // there is no stale answer a version could protect. Any change to the wording from here must bump them.
   "draft.internal_link": 1,

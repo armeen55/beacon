@@ -171,7 +171,11 @@ export function buildTodayViewFromChanges(view: ChangesView, producer: TodayProd
     ...(view.research ?? []).map((p): [{ id: string }, Lane] => [p, "research"])];
   const rank = new Map((view.proposals ?? []).map((p, i) => [p.id, i]));
   lanes.sort((a, b) => (rank.get(a[0].id) ?? Infinity) - (rank.get(b[0].id) ?? Infinity));
-  const ready = lanes.slice(0, TODAY_PREVIEW_LIMIT)
+  // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): the top slot is
+  // the highest-ranked READY change whenever one is on file; the rest of the preview keeps the global order.
+  const lead = lanes.find(([, l]) => l === "ready");
+  const ordered = lead ? [lead, ...lanes.filter((x) => x !== lead)] : lanes;
+  const ready = ordered.slice(0, TODAY_PREVIEW_LIMIT)
     .map(([p, lane]) => proposalToOpportunity(p as Parameters<typeof proposalToOpportunity>[0], lane));
   const topEdit = view.ready[0] ? topEditOf(view.ready[0]!) : undefined;
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: no measuring clause is claimed and no count is handed on.

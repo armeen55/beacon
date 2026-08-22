@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-/** THE STORE IS THE CURSOR, so these tests stand it up rather than pretending it away: the inventory and
- *  coverage written by one call are what the next call resumes from, exactly as a second lease would. */
+/** THE STORE IS THE CURSOR, so these tests stand it up rather than pretending it away: the inventory and coverage written by one call are what the next call resumes from, exactly as a second lease would. */
 const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], owed: [] as Record<string, unknown>[], superseded: [] as string[],
   reopened: [] as string[], cov: null as Record<string, unknown> | null, writeFails: false }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {

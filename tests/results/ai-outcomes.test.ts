@@ -413,8 +413,7 @@ describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction,
     { readObservations: reader(rows), now: NOW });
     expect(outcome?.after.checked).toBe(1); // p1 on chatgpt only: not the gemini answer, and never p9 riding a matching wording
   });
-  /** A FAN-OUT IS MEASURED THE DAY IT IS TARGETED, not the day somebody promotes it to a tracked question:
-   *  with only an id and a wording route, a change aimed at a follow-up search measured zero until then. */
+  /** A FAN-OUT IS MEASURED THE DAY IT IS TARGETED, not the day somebody promotes it to a tracked question: with only an id and a wording route, a change aimed at a follow-up search measured zero until then. */
   it("remeasures the parent answers whose stored journey RAN the fan-out, whatever they were asked", async () => {
     const ran = (over: Partial<AiObservationRecord>) => row({ day: "2026-07-25", mentioned: true,
       journey: { fan_outs: ["Haft-Seen table items list"], retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null }, ...over });
@@ -440,9 +439,8 @@ describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction,
   });
 });
 
-/** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on
- *  mentions, so a change raised because the site was read and never credited was banked as a win the moment
- *  it was named more often, which is the thing it was already doing. */
+/** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on mentions, so a change raised because the site was read and never credited was banked as a win the moment it was named more often, which
+ *  is the thing it was already doing. */
 describe("a shipment is judged on the objective it declared (AEO reconstruction, 2026-08-19)", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
   const mine = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
@@ -461,8 +459,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     return out;
   };
   const scope = (stage: string) => ({ promptIds: ["p1"], engines: [], fanouts: [], stage });
-  /** A baseline frozen over this change's own searches at an adequate size: 40 answers read closely, 10
-   *  naming, and what the 40 said about sources. Four-answer sides can never support a verdict now. */
+  /** A baseline frozen over this change's own searches at an adequate size: 40 answers read closely, 10 naming, and what the 40 said about sources. Four-answer sides can never support a verdict now. */
   const frozen = (over: Record<string, unknown> = {}) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10,
     citationSample: 40, ownedCiting: 10, rankSum: 40, rankCount: 10, retrievalSample: 40, ownedRetrieved: 10, retrievedNotCited: 10,
     engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"], scopeFingerprint: "fp", ...over } });
@@ -522,8 +519,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made on empties the after side, which reads on screen as the change losing everything it had.
     expect(outcome?.after.checked).toBe(44);
   });
-  /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is
-   *  recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
+  /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
   it("reports an unmeasurable AI outcome when no starting numbers were frozen, and rebuilds none", async () => {
     const readObservations = reader([...days("2026-07-19", "2026-07-20", () => ({ mentioned: false })), ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true }))]);
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: null, aiScope: scope("owned_mentioned_not_cited") },
@@ -536,15 +532,13 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
   });
 });
 
-/** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement,
- *  so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to
- *  stop exactly that. The whole table is here, because a sign error hides in the combination nobody wrote. */
+/** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The
+ *  whole table is here, because a sign error hides in the combination nobody wrote. */
 describe("a conversion objective is graded on both halves, each on its own polarity", () => {
   // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
   const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example";
   const links = (d: string) => [{ url: `https://${d}/page`, domain: d, title: null }];
-  /** One answer to this change's own question, saying what it credited and what it read. Null on either side = the engine reported
-   *  nothing there, so that answer joins no sample at all. */
+  /** One answer to this change's own question, saying what it credited and what it read. Null on either side = the engine reported nothing there, so that answer joins no sample at all. */
   const answer = (day: string, i: number, cited: string | null, read: string | null) =>
     row({ day, id: `obs-${day}-${i}`, prompt_id: "p1", prompt_text: "where should I go", mentioned: true,
       journey: { fan_outs: null, brand_mentions: null, web_search_reported: null,
@@ -562,8 +556,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
       shapes.forEach(([c, r], i) => out.push(answer(new Date(t).toISOString().slice(0, 10), i, c, r)));
     return out;
   };
-  /** The frozen starting point at an adequate size: 40 answers, `citing` of each 10 crediting the page, and
-   *  `passedOver` of each 10 that read it passed over. Four-answer sides can never support a verdict now. */
+  /** The frozen starting point at an adequate size: 40 answers, `citing` of each 10 crediting the page, and `passedOver` of each 10 that read it passed over. Four-answer sides can never support a verdict now. */
   const before = (citing: number, passedOver: number) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 40,
     citationSample: 40, ownedCiting: citing * 10, rankSum: citing * 10, rankCount: citing * 10,
     retrievalSample: 40, ownedRetrieved: 40, retrievedNotCited: passedOver * 10 } });
@@ -592,8 +585,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     expect(outcome?.line).not.toMatch(/[—–]/); // no em or en dashes, ever
   });
   it("still reads a rising GOOD rate as the improvement it is", async () => {
-    // The polarity is per metric, not a blanket flip: being read more often is exactly what a retrieval objective wants. It started
-    // read on ten of the forty answers on file and every answer since has read it.
+    // The polarity is per metric, not a blanket flip: being read more often is exactly what a retrieval objective wants. It started read on ten of the forty answers on file and every answer since has read it.
     const started = { ai: { ...before(1, 1).ai, ownedRetrieved: 10, retrievedNotCited: 10 } };
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: started,
       aiScope: { promptIds: ["p1"], engines: [], fanouts: [], stage: "rivals_cited_own_not_retrieved" } },
@@ -602,8 +594,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
   });
 });
 
-/** THE CONTROLS ARE THE ACCOUNT'S OWN UNAFFECTED QUESTIONS (Codex, 2026-08-21), never bought: their drift
- *  comes off the verdict, and two assistants that disagree come back split, never averaged. */
+/** THE CONTROLS ARE THE ACCOUNT'S OWN UNAFFECTED QUESTIONS (Codex, 2026-08-21), never bought: their drift comes off the verdict, and two assistants that disagree come back split, never averaged. */
 describe("controls and per-assistant verdicts", () => {
   const NOW28 = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
   const mk = (day: string, i: number, promptId: string, promptText: string, mentioned: boolean, engine: "chatgpt" | "gemini" = "chatgpt") =>
@@ -645,9 +636,8 @@ describe("controls and per-assistant verdicts", () => {
   });
 });
 
-/** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and
- *  engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids
- *  or stage had all moved on. Membership is what it must cover; write order is not membership. */
+/** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on.
+ *  Membership is what it must cover; write order is not membership. */
 describe("the identity of the scope a baseline was frozen over", () => {
   const DAY = "2026-07-20";
   const SCOPE = { caseKey: "fanout:haft-seen", promptIds: ["p1", "p2"], promptVersions: [1, 2], engines: ["chatgpt", "gemini"],

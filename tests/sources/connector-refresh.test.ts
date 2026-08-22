@@ -1,6 +1,4 @@
-/**
- * Connector refresh ledger: recordSourceRefresh outcome classification and the honest Recent-upkeep sentences (retired sources render nothing false).
- */
+/** Connector refresh ledger: recordSourceRefresh outcome classification and the honest Recent-upkeep sentences (retired sources render nothing false). */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 // ── on-use refresh + clarity: connector-store overrides ──────────────

@@ -72,16 +72,14 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet." : unsettledCause(proposal);
   // AND A HELD CHANGE THAT MOVES OR HIDES A PAGE HAS SOMEWHERE TO GO. Everything the operator needs to decide is already on this page: the pieces, the addresses, where a forward lands, what survives it, the copy, the risks and the evidence behind each one. The confirmation belongs beside them, never on a page of its own. Offered ONLY on finished work whose own cause is settled: review work held because a quality gate refused it is not up for a yes, and confirming it would promote copy nobody stands behind.
   const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
-  // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on",
-  // "Why this is the smartest move", "What was checked"), which reads as padding rather than proof. Claimed in
-  // render order, first occurrence wins, and a section left with nothing to say does not print its heading.
+  // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on", "Why this is the smartest move", "What was checked"), which reads as padding rather than proof.
+  // Claimed in render order, first occurrence wins, and a section left with nothing to say does not print its heading.
   const seen = new Set<string>();
   fresh(seen, [bundle.objective, proposal.whyItMatters]); // the head of the page says these first, so nothing repeats them
   const cited = bundle.components.map((c) => fresh(seen, c.evidenceKeys.map((k) => facts.get(k)?.fact)));
   const reasons = fresh(seen, bundle.confidenceReasons);
   const checked = EVIDENCE_ORDER
-    // THE DATE IS NOT THE FACT. A receipt line that came through with nothing written on it still carried its
-    // reading date, so it printed a bullet saying "(checked Aug 10)" and nothing else.
+    // THE DATE IS NOT THE FACT. A receipt line that came through with nothing written on it still carried its reading date, so it printed a bullet saying "(checked Aug 10)" and nothing else.
     .map((kind) => ({ kind, items: fresh(seen, bundle.receipt.items
       .filter((i) => i.kind === kind && i.fact.trim().length > 0).map((i) => `${i.fact}${seenLabel(i.observedAt)}`)) }))
     .filter((g) => g.items.length > 0);
@@ -295,8 +293,7 @@ function ComponentCard({
   // Where it lands, what it achieves, why it works and the sources still owed all ride the row and render here.
   const plan: [string, string | undefined][] = [["Where it goes", component.where], ["What it does", component.objective], ["Why it works", component.mechanism]];
   const pack = component.sourcePack ?? null;
-  // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it
-  // sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
+  // A MERGE, A FORWARD, A CANONICAL OR A DE-INDEX IS THE ONE CHANGE A SENTENCE CANNOT TAKE BACK. Where it sends people, what survives it, what it drops and how to reverse it belong on the screen BEFORE the
   // operator confirms it, and every line is held on the change itself, never worked out afterwards.
   const moves = dangerousComponents([component]).length > 0;
   const to = component.redirectTo;
@@ -414,15 +411,11 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const after = (c.kind === "new_page" ? c.proposedTitle : c.after ?? "").trim();
   const before = c.kind === "new_page" ? null : (c.before ?? "").trim() || null;
   const steps = (proposal.operatorSteps ?? []).map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
-  // A DIRECT LINK STILL REACHES A ROW THE QUEUE NO LONGER RANKS, so the detail page asks the SAME completeness
-  // boundary: an unfinished deliverable is read, never pasted and never recorded as done here either.
-  // A card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own
-  // line, or the page would print an empty list where the finding should be.
+  // A DIRECT LINK STILL REACHES A ROW THE QUEUE NO LONGER RANKS, so the detail page asks the SAME completeness boundary: an unfinished deliverable is read, never pasted and never recorded as done here either. A
+  // card carrying no steps at all (an ownership decision asks the operator for nothing) leads with its own line, or the page would print an empty list where the finding should be.
   const research = deliverableGaps(proposal).length > 0;
-  // LIFECYCLE, NOT SHAPE. Completeness answered "are the words written", and this page asked nothing else: a
-  // finished card sitting in the review lane, which the list refuses to offer, was handed over here with a Copy
-  // press and a Mark done on a direct link. READY IS THE ONLY LANE THAT MAY BE PASTED, and it is asked here, on
-  // the row itself, exactly as the list and the mutation ask it.
+  // LIFECYCLE, NOT SHAPE. Completeness answered "are the words written", and this page asked nothing else: a finished card sitting in the review lane, which the list refuses to offer, was handed over here with a
+  // Copy press and a Mark done on a direct link. READY IS THE ONLY LANE THAT MAY BE PASTED, and it is asked here, on the row itself, exactly as the list and the mutation ask it.
   const held = proposal.status !== "ready"
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
     : unsettledCause(proposal);
@@ -450,7 +443,7 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         <div className="space-y-1">
           {before ? <p className="text-[13px] text-muted-foreground">Now: <span className="line-through">{before}</span></p> : null}
           <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-            <p className="min-w-0 flex-1 text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
+            <p className="min-w-0 flex-1 whitespace-pre-line text-[15px] font-semibold leading-relaxed text-foreground">{after}</p>
             {research || held ? null : <CopyButton text={after} label="Copy" />}
           </div>
           {/* WHERE IT GOES, ON THE PAGE THAT SHOWS THE COPY. Copy that lands somewhere new carries its placement
@@ -459,6 +452,12 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
         </div>
       ) : null}
       <p className="text-[14px] leading-relaxed text-foreground">{proposal.whyItMatters}</p>
+      {/* THE RETIREMENT RECEIPT: finished words a later pass genuinely replaced stay inspectable here. */}
+      {proposal.previousCopy ? (
+        <p className="text-[12px] leading-relaxed text-muted-foreground" data-previous-copy="true">
+          An earlier finished version was retired because {proposal.previousCopy.retiredBecause}. Its words: &ldquo;{proposal.previousCopy.after.slice(0, 220)}&rdquo;
+        </p>
+      ) : null}
       {proposal.limitations.length > 0 ? (
         <div className="space-y-1">
           <Heading>Keep in mind</Heading>

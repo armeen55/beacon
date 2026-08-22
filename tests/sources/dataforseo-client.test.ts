@@ -1,9 +1,5 @@
-/**
- * DataForSEO env truth + the ONE shared HTTP transport core. The money policy (configured /
- * breaker / atomic reservation / single-flight cache) is pinned end to end in
- * tests/sources/evidence-cache.test.ts; this file pins what every call shares: credential resolution,
- * the fail-safe monthly cap and transport status/cost extraction.
- */
+/** DataForSEO env truth + the ONE shared HTTP transport core. The money policy (configured / breaker / atomic reservation / single-flight cache) is pinned end to end in tests/sources/evidence-cache.test.ts; this file pins what every call
+ *  shares: credential resolution, the fail-safe monthly cap and transport status/cost extraction. */
 import { describe, it, expect, vi } from "vitest";
 import { isDataForSeoConfigured, monthlyCapUsd, resolveAuthB64, runDataForSeoTransport, DEFAULT_MONTHLY_CAP_USD } from "@/domains/evidence/dataforseo/client";
 const ENV = { DATAFORSEO_LOGIN: "u", DATAFORSEO_PASSWORD: "p" } as unknown as NodeJS.ProcessEnv;

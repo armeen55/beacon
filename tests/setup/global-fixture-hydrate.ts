@@ -1,9 +1,5 @@
-/**
- * Vitest globalSetup — hydrate `.data/` from the synthetic fixture tree ONLY
- * when the operator's real `.data/` is absent (sentinel: .data/global/
- * tenants.json). CI gets a deterministic substrate; a real local data dir is
- * never touched or overwritten, and teardown removes only what this created.
- */
+/** Vitest globalSetup — hydrate `.data/` from the synthetic fixture tree ONLY when the operator's real `.data/` is absent (sentinel: .data/global/ tenants.json). CI gets a deterministic substrate; a real local data dir is never touched or
+ *  overwritten, and teardown removes only what this created. */
 
 import {
   existsSync,
@@ -50,8 +46,7 @@ export async function setup(): Promise<void> {
     );
   }
   copyDirRecursive(FIXTURE_DIR, DATA_DIR);
-  // Sanity: the README inside the fixture would have been copied too —
-  // remove it from `.data/` so nothing thinks it's a runtime file.
+  // Sanity: the README inside the fixture would have been copied too — remove it from `.data/` so nothing thinks it's a runtime file.
   const stagedReadme = join(DATA_DIR, "README.md");
   if (existsSync(stagedReadme) && statSync(stagedReadme).isFile()) {
     rmSync(stagedReadme, { force: true });
@@ -61,8 +56,7 @@ export async function setup(): Promise<void> {
 
 export async function teardown(): Promise<void> {
   if (!hydratedByThisHook) return;
-  // Only blow away `.data/` if THIS hook created it from the fixture.
-  // Local dev never reaches this branch.
+  // Only blow away `.data/` if THIS hook created it from the fixture. Local dev never reaches this branch.
   if (existsSync(DATA_DIR)) {
     rmSync(DATA_DIR, { recursive: true, force: true });
   }

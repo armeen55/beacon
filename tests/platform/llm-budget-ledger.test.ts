@@ -1,6 +1,5 @@
-/** The durable per-account LLM spend writer, as its two PROMISES rather than its row mechanics: money already
- *  spent is added to that account's own running total, and a ledger I could not write NEVER blocks or breaks the
- *  paid call that already happened. Bad input is refused before the database is touched at all. */
+/** The durable per-account LLM spend writer, as its two PROMISES rather than its row mechanics: money already spent is added to that account's own running total, and a ledger I could not write NEVER blocks or breaks the paid call that
+ *  already happened. Bad input is refused before the database is touched at all. */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
 

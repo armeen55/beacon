@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
-/** THE BROWSER IS A RECOVERY SURFACE, NOT THE ENGINE (2026-08-02). One global scheduler drives the daily
- *  round now, so the tab-side loop that used to finish the day is gone and what is left has to be honest:
- *  ONE press of Update data is ONE recovery continuation, and Settings carries a pause switch that says
- *  plainly what pausing costs. Two seams are faked (the server actions and the router); zero network. */
+/** THE BROWSER IS A RECOVERY SURFACE, NOT THE ENGINE (2026-08-02). One global scheduler drives the daily round now, so the tab-side loop that used to finish the day is gone and what is left has to be honest: ONE press of Update data is
+ *  ONE recovery continuation, and Settings carries a pause switch that says plainly what pausing costs. Two seams are faked (the server actions and the router); zero network. */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -41,8 +39,7 @@ afterEach(async () => { await unmount(); });
 
 describe("Update data is one recovery press", () => {
   it("asks for exactly ONE continuation per press, whatever the server says is still owed", async () => {
-    // THE DEFECT THIS PINS. The press used to drive an eight-hop client loop, because nothing else
-    // finished the day. The fixture answers `more: true` every time: a loop would show up here as 8.
+    // THE DEFECT THIS PINS. The press used to drive an eight-hop client loop, because nothing else finished the day. The fixture answers `more: true` every time: a loop would show up here as 8.
     const el = await mount(<RefreshMyDataButton connectedCount={2} />);
     const button = el.querySelector("button")!;
     await press(button);

@@ -1,6 +1,5 @@
-/** N40 contract test - GA4 runReport: a checked-in REAL response body through the ACTUAL narrowing parsers
- *  (narrowRunReportRows / narrowRevenueRows), so a silent upstream change fails a named test here instead of
- *  surfacing as zero traffic rows. NO live calls. */
+/** N40 contract test - GA4 runReport: a checked-in REAL response body through the ACTUAL narrowing parsers (narrowRunReportRows / narrowRevenueRows), so a silent upstream change fails a named test here instead of surfacing as zero traffic
+ *  rows. NO live calls. */
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -17,8 +16,7 @@ describe("GA4 runReport traffic contract", () => {
   const body = fixture<Ga4RunReportResponseBody>("ga4-run-report.json");
   it("parses (date, pagePath) dimensionValues + string metricValues into typed rows", () => {
     const rows = narrowRunReportRows(body);
-    // 4 raw rows -> 2 valid: the "2026-07-01" (dashed date, not GA4's YYYYMMDD)
-    // and the missing-pagePath row are DROPPED, never mis-parsed.
+    // 4 raw rows -> 2 valid: the "2026-07-01" (dashed date, not GA4's YYYYMMDD) and the missing-pagePath row are DROPPED, never mis-parsed.
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual({
       date: "2026-07-01", // normalized from GA4's "20260701"
@@ -47,8 +45,7 @@ describe("GA4 runReport traffic contract", () => {
 
 describe("GA4 runReport revenue contract (name-mapped metrics)", () => {
   it("maps metrics BY HEADER NAME so a reordered metric set never misassigns", () => {
-    // The fixture deliberately orders headers [transactions, totalRevenue,
-    // purchaseRevenue] - not our request order - to pin name-based mapping.
+    // The fixture deliberately orders headers [transactions, totalRevenue, purchaseRevenue] - not our request order - to pin name-based mapping.
     const body = fixture<Ga4RunReportResponseBody>("ga4-revenue-report.json");
     const rows = narrowRevenueRows(body);
     expect(rows).toHaveLength(1);

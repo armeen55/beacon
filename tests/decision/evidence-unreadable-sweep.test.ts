@@ -173,14 +173,11 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const stale = openCard("title"), theirs = openCard("ai_answer_gap");
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     await produceProposalsForTenant(TENANT);
-    // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed
-    // (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
+    // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
     expect(env.withdrawn).toEqual([stale.id]); }); });
 
-/** A PASS THAT DID NOT BUY MUST NOT TAKE BACK WHAT A PAID PASS BANKED (operator, 2026-08-19). Pausing research
- *  now rebuilds the customer surface from stored evidence alone, which is right: a paused account still owes
- *  its customer a current list. What it may never do is read its own empty hands as the generator withdrawing
- *  its work. "Did not run" is not "rejected its previous work". */
+/** A PASS THAT DID NOT BUY MUST NOT TAKE BACK WHAT A PAID PASS BANKED (operator, 2026-08-19). Pausing research now rebuilds the customer surface from stored evidence alone, which is right: a paused account still owes its customer a
+ *  current list. What it may never do is read its own empty hands as the generator withdrawing its work. "Did not run" is not "rejected its previous work". */
 describe("a zero-spend regeneration is non-destructive", () => {
   it("leaves the operator's open cards exactly where they were, and still publishes", async () => {
     env.snapshot = snapshotWith("fresh");
@@ -200,9 +197,8 @@ describe("a zero-spend regeneration is non-destructive", () => {
   });
 });
 
-/** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable
- *  table: the blind instance files nothing and holds its families; the seeing one files durably; and what it
- *  filed is what BOTH surfaces render, from the same row. */
+/** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable table: the blind instance files nothing and holds its families; the seeing one files durably; and what it filed is what BOTH
+ *  surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
     url: `https://fixture.example${path}`, title, metaDescription: "Plan the visit with what locals actually do.",
@@ -278,8 +274,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   });
 
   it("files a search a tracked question already asks as covered, a decision with the covering thing named, never silence", async () => {
-    // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its
-    // OWN prompt never becomes a row: the projection drops the echo at the door.)
+    // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its OWN prompt never becomes a row: the projection drops the echo at the door.)
     const windowRow = (id: string, promptId: string, promptText: string, fanOuts: string[] | null) => ({
       id, prompt_id: promptId, prompt_version: 1, prompt_text: promptText, cache_key: null, engine: "chatgpt",
       model_requested: null, model_served: null, observation_mode: "consumer_search", reporting_day: "2026-08-19",

@@ -1,6 +1,5 @@
-/** N40 contract test - GSC searchanalytics.query + sites.list: a checked-in REAL response shape through the
- *  ACTUAL client path (injected fetchImpl), so a silent upstream change fails a named test instead of a
- *  quietly-empty sync. NO live calls. */
+/** N40 contract test - GSC searchanalytics.query + sites.list: a checked-in REAL response shape through the ACTUAL client path (injected fetchImpl), so a silent upstream change fails a named test instead of a quietly-empty sync. NO live
+ *  calls. */
 
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";

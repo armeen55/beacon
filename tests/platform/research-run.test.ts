@@ -118,6 +118,7 @@ const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attem
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   dueWork: async () => SOMETHING_DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
+  replenishReady: async () => null, // the inventory step's own pins drive a spy; benign passes defer nothing
   dayStanding: async () => NO_CHECKS, // nothing owed and nothing landed: settled == intended, so the AI phase advances
   strandedToday: async () => [], // no account was left short of its day, so the dispatch opens no recovery pass
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
@@ -858,9 +859,8 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     DB.ignoresWrites.clear(); expect(await setResearchPaused(T, true)).toBe(true); expect(await researchPermission(T)).toBe("paused");
     await run({ dueWork: async () => SOMETHING_DUE, ...NO_PHASE }); // the VISIT door reads the same row
     expect([await dispatch(NO_PHASE), rows.length]).toEqual([R(), 0]); });
-  /** AN UNREADABLE OFF SWITCH IS NOT AN ON SWITCH. The read fail-softed to "not paused", so the one gate standing between an outage and a day of bought answers
-   *  treated every unreachable database, every revoked permission and every deleted account row as the operator's permission to spend. Only an explicit,
-   *  readable false opens this door now; the state that could not be read opens nothing and says why. */
+  /** AN UNREADABLE OFF SWITCH IS NOT AN ON SWITCH. The read fail-softed to "not paused", so the one gate standing between an outage and a day of bought answers treated every unreachable database, every revoked permission and every deleted
+   *  account row as the operator's permission to spend. Only an explicit, readable false opens this door now; the state that could not be read opens nothing and says why. */
   it("opens the visit door on an explicit readable false only: a thrown read, a missing account row and an explicit true each start zero research work", async () => {
     const paid: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, ...NO_PHASE };
     DB.readThrows = true; let rows = freshRepo(); await run(paid); expect(rows).toHaveLength(0); // an exception is never permission
@@ -906,4 +906,28 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze", "analysisFingerprint", "consumedAnalyses"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
     expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true);
     expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
+});
+
+/** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target
+ *  checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
+describe("the cycle finishes stored work before it buys exploratory evidence", () => {
+  it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
+    const order: string[] = [];
+    const rows = withRun();
+    void rows;
+    await run({ ...healthySteps(order),
+      replenishReady: async () => (order.push("replenish"), { ready: 1, deficit: 4, persisted: 2 }),
+      funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
+    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery");
+    expect(replenishAt).toBeGreaterThanOrEqual(0);
+    expect(firstBuy).toBeGreaterThan(replenishAt);
+    expect(order.filter((x) => x === "replenish")).toHaveLength(1);
+  });
+  // ONCE PER DAY, DURABLY (review, 2026-08-22): the marker rides run progress, so a run resumed at the keyword phase does not pay for a second replenish the same day.
+  it("never replenishes twice in one day, however many drives resume the run", async () => {
+    let calls = 0;
+    void withRun({ current_phase: "keyword_discovery", progress: { state: { replenishedDay: ckey(T, NOW).slice(-10) } } });
+    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, { ready: 0, deficit: 5, persisted: 0 }) });
+    expect(calls).toBe(0);
+  });
 });

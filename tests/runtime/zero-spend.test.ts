@@ -1,6 +1,5 @@
-/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale
- *  surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one
- *  pool of three. ZERO IS PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
+/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one pool of three. ZERO IS
+ *  PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
 import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
@@ -178,8 +177,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     const rows = new Map<string, Hold>();
     vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
     const { claimScope } = await import("@/lib/persistence/json-store");
-    // The two dispatchers arrive one after the other, which is what the database sees however they were
-    // scheduled: the first statement takes the hold, and the second changes nothing and is told so.
+    // The two dispatchers arrive one after the other, which is what the database sees however they were scheduled: the first statement takes the hold, and the second changes nothing and is told so.
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull(); // never both
     expect(typeof await claimScope("surface-claims", "tenant-other", 300)).toBe("string"); // another account is not blocked by it
@@ -207,8 +205,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
   });
 });
 
-/** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a
- *  database (reviewer, 2026-08-19). */
+/** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a database (reviewer, 2026-08-19). */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
   const hosted = async (impl: () => unknown): Promise<string | null> => {
     vi.resetModules();
@@ -252,8 +249,7 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
   });
 });
 
-/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never
- *  remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
+/** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
     vi.resetModules();
@@ -316,8 +312,7 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
   });
 });
 
-/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed
- *  as a function nothing called, and paid-for evidence expired provider side. */
+/** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed as a function nothing called, and paid-for evidence expired provider side. */
 describe("a paused tick collects what was already paid for, free, then republishes", () => {
   it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {
     vi.resetModules();

@@ -1,9 +1,6 @@
-/** ONE in-memory Postgres for the tests that each hand-rolled the same chainable query engine over an array of rows:
- *  filters, order, limit/range, update, upsert, thenable. What one file needs differently rides in as an option:
- *  `rows` picks the array behind a table name, `error` is the failure a table hands back instead of running, `same`
- *  is the identity an upsert lands on (the id by default), `clash` is a unique index the write must not violate,
- *  `insertDefaults` are the columns a fresh INSERT gets and an update never touches, `landsNothing` is the write
- *  Postgres accepts and stores nothing for. Anything a file's fake does that is not here stays in that file. */
+/** ONE in-memory Postgres for the tests that each hand-rolled the same chainable query engine over an array of rows: filters, order, limit/range, update, upsert, thenable. What one file needs differently rides in as an option: `rows`
+ *  picks the array behind a table name, `error` is the failure a table hands back instead of running, `same` is the identity an upsert lands on (the id by default), `clash` is a unique index the write must not violate, `insertDefaults`
+ *  are the columns a fresh INSERT gets and an update never touches, `landsNothing` is the write Postgres accepts and stores nothing for. Anything a file's fake does that is not here stays in that file. */
 export type Row = Record<string, unknown>;
 type Err = { code?: string; message: string } | null;
 type Op = "select" | "update" | "upsert";
@@ -30,8 +27,7 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       if (op === "select") {
         o.onSelect?.(table, { max, head, cols });
         if (orders.length) hit.sort((a, b) => { for (const [c, asc] of orders) { const d = cmp(a, b, c); if (d !== 0) return asc ? d : -d; } return 0; });
-        // ASK FOR WHAT YOU READ: a projection hands back the columns it named and nothing else, so a reader
-        // that quietly depends on a heavy column it did not select is caught here rather than in production.
+        // ASK FOR WHAT YOU READ: a projection hands back the columns it named and nothing else, so a reader that quietly depends on a heavy column it did not select is caught here rather than in production.
         const want = cols && cols !== "*" ? cols.split(",").map((c) => c.trim()).filter(Boolean) : null;
         const page = hit.slice(first, first + max)
           .map((r) => (want ? Object.fromEntries(want.filter((c) => c in r).map((c) => [c, r[c]])) : { ...r }));

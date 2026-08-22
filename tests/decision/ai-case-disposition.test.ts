@@ -1,8 +1,6 @@
-/** ONE CONCLUSION PER SEARCH, WRITTEN DOWN DURABLY, READ BY EVERY SURFACE (terminal closure 2026-08-19;
- *  durable 2026-08-21). Two pinned defects: re-deriving from evidence alone put an action button under a
- *  refused search; and the blob-store persistence swallowed write failures, emptied on read errors, and let
- *  cold instances overwrite each other. The fake below implements the SQL writer's documented semantics from
- *  migrations/2026-08-21_ai_case_dispositions.sql byte for byte. */
+/** ONE CONCLUSION PER SEARCH, WRITTEN DOWN DURABLY, READ BY EVERY SURFACE (terminal closure 2026-08-19; durable 2026-08-21). Two pinned defects: re-deriving from evidence alone put an action button under a refused search; and the
+ *  blob-store persistence swallowed write failures, emptied on read errors, and let cold instances overwrite each other. The fake below implements the SQL writer's documented semantics from migrations/2026-08-21_ai_case_dispositions.sql
+ *  byte for byte. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dispositionOf, type AiCaseDisposition } from "@/domains/decision/ai-case-store";
 

@@ -1,7 +1,5 @@
-/**
- * Middleware account injection: one login -> one account, fail-closed on zero/ multiple/erroring/hung membership lookups, forged beacon_tenant cookies never honored (and actively expired), inbound tenant headers stripped, auth-disabled local mode uses only the explicit env account, and public paths stay reachable
- * for a session with zero memberships (no /login redirect loop).
- */
+/** Middleware account injection: one login -> one account, fail-closed on zero/ multiple/erroring/hung membership lookups, forged beacon_tenant cookies never honored (and actively expired), inbound tenant headers stripped, auth-disabled
+ *  local mode uses only the explicit env account, and public paths stay reachable for a session with zero memberships (no /login redirect loop). */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 const supabaseState = vi.hoisted(() => ({
@@ -80,8 +78,7 @@ describe("middleware account injection — one login, one account, fail-closed",
     process.env.NEXT_PUBLIC_SUPABASE_URL = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_URL;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     delete process.env.BEACON_AUTH_DISABLED;
-    // No signing secret means no cached account: every row below resolves purely from the database, which is
-    // what these rows are about. The cached-account contract has its own cases underneath.
+    // No signing secret means no cached account: every row below resolves purely from the database, which is what these rows are about. The cached-account contract has its own cases underneath.
     for (const k of ["BEACON_OAUTH_STATE_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "CRON_SECRET"]) delete process.env[k];
   });
   afterEach(() => {
@@ -95,9 +92,8 @@ describe("middleware account injection — one login, one account, fail-closed",
     { name: "exactly one membership injects exactly that account, and retires the selection cookie", rows: ["tenant-mine"], status: 200, injected: "tenant-mine", expired: true },
     { name: "zero memberships fail closed to no_account", rows: [], location: "error=no_account" },
     { name: "two memberships fail closed rather than guessing the earliest", rows: ["tenant-earliest", "tenant-later"], location: "error=multiple_accounts_unsupported", not: "tenant-earliest" },
-    // A read that did not ANSWER is not an account verdict. With no signed account to fall back on, a request
-    // that is not a document (a server action POST, an RSC fetch) is told the check is busy and can retry;
-    // it is never bounced to /login, which is what ate a Mark done press. A forged cookie still buys nothing.
+    // A read that did not ANSWER is not an account verdict. With no signed account to fall back on, a request that is not a document (a server action POST, an RSC fetch) is told the check is busy and can retry; it is never bounced to /login,
+    // which is what ate a Mark done press. A forged cookie still buys nothing.
     { name: "a membership query that ERRORED says busy rather than verdicting the account", rows: ["x"], state: { tenantMembersError: { message: "boom" } }, cookie: "tenant-forged", status: 503, noLocation: true, not: "tenant-forged" },
     { name: "a membership query that THREW says busy rather than verdicting the account", state: { tenantQueryThrows: true }, cookie: "tenant-forged", status: 503, noLocation: true, not: "tenant-forged" },
     { name: "a membership query that HUNG says busy with no 504, no login bounce and no cookie honoured", state: { tenantHangs: true }, cookie: "tenant-forged", status: 503, noLocation: true, not: "tenant-forged" },
@@ -124,9 +120,8 @@ describe("middleware account injection — one login, one account, fail-closed",
     if (c.env) expect(injectedTenant(res)).not.toBe("tenant-cookie-choice");
     if (c.expired) expectRetiredCookieExpired(res);
   }, 15_000);
-  /** THE LOGIN BOUNCE THIS FILE USED TO GUARANTEE. One slow tenant_members read threw a perfectly valid
-   *  session back to /login and invited a fresh magic link. The signed account cookie is what makes a
-   *  transient read a non-event: the fast path never queries at all, and a POST carrying it still lands. */
+  /** THE LOGIN BOUNCE THIS FILE USED TO GUARANTEE. One slow tenant_members read threw a perfectly valid session back to /login and invited a fresh magic link. The signed account cookie is what makes a transient read a non-event: the fast
+   *  path never queries at all, and a POST carrying it still lands. */
   it("a signed account answers without a query, so a starved pool never bounces a page or eats a server action POST", async () => {
     process.env.BEACON_OAUTH_STATE_SECRET = "test-signing-secret";
     supabaseState.user = { id: "user-1" };

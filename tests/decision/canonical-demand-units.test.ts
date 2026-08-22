@@ -1,5 +1,4 @@
-/** THE CANONICAL DEMAND UNIT: one audience need joined across every stream, disagreements preserved as
- *  tensions, lost audiences seeded from history alone, and nothing invented on a stream that is absent. */
+/** THE CANONICAL DEMAND UNIT: one audience need joined across every stream, disagreements preserved as tensions, lost audiences seeded from history alone, and nothing invented on a stream that is absent. */
 import { describe, expect, it } from "vitest";
 import { canonicalDemandUnits, type CanonicalUnitInputs } from "@/domains/evidence/demand-units";
 
@@ -70,8 +69,7 @@ describe("AI can seed demand, and only exact identity ever joins it (AEO reconst
     expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);
   });
   it("carries the parent questions the search was issued from, so the AEO path can join it at all", () => {
-    // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the
-    // strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
+    // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
     const runs = ["2026-08-01", "2026-08-02", "2026-08-03"].map((day) => (
       { promptId: "p9", promptText: "Where do families buy a haft seen set?", creditedOwn: false,
         citations: [{ domain: "rival.example", url: "https://rival.example/h" }], fanOutQueries: ["haft seen set delivery"], engine: "chatgpt", day }));

@@ -25,9 +25,8 @@ const pageSnap = (url: string): EvidenceSnapshot => ({ ...snapshot([]),
 const AI_PAGE = "https://own.example/saffron-guide";
 const CTR_PAGE = "https://own.example/nowruz";
 describe("the four doors into the deep read", () => {
-  // AI EVIDENCE NO LONGER OPENS A DEEP DOOR (2026-08-19): the staged case path in producers/extra.ts is the
-  // ONE AEO decision path, so a citation-gap candidate with no click gap earns no deep slot here, and the
-  // same page still enters by the click door when a real gap rides it.
+  // AI EVIDENCE NO LONGER OPENS A DEEP DOOR (2026-08-19): the staged case path in producers/extra.ts is the ONE AEO decision path, so a citation-gap candidate with no click gap earns no deep slot here, and the same page still enters by the
+  // click door when a real gap rides it.
   it("never opens a deep door on AI evidence alone: the staged case path owns AEO", () => {
     const picked = selectDeepCandidates({
       candidates: [cand({ pageUrl: AI_PAGE, query: "saffron price",

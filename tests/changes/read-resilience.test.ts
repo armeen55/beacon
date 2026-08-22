@@ -56,9 +56,8 @@ async function renderSection(): Promise<string> {
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
   beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
 
-  // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the
-  // watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the
-  // one-read promise the two deleted pins here used to hold.
+  // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted
+  // pins here used to hold.
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
     await Promise.all([renderSection(), renderSection()]);
     expect([calls.ledger, calls.evidence]).toEqual([0, 0]);

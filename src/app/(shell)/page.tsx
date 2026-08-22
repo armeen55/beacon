@@ -259,7 +259,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 </p>
               ) : null}
               <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
-                <p className="min-w-0 flex-1 text-[14px] font-semibold leading-relaxed text-foreground">
+                <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
                   <span className="font-normal text-muted-foreground">{edit.lead}</span>{edit.after}
                 </p>
                 {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}

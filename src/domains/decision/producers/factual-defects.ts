@@ -57,9 +57,44 @@ function componentOf(c: FactCheck, index: number): BundleComponent {
 
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
+/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at
+ *  needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control.
+ *  Batches of ten go to the one gateway with the exact current statement, replacement, source quote and
+ *  locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch
+ *  that cannot be read (unaffordable, refused, no key) reviews nothing and the card stays honestly at
+ *  needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
+const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component judge only: does the replacement read as grammatical natural English a person would publish in place of the current statement; is it consistent with the quoted source; does it contradict any OTHER component in this batch. Return ONLY {\"rulings\":[{\"index\",\"publish\",\"reason\"}]} with one ruling per component, reason one short sentence. When in doubt on a component, publish=false.";
+async function reviewComponents(tenantId: string, components: readonly BundleComponent[], now: Date,
+  wiring: { attempts?: { left: number }; complete?: unknown; bypassCache?: boolean }): Promise<Map<number, string> | null> {
+  const { callStructuredLLM } = await import("../llm/structured-drafter");
+  const held = new Map<number, string>();
+  for (let b = 0; b < components.length; b += BATCH) {
+    const batch = components.slice(b, b + BATCH);
+    if (wiring.attempts && (wiring.attempts.left -= 1) < 0) return null; // an unpaid batch reviews nothing
+    const user = batch.map((c, i) => `#${i}: on the page now: "${c.before ?? ""}"\nreplacement: "${c.after}"\nsource: ${(c.sourcePack?.sourceRequirements ?? []).join("; ")}\nwhere: ${c.where ?? ""}`).join("\n\n")
+      + `\n\nReturn one ruling per component, indexes 0 to ${batch.length - 1}.`;
+    const r = await callStructuredLLM({ kind: "factual_review", tenantId, system: REVIEW_SYSTEM, user, grounded: user,
+      projectedCostUsd: 0.01, maxTokens: 2500, timeoutMs: 95_000, now,
+      ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
+    if (r?.status !== "drafted") return null;
+    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string }[] }).rulings;
+    // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass.
+    const ruled = new Map(rulings.map((x) => [x.index, x]));
+    for (let i = 0; i < batch.length; i += 1) {
+      const v = ruled.get(i);
+      if (!v) held.set(b + i, "the review returned no ruling for it");
+      else if (v.publish !== true) held.set(b + i, v.reason);
+    }
+    if (wiring.attempts && (r as { cached?: true }).cached) wiring.attempts.left += 1; // a cache hit cost nothing
+  }
+  return held;
+}
+
 /** Every page whose banked checks contradict it, as one card each. Guarded like every producer: a read that
- *  fails narrows the pass and sweeps nothing. */
-export async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<FactualDefectRun> {
+ *  fails narrows the pass and sweeps nothing. `review` wires Beacon's own sense review: with it, a bundle
+ *  whose survivors all pass is promoted to ready; without it (or unaffordable) the card stays needs_review. */
+export async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
+  review?: { attempts?: { left: number }; complete?: unknown; bypassCache?: boolean } }): Promise<FactualDefectRun> {
   const { tenantId, snapshot, now } = input;
   try {
     const checks = await readFactChecks(tenantId);
@@ -102,14 +137,28 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       if (corrections.length === 0) continue; // nothing authorized: the findings live in the checks, not in a card
       const shown = corrections.slice(0, MAX_COMPONENTS);
       const remaining = corrections.length - shown.length;
-      const components = shown.map(componentOf);
-      const batches = Math.ceil(shown.length / BATCH);
+      let components = shown.map(componentOf);
+      // BEACON'S OWN SENSE REVIEW, per component: survivors stay in the bundle, a failed component is held
+      // WITH its reason where the operator can read it, and a review that could not run promotes nothing.
+      // A REVIEW THAT HOLDS EVERYTHING HOLDS THE BUNDLE WHOLE (review, 2026-08-22): filtering to zero pieces
+      // minted a card the contract schema refuses to read back, which is a vanished card over an unreadable
+      // row. Survivors are what may be filtered TO; zero survivors keeps every piece and stays unpromoted.
+      const heldByReview = input.review ? await reviewComponents(tenantId, components, now, input.review).catch(() => null) : null;
+      const survivors = heldByReview ? components.filter((_, i) => !heldByReview.has(i)) : components;
+      const reviewedOut = heldByReview && survivors.length > 0 ? [...heldByReview.entries()].map(([i, why]) => ({ c: components[i]!, why })) : [];
+      if (heldByReview && survivors.length > 0) components = survivors;
+      const reviewed = heldByReview != null && survivors.length > 0;
+      const allHeld = heldByReview != null && survivors.length === 0 && components.length > 0;
+      // EVERY COUNT THE OPERATOR READS SPEAKS FOR THE SURVIVORS (review, 2026-08-22): a ready card announcing
+      // twelve corrections over nine rendered pieces is a contradiction on the primary surface.
+      const shownCount = components.length;
+      const batches = Math.ceil(shownCount / BATCH);
       const totalBatches = Math.ceil(corrections.length / MAX_COMPONENTS);
       const checked = rows.length;
       const receipt = shown.map((c, i) => ({ key: `fact-${i + 1}`, kind: "independent_source" as const,
         fact: `The page says ${c.subject} means "${c.current}". ${c.sources[0]?.kind ?? "The source"} ${sourceLine(c)} gives ${c.proposed}.`,
         observedAt: c.checkedAt || null }));
-      const objective = `${n(shown.length)} statements on ${path} stop contradicting their own sources.`;
+      const objective = `${n(shownCount)} statements on ${path} stop contradicting their own sources.`;
       cards.push({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::factual_correction`, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
@@ -117,34 +166,41 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
         // NEVER the thing to paste: the card renders the pieces, and only each piece's own wording is copyable
         // (Codex, 2026-08-21: an umbrella Copy button copied "Replace the 40 statements listed below").
         opportunityType: remaining > 0
-          ? `${n(shown.length)} sourced corrections on ${path} (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
-          : `${n(shown.length)} sourced corrections on ${path}`,
-        changeFamily: "factual_correction", status: "needs_review",
+          ? `${n(shownCount)} sourced corrections on ${path} (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
+          : `${n(shownCount)} sourced corrections on ${path}`,
+        changeFamily: "factual_correction", status: reviewed ? "ready" : "needs_review",
         recommendedChange: { kind: "existing_edit", field: "section", before: null,
-          after: `${n(shown.length)} corrected statements, each with its exact current wording, its replacement and the source that establishes it. Work through them piece by piece below.` },
+          after: `${n(shownCount)} corrected statements, each with its exact current wording, its replacement and the source that establishes it. Work through them piece by piece below.` },
         bundle: {
           objective, metric: "Accuracy of the page's own statements, re-checked against the same sources on the next run.",
           scope: { queries: [], prompts: [] },
           components,
           plan: { entries: components.map((c) => ({ kind: c.kind, label: c.label, disposition: "change" as const })),
             keeps: [`Every statement on ${path} that the check run found correct (${n(rows.filter((r) => r.verdict === "page_correct").length)} of ${n(checked)})`], removes: [] },
-          receipt: { items: receipt, missing: unsupported.map((u) => `No credible source settles ${u.subject}, so nothing is proposed for it.`),
+          receipt: { items: receipt, missing: [
+            ...reviewedOut.map((h) => `Held by Beacon's own review, ${h.c.label}: ${h.why}`),
+            ...(allHeld && heldByReview ? [...heldByReview.entries()].map(([i, why]) => `Held by Beacon's own review, ${shown[i]?.subject ?? `entry ${i + 1}`}: ${why}`) : []),
+            ...unsupported.map((u) => `No credible source settles ${u.subject}, so nothing is proposed for it.`)],
             freshestObservedAt: rows.map((r) => r.checkedAt).filter(Boolean).sort().at(-1) ?? null },
           alternatives: [{ option: "Leave the wording and add a note", reason: "A page that states a wrong meaning and a right one beside it is harder to trust, not easier." },
             ...(disputed.length > 0 ? [{ option: `Correct the ${n(disputed.length)} disputed entries too`, reason: "Their sources genuinely disagree or the page records a defensible modern usage, so replacing them would be a guess with a citation stapled on." }] : [])],
           risks: [`Each replacement changes published words, so check the corrected wording reads the way you want before pasting it.`,
             ...(disputed.length > 0 ? [`${n(disputed.length)} more entries are contested and deliberately not included here.`] : [])],
-          confidenceReasons: [`Every correction here carries at least one scholarly, dictionary or encyclopedia source, and ${n(shown.filter((c) => c.agreement === "multiple_agree").length)} of ${n(shown.length)} have two or more independent sources agreeing.`],
+          confidenceReasons: [`Every correction here carries at least one scholarly, dictionary or encyclopedia source, and ${n(shown.filter((c) => c.agreement === "multiple_agree").length)} of ${n(shown.length)} authorized entries have two or more independent sources agreeing.`],
           measurementPlan: "The next check run reads the page again and compares each statement with the wording this card objected to; whatever now reads correctly retires itself and the next batch moves up.",
         },
         whyItMatters: `${n(checked)} statements on ${path} were checked against independent sources. ${n(corrections.length)} are contradicted by a source of record and carry a supported replacement; ${n(disputed.length)} are contested and stay out of this list; ${n(unsupported.length)} have no credible source either way. Wrong meanings on a reference page are a trust problem on their own, whatever they do to rankings.`,
         operatorSteps: [`Open the site editor on ${path}`,
-          `Work through the ${n(shown.length)} corrections below in ${n(batches)} ${batches === 1 ? "batch" : "batches"} of about ${BATCH}`,
+          `Work through the ${n(shownCount)} corrections below in ${n(batches)} ${batches === 1 ? "batch" : "batches"} of about ${BATCH}`,
           "Each one shows the exact current wording, the exact replacement and the source behind it",
           ...(remaining > 0 ? [`${n(remaining)} more confirmed corrections are waiting behind this batch; they arrive here once these are marked done`] : []),
           "Mark it done here and the next check run re-reads the page and drops whatever you fixed"],
-        estimatedEffortMinutes: Math.max(10, shown.length * 2), riskLevel: "medium", confidence: "high",
-        limitations: [`Only corrections with a scholarly, dictionary or encyclopedia source behind them are listed; ${n(disputed.length + unsupported.length)} findings are held back deliberately.`,
+        estimatedEffortMinutes: Math.max(10, shownCount * 2), riskLevel: "medium", confidence: "high",
+        limitations: [
+          reviewed ? `Each correction was read by Beacon's own reviewer for grammar, source fit and contradictions before this was offered${reviewedOut.length > 0 ? `; ${n(reviewedOut.length)} ${reviewedOut.length === 1 ? "component is" : "components are"} held with the reason on the receipt` : ""}.`
+            : allHeld ? "Beacon's own reviewer read every correction and held all of them, so nothing here is offered until the next check run rewrites them; each reason is on the receipt."
+              : "Beacon's own sense review has not run on this bundle yet, so it waits for that reading, never for the operator to do Beacon's checking.",
+          `Only corrections with a scholarly, dictionary or encyclopedia source behind them are listed; ${n(disputed.length + unsupported.length)} findings are held back deliberately.`,
           ...(remaining > 0 ? [`${n(corrections.length)} corrections are authorized in total and ${n(shown.length)} are shown here, worst first; the other ${n(remaining)} are not lost and are not silently dropped.`] : []),
           "The page's own words were treated as evidence of what it says, never as proof they are true."],
         causeFinding: { cause: "factual_error", action: "section", evidenceKeys: receipt.map((r) => r.key).slice(0, 8),

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const checks = vi.hoisted(() => ({ rows: [] as unknown[] }));
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
+vi.mock("@/lib/llm-call-cache", () => ({ readLlmCallCache: async () => null, writeLlmCallCache: async () => {}, llmCallCacheKey: () => "k", recentLlmCallTexts: async () => [] }));
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>();
   return { ...real, readFactChecks: async () => checks.rows };
@@ -94,5 +96,39 @@ describe("a correction bundle survives the round trip", () => {
     expect(card.bundle!.receipt.items[0]!.kind).toBe("independent_source");
     const back = deserializeChangeProposal(serializeChangeProposal(card));
     expect(back?.bundle?.receipt.items[0]!.kind).toBe("independent_source");
+  });
+});
+
+/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22): a clean reviewed bundle arrives ready; one failed component is held WITH its reason and never erases the valid ones; an unaffordable review promotes nothing
+ *  and says why. `complete` is the gateway's own test seam. */
+describe("the correction bundle is reviewed by Beacon itself", () => {
+  const three = () => { checks.rows = [check(), check({ subject: "Bahar", current: "Spring wind.", proposed: "Spring, the season, in Persian." }),
+    check({ subject: "Ciara", current: "Dark one.", proposed: "It's mean 'dark'." })]; };
+  const complete = (ok: boolean[]) => async () => ({ value: { rulings: ok.map((publish, index) => ({ index, publish, reason: publish ? "reads naturally against its source" : "the replacement is ungrammatical" })) } });
+  it("promotes a clean reviewed bundle to ready, and holds a failed component with its reason", async () => {
+    three();
+    const clean = await factualDefectCards({ tenantId: "t", snapshot, now: NOW, review: { complete: complete([true, true, true]) } });
+    expect([clean.cards[0]!.status, clean.cards[0]!.bundle!.components.length]).toEqual(["ready", 3]);
+    expect(clean.cards[0]!.limitations[0]).toContain("Beacon's own reviewer");
+    three();
+    const mixed = await factualDefectCards({ tenantId: "t", snapshot, now: NOW, review: { complete: complete([true, true, false]) } });
+    expect([mixed.cards[0]!.status, mixed.cards[0]!.bundle!.components.length]).toEqual(["ready", 2]);
+    expect(mixed.cards[0]!.bundle!.receipt.missing.join(" ")).toContain("Held by Beacon's own review, Ciara: the replacement is ungrammatical");
+    // EVERY COUNT SPEAKS FOR THE SURVIVORS: a ready card never announces corrections its bundle does not render.
+    expect([mixed.cards[0]!.opportunityType, mixed.cards[0]!.bundle!.objective]).toEqual(["2 sourced corrections on /persian-female-first-names", "2 statements on /persian-female-first-names stop contradicting their own sources."]);
+  });
+  // A REVIEW THAT HOLDS EVERYTHING HOLDS THE BUNDLE WHOLE: zero-piece bundles fail the contract schema on read back, which is a vanished card over an unreadable row. The pieces stay, unpromoted, each reason on file.
+  it("keeps every piece and stays unpromoted when the review holds all of them", async () => {
+    three();
+    const all = await factualDefectCards({ tenantId: "t", snapshot, now: NOW, review: { complete: complete([false, false, false]) } });
+    expect([all.cards[0]!.status, all.cards[0]!.bundle!.components.length]).toEqual(["needs_review", 3]);
+    expect(all.cards[0]!.limitations[0]).toContain("held all of them");
+    expect(all.cards[0]!.bundle!.receipt.missing.filter((m) => m.startsWith("Held by Beacon's own review"))).toHaveLength(3);
+  });
+  it("promotes nothing when the review cannot be read, and never charges the operator with the checking", async () => {
+    three();
+    const dark = await factualDefectCards({ tenantId: "t", snapshot, now: NOW, review: { complete: async () => ({ error: "refused", retryable: false }) } });
+    expect([dark.cards[0]!.status, dark.cards[0]!.bundle!.components.length]).toEqual(["needs_review", 3]);
+    expect(dark.cards[0]!.limitations[0]).toContain("never for the operator to do Beacon's checking");
   });
 });

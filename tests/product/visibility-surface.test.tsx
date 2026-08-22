@@ -1,5 +1,4 @@
-/** VISIBILITY. What a customer READS on the one surface that answers "where do I stand, and why": headline numbers that
- *  name their own denominator, EVERY page that moved, every search Google named, the questions I ask the assistants with
+/** VISIBILITY. What a customer READS on the one surface that answers "where do I stand, and why": headline numbers that name their own denominator, EVERY page that moved, every search Google named, the questions I ask the assistants with
  *  the runs behind them, and the whole of one run. Fixtures only, no clock, no dash, no lab word, no provider call. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
@@ -48,8 +47,7 @@ const OLDER: AnswerRow = { ...ROW, id: "obs_1", day: "2026-07-28", position: 9 }
 const FANOUT_OBS = [ROW, OLDER].map((r) => ({ observationId: r.id, promptId: r.promptId, promptText: r.promptText, engine: r.engine, reportingDay: r.day,
   fanOutQueries: r.fanOuts, citations: r.citations?.map((c) => ({ url: c.url, domain: c.domain })) ?? null,
   retrievedResults: (r.retrievedNotCited ?? []).map((u) => ({ url: u, domain: new URL(u).hostname })) }));
-/** `sources` is the journey-bearing window, the SAME rows the fan-out projection reads: the lean outcome rows
- *  in `window` carry no citation at all, so the sources table and the share tile divide by these. */
+/** `sources` is the journey-bearing window, the SAME rows the fan-out projection reads: the lean outcome rows in `window` carry no citation at all, so the sources table and the share tile divide by these. */
 const ai = (over: Partial<Parameters<typeof aiView>[0]> = {}) => aiView({ segments: SEGMENTS, rangeDays: 3, engine: null, sub: "prompts", landscape: LANDSCAPE, intel: null,
   checks: { done: 42, total: 48, answered: 40, unavailable: 2 }, day: DAY, dayRows: [ROW], window: [ROW, OLDER], sources: [ROW, OLDER], focus: null, fanouts: buildFanoutEvidence(FANOUT_OBS, "own.example"), ownedPageRollup: null, trackedKeys: [canonicalQueryKey(ROW.promptText)], ...over });
 /** THE ONE FAN-OUT ROW every drill-down test opens, off the same shared projection Decision reads. */
@@ -102,8 +100,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(v.tiles[3]!.basis).toContain("weighted by appearances across 2 pages over the 28 days ending Aug 1");
     expect(v.chart!.prior).toHaveLength(7); // the stretch before, drawn behind the line rather than described
   });
-  // PIN: NOTHING CHECKED IS NOT ZERO MENTIONS. A live account had answers on file and none of them read, and the old surface
-  // reported "0%" about every one of them: a customer-facing false negative built out of an empty denominator.
+  // PIN: NOTHING CHECKED IS NOT ZERO MENTIONS. A live account had answers on file and none of them read, and the old surface reported "0%" about every one of them: a customer-facing false negative built out of an empty denominator.
   it("refuses a rate over a denominator nobody has checked, and counts one citation vote per answer", () => {
     const unread = SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, analyzed: 0, mentioning: 0, mentionRate: null })) }));
     const blind = ai({ segments: unread });

@@ -72,30 +72,66 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
 }
 
 /** FINISHED WORK IS NOT UNDONE BY A PASS THAT DID NOT REACH IT. Drafting is capped per pass, so a card past the cap comes back from its producer as the BRIEF it started as, and writing that over copy an earlier pass already paid for DESTROYED it: 6 then 4 then 3 finished cards across three consecutive passes, taking the biggest description on the site (18,317 views in 90 days) with it. A stored deliverable is replaced by a NEW finished one or by an explicit withdrawal carrying a reason, never by silence. WHAT THE COPY WAS WRITTEN FOR IS WHAT KEEPS IT ALIVE. The basis alone decided, and a basis is a reading of the ACCOUNT, not of this page: it does not move when the page is re-crawled, when the diagnosis changes its mind, when the evidence behind the argument is replaced, when the piece is aimed at a different place or a different set of addresses, when the lever changes, or when the line the copy says it replaces is no longer the line the page carries. Every one of those makes banked words answer a question nobody is asking any more. So the words survive only while the identity BELOW them is byte for byte what it was, and that identity is exactly the material fields the stored fingerprint already treats as identity, minus the copy itself. `copyStamp` is the caller's reading of the TARGET PAGE at the moment each card was minted (title, heading, description, outline), banked on the row beside the words, so a page re-crawled into a different shape retires copy written for the old one. A row carrying no stamp compares as null on both sides and is decided by everything else. PURE. */
+/** THE MATERIAL COPY-VALIDITY IDENTITY, and ONLY the material half (operator, 2026-08-22). The old identity
+ *  hashed the producer's own prose (evidence hint wording, the cause EXPLANATION sentence) and raw observation
+ *  ids, so a pass that merely reworded its generator, appended an agreeing observation or shipped under a new
+ *  code version computed "different" and DESTROYED finished copy it could not redraft: the one Ready change in
+ *  production became a research brief on a paused $0 pass. What decides whether finished words still stand is
+ *  material: the target page as it reads today (`copyStamp`), the diagnosed cause BY KEY, the lever, the
+ *  normalized intent, and the set of pages a bundle writes on. Contradiction and support are re-checked
+ *  separately by the banked-copy re-reads (drafted-copy's staleCopyReasons), which read the claims against the
+ *  facts banked beside them, so dropping prose from the identity loosens nothing about truth. */
+/** ORDER-FREE: the demand-unit label is minted from a live impressions sort, so two phrasings of ONE unit swap
+ *  leadership week to week and a word-order-sensitive intent re-enabled the destruction through the one
+ *  dimension this identity added (review, 2026-08-22). Sorted tokens make every reordering of the same words
+ *  one intent, which is the same subject rule the canonical query key applies on the server. */
+const normIntent = (q: string): string => (q ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").sort().join(" ");
 function copyIdentity(p: ChangeProposal): string {
   const parts = p.bundle?.components ?? [];
-  // THE LINE BEING REPLACED IS NOT COMPARED DIRECTLY. A producer re-minting a brief hands back `before: null` because it has not read the field yet, and reading that as "the line changed" would throw away the copy on every single pass, which is the exact destruction this function exists to stop. What the page carries is carried by `copyStamp` instead, which is read off the stored page and says so honestly for every field. AN ATOMIC CARD'S EVIDENCE IS ITS OWN HINTS, and they were the one material thing outside this identity. A description drafted through the editor names its support by id ("card-1", "card-2"), and those ids ARE this list in order, so a hint that moved, was reworded or disappeared changes what every claim on that card points at while the banked words carried on being served. The receipt items below answer the same question for a bundle, which is why they were already here and the hints were not.
-  return JSON.stringify([p.basis ?? null, p.copyStamp ?? null, p.changeFamily, p.diagnosisCause ?? null, p.causeFinding?.explanation ?? null,
-    p.bundle ? null : [...p.evidence.hints],
+  return JSON.stringify([p.copyStamp ?? null, p.changeFamily, p.diagnosisCause ?? null, normIntent(p.primaryQuery),
     p.recommendedChange.kind === "existing_edit" ? [p.recommendedChange.field] : ["new_page"],
     [...new Set(parts.map((c) => c.page ?? p.pagePath ?? ""))].sort(),
-    parts.map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before]),
-    (p.bundle?.dispositions ?? []).map((d) => [d.page, d.verdict]),
-    (p.bundle?.receipt.items ?? []).map((i) => [i.key, i.observationId ?? null, [...(i.observationIds ?? [])].sort()]).sort()]);
+    parts.map((c) => [c.kind, c.page ?? null]),
+    (p.bundle?.dispositions ?? []).map((d) => [d.page, d.verdict])]);
+}
+/** WHICH MATERIAL FACT MOVED, in words, for the retirement receipt. */
+function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string {
+  const moves: string[] = [];
+  if ((prior.copyStamp ?? null) !== (incoming.copyStamp ?? null)) moves.push("the page's own content changed under it");
+  if ((prior.diagnosisCause ?? null) !== (incoming.diagnosisCause ?? null)) moves.push("the diagnosed cause changed");
+  if (normIntent(prior.primaryQuery) !== normIntent(incoming.primaryQuery)) moves.push("the search it answers changed");
+  if (prior.changeFamily !== incoming.changeFamily
+    || (prior.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.field : "new_page")
+      !== (incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.field : "new_page")) moves.push("the kind of change moved");
+  return moves.join("; ") || "the pages this change writes on moved";
 }
 
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
-  if (!prior || copyIdentity(prior) !== copyIdentity(incoming)) return incoming;
+  // THE RECEIPT OUTLIVES THE PASS THAT STAMPED IT (review, 2026-08-22): every return carries the newest
+  // retirement receipt available, so the retired words stay inspectable under whatever replaced them instead
+  // of living exactly one pass. A NEW receipt below outranks an inherited one.
+  const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: prior.previousCopy } : {};
+  const priorAfter = prior?.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.after.trim() : "";
+  if (!prior || copyIdentity(prior) !== copyIdentity(incoming)) {
+    // FINISHED COPY IS NEVER LOST WITHOUT A RECEIPT, whether the replacement is a brief OR different finished
+    // words: a finished prior whose words do not survive into the incoming row stamps the retirement receipt.
+    const incomingAfter = incoming.recommendedChange.kind === "existing_edit" ? incoming.recommendedChange.after.trim() : "";
+    if (prior && deliverableGaps(prior).length === 0 && priorAfter && priorAfter !== incomingAfter) {
+      return { ...incoming, previousCopy: { after: priorAfter,
+        retiredBecause: identityMoves(prior, incoming), at: incoming.createdAt } };
+    }
+    return { ...incoming, ...inherited };
+  }
   // AND A PERSON WHO READ THE WORDS AND ASKED FOR BETTER ONES OUTRANKS THE PRESERVATION RULE. Banked copy survives because a pass that did not reach a card must not destroy it, which says nothing about a card somebody read and sent back: the ask stands until a pass actually writes over it.
-  if (prior.redraftRequested) return incoming;
-  if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return incoming;
+  if (prior.redraftRequested) return { ...incoming, ...inherited };
+  if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return { ...incoming, ...inherited };
   // COPY NOBODY CAN TRACE IS NOT FINISHED WORK. An atomic card's words are written by the editor, which hands back every claim beside the evidence ids carrying it, and this branch banked the words and dropped the claims: all three ready cards on the live account carried `claims: null` and no persisted mapping from a sentence to the thing behind it, so nothing on the row could ever be re-checked. Banked words survive only WITH their provenance now, and copy that reached the row before this did is redrafted once rather than served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
-  if (!prior.bundle && (prior.claims ?? []).length === 0) return incoming;
+  if (!prior.bundle && (prior.claims ?? []).length === 0) return { ...incoming, ...inherited };
   // AND A CLAIM POINTING AT AN ID NOBODY BANKED THE WORDS FOR IS NOT PROVENANCE EITHER. The ids resolve inside the pass that drafted the copy and nowhere else, so banked words survive only while every id their claims name has its exact quoted fact banked beside them. Copy banked before the pairs existed is redrafted once, exactly as copy banked before the claims existed was.
   const banked = new Set((prior.supportFacts ?? []).map((f) => f.id));
-  if (!prior.bundle && (prior.claims ?? []).some((c) => c.supportedBy.some((id) => !banked.has(id)))) return incoming;
+  if (!prior.bundle && (prior.claims ?? []).some((c) => c.supportedBy.some((id) => !banked.has(id)))) return { ...incoming, ...inherited };
   // The words, where they land, what they cost, what was said about them AND what each claim stands on stay as banked; THIS pass's evidence, ranking and receipt still land on the row, so the card keeps arguing from what is true today.
-  return { ...incoming, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
+  return { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes,
     ...(prior.claims ? { claims: prior.claims } : {}), ...(prior.supportFacts ? { supportFacts: prior.supportFacts } : {}),
     ...(prior.operatorSteps ? { operatorSteps: prior.operatorSteps } : {}), ...(prior.bundle ? { bundle: prior.bundle } : {}),
@@ -107,7 +143,10 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
 export function confirmedVersion(p: ChangeProposal): string {
   const c = p.recommendedChange, b = p.bundle, f = p.causeFinding;
   const sorted = <T>(xs: readonly T[]): T[] => [...xs].sort((x, y) => JSON.stringify(x).localeCompare(JSON.stringify(y)));
-  const material = [p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations), p.operatorSteps ?? [],
+  // THE CONFIRMATION STILL PINS THE BASIS AND EVERY RENDERED SENTENCE: copy PRESERVATION dropped them from its
+  // own identity (a reworded producer must not destroy finished words), but an operator's yes was given to one
+  // account truth and one exact screen, so those stay part of THIS stamp explicitly.
+  const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations), p.operatorSteps ?? [],
     c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
     (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact])),
     f ? [f.cause, f.explanation, f.falsifier, sorted(f.competingExplanations.map((x) => [x.cause, x.reason])), sorted(f.notConsidered.map((x) => [x.cause, x.missing]))] : null,

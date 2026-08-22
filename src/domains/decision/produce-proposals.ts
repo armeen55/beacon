@@ -258,7 +258,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const held0 = existing.get(raw.id), copy0 = held0 && !held0.bundle && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
     const clean = copy0 ? withoutCta(copy0.after, copy0.field) : null, trimmed = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
     const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held, false, preserve) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const prior = why.length === 0 ? trimmed : null;
-    const carried = preferFinished({ ...sized(raw), ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
+    // FINISHED COPY RETIRED BY TODAY'S RULES STILL LEAVES ITS RECEIPT (review, 2026-08-22): nulling the prior took the words out of preferFinished's sight entirely, so the one loss path a rule change opens was the one
+    // loss path with no history. The receipt rides the incoming row before preservation runs.
+    const retired = why.length > 0 && trimmed && !trimmed.researchOnly && trimmed.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.after.trim()
+      ? { previousCopy: { after: trimmed.recommendedChange.after, retiredBecause: why[0]!, at: (opts.now ?? new Date()).toISOString() } } : {};
+    const carried = preferFinished({ ...sized(raw), ...retired, ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
     const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
     const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
@@ -355,13 +359,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const deep = selectDeepCandidates({ candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
 
   /** Pages already carrying a change under measurement: a second change on one of them cannot be saved. */
-  // The ONE measuring context the pass already derived, plus every implemented store row whatever its age:
-  // reading only the store here let a page the caller declared under measurement take a fresh $0 card.
+  // The ONE measuring context the pass already derived, plus every implemented store row whatever its age: reading only the store here let a page the caller declared under measurement take a fresh $0 card.
   const measuringPagesEarly = new Set([...measuring.measuringPagePaths, ...[...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => r.pagePath ?? "")].map((path) => path.trim().toLowerCase()));
   const investigating = candidates.filter((c) => c.action === "research_needed").length;
   const consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
   // THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks alone, so a correction is reproducible (operator, 2026-08-17). READ BEFORE THE QUIET-DAY RETURN: this $0 producer below the early exit meant a quiet day could never regenerate a correction bundle (Codex, 2026-08-18: two ordinary passes must reproduce it).
-  const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date() }))
+  // BEACON'S OWN SENSE REVIEW rides the pass's shared attempt budget: a reviewed clean bundle arrives ready, an unaffordable review leaves it honestly at needs_review, and the operator reviews nothing that is Beacon's checking (operator, 2026-08-22).
+  const factual = await import("./producers/factual-defects").then((m) => m.factualDefectCards({ tenantId, snapshot, now: opts.now ?? new Date(),
+    review: { attempts, ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) } }))
     .catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
   for (const c of factual.cards) {
     if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase())) continue;
@@ -380,8 +385,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   };
   if (acted.length === 0 && deep.length === 0) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
-    // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever
-    // on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
+    // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
     const quiet = (await runExtraQueue()).run;
     for (const c of quiet.cards) {
       if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue;
@@ -509,11 +513,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const eligible: ChangeProposal[] = []; for (const c of [...recovery.cards, ...extra.cards]) {
     if (measuringPages.has((c.pagePath ?? "").trim().toLowerCase())) continue;
     if (await admit(c)) eligible.push(c); }
-  // RANK BEFORE SPENDING DRAFT CAPACITY (Codex, 2026-08-21). The editor drafts a bounded few and used to walk
-  // the producers' own output order, so the attempt budget went to whichever eligible card happened to come
-  // first and the account's biggest opportunity stayed a brief for ever. The SAME global ranking that orders
-  // the queue orders the drafting line, at $0, so the highest-impact unfinished deliverable is drafted first
-  // whatever position it arrived in. Cards already finished are preserved by identity exactly as before.
+  // RANK BEFORE SPENDING DRAFT CAPACITY (Codex, 2026-08-21): the editor drafts a bounded few, so the SAME global ranking that orders the queue orders the drafting line at $0 and the highest-impact unfinished deliverable drafts first whatever position it arrived in. Finished cards are preserved by identity exactly as before.
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory });
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, attempts }).catch(() => allowed); // the account's own vocabulary AND the pass's one attempt budget reach the editor
   // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
