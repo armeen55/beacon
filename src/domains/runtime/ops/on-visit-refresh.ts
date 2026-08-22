@@ -239,7 +239,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         // TWO ANSWERS MAY END THE DAY'S OBLIGATION AND NO OTHERS: the stock reached the target, or every candidate on the current manifest was spent on and not one produced. A quota failure, a provider failure, a boxed drive, an unreadable read and a bounded batch that simply came up empty all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
         if (r) {
           const closed = r.reason === "target_reached" || r.reason === "candidates_exhausted" ? r.reason : undefined;
-          progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(closed ? { closed } : {}) } };
+          progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(closed ? { closed } : {}), ...(r.outcomes ? { outcomes: r.outcomes } : {}) } };
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the day's memory persists and the lease is re-proven before the phase spends
         // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
         } else if (nowFn().getTime() - began >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
