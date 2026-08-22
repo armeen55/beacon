@@ -205,7 +205,13 @@ export const defaultSteps: ResearchCycleSteps = {
       return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::held`, held);
     }
     // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already reached a TERMINAL answer for are declared but not funded again, so each drive walks further down the one ranking instead of buying the same settled refusal twice.
-    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
+    // THE TOP-UP NEVER SERVES A CACHED DRAFT (found live, 2026-08-22 22:10Z). The call cache holds 300 entries for this
+    // account, its hard maximum, including 111 atomic edits and 100 page jobs written by the burn passes of 21 August.
+    // A hit returns `drafted` at $0 BEFORE the budget gate and the editor REFUNDS the attempt, so every drive replayed
+    // drafts written before today's gates existed, failed the same gates in the same way, spent nothing, and left the
+    // queue on zero. A stall with no cost signal at all: the 22:00Z drive funded five candidates and made not one OpenAI
+    // call. The top-up is exactly the path that must never re-serve a refusal, so it always pays for a fresh take.
+    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
     if (out == null || out.outcome === "evidence_unreadable" || out.outcome === "persistence_failed") return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::unread`, held);
