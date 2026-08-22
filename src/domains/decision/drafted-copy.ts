@@ -12,7 +12,7 @@ import type { AtomicEditDraft } from "./llm/schemas";
 import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 import { DRAFT_BUDGET } from "./draft-budget";
-type DraftBudget = ReturnType<typeof DRAFT_BUDGET.make>;
+type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 
 /** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the
  *  hardest cards every pass, so the completable descriptions behind them never got a body. */
@@ -550,8 +550,10 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   const out: ChangeProposal[] = [];
   // THE PASS OWNS THE MONEY, AND THIS FAMILY HAS NO POOL OF ITS OWN. A caller that hands in no budget gets one sized for a single family standing alone; the production caller hands in the pass's shared budget, so the editor competes for the same slots
   // and the same charged calls as every other drafting family.
-  const budget = opts.budget ?? DRAFT_BUDGET.make({ candidates: MAX_DRAFTS });
-  if (!opts.budget) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own", { tenantId: opts.tenantId });
+  // A caller that hands in no plan gets one made from these cards alone, priced and ranked by the same rules; the production caller hands in the pass's shared plan, so the editor competes for the same slots and charged calls as every other family.
+  const budget = opts.budget ?? DRAFT_BUDGET.plan({ candidates: MAX_DRAFTS,
+    jobs: cards.filter((c) => kindFor(c) != null).map((c) => ({ key: DRAFT_BUDGET.keyOf("editor", c), family: "editor", impact: c.impactScore ?? 0, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })) });
+  if (!opts.budget) log.info("[drafted-copy] no pass plan was handed in, so this run plans its own", { tenantId: opts.tenantId });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => kindFor(c) != null)
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
@@ -563,10 +565,9 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     // AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names the rendered read as the next step, and no body-dependent copy may stand on words nobody holds.
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
-    // ONE CLAIM PER CANDIDATE PAGE: refused means this pass may spend nothing more here, and the card leaves with its owed note exactly as it does when a draft comes back unfinished. Never an early return: the NEXT ranked card still gets its own claim
-    // (operator, 2026-08-22).
-    const slice = budget.claim(DRAFT_BUDGET.keyOf(card));
-    if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass has no slot or no calls left for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
+    // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own.
+    const slice = budget.take(DRAFT_BUDGET.keyOf("editor", card));
+    if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     const drafted = done?.d;
     if (drafted) {

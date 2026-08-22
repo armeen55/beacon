@@ -142,8 +142,10 @@ export type RankedProposalQueue = {
  *  live basis. */
 export async function loadProposalQueue(
   tenantId: string,
-  deps: { currentBasis?: string | null } = {},
+  /** `now` is a SEAM, not a setting: the age of a change's own readings is judged against it, so a caller with a fixed clock reads the same queue every time it asks. Production passes nothing and gets the real moment, exactly as before. */
+  deps: { currentBasis?: string | null; now?: Date } = {},
 ): Promise<RankedProposalQueue> {
+  const now = deps.now ?? new Date();
   const currentBasis =
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
@@ -158,7 +160,7 @@ export async function loadProposalQueue(
   // turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below.
   // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
   // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
-  const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis }).length === 0
+  const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   // THE COMPLETENESS BOUNDARY DECIDES THE LANE, NEVER WHETHER THE WORK IS SEEN (operator, 2026-08-15). A row whose
   // deliverable is not finished used to leave the queue entirely and reach the operator as a number, which buried

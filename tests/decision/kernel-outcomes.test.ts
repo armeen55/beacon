@@ -171,9 +171,11 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
     // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree, and the bundle's answer stands. A proposal with NO cause takes this pass's.
-    reset(SEEN()); const plain = await run(counting().complete);
+    reset(SEEN()); // A LANDED BUNDLE THAT BRINGS NO CAUSE OF ITS OWN. A page the deep door selected declares the whole-page rewrite and no shallow draft beside it (paying for the field edit that rewrite replaces funded one page twice), so the rewrite is the change this half is about.
+    env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide" }) };
+    const plain = await run(counting().complete);
     const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
-    expect(plain.proposals[0]!.diagnosisCause).toBe(here);     expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
+    expect(plain.proposals.find((p) => p.id.endsWith("::bundle"))!.diagnosisCause).toBe(here); expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
     reset(SEEN());
     const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [],
       falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };

@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { receiptComposition } from "@/domains/decision/contracts"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, applyDraftedCopy, deliverableFailures, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
-const makeDraftBudget = DRAFT_BUDGET.make;
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -103,8 +102,8 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    // FOUR CALLS, AND NEVER SIX (operator, 2026-08-22): one candidate may consume at most THREE charged calls before the failure is banked and the ranked line moves on, so a refused card buys its three fed-back attempts and the next candidate gets its own. Still every one an edit.
-    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
+    // THREE CALLS, AND EVERY ONE OF THEM PLANNED (Codex, 2026-08-22). This pass compiles and funds its jobs before it spends anything, and the page being bundled declares no shallow draft of its own: a bundle replaces the field edit it is about to rewrite, so paying for both funded one page twice, at three calls and then at twelve. Fewer calls, the same work, and still every call an edit to a page that already exists.
+    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
@@ -213,10 +212,11 @@ describe("what a receipt will and will not accept", () => { it("takes the result
   it("takes nothing back about a page this pass never read, however healthy the rest of the pass looks", async () => { env.snap = snapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const held = [...store.rows.values()].find((p) => !!p.bundle)!;
     store.rows.set("unread", { ...held, id: "unread", pagePath: "/nothing-reached-this-page" }); // its page is not in the read at all
     await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect([store.rows.has("unread"), store.rows.has(held.id)]).toEqual([true, true]); });
-  it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => { env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
+  it("queues only the changes it can show are current, and sets aside every basis it cannot match", async () => { env.snap = topicSnapshot(); await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS });
+    const seed = [...store.rows.values()].find((p) => p.kind === "existing_edit")!; store.rows.clear();
     const put = (id: string, over: Partial<ChangeProposal>) => store.rows.set(id, { ...seed, id, status: "ready", basis: "basis_today", limitations: [], ...over });
     put("ready", {}); put("review", { status: "needs_review" }); put("owing", { limitations: ["Add one before this is paste-ready."] }); put("older", { basis: "basis_last_week", kind: "new_page" }); put("historical", { basis: undefined });
-    const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today" }), blind = await loadProposalQueue(TENANT, { currentBasis: null }); expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["review", "owing"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "review", "owing"]); expect(q.demotedStaleBasis).toBe(2); expect([blind.ranked, blind.ready, blind.toDo].map((l) => l.length)).toEqual([0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
+    const rows = store.rows.size, q = await loadProposalQueue(TENANT, { currentBasis: "basis_today", now: NOW }), blind = await loadProposalQueue(TENANT, { currentBasis: null, now: NOW }); // THE CLOCK IS INJECTED: judged against the real moment this pin passed only while the fixture date was still inside the readings window, so it was a date bomb waiting on the calendar rather than on the code expect(q.ready.map((p) => p.id)).toEqual(["ready"]); expect(q.toDo.map((p) => p.id)).toEqual(["review", "owing"]); expect(q.ranked.map((p) => p.id)).toEqual(["ready", "review", "owing"]); expect(q.demotedStaleBasis).toBe(2); expect([blind.ranked, blind.ready, blind.toDo].map((l) => l.length)).toEqual([0, 0, 0]); // a basis I cannot read proves nothing current, so it shows you nothing
     expect([blind.demotedStaleBasis, store.rows.size]).toEqual([5, rows]); }); // every set-aside row is still counted, and not one stored row is rewritten
 }); // ── the release: a fresh timestamp may never sit on top of a failed production run ──
 const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); const published: { computedAt: string }[] = [];
@@ -783,46 +783,33 @@ describe("finished copy survives a pass that cannot redraft", () => {
 /** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced
  *  nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work
  *  spent in front of the globally ranked line. These pin the arithmetic and the order. */
-describe("paid drafting spends once, in rank order, and no candidate can eat the pass", () => {
-  const ORDER = ["/best", "/second", "/third", "/last"];
-  const budget = (over: Partial<Parameters<typeof makeDraftBudget>[0]> = {}) =>
-    makeDraftBudget({ candidates: 2, calls: 30, order: ORDER, ...over });
-  it("funds at most `candidates` candidates across every family, whichever asks", () => {
-    const b = budget();
-    expect([b.claim("/best") != null, b.claim("/second") != null, b.claim("/third") != null]).toEqual([true, true, false]);
-    expect(b.spent().candidates).toBe(2);
+describe("the paid line is compiled, priced and funded ONCE, before a cent is spent", () => {
+  const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS) => ({ key, family, impact, calls });
+  const plan = (jobs: ReturnType<typeof job>[], over: Partial<Parameters<typeof DRAFT_BUDGET.plan>[0]> = {}) => DRAFT_BUDGET.plan({ jobs, candidates: 2, calls: 30, ...over });
+  const SMALLS = ["/a", "/b", "/c", "/d"].map((k, i) => job(k, "field_draft", 40 - i)), BUNDLE = job("/bundle", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS);
+  it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
+    // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
+    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]);
+    expect(b.funded[0]!.key).toBe("/best");
+    expect([b.take("topic:wildlife"), b.take("/best") != null]).toEqual([null, true]); // it asks FIRST in the pass and still gets nothing
   });
-  it("refuses a lower-ranked candidate while better-ranked ones have not been offered", () => {
-    const b = budget(); // The exact defect: the correction reviewer and the deep read asked first and took the money.
-    expect(b.claim("/last")).toBeNull();
-    expect(b.claim("/best")).not.toBeNull();
+  it("refuses a key nobody put on the manifest, whenever it asks", () => expect(plan([job("/best", "field_draft", 90)]).take("/never-declared")).toBeNull());
+  it("prices a whole page and a deep bundle at TWELVE charged calls, and shows that price to the ranking before it funds one", () => {
+    const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });
+  it("does not let one expensive bundle silently starve several higher-value small changes", () => {
+    expect(plan([BUNDLE, ...SMALLS], { candidates: 5 }).funded.map((f) => f.key)).toEqual(["/a", "/b", "/c", "/d", "/bundle"]); // 4 x 3 + 12 fits, so everything is bought, cheapest-per-click first
+    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 13 }); // and when it does not fit, the four finishable changes are bought and the bundle says why it was not
+    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/a", "/b", "/c", "/d"], ["this needs 12 charged calls and 1 were left"]]);
   });
-  it("caps one candidate at three charged calls and still funds the next ranked one", () => {
-    const b = budget();
-    const first = b.claim("/best")!;
+  it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
+    .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));
+  it("funds nothing at all while the provider's own credit is spent", () => {
+    const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]); });
+  it("caps one candidate at three charged calls, banks the failure and still funds the next", () => {
+    const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)]);
+    const first = b.take("/best")!;
     expect(first.left).toBe(3);
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
-    expect(b.claim("/best")).toBeNull();              // banked: it may not come back for more
-    expect(b.claim("/second")).not.toBeNull();        // and the next ranked candidate is attempted
-    expect(b.spent().calls).toBe(3);
-  });
-  it("never lets the families together exceed the pass ceiling", () => {
-    const b = makeDraftBudget({ candidates: 50, calls: 7, perCandidate: 3, order: [] });
-    let granted = 0, sum = 0;
-    for (let i = 0; i < 50; i += 1) { const s = b.claim(`/p${i}`); if (!s) break; granted += 1; sum += s.left; s.left = 0; }
-    expect(sum).toBeLessThanOrEqual(7);
-    expect(granted).toBeLessThanOrEqual(3);
-  });
-  it("claims nothing at all while the provider's own credit is spent", () => {
-    const b = budget({ breakerOpen: true });
-    expect([b.claim("/best"), b.reserve()]).toEqual([null, null]);
-    expect(b.spent().calls).toBe(0);
-  });
-  it("lets a coverage read draw calls without taking a drafting candidate's slot", () => {
-    const b = budget();
-    const read = b.reserve()!;
-    read.left = 0;
-    expect(b.spent()).toEqual({ calls: 3, candidates: 0 });
-    expect([b.claim("/best") != null, b.claim("/second") != null]).toEqual([true, true]);
+    expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, 3]);
   });
 });

@@ -97,12 +97,16 @@ export type ResearchCycleSteps = {
   /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under the target, finish the strongest stored opportunities through the ONE canonical producer before this cycle buys exploratory
    *  evidence. Bounded per drive; null = the count could not be read, which defers nothing and claims nothing. */
   replenishReady: (tenantId: string, now: Date) => Promise<{ ready: number; deficit: number; persisted: number;
-    /** TRUE only when the stock is genuinely at target or a post-pass re-read PROVED it grew. Anything else (credit spent, budget refusal, timeout, nothing finished) leaves the day retryable. */ satisfied: boolean } | null>;
+    /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. Growth that stops short is progress, not a replenished day, so the day stays open and the next drive continues from what is still owed (Codex, 2026-08-22: a drive that adds one of five may not mark the day done). */ satisfied: boolean;
+    /** WHY THIS DRIVE ENDED WHERE IT DID, as a machine word rather than a shortfall nobody can read. */
+    reason: "at_target" | "reached_target" | "grew_below_target" | "credit_exhausted" | "nothing_finished" } | null>;
 };
 
 /** The Ready stock the scheduler keeps ahead of acquisition. Internal: never a customer setting, never UI. */
 const READY_STOCK_TARGET = 5;
-/** How many deliverables one drive may finish toward the target: bounded so drafting stays inside the lease. */
+/** How many deliverables one drive may finish toward the target: bounded so drafting stays inside the lease. A drive
+ *  is therefore a STEP toward the target and not the whole of it, which is exactly why reaching the target and merely
+ *  growing are two different answers here: the day is marked replenished on the first alone. */
 const REPLENISH_DRAFTS_PER_DRIVE = 2;
 
 /** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
@@ -168,28 +172,30 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
 export const defaultSteps: ResearchCycleSteps = {
   async replenishReady(tenantId, now) {
     const d = await import("@/domains/decision");
-    const { creditBreakerActive } = await import("@/domains/decision/llm/gateway");
+    const { creditBreakerHeld } = await import("@/domains/decision/llm/gateway");
     const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
     const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => q.ready.length).catch(() => null);
     const before = await read();
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (before == null) return null;
     const deficit = Math.max(0, READY_STOCK_TARGET - before);
-    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING.
-    if (deficit === 0) return { ready: before, deficit: 0, persisted: 0, satisfied: true };
-    // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NO SUCCESS (operator, 2026-08-22): the deficit stands, the marker is not stamped, and the next drive retries the moment the credit is back.
-    if (await creditBreakerActive(tenantId).catch(() => true)) {
+    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
+    if (deficit === 0) return { ready: before, deficit: 0, persisted: 0, satisfied: true, reason: "at_target" as const };
+    // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NO SUCCESS (operator, 2026-08-22): the deficit stands, the marker is not stamped, and the next drive retries the moment the credit is back. This is the PURE read of the stop: a probe the cooldown has granted is spent by the provider call itself, one door down, never by this guard (Codex, 2026-08-22).
+    if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
-      return { ready: before, deficit, persisted: 0, satisfied: false };
+      return { ready: before, deficit, persisted: 0, satisfied: false, reason: "credit_exhausted" as const };
     }
-    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its drafting walks the ONE globally ranked line under the pass's ONE budget.
+    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. The drive is bounded, so it takes a STEP toward the target.
     const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE) }).catch(() => null);
     // WHAT BLOCKED EACH ATTEMPTED CANDIDATE IS ON THE RECEIPT, never a silent shortfall.
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
-    // SUCCESS IS PROVEN BY RE-READING THE QUEUE, never by having run: a pass that drafted nothing finished is not a topped-up inventory, and reporting it as one is what let one blocked day stand as done.
-    const after = await read();
-    const satisfied = after != null && (after > before || after >= READY_STOCK_TARGET);
-    return { ready: after ?? before, deficit: Math.max(0, READY_STOCK_TARGET - (after ?? before)), persisted: out?.persisted ?? 0, satisfied };
+    // THE TARGET IS THE TARGET. Success is proven by re-reading the queue, and only a queue AT the target is a replenished day: a drive that added one of five used to report itself satisfied, the day was stamped, and the three or four still owed were locked out until tomorrow. Growth short of the target is progress with the day left open, so the next scheduled drive continues from what is still owed (Codex, 2026-08-22).
+    const after = await read(), ready = after ?? before;
+    const satisfied = after != null && after >= READY_STOCK_TARGET;
+    const reason = satisfied ? "reached_target" as const : after != null && after > before ? "grew_below_target" as const : "nothing_finished" as const;
+    if (!satisfied) log.info("[research-run] the ready inventory is still short, so this day stays open for the next drive", { tenantId, before, after: ready, target: READY_STOCK_TARGET, reason });
+    return { ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted: out?.persisted ?? 0, satisfied, reason };
   },
   async refreshSources(tenantId, now) {
     // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not

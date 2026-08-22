@@ -911,7 +911,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
 /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target
  *  checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
-  const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true };
+  const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "at_target" as const };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
     const order: string[] = [];
     void withRun();
@@ -932,13 +932,29 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   });
   // THE DEFECT THIS REPAIR EXISTS FOR: the marker used to be stamped BEFORE the pass, so a credit-exhausted, budget-refused, boxed or empty-handed attempt recorded itself as today's completed replenishment and the account stayed blocked all day.
   it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
-    for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false }]) {
+    // GROWTH THAT STOPS SHORT IS NOT A REPLENISHED DAY EITHER (Codex, 2026-08-22): a drive that added two of the five owed used to stamp the day and lock the other three out until tomorrow.
+    for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "credit_exhausted" as const },
+      { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "grew_below_target" as const }]) {
       const rows = withRun({ current_phase: "keyword_discovery" });
       await run({ ...healthySteps([]), replenishReady: async () => answer });
       expect(rows.at(-1)!.progress?.state?.replenishedDay, `stamped on ${JSON.stringify(answer)}`).toBeUndefined();
     }
   });
-  it("stamps the day only once the step PROVED the stock at target or grown", async () => {
+  // THE REAL PROGRESSION, DRIVEN THROUGH defaultSteps RATHER THAN A FICTIONAL FIVE-READY ANSWER (Codex, 2026-08-22): only the queue and the producer stand in, so what is pinned is the step's own arithmetic across same-day drives.
+  it("keeps the day open until the stock really reaches five, continues from the deficit, and drafts nothing once it is there", async () => {
+    const Q = { ready: 0, finishes: true }, asked: number[] = []; vi.resetModules();
+    vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => ({ ready: Array.from({ length: Q.ready }, () => ({})) }),
+      produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number }) => (asked.push(o.maxDrafts ?? 0), Q.ready += Q.finishes ? Math.min(2, o.maxDrafts ?? 0) : 0, { persisted: 1, held: [] }) }));
+    try {
+      const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps"), drive = async () => { const r = await live.replenishReady(T, new Date(NOW)); return [r!.ready, r!.satisfied, r!.reason]; };
+      expect([await drive(), await drive(), await drive(), await drive()])
+        .toEqual([[2, false, "grew_below_target"], [4, false, "grew_below_target"], [5, true, "reached_target"], [5, true, "at_target"]]);
+      Q.ready = 0; Q.finishes = false;
+      expect([await drive(), asked]).toEqual([[0, false, "nothing_finished"], [2, 2, 1, 2]]); // the fourth drive above drafted NOTHING; a drive that finishes nothing says so and still leaves the day open
+    } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
+  });
+  it("stamps the day only once the step PROVED the stock at target", async () => {
     const rows = withRun({ current_phase: "keyword_discovery" });
     await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
     expect(rows.at(-1)!.progress?.state?.replenishedDay).toBe(ckey(T, NOW).slice(-10));

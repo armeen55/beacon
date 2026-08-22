@@ -8,7 +8,7 @@ import "server-only";
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
 import { buildGroundedNumbers, findUngroundedNumbers } from "@/domains/decision/llm/numeric-fidelity";
-import { creditBreakerActive } from "@/domains/decision/llm/gateway";
+import { creditBreakerHeld } from "@/domains/decision/llm/gateway";
 import type { LlmFailure } from "@/domains/decision/llm/gateway";
 import { callStructuredLLM, type CompleteFn, type StructuredDraftResult } from "@/domains/decision/llm/structured-drafter";
 import { draftProseStringValues, type AnswerAnalysis, type AnswerAnalysisBatch } from "@/domains/decision/llm/schemas";
@@ -309,7 +309,7 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
 
   // NOTHING IS BOUGHT AGAINST A SPENT ACCOUNT. The gateway's durable account-level stop is the one authority on that, and asking it costs one read against a row
   // no monthly cap can see; a balance at zero cannot produce a reading, so a pass that spends its whole ladder discovering that bought nothing and lost the time.
-  if (await creditBreakerActive(tenantId).catch(() => false)) {
+  if (await creditBreakerHeld(tenantId).catch(() => false)) {
     log.warn("[daily-observations] your AI provider credit is spent, so I read nothing back and every answer is still owed a reading", { tenantId, day: reading, owed: targets.length });
     return READ_NOTHING; }
 

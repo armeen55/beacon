@@ -14,10 +14,21 @@ import "server-only";
  * codebase is either month-scoped (`date_utc >= this month`) or sums `spent_usd`, so a 1970 row with zero in it is
  * invisible to every cap while still being durable across lambdas.
  *
- * THE RECOVERY RULE, stated once: a trip holds every OpenAI-dependent call for 15 minutes; after that a probe call is
- * allowed through (its attempt is stamped BEFORE it is made, so a process that cannot write the stamp holds rather
+ * THE RECOVERY RULE, stated once: a trip holds every OpenAI-dependent call for 15 minutes; after that ONE probe call
+ * is allowed through (its attempt is stamped BEFORE it is made, so a process that cannot write the stamp holds rather
  * than storms); a call that goes through clears the stop outright. There is no timed self-heal: only a real answer
  * from the provider ends the hold.
+ *
+ * WHY THIS IS TWO FUNCTIONS AND NOT ONE BOOLEAN (Codex, 2026-08-22, from a live receipt). `creditBreakerActive` both
+ * ANSWERED and CONSUMED: asking it whether the account was held stamped the probe as a side effect. So an
+ * orchestration precheck (a replenish drive, a producer's own guard) burned the one probe the cooldown had just
+ * granted, and the real request behind it then read the fresh stamp and refused itself. Production shows exactly
+ * that: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because nothing ever asked OpenAI whether
+ * the credit was back. The two acts are now named apart. `peek` is PURE and may be called by anyone, any number of
+ * times: it reports `held`, `probe_due` or `clear` and writes nothing at all. `claimProbe` is the one that stamps,
+ * and by contract only the transport calls it, immediately before network egress, so a due probe is spent on a real
+ * provider request or on nothing. Every gate that can still refuse a call (cost breaker, monthly cap, schema) sits
+ * BEFORE the claim for the same reason.
  *
  * WHAT THIS IS NOT, SAID PLAINLY RATHER THAN IMPLIED. (1) The probe is a read then a write, and those two steps are
  * not one atomic act across lambdas: there is no conditional-claim function for this row (the ledger has an atomic
@@ -100,25 +111,33 @@ const defaultDeps: CreditBreakerDeps = { read: readState, write: writeState, now
  *  when there is actually something to clear. */
 const stopOnFile = new Set<string>();
 
-/**
- * IS THIS ACCOUNT HELD FOR CREDIT. Called before every OpenAI-dependent call. When the cooldown has elapsed it stamps
- * the probe attempt BEFORE letting the call through. The read and the stamp are not one atomic act, so the bound is
- * one probe per process that saw that cooldown expire, not one globally (see the module note); a stamp that could not
- * be written keeps the hold, because an unrecordable probe is an unbounded retry loop wearing a probe's clothes.
- */
-export async function creditBreakerActive(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<boolean> {
+/** WHAT THIS ACCOUNT'S STOP MEANS RIGHT NOW. PURE: it reads, it decides, and it writes NOTHING, so asking the
+ *  question can never spend the answer. `held` = refuse without calling. `probe_due` = the cooldown has elapsed and
+ *  the next REAL request may try to clear it. `clear` = no stop on file, which is what almost every pass sees. */
+async function creditBreakerPeek(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<"clear" | "held" | "probe_due"> {
   const d = { ...defaultDeps, ...deps };
   const state = await d.read(tenantId).catch(() => null);
-  if (state?.trippedAt) stopOnFile.add(tenantId);
-  else stopOnFile.delete(tenantId);
+  if (state?.trippedAt) stopOnFile.add(tenantId); else stopOnFile.delete(tenantId);
   const verdict = decideCreditBreaker(state, d.now());
-  if (!verdict.probe) return verdict.active;
-  const stamped = await d.write(tenantId, { trippedAt: state?.trippedAt ?? null, probeAt: d.now().toISOString() }).catch(() => false);
-  return !stamped;
+  return verdict.active ? "held" : verdict.probe ? "probe_due" : "clear";
+}
+
+/** CLAIM THE ONE PROBE, AND THEN CALL. The ONLY function here that writes a probe stamp, and the transport is the
+ *  only caller: it runs immediately before the fetch, past every gate that could still refuse. True means this call
+ *  may reach the provider. A stamp that could not be written returns false and keeps the hold, because an
+ *  unrecordable probe is an unbounded retry loop wearing a probe's clothes. The read and the stamp are not one
+ *  atomic act across lambdas (see the module note), so the honest bound stays roughly one probe per process. */
+async function claimCreditProbe(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<boolean> {
+  const d = { ...defaultDeps, ...deps };
+  const state = await d.read(tenantId).catch(() => null);
+  const verdict = decideCreditBreaker(state, d.now());
+  if (verdict.active) return false;
+  if (!verdict.probe) return true;
+  return await d.write(tenantId, { trippedAt: state?.trippedAt ?? null, probeAt: d.now().toISOString() }).catch(() => false);
 }
 
 /** The provider said the balance is empty. Hold every OpenAI-dependent call for this account until one goes through. */
-export async function tripCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
+async function tripCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
   const d = { ...defaultDeps, ...deps };
   stopOnFile.add(tenantId);
   const landed = await d.write(tenantId, { trippedAt: d.now().toISOString(), probeAt: null }).catch(() => false);
@@ -126,8 +145,12 @@ export async function tripCreditBreaker(tenantId: string, deps: Partial<CreditBr
 }
 
 /** A call went through, so the balance is not empty. Clears the stop, and costs nothing when there was none. */
-export async function clearCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
+async function clearCreditBreaker(tenantId: string, deps: Partial<CreditBreakerDeps> = {}): Promise<void> {
   if (!stopOnFile.delete(tenantId) && deps.write === undefined) return;
   const d = { ...defaultDeps, ...deps };
   await d.write(tenantId, null).catch(() => false);
 }
+
+/** THE CREDIT STOP AS ONE SURFACE. Two readers and two writers, kept together so the asking and the spending of a
+ *  probe can never drift apart again: `peek` answers, `claimProbe` spends, `trip` holds, `clear` releases. */
+export const CREDIT_BREAKER = { peek: creditBreakerPeek, claimProbe: claimCreditProbe, trip: tripCreditBreaker, clear: clearCreditBreaker } as const;

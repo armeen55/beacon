@@ -41,7 +41,7 @@ import { z } from "zod";
 import { spendingClosed } from "@/lib/spend-scope";
 import { checkBudget } from "./adjudicator-budget";
 import { assertPaidCallAllowed } from "@/lib/cost/cost-breaker";
-import { clearCreditBreaker, creditBreakerActive, tripCreditBreaker } from "@/lib/cost/credit-breaker";
+import { CREDIT_BREAKER } from "@/lib/cost/credit-breaker";
 import type { PromptId } from "./prompt-registry";
 import {
   classifyResponsesEnvelope,
@@ -54,7 +54,9 @@ export { strictJsonSchemaFor, normalizeStructuredValue };
 /** THE account-level credit stop, read here and re-exported so every lane asks the same question of the same
  *  durable row: is this account held because the provider says its balance is empty. See lib/cost/credit-breaker.ts
  *  for the trip, the 15 minute probe, and the clear. */
-export { creditBreakerActive };
+/** IS THIS ACCOUNT HELD FOR CREDIT RIGHT NOW. The read orchestration uses, and it is PURE: a due probe reads as NOT
+ *  held (the work may proceed) and is spent by the transport itself, on a real request, never by a precheck. */
+export const creditBreakerHeld = async (tenantId: string): Promise<boolean> => (await CREDIT_BREAKER.peek(tenantId)) === "held";
 
 /** The canonical structured-generation endpoint (verified against OpenAI docs 2026-07-23). */
 const OPENAI_RESPONSES_API = "https://api.openai.com/v1/responses";
@@ -113,7 +115,8 @@ export type CostBreakerImpl = {
 
 /** The durable account-level credit stop as a seam. Production wires the ledger-backed breaker; tests inject. */
 type CreditBreakerImpl = {
-  active: (tenantId: string) => Promise<boolean>;
+  /** PURE. Reports the stop; never stamps a probe, so any number of callers may ask. */ peek: (tenantId: string) => Promise<"clear" | "held" | "probe_due">;
+  /** STAMPS. Called ONLY from here, immediately before network egress, so the one probe a cooldown grants is spent on a real provider request or on nothing. */ claimProbe: (tenantId: string) => Promise<boolean>;
   trip: (tenantId: string) => Promise<void>;
   clear: (tenantId: string) => Promise<void>;
 };
@@ -290,7 +293,7 @@ async function checkGatewayBudget(
 
 /** The credit stop as one object: the injected seam, or the durable ledger-backed one. */
 function creditBreaker(impl: CreditBreakerImpl | undefined): CreditBreakerImpl {
-  return impl ?? { active: creditBreakerActive, trip: tripCreditBreaker, clear: clearCreditBreaker };
+  return impl ?? CREDIT_BREAKER;
 }
 
 /**
@@ -364,8 +367,10 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   //    verdicts and every drafter inherit the same stop instead of each re-storming a dead account on every pass.
   //    The hold logs but does NOT write an error-ledger row: the trip that caused it already wrote one, and a row
   //    per held call would spend a store round trip on repeating a fact already on file.
+  //    IT ONLY ASKS HERE. The probe the cooldown grants is CLAIMED at step 8, one line above the fetch, because every gate below can still refuse this call: claiming it here spent the account's one recovery attempt on a request that never left the process, which is how a tripped account could never recover through a replenish drive.
   const credit = creditBreaker(args.creditBreakerImpl);
-  if (await credit.active(tenantId).catch(() => false)) {
+  const stop = await credit.peek(tenantId).catch(() => "clear" as const);
+  if (stop === "held") {
     log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit`, { action: id.action, tenantId });
     return { kind: "blocked_credit", reason: CREDIT_STOP_REASON };
   }
@@ -405,6 +410,11 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   const timeoutMs = effectiveTimeoutMs(args.model, args.timeoutMs);
   const fetchImpl = args.fetchImpl ?? fetch;
 
+  // 8. THE PROBE IS CLAIMED HERE, past every gate that could still refuse. During a cooldown nothing reaches this line (step 2 already returned), so a held account makes zero network calls; when a probe is due, exactly this request receives it. A stamp that will not write keeps the hold.
+  if (stop === "probe_due" && !(await credit.claimProbe(tenantId).catch(() => false))) {
+    log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit (the recovery attempt could not be recorded)`, { action: id.action, tenantId });
+    return { kind: "blocked_credit", reason: CREDIT_STOP_REASON };
+  }
   let response: Response;
   try {
     response = await fetchImpl(OPENAI_RESPONSES_API, {
