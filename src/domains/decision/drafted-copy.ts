@@ -12,8 +12,9 @@ import type { AtomicEditDraft } from "./llm/schemas";
 import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 
-/** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. */
-const MAX_DRAFTS = 5;
+/** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the
+ *  hardest cards every pass, so the completable descriptions behind them never got a body. */
+const MAX_DRAFTS = 8;
 const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
 const ANSWER_MIN = 40, ANSWER_MAX = 90; // the drafter's own brief in words; a block outside it ignored the brief and is refused, never trimmed
 /** Headings this many read winners share before they are worth naming, and how many are named. */
@@ -86,7 +87,7 @@ const CHROME_AT = /\b(?:top|bottom) of page/i;
 const ANCHOR_MAX = 160; // a place on the page, not a paragraph: a 300 character blob is not an anchor
 const BODY_TO_JUDGE = 24_000; // how much of a stored page fits in one judging call beside the rest of the prompt
 /** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes.  The old cap counted only the drafts that WORKED, so a pass whose every draft was refused simply bought another one, for ever: 364 charged calls produced seven visible changes, about fifty two calls each. */
-export const MAX_PAID_CALLS = 30;
+export const MAX_PAID_CALLS = 90; // raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
 const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
 /** MARKUP IS NOT WORDS. A drafted title read "Colors &amp; History": pasted, a reader sees the entity, not the ampersand. */
 const ENTITY = /&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
@@ -170,7 +171,11 @@ const corpusOf = (p: SourcePacket): string =>
  *  scaffolding that any faithful paraphrase of a list must use and no page's stored copy reliably prints. This closed set names exactly that grammar and nothing else; every noun, adjective and meaning the copy states
  *  still has to be carried by a declared claim and the passage it cites (operator, 2026-08-17). */
 const CARRIER = new Set(["include", "includes", "including", "cover", "covers", "carry", "carries", "list", "lists",
-  "mean", "means", "meaning", "also", "such", "offer", "offers", "use", "uses", "used", "refer", "refers", "state", "states"]);
+  "mean", "means", "meaning", "also", "such", "offer", "offers", "use", "uses", "used", "refer", "refers", "state", "states",
+  // THE REST OF THE CLOSED GRAMMAR (2026-08-22): pronouns, light verbs and quantifiers that any faithful paraphrase must use and no page's stored copy reliably prints. Live passes refused finished copy over "they", "has",
+  // "like" and "people", which is the vocabulary test this gate's own charter forbids. Every content noun, name and meaning still has to be carried by a claim and the passage it cites.
+  "they", "them", "these", "those", "that", "this", "people", "person", "has", "have", "had",
+  "can", "could", "will", "would", "often", "among", "same", "like", "both", "each", "every", "other", "more", "most"]);
 /** Every content word of a phrase that the canonical page evidence does not carry. Singularized and stripped of  universal words by the ONE tokenizer this codebase already uses, so a faithful paraphrase passes and an invented member does not. Substring containment on purpose: it errs toward letting real copy through. */
 const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase).filter((w) => !CARRIER.has(w) && !corpus.includes(w));
 /** SUPPORT ENTAILMENT, and it used to be nobody's question: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself ("These shoes are waterproof", declared word for word against a page title silent about waterproofing). A CLAIM IS NEVER PART OF ITS OWN SUPPORT: each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, because a claim word the copy never prints cannot make the copy false and an editor's bookkeeping ("the page subject is") is not a page claim. EXACT NORMALIZED TOKEN MEMBERSHIP, never substring: `held.includes(w)` let a claim word ride inside a longer evidence word, so a page whose evidence said "credit" was held to support copy saying "red". A WHOLE WORD, matched whole, after both sides go through the ONE tokenizer. THIS IS SPELLING AND NOTHING MORE: meaning stays the judge's. PURE, so a stored row is re-read exactly as a fresh draft is checked. */
@@ -237,10 +242,14 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) {
     out.push("it points at the page instead of answering"); }
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
-  if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
-  if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)))
-    out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
-  if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
+  // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of
+  // an anchor nobody will use blocked every description on the account.
+  if (!(d.actionType in FIELD)) {
+    if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
+    if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)))
+      out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
+    if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
+  }
   if (d.actionType === "internal_link") {
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
@@ -355,7 +364,8 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     finalCopy: v.after.split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean).join("\n"),
     naturalHeading: v.naturalHeading, claims, evidenceIdsUsed: [...new Set(claims.flatMap((c) => [...c.supportedBy]))],
     // THE ID IS RESOLVED WHERE THE EVIDENCE IS IN HAND. Afterwards nobody can: the packet is built from a snapshot and a body read that this pass holds and the next one rebuilds, so "(from page-copy-1)" on a stored row named a fact that no longer existed anywhere.
-    supportFacts: [...new Set(claims.flatMap((c) => [...c.supportedBy]))].filter((id) => !!packet.evidence[id]).map((id) => ({ id, fact: packet.evidence[id]!.slice(0, 400) })),
+    // BANKED WHOLE ENOUGH TO RE-READ (2026-08-22): truncating a fact at 400 characters made the banked-copy re-read refuse words the acceptance corpus genuinely carried, un-drafting finished work on later passes.
+    supportFacts: [...new Set(claims.flatMap((c) => [...c.supportedBy]))].filter((id) => !!packet.evidence[id]).map((id) => ({ id, fact: packet.evidence[id]!.slice(0, 1400) })),
     uncertaintyOrOmitted: v.risks, implementationMinutes: v.implementationMinutes || minutes,
     measurementTarget: v.proofPlan.metrics[0] ?? "",
     ...(field === "internal_link" && link ? { linkTo: link.to, anchorText: link.anchor } : {}),
@@ -369,7 +379,10 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     : runEditor(packet, field, pageLabel, [...hints, NO_CTA], minutes, opts, refuse, true, link);
   deliverable.finalCopy = trimmed;
   const anchor = deliverable.placementAnchor.trim();
-  if (anchor) {
+  // THE MAIN HEADING IS ALWAYS A FINDABLE PLACE: an anchor that IS the page's clean stored H1 (or title) stands as given, and the glued-sentence remap below never runs on it.
+  const cleanTop = [packet.h1, packet.title].find((x) => x && flat(x) === flat(anchor));
+  if (cleanTop) deliverable.placementAnchor = cleanTop;
+  else if (anchor) {
     // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
     const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
       .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
@@ -450,7 +463,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
-      "For the placement anchor, quote one heading EXACTLY as it appears in the page headings handed to you above; an anchor that is not word for word on the stored page is refused. A summary answer belongs at the TOP of the page, so anchor it on the page's own opening heading, never on a mid-page heading about one item.",
+      // THE ANCHOR IS THE PAGE'S OWN MAIN HEADING (2026-08-22): stored body text is often crawler-glued, so an anchor lifted from it fails the findability gate on every retry; the H1 is stored clean and is exactly where a summary answer goes.
+      "For the placement anchor, use the page's own main heading EXACTLY as page-h1 gives it above; a summary answer belongs at the TOP of the page, directly under that heading.",
       `The section heading must NOT repeat "${card.primaryQuery}" or the page's own H1 back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
@@ -458,6 +472,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       "Write complete sentences a reader can act on. Any expression in another language must be paired with its English meaning in the same sentence. A bare list with no facts attached is refused; so is a section that restates what the page already says: every sentence must state something the page keeps apart or leaves implicit, in the shape this card's own brief asks for.",
       "Every descriptive word your copy uses must ALSO appear in the text of one of your claims, and that claim must cite the passage carrying those same words: a meaning your copy states but no claim spells out is refused.",
       "When this card's brief asks for items each on its own line, return REAL line breaks between them, one item per line after the one-sentence answer; never one run-on paragraph.",
+      "On a list-shaped answer, declare ONE claim PER LINE and word each claim with the SAME words that line uses, citing the passage that carries them: a line whose words appear in no claim is refused word by word.",
       "Return naturalHeading: a short heading for the NEW section, in words the evidence carries, never blank and never the tracked search said back."] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line that earning searches carry (each must survive the rewrite), and the exact words the account bans.
