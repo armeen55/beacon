@@ -891,6 +891,11 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due(false)).toEqual([]); // the pass that froze it CONSUMED it: a quiet account takes the zero-cost exit
     expect(await due(true)).toEqual(["acquire_case_evidence"]); // the run that froze it is still open and genuinely owes the work
     expect((await dueWork(T, new Date(NOW), { ...base, run: async () => ({ open: false, progress: { decided, focus: parked(NOW - 1) } }) })).due) .toEqual(["acquire_case_evidence"]); });  // And a date I promised that has ARRIVED is owed whether or not a run is open.
+  it("reopens an exhausted day the moment the evidence behind it moves, without waiting for tomorrow", async () => {
+    // A CLOSED DAY REOPENS WHEN THE QUESTION CHANGES (Codex, 2026-08-22): the memory is stamped with the basis AND the evidence version it was answered under, so fresh evidence for the very same pages makes the stock owed again TODAY.
+    const shut = { ...base, readyStock: async () => 0, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a|/b", attempted: ["/a", "/b"], closed: "candidates_exhausted" as const } } }) };
+    expect((await dueWork(T, new Date(NOW), shut)).due).toEqual([]); // exhausted under version 7, and it stays shut while that is still the question
+    expect((await dueWork(T, new Date(NOW), { ...shut, evidenceVersion: async () => 8 })).due).toContain("replenish_ready"); }); // version 8 arrives the same day and those same pages are owed again
   it("says UNREADABLE rather than empty when ANY durable signal cannot be read, so a caller never mistakes a failed read for a healthy idle", async () => {
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } }); expect([blind.readable, blind.due]).toEqual([false, []]);
     const noPlan = await dueWork(T, new Date(NOW), { ...base, checks: async () => null }); expect(noPlan.readable).toBe(false);
@@ -903,7 +908,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
 
 /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
-  const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "target_reached" as const, fingerprint: "b::x", attempted: [] as string[] };
+  const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "target_reached" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
     const order: string[] = [];
     void withRun();
@@ -918,7 +923,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   // ONCE PER DAY, DURABLY, AND ONLY ON PROVEN SUCCESS (operator, 2026-08-22): the marker rides run progress, so a resumed run never pays twice for a day that really was topped up.
   it("never replenishes twice in one day once the day's success is on the row", async () => {
     let calls = 0;
-    void withRun({ current_phase: "keyword_discovery", progress: { replenish: { day: ckey(T, NOW).slice(-10), fingerprint: "b::x", attempted: [], closed: "target_reached" as const } } });
+    void withRun({ current_phase: "keyword_discovery", progress: { replenish: { day: ckey(T, NOW).slice(-10), fingerprint: "b1::v1::x", attempted: [], closed: "target_reached" as const } } });
     await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
     expect(calls).toBe(0);
   });
@@ -926,44 +931,43 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
     // GROWTH THAT STOPS SHORT IS NOT A REPLENISHED DAY EITHER (Codex, 2026-08-22): a drive that added two of the five owed used to stamp the day and lock the other three out until tomorrow.
     // AND A BOUNDED BATCH THAT CAME UP EMPTY IS NOT AN EXHAUSTED ONE (Codex, 2026-08-22): two candidates failing proves nothing about the third, so `retryable_blocked` leaves the day open exactly like a quota failure does.
-    for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b::x", attempted: ["/a", "/b"] },
-      { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b::x", attempted: ["/a"] }]) {
+    for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
+      { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
       const rows = withRun({ current_phase: "keyword_discovery" });
       await run({ ...healthySteps([]), replenishReady: async () => answer });
       expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
     }
   });
-  /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps with only the queue and the producer standing in. The defect this replaces: a drive attempts at most two candidates, and a zero delta after those two was read as "nothing can finish", which closed the day. Two failures prove nothing about the third, and the same false closure followed a quota probe, a provider error or a transient refusal, so credit arriving afterwards could still find the day shut. */
-  it("never calls a day exhausted on a bounded batch, walks down the manifest across dispatches, and closes only on the target or a real exhaustion", async () => {
-    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e", "/f", "/g", "/h", "/i"], wins: new Set(["/g"]), spend: 3, held: false, throws: false };
+  /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
+  it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
+    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string }[], outcome: "proposals_persisted", throws: false };
     vi.resetModules();
-    vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => M.held }));
-    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),
+    vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => (M.ready < 0 ? Promise.reject(new Error("queue unreadable")) : { ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; skipKeys?: readonly string[] }) => { if (M.throws) throw new Error("the provider fell over");
-        const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)).slice(0, o.maxDrafts ?? 0); // the plan declares the WHOLE manifest and funds only what this day has not already spent on
-        for (const k of funded) if (M.wins.has(k)) M.ready += 1;
-        return { persisted: 0, held: [], paid: { declared: M.declared, funded, spentCalls: funded.length * M.spend } }; } }));
+        const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)).slice(0, o.maxDrafts ?? 0);
+        const receipts = funded.map((key) => ({ key, funded: true, providerAttempted: true, outcome: (M.out.find((r) => r.key === key)?.outcome ?? "not_reached") as never }));
+        M.ready += receipts.filter((r) => r.outcome === "produced").length;
+        return { persisted: 0, held: [], outcome: M.outcome, paid: { declared: M.declared, funded, attemptUnitsSpent: funded.length * 3, receipts } }; } }));
     try {
       const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps");
       let mem: { fingerprint: string | null; attempted: string[] } = { fingerprint: null, attempted: [] };
       const drive = async () => { const r = await live.replenishReady(T, new Date(NOW), mem); if (r) mem = { fingerprint: r.fingerprint, attempted: r.attempted }; return r && [r.ready, r.reason, r.attempted.length]; };
-      // 1. THE BOUNDED BATCH FAILS AND PROVES NOTHING ABOUT THE REST: five of nine spent on, nothing finished, the day stays open.
-      expect(await drive()).toEqual([0, "retryable_blocked", 5]);
-      // 2. AND THE NEXT DISPATCH WALKS DOWN THE MANIFEST rather than re-buying the same five refusals: the seventh candidate is the one that finishes.
-      expect(await drive()).toEqual([1, "made_progress", 9]);
-      M.held = true; // 3. A DUE PROBE COMES BACK OUT OF QUOTA: no page is written off, nothing is closed.
-      expect(await drive()).toEqual([1, "retryable_blocked", 9]);
-      M.held = false; M.declared = [...M.declared, "/j"]; M.wins.add("/j"); // and the credit returning finishes work on a LATER DISPATCH OF THE SAME DAY, which a stamped day would have made impossible
-      expect(await drive()).toEqual([2, "made_progress", 1]);
-      M.throws = true; // 4. A TRANSIENT PROVIDER FAILURE writes nothing off and closes nothing.
-      expect(await drive()).toEqual([2, "retryable_blocked", 1]);
-      M.throws = false; M.wins.clear(); // and the rest of the manifest is worked through, three at a time now that only three changes are still owed, still without closing anything
-      expect(await drive()).toEqual([2, "retryable_blocked", 4]);
-      expect(await drive()).toEqual([2, "retryable_blocked", 7]);
-      // 5. ONLY NOW: every candidate on the manifest has been spent on and not one of the rest produced, so the day is genuinely finished.
-      expect(await drive()).toEqual([2, "candidates_exhausted", 10]);
-      M.declared = ["/k", "/l"]; M.wins = new Set(["/k", "/l"]); M.ready = 3; // 6. AND THE OTHER WAY OUT: a fresh manifest that reaches the target closes it as reached.
-      expect(await drive()).toEqual([5, "target_reached", 0]);
+      // 1. FIVE FUNDED, THE FIRST CALL COMES BACK OUT OF QUOTA AND THE REST ARE NEVER REACHED: not one page is written off and the day stays open.
+      M.out = [{ key: "/a", outcome: "retryable_blocked" }];
+      expect(await drive()).toEqual([0, "retryable_blocked", 0]);
+      // 2. A TRANSIENT FAILURE ON ONE PAGE BEFORE THE OTHERS ARE REACHED writes off neither it nor them.
+      M.out = [{ key: "/a", outcome: "retryable_blocked" }, { key: "/b", outcome: "retryable_blocked" }];
+      expect(await drive()).toEqual([0, "retryable_blocked", 0]);
+      // 3. AN UNREADABLE PASS, A PASS THAT COULD NOT SAVE, A THROW AND AN UNREADABLE AFTER-READ each settle nothing.
+      for (const bad of ["evidence_unreadable", "persistence_failed"]) { M.outcome = bad; expect(await drive()).toEqual([0, "retryable_blocked", 0]); }
+      M.outcome = "proposals_persisted"; M.throws = true; expect(await drive()).toEqual([0, "retryable_blocked", 0]); M.throws = false;
+      // 4. SETTLED RECEIPTS ARE THE ONLY THING THAT WRITES A PAGE OFF, and only a fully settled manifest exhausts.
+      M.out = M.declared.map((key) => ({ key, outcome: "deterministic_refusal" }));
+      expect(await drive()).toEqual([0, "candidates_exhausted", 5]);
+      // 5. AND CREDIT RETURNING LATER THE SAME DAY finishes the page that was blocked, on a manifest that moved on.
+      M.declared = ["/f"]; M.out = [{ key: "/f", outcome: "produced" }];
+      expect(await drive()).toEqual([1, "made_progress", 1]);
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
   });
   it("stamps the day only once the step PROVED the stock at target", async () => {
@@ -985,7 +989,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const dispatch = async () => { const due = await owed(); if (!due.includes("replenish_ready")) return "not_owed";
       await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: [...due] }),
         replenishReady: async () => { const before = Q.ready; Q.ready += Q.finishes ? Math.min(2, Math.max(0, 5 - before)) : 0;
-          return { ready: Q.ready, deficit: Math.max(0, 5 - Q.ready), persisted: Q.ready - before, satisfied: Q.ready >= 5, fingerprint: "b::x", attempted: [],
+          return { ready: Q.ready, deficit: Math.max(0, 5 - Q.ready), persisted: Q.ready - before, satisfied: Q.ready >= 5, fingerprint: "b1::v1::x", attempted: [],
             reason: Q.ready >= 5 ? "target_reached" as const : Q.ready > before ? "made_progress" as const : "candidates_exhausted" as const }; } });
       return [Q.ready, rows.at(-1)!.progress?.replenish?.closed ?? null]; };  // the day marker is the MEMORY; `closed` is the discharge
     expect(await dispatch()).toEqual([2, null]);  // 0 to 2 does NOT discharge the obligation and stamps no day

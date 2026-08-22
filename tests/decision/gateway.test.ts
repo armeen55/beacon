@@ -150,29 +150,27 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
       .toEqual([{ active: false, probe: false }, { active: true, probe: false }, { active: false, probe: true }, { active: true, probe: false }]); });
 });
 
-/** THE COMPOSITION, NOT THE LAYERS (Codex, 2026-08-22). The live receipt: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because the guards in FRONT of the call consumed the probe the cooldown had just granted and the call behind them then read the fresh stamp and refused itself, so a tripped account could never recover through a replenish drive. Real modules end to end here: the real ledger-backed breaker over one real row, the real guard both the replenish drive and the producer ask (`creditBreakerHeld`), and the real transport. Only Supabase and the wire stand in. */
+/** THE COMPOSITION, NOT THE LAYERS (Codex, 2026-08-22). The live receipt: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because the guards in FRONT of the call consumed the probe the cooldown had just granted and the call behind them then read the fresh stamp and refused itself, so a tripped account could never recover through a replenish drive. Real modules end to end here: the real ledger-backed breaker over one real row, the real guard both the replenish drive and the producer ask (`creditBreakerHeld`), and the real transport. Only Supabase and the wire stand in. The drive's own accounting is proved where it belongs, against the REAL producer, in the runtime and kernel suites. */
 describe("a due probe is spent on the provider call itself, never on a guard in front of it", () => {
   const T = "tenant-fixture", ROW = { creditBreaker: null as unknown };
   const realBreaker = async () => { vi.resetModules();
     vi.doMock("@/lib/persistence/supabase", () => ({ isSupabaseConfigured: () => true, getSupabaseAdmin: () => ({ from: () => ({
       select: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { metadata: ROW }, error: null }) }) }) }) }),
       upsert: async (r: { metadata: { creditBreaker: unknown } }) => (ROW.creditBreaker = r.metadata.creditBreaker, { error: null }) }) }) }));
-    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => ({ ready: [] }), produceProposalsForTenant: async () => ({ persisted: 0, held: [], paid: { declared: [], funded: [], spentCalls: 0 } }) })); // only the queue and the producer body stand in: the DRIVE is the real one
     process.env.VITEST = "false"; // the module short-circuits every ledger read under vitest, and this one test wants the durable path it protects
     return await import("@/domains/decision/llm/gateway"); };
   it("survives every guard unspent, is claimed by the one request that leaves the process, and makes no call at all while held", async () => {
     try {
       ROW.creditBreaker = { trippedAt: new Date(Date.parse("2026-08-04T12:00:00.000Z")).toISOString(), probeAt: null };
       const g = await realBreaker(), probe = () => (ROW.creditBreaker as { probeAt: string | null }).probeAt;
-      const { defaultSteps } = await import("@/domains/runtime/ops/research-steps");
-      // THE REAL REPLENISH DRIVE ASKS, then the producer's own guard asks: the exact two guards that used to eat it. After both, the probe is STILL unspent and neither refused the work over a credit stop.
-      expect([(await defaultSteps.replenishReady(T, new Date()))?.reason, await g.creditBreakerHeld(T), probe()]).toEqual(["candidates_exhausted", false, null]);
+      // A DUE PROBE READS AS NOT HELD to every guard, however many times they ask, and none of them stamps it.
+      expect([await g.creditBreakerHeld(T), await g.creditBreakerHeld(T), probe()]).toEqual([false, false, null]);
       const wire = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null })));
       expect((await g.openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, costBreakerImpl: allowBreaker }))).kind).toBe("ok");
       expect([wire.capture.calls, ROW.creditBreaker]).toEqual([1, null]); // ONE real request received the probe, and the provider's answer cleared the stop outright
       ROW.creditBreaker = { trippedAt: new Date().toISOString(), probeAt: null }; // and inside the cooldown: zero network calls, whoever asks
       const cold = fakeFetch(completedEnvelope("{}"));
       expect([await g.creditBreakerHeld(T), (await g.openAIStructuredResponse(baseArgs({ fetchImpl: cold.impl, costBreakerImpl: allowBreaker }))).kind, cold.capture.calls]).toEqual([true, "blocked_credit", 0]);
-    } finally { process.env.VITEST = "true"; vi.doUnmock("@/lib/persistence/supabase"); vi.doUnmock("@/domains/decision"); vi.resetModules(); }
+    } finally { process.env.VITEST = "true"; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
   });
 });

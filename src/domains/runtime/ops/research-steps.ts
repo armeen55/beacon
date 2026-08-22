@@ -175,38 +175,44 @@ export const defaultSteps: ResearchCycleSteps = {
     const d = await import("@/domains/decision");
     const { creditBreakerHeld } = await import("@/domains/decision/llm/gateway");
     const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
+    // THE EVIDENCE VERSION IS PART OF THE QUESTION. Keyed on the page names alone, a manifest declared exhausted stayed shut for the rest of the day even when fresh evidence for those very pages landed an hour later (Codex, 2026-08-22).
+    const version = basis ? await evidenceRowVersion(tenantId, basis).catch(() => null) : null;
+    const stamp = `${basis ?? ""}::v${version ?? ""}`;
     const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => q.ready.length).catch(() => null);
     const before = await read();
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (before == null) return null;
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
-    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${basis ?? ""}::`) ? [...seen.attempted] : [];
+    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[]) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted });
     const deficit = Math.max(0, READY_STOCK_TARGET - before);
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
-    if (deficit === 0) return mark("target_reached", before, 0, seen?.fingerprint ?? `${basis ?? ""}::stocked`, held);
+    if (deficit === 0) return mark("target_reached", before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
-      return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${basis ?? ""}::held`, held);
+      return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::held`, held);
     }
-    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already spent on and got nothing from are declared but NOT funded again, so each drive walks further down the one ranking instead of buying the same refusal twice.
+    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already reached a TERMINAL answer for are declared but not funded again, so each drive walks further down the one ranking instead of buying the same settled refusal twice.
     const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held }).catch(() => null);
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
-    // A PASS THAT COULD NOT RUN AT ALL WRITES NOTHING OFF: it tried nothing, so nothing is exhausted and the day stays open.
-    if (out == null) return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${basis ?? ""}::threw`, held);
-    const fingerprint = `${basis ?? ""}::${[...out.paid.declared].sort().join("|")}`;
-    const fresh = fingerprint === (seen?.fingerprint ?? fingerprint) ? held : []; // the manifest moved, so the day's memory of it does too
-    const after = await read(), ready = after ?? before, persisted = out.persisted;
-    if (after != null && after >= READY_STOCK_TARGET) return mark("target_reached", ready, persisted, fingerprint, fresh);
-    if (after != null && after > before) return mark("made_progress", ready, persisted, fingerprint, [...new Set([...fresh, ...out.paid.funded])]);
-    // NOTHING FINISHED, and what that MEANS depends on whether money actually moved. Not a cent charged means the money door refused (the monthly cap, the account cap, a stop upstream) or there was nothing left to fund: no page was really tried, so none is written off. Charged calls that produced nothing DID try those pages, so they are written off and the next drive moves further down the one ranking rather than buying the same refusal again.
-    const attempted = out.paid.spentCalls > 0 ? [...new Set([...fresh, ...out.paid.funded])] : fresh;
-    // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest can see has been spent on, and not one of them produced (an empty manifest is finished by the same rule, having nothing left to try). Two failures out of nine candidates is not that, and closing the day on it was the defect (Codex, 2026-08-22).
-    const exhausted = out.paid.declared.every((k) => attempted.includes(k));
-    log.info("[research-run] the ready inventory is still short", { tenantId, before, after: ready, target: READY_STOCK_TARGET, declared: out.paid.declared.length, attempted: attempted.length, exhausted });
-    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", ready, persisted, fingerprint, attempted);
+    // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
+    if (out == null || out.outcome === "evidence_unreadable" || out.outcome === "persistence_failed") return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::unread`, held);
+    const fingerprint = `${stamp}::${[...out.paid.declared].sort().join("|")}`;
+    const fresh = fingerprint === (seen?.fingerprint ?? fingerprint) ? held : []; // a different manifest, basis or evidence version is a different question, and the day's memory of it starts again
+    const after = await read(), persisted = out.persisted;
+    // A COUNT I COULD NOT READ AFTERWARDS PROVES NOTHING EITHER WAY, least of all that a page is finished with.
+    if (after == null) return mark("retryable_blocked", before, persisted, fingerprint, fresh);
+    if (after >= READY_STOCK_TARGET) return mark("target_reached", after, persisted, fingerprint, fresh);
+    // ONLY A JOB'S OWN RECEIPT MAY WRITE ITS PAGE OFF, and only the two answers that actually settle it: finished work exists, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a page never reached all leave it owed. Reading a single "calls were charged" number as "every funded page was attempted" is what let one out-of-quota call write off four pages nobody ever asked about (Codex, 2026-08-22).
+    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "deterministic_refusal").map((r) => r.key);
+    const attempted = [...new Set([...fresh, ...settled])];
+    if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted);
+    // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
+    const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));
+    log.info("[research-run] the ready inventory is still short", { tenantId, before, after, target: READY_STOCK_TARGET, declared: out.paid.declared.length, settled: attempted.length, exhausted });
+    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, fingerprint, attempted);
   },
   async refreshSources(tenantId, now) {
     // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not
