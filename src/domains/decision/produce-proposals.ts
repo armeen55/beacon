@@ -50,7 +50,7 @@ export type ProduceProposalsResult = {
   paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number;
     receipts: readonly { key: string; funded: boolean; providerAttempted: boolean;
       /** `produced` = finished work exists for this key. `deterministic_refusal` = one of Beacon's OWN gates read the work against today's evidence and said no. `retryable_blocked` = nobody could answer for it (credit, cap, timeout, provider, unreadable) or the drafter's own answer was unusable. `not_reached` = funded and never got to. ONLY the first two may ever write a key off. */
-      outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }[] };
+      outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** The rule that refused it, in its own words. */ why?: string }[] };
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
@@ -195,7 +195,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it actually happens and never inferred from a counter. The strongest answer for a key wins, because a page whose bundle failed and whose one-field fallback then landed HAS finished work. Anything nobody filed in reads as `not_reached`: funded, never got to, and therefore never written off. */
-  const filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
+  const gateWords = new Map<string, string>(), // the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did
+    filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
   const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
   /** OUT OF TIME TO START ANYTHING NEW, checked at every paid door: work running is never abandoned, work not begun is not funded and comes back `not_reached`, settling nothing and staying owed. */
   const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy;
@@ -314,8 +315,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is
    *  not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save
    *  landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
-  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row outright settled it against this evidence; one that FAILED or HELD it settled nothing
-    file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); };
+  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); }; // a store that REFUSED the row settled it against this evidence; one that FAILED or HELD it settled nothing
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
   const wiring = () => ({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages });
   /** THE SPLITS THIS PASS ACTUALLY SETTLES, one card per group, strongest first. Computed BEFORE the boundary runs, because a page may only be refused a card for a split that some card here settles. */
@@ -519,7 +519,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, providerFailed: new Set<string>(), note: file, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, providerFailed: new Set<string>(), refusals: gateWords, note: (k, o, why) => { if (why) gateWords.set(k, why); file(k, o); }, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again.
   // A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);

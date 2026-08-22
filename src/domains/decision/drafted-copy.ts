@@ -39,7 +39,8 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: { left: number };
   /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number;
   /** WHO REFUSED THIS CARD. The pass records provider-side failures here as they happen, so a card that comes back unfinished can be told apart from one Beacon's OWN gates read and rejected: only the second settles anything. */ providerFailed?: Set<string>;
-  /** Reports one card's settled outcome to the caller's receipt. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked") => void };
+  /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void;
+  /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> };
 
 const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted
 
@@ -317,7 +318,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
 }
 
 /** The wiring one editor run needs, and nothing about which card asked for it, so a card's own edit and a sibling page's edit are ONE editor rather than two that drift. */
-type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
+type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; refusals?: Map<string, string>;
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. Absent means one editor run standing on its own. */
   attempts?: { left: number };
   /** Pages the PROVIDER could not answer for, recorded as it happens so a card Beacon's own gates rejected is never confused with one nobody could write. */ providerFailed?: Set<string> };
@@ -437,6 +438,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const lessons: string[] = [];
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
     lessons.push([why, ...((extra.reasons as string[] | undefined) ?? [])].filter(Boolean).join("; ").slice(0, 400));
+    opts.refusals?.set(DRAFT_BUDGET.keyOf(card), lessons.at(-1) ?? why); // the LAST word on this page, kept where the receipt can read it
     log.info(`[drafted-copy] the ${kind} is not finished`, { tenantId: opts.tenantId, path: card.pagePath, why, ...extra });
     return null; };
   // A LINK DELIVERABLE IS ONE SENTENCE, and both its facts are the card's own: the destination off its instruction line, the anchor off the search it names. Either unreadable is a refusal, never a guess.
@@ -550,7 +552,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     // WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop).
-    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.providerFailed?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal");
+    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.providerFailed?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card)));
     const drafted = done?.d;
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;

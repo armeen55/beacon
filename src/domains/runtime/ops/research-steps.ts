@@ -226,7 +226,7 @@ export const defaultSteps: ResearchCycleSteps = {
     const attempted = [...new Set([...fresh, ...settled])];
     const tally = { produced: out.paid.receipts.filter((r) => r.outcome === "produced").length, refused: out.paid.receipts.filter((r) => r.outcome === "deterministic_refusal").length,
       blocked: out.paid.receipts.filter((r) => r.outcome === "retryable_blocked").length, unreached: out.paid.receipts.filter((r) => r.outcome === "not_reached").length,
-      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced" && r.outcome !== "deterministic_refusal").map((r) => `${r.key}:${r.outcome}`).slice(0, 5) };
+      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `:${r.why}` : ""}`).slice(0, 5) };
     if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));
