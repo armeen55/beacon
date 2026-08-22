@@ -169,8 +169,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
-  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 95_000;
-  // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass needs to finish cleanly: one reasoning call is FLOORED at ninety seconds and a deliverable is three of them, so a pass that keeps starting work up to the box gets cut off mid-deliverable and reports nothing at all, which loses both the work and the receipt of what it tried.
+  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 45_000;
+  // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin
+  // the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's
+  // TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second
+  // runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one
+  // that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
@@ -222,8 +226,13 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed !== "candidates_exhausted") {
       replenished = true;
       const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
-      // A DRIVE THAT OPENED ONLY FOR THE STOCK BANKS NO RESERVE: the reserve exists for the phases BEHIND this one, and a stock-only drive has none, so holding sixty seconds back from the only work it came to do was pure loss.
-      const runway = deadline - nowFn().getTime() - (stockOnly ? 0 : REPLENISH_RESERVE_MS);
+      // A DRIVE TOPPING UP A SHORT STOCK BANKS NO RESERVE. The reserve exists for the phases BEHIND this one, and
+      // inventory comes before acquisition anyway: if the top-up uses the drive, those phases resume on the next
+      // dispatch, which is exactly what pausing is for. Measured live at 22:30Z: a 150-second runway less a
+      // 95-second margin left FIFTY-FIVE seconds to start any paid work, the free producers ate them, and every
+      // funded candidate came back not_reached. The stock got nothing while the drive was nominally spent on it.
+      const shortStock = (work?.due ?? []).includes("replenish_ready");
+      const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
       let answered = false;
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();

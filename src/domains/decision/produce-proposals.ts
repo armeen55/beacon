@@ -196,9 +196,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it actually happens and never inferred from a counter. The strongest answer for a key wins, because a page whose bundle failed and whose one-field fallback then landed HAS finished work. Anything nobody filed in reads as `not_reached`: funded, never got to, and therefore never written off. */
   const filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
-  const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key);
-    if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
-  /** OUT OF TIME TO START ANYTHING NEW. Checked at every paid door, so work already running is never abandoned and work not begun is simply not funded: those keys come back `not_reached`, settling nothing and staying owed. */
+  const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
+  /** OUT OF TIME TO START ANYTHING NEW, checked at every paid door: work running is never abandoned, work not begun is not funded and comes back `not_reached`, settling nothing and staying owed. */
   const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy;
   const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => ({ key: f.key, funded: true, providerAttempted: filed.get(f.key)?.providerAttempted ?? false, outcome: filed.get(f.key)?.outcome ?? "not_reached" as const })) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
@@ -315,7 +314,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is
    *  not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save
    *  landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
-  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row outright settled it against this evidence; one that FAILED or HELD it settled nothing at all
+  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row outright settled it against this evidence; one that FAILED or HELD it settled nothing
     file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); };
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
   const wiring = () => ({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages });
@@ -484,8 +483,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (pageKeys(input.page.url ?? input.page.path).some((k) => bundledNow.has(k))) continue; // the rewrite landed, and it replaces this edit
     const settled = existing.get(proposalId(input)); // A refresh re-pays nothing, and SETTLED WORK IS NOT REDRAFTED.
     if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; } // An IMPLEMENTED row is a change under measurement, so the fresh idea for that page is HELD, not dropped.
-    // WORK THE OPERATOR ALREADY TOOK BACK UNDER THIS EVIDENCE IS SETTLED, not blocked: offering it again every drive is exactly the retry loop this whole repair exists to stop.
-    if (withdrawn.has(proposalId(input))) { file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), "deterministic_refusal", false); continue; }
+    if (withdrawn.has(proposalId(input))) { file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), "deterministic_refusal", false); continue; } // work the operator already took back under this evidence is SETTLED, not blocked: offering it again every drive is the retry loop this repair exists to stop
     const held = currentById(proposalId(input))
       ?? (input.opportunity.kind === "existing_edit"
         ? [...heldDeep.values()].find((b) => b.pagePath === input.page.path) ?? null : null);
@@ -523,7 +521,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again.
-  for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, DRAFT_BUDGET.keyOf(p)); else { file(DRAFT_BUDGET.keyOf(p), "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
+  // A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
+  for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
+    if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).
   for (let i = 0; i < proposals.length; i += 1) {
     const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : "";

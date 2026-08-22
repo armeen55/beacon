@@ -928,7 +928,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     // LIVE, 2026-08-22 21:30Z, the first funded cycle: four free phases ate the 210-second drive, the stock check never got its runway, and the SAME drive went on to spend $0.12 buying keywords with the finished-change queue still on zero. Inventory before acquisition has to survive a short turn, or it is only a rule for turns that happen to be long enough.
     const walked: string[] = [], rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready", "plan_cases"] } } });
     await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "plan_cases"] }), replenishReady: async () => (walked.push("replenish"), null),
-      funnelUnit: async (phase) => (walked.push(phase), { status: "done" as const, cursor: null, progress: {} }) }, 60_000);
+      funnelUnit: async (phase) => (walked.push(phase), { status: "done" as const, cursor: null, progress: {} }) }, 40_000); // under the floor the check needs, so it cannot even be attempted
     expect([walked, rows.at(-1)!.status, rows.at(-1)!.current_phase]).toEqual([[], "paused", "keyword_discovery"]); }); // nothing bought, the phase untouched, the next dispatch resumes here with a whole drive
   it("lets a proven exhaustion hold the day, and never lets a reached target outrank the live stock", async () => {
     const mem = (closed: "target_reached" | "candidates_exhausted") => ({ day: ckey(T, NOW).slice(-10), fingerprint: "b1::v1::x", attempted: [], closed }); let calls = 0;
