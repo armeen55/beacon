@@ -37,8 +37,8 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   bannedTerms?: readonly string[];
   /** The pass's ONE shared budget. Absent = this file owns one of its own for this run. */
   budget?: DraftBudget;
-  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */
-  attempts?: { left: number } };
+  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: { left: number };
+  /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number };
 
 const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted
 
@@ -565,8 +565,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     // AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names the rendered read as the next step, and no body-dependent copy may stand on words nobody holds.
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
-    // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own.
-    const slice = budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
+    // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own. OUT OF TIME IS NOT OUT OF MONEY: a card the drive can no longer start is left exactly as its producer minted it, so it is owed rather than half-bought.
+    const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     const drafted = done?.d;

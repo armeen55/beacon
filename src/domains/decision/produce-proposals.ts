@@ -35,7 +35,8 @@ export type ProduceProposalsOptions = ProposeOptions & {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, and passing this skips that read. */
   intersection?: IntersectionEvidence;
   /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number;
-  /** Pages a pass TODAY already spent on and got nothing from: declared on the manifest, never funded again, so the next pass walks DOWN the ranking rather than buying the same refusal twice. */ skipKeys?: readonly string[]; /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[]; /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean; zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
+  /** Pages a pass TODAY already spent on and got nothing from: declared on the manifest, never funded again, so the next pass walks DOWN the ranking rather than buying the same refusal twice. */ skipKeys?: readonly string[];
+  /** WALL-CLOCK MOMENT THIS PASS MUST STOP STARTING PAID WORK (epoch ms). Not a cancel: work already in flight finishes and is filed. It exists because one deliverable is three charged calls and a reasoning call alone is floored at ninety seconds, so a caller that boxes the whole pass on a timer gets NO receipts at all and re-funds the same pages next time. Stopping cleanly means the pass returns what it learned. */ stopBy?: number; /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[]; /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean; zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
 };
 /** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they are VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
@@ -151,8 +152,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
   };
   /** The pass's own research half, read at the END of the pass so it carries the verdict the funded reading refined rather than the one that stood before it. */
-  const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld });
-
+  const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld }); 
   // THE PAGE'S OWN TWO WINDOWS REACH THE DIAGNOSIS, keyed every way a candidate can be matched. Without this a fall was loaded, rendered on a lane, and never once weighed by the kernel that decides what to do.
   const decline = new Map<string, NonNullable<ReturnType<Windows["get"]>>>(); for (const [url, w] of windows) for (const k of pageKeys(url)) decline.set(k, w);
   const compile = () => compileCandidates(snapshot, { coverage, ...measuring, decline, curve }), bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts);
@@ -198,11 +198,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
   const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key);
     if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
+  /** OUT OF TIME TO START ANYTHING NEW. Checked at every paid door, so work already running is never abandoned and work not begun is simply not funded: those keys come back `not_reached`, settling nothing and staying owed. */
+  const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy;
   const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => ({ key: f.key, funded: true, providerAttempted: filed.get(f.key)?.providerAttempted ?? false, outcome: filed.get(f.key)?.outcome ?? "not_reached" as const })) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
-  if (patternKey) { const slice = budget.draw(patternKey, DRAFT_BUDGET.DELIVERABLE_CALLS);
+  if (patternKey) { const slice = outOfTime() ? null : budget.draw(patternKey, DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (slice) { const was = slice.left; await readPattern(slice); file(patternKey, coverage?.decision.pattern ? "produced" : "retryable_blocked", slice.left < was); candidates = compile(); acted = candidates.filter((c) => c.action === "act_existing_page"); earned = candidatesToEvidenceInputs(snapshot, acted); inputs = earned.slice(0, bound);
       cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")])); deep = selectDeepCandidates({ candidates, coverage, limit: bound }); } }
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the coverage walk owns what happens next, on the NEXT pass, exactly as before.
@@ -277,8 +279,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     await retire(p, "retired: this bundle no longer passes the bar a change must clear to be offered");
   }
   const live = held.filter((p) => !retired.has(p.id));
-  const heldByDiagnosis = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN.
-  let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = heldByDiagnosis;
+  let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
   const persistIfChanged = async (input: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => {
     if (!persist) return "not_persisted";
@@ -348,8 +349,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   };
   const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); }
   /** suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged. */
-  const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");
-  /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
+  const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");   /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
   const withSuggestions = async (strict: ChangeProposal[]): Promise<ProducerRun> => {
     const skip = new Set([...strict.flatMap((p) => [p.id, (p.pagePath ?? "").trim().toLowerCase()]), ...withdrawn]);
     for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip, windows, needs: enteredBy, curve })) {
@@ -384,7 +384,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const heldPage = heldNewPage ?? live.find((r) => r.kind === "new_page" && current(r) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => r.id.includes(`::${k}::`))) ?? null; // An id this case ABSORBED still names this case's page, or a merge builds a second page for one subject.
     if (heldPage) { proposals.push(heldPage); reused += 1; }
     else {
-      const slot = budget.draw(`topic:${decided.investigation.key}`, DRAFT_BUDGET.BUNDLE_CALLS); // THE WHOLE PAGE IS A TWELVE-CALL PROPOSAL and the plan above ranked it as one, against everything else this pass could have bought instead.
+      const slot = outOfTime() ? null : budget.draw(`topic:${decided.investigation.key}`, DRAFT_BUDGET.BUNDLE_CALLS); // THE WHOLE PAGE IS A TWELVE-CALL PROPOSAL and the plan above ranked it as one, against everything else this pass could have bought instead.
       const built = slot ? await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, attempts: slot }).catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }))
         : { status: "none" as const, reason: "the pass's paid plan funded stronger work than a whole new page" };
       if (built.status === "built") { const page = { ...built.proposal, ...(basis ? { basis } : {}) }; proposals.push(page); await persistAndFile(page, `topic:${decided.investigation.key}`); }
@@ -396,7 +396,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase())) continue;
     if (!(await admit(c))) continue;
     // BEACON REVIEWS ITS OWN CORRECTIONS, ON THE PLAN'S OWN TERMS: the review was priced and ranked with everything else, so it can no longer spend in front of higher-ranked completable work, and an unfunded review leaves the card exactly as minted rather than promoting anything nobody read.
-    const slot = budget.draw(DRAFT_BUDGET.keyOf(c), DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)));
+    const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf(c), DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)));
     const card = slot ? await defects.FACTUAL_DEFECTS.review(c, { tenantId, now: opts.now ?? new Date(), attempts: slot,
       ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => c) : c;
     const p = { ...card, ...(basis ? { basis } : {}) }; if (slot && card === c) file(DRAFT_BUDGET.keyOf(c), "retryable_blocked");
@@ -456,7 +456,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
     doorWalked.add((d.pageUrl ?? "").trim().toLowerCase()); // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
     for (const k of pageKeys(d.pageUrl)) doorWalked.add(k.trim().toLowerCase());
-    const slot = budget.draw(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), DRAFT_BUDGET.BUNDLE_CALLS); // A DEEP BUNDLE IS A TWELVE-CALL PROPOSAL, ranked as one above against every cheaper change it would have starved.
+    const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), DRAFT_BUDGET.BUNDLE_CALLS); // A DEEP BUNDLE IS A TWELVE-CALL PROPOSAL, ranked as one above against every cheaper change it would have starved.
     if (!slot) { log.info("[produce-proposals] the pass's paid plan funded no allowance for this deep read", { tenantId, page: d.pageUrl }); continue; }
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, attempts: slot, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
@@ -495,7 +495,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       continue;
     }
     // ONE ALLOWANCE, WHICHEVER FAMILY IS SPENDING IT: this draws its own deliverable's price from the page's single allowance, so on a page the deep door selected it is the rewrite's FALLBACK on the rewrite's own remainder, never a second purchase.
-    const slot = budget.draw(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), DRAFT_BUDGET.DELIVERABLE_CALLS);
+    const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slot || slot.left <= 0) { noDraft += 1; log.info("[produce-proposals] the pass's paid plan funded no allowance for this page", { tenantId, page: input.page.path }); continue; }
     const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, attempts: slot }).catch((e) => {
       log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
@@ -514,14 +514,14 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const suggested = await withSuggestions(proposals);
   // THE COLLAPSE PRODUCER: the largest losses the account's own history can PROVE become cards before any defect sweep fills the queue; a failed history read sweeps nothing. The $0 queue rides its ONE entrance (producers/extra.extraQueuePass), which owns the unit load so both producers join the SAME audiences. THE BOUNDARY IS ASKED BEFORE THE MONEY IS SPENT: a card the diagnosis will not authorize, or that the store will refuse (a page under measurement rejects new drafts at save time), is not worth paying to write; drafting one anyway spent four charged calls a pass on copy that could never land. ONE PAGE, ONE DELIVERABLE THIS PASS. A page another family already produced a row for takes no second one-field card, and a page whose draft did NOT land still gets its cheaper card rather than nothing. This used to hold only by accident of ordering: the $0 queue ran after the drafters and skipped whatever pages already had a row on file. It runs before the pass spends anything now, so the rule says itself, over the same rows the store would have shown it.
   const coveredNow = new Set(proposals.flatMap((r) => [(r.pagePath ?? "").trim().toLowerCase(), (r.pageUrl ?? "").trim().toLowerCase()]).filter(Boolean));
-  const eligible: ChangeProposal[] = []; for (const c of editorCards) { // the SAME list the manifest priced, so nothing here can spend outside the one plan
-    const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()]; if (at.some((k) => measuringPagesEarly.has(k))) continue;
+  const eligible: ChangeProposal[] = []; for (const c of editorCards) { const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()]; // the SAME list the manifest priced, so nothing spends outside the one plan
+    if (at.some((k) => measuringPagesEarly.has(k))) continue;
     if (!(await admit(c))) continue; // asked FIRST, so a card the diagnosis refuses is refused OUT LOUD with its reason on the receipt, rather than disappearing into the page-already-covered rule
     if (!at.some((k) => coveredNow.has(k))) eligible.push(c); }
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }; proposals.push(p); if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, DRAFT_BUDGET.keyOf(p)); else { file(DRAFT_BUDGET.keyOf(p), "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).

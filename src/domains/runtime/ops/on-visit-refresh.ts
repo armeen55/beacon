@@ -169,7 +169,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
-  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000; let replenished = false; // one inventory check per DAY before the first exploratory phase: MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait. The box doubled with the drive (operator, 2026-08-22): a drive allowed to finish five candidates needs room to finish them, and a boxed drive now writes nothing off, so the cost of waiting too long is a retry rather than a false exhaustion.
+  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 95_000;
+  // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass needs to finish cleanly: one reasoning call is FLOORED at ninety seconds and a deliverable is three of them, so a pass that keeps starting work up to the box gets cut off mid-deliverable and reports nothing at all, which loses both the work and the receipt of what it tried.
+  let replenished = false; // one inventory check per DAY before the first exploratory phase
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
     // A DEAD DAY IS NEVER WORKED LATE, FROM ANY PHASE. Every phase's work is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and resumed after it would buy, crawl, publish and stamp for a day that is gone: a missed day is missed. This guard used to fire only on the observation phase, so a run paused at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill_chunk or publish_surface could pause its way across midnight over and over and HOLD the one-open-run index against today's own cycle. It sits at the top of EVERY resumed drive now, in front of the lease renewal and therefore in front of any paid or externally visible side effect in any phase; the pass closes with every piece of evidence it wrote intact and its remainder visibly short forever, and closing is what frees TODAY's cycle to be claimed.
@@ -220,14 +222,15 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed !== "candidates_exhausted") {
       replenished = true;
       const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
-      const runway = deadline - nowFn().getTime() - REPLENISH_RESERVE_MS;
+      // A DRIVE THAT OPENED ONLY FOR THE STOCK BANKS NO RESERVE: the reserve exists for the phases BEHIND this one, and a stock-only drive has none, so holding sixty seconds back from the only work it came to do was pure loss.
+      const runway = deadline - nowFn().getTime() - (stockOnly ? 0 : REPLENISH_RESERVE_MS);
       let answered = false;
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
         // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive
         // may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
         const raced = await Promise.race([
-          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [] }).then((v) => ({ v })).catch(() => ({ v: null })),
+          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [] }, nowFn().getTime() + Math.min(runway, REPLENISH_BOX_MS) - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
           new Promise<null>((res) => setTimeout(() => res(null), Math.min(runway, REPLENISH_BOX_MS))),
         ]);
         const r = raced?.v ?? null;

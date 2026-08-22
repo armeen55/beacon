@@ -96,7 +96,8 @@ export type ResearchCycleSteps = {
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
   /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under the target, finish the strongest stored opportunities through the ONE canonical producer before this cycle buys exploratory
    *  evidence. Bounded per drive; null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
-  replenishReady: (tenantId: string, now: Date, seen?: { fingerprint: string | null; attempted: readonly string[] }) => Promise<{ ready: number; deficit: number; persisted: number;
+  replenishReady: (tenantId: string, now: Date, seen?: { fingerprint: string | null; attempted: readonly string[] },
+    /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
     /** HOW THIS DRIVE ENDED, as a machine word. Only two of these four may close a day. `candidates_exhausted` is the one that has to be EARNED: it means every candidate on the current manifest has now been spent on and none of them finished, which is a different fact from "the two I could afford this drive produced nothing" (Codex, 2026-08-22). */
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
@@ -171,7 +172,7 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
 }
 
 export const defaultSteps: ResearchCycleSteps = {
-  async replenishReady(tenantId, now, seen) {
+  async replenishReady(tenantId, now, seen, stopBy) {
     const d = await import("@/domains/decision");
     const { creditBreakerHeld } = await import("@/domains/decision/llm/gateway");
     const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
@@ -195,7 +196,7 @@ export const defaultSteps: ResearchCycleSteps = {
       return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::held`, held);
     }
     // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already reached a TERMINAL answer for are declared but not funded again, so each drive walks further down the one ranking instead of buying the same settled refusal twice.
-    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held }).catch(() => null);
+    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
     if (out == null || out.outcome === "evidence_unreadable" || out.outcome === "persistence_failed") return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::unread`, held);
