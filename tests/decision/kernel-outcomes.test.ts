@@ -1,7 +1,7 @@
 /** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate -> validate -> rank -> persist -> REUSE, and fail-closed rejections. Each test name states its promise. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
@@ -11,7 +11,7 @@ vi.mock("@/domains/decision/proposal-store", async () => { const actual = await 
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => new Set<string>(), // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => {
     const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
-    env.saved.push(p); if (env.failWrites) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
+    env.saved.push(p); if (env.failWrites || env.failIds.has(p.id)) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
 // A PASSTHROUGH, NOT A STAND-IN: it records which page and which DOOR the pass aimed at, then replays a pinned answer or runs the REAL producer.
 vi.mock("@/domains/decision/produce-bundle", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/produce-bundle")>("@/domains/decision/produce-bundle");
   return { ...actual, produceBundleForSnapshot: async (s: never, o: { onlyPageUrl?: string | null; door?: never }) => {
@@ -153,7 +153,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
 const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */ const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
-const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
+const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.failIds = new Set(); env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
 /** Count every drafter call a pass made, answering with one valid edit. */
 const counting = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: VALID_ATOMIC_EDIT }; }, calls: () => n }; };
 const run = (complete: CompleteFn) => produceProposalsForTenant("fixture-tenant", { complete, now: NOW, bypassCache: true });
@@ -186,8 +186,14 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
-    // AND THE PASS'S OWN RECEIPTS SAY WHAT BECAME OF EACH FUNDED JOB, from the REAL producer: a pass that could not save has settled nothing, so no page carries a receipt that would let a caller write it off (Codex, 2026-08-22).
-    expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal")).toBe(true);
+    // AND THE PASS'S OWN RECEIPTS SAY WHAT BECAME OF EACH FUNDED JOB, from the REAL producer. A pass that could not save has settled NOTHING: not one receipt may be `produced` either, which is the reading that let work nobody stored be written off (Codex, 2026-08-22).
+    expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal" && r.outcome !== "produced")).toBe(true);
+    // AND A MIXED WRITE IS THE REAL CASE: one page's save lands and another's fails in the SAME pass. The one that landed is finished; the one that did not is owed again, because work that was written and could not be stored is not finished work.
+    reset(SEEN()); const first = await run(counting().complete);
+    const landed = first.paid.receipts.filter((r) => r.outcome === "produced").map((r) => r.key); expect(landed.length).toBeGreaterThan(0);
+    reset(SEEN()); env.failIds = new Set([...env.store.keys(), ...first.proposals.map((x) => x.id)]); const mixed = await run(counting().complete);
+    expect(mixed.paid.receipts.filter((r) => landed.includes(r.key)).every((r) => r.outcome === "retryable_blocked")).toBe(true);
+    expect(env.store.size).toBe(0); // and nothing the store refused is remembered as if it had landed
     reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false })); expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.every((p) => p.status === "needs_review")]).toEqual(["proposals_persisted", 1, 1, true]);
     // A DRAFTER THAT COULD NOT ANSWER SETTLES NOTHING EITHER: every funded page comes back blocked or never reached, so a caller topping the inventory up offers all of them again rather than calling the manifest exhausted.
     expect(thin.paid.funded.length > 0 && thin.paid.receipts.every((r) => r.outcome === "retryable_blocked" || r.outcome === "not_reached")).toBe(true); }); // the strict draft failed and the $0 producers still fill the queue, every row at needs_review

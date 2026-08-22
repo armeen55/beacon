@@ -217,7 +217,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (basis === null) return pause({ phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() });
 
     // READY BEFORE ACQUISITION, FROM WHICHEVER PHASE THIS PASS IS ON (operator, 2026-08-22). Bound to keyword_discovery alone, a run already parked at serp_analysis could never replenish at all, so a blocked account stayed blocked for ever. It now runs before the exploratory work of ANY funnel phase. SUCCESS IS PROVEN, NEVER ASSUMED: the marker is stamped only when the step re-read the queue and found the stock at target or genuinely grown, so a credit-exhausted, budget-refused, boxed or empty-handed attempt leaves the day retryable instead of recording itself as today's completed replenishment.
-    if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed == null) {
+    if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed !== "candidates_exhausted") {
       replenished = true;
       const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
       const runway = deadline - nowFn().getTime() - REPLENISH_RESERVE_MS;

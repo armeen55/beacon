@@ -342,8 +342,12 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   //    While the provider's own credit is spent there is nothing a drive could achieve, so nothing is owed and the
   //    day is NOT closed either: the moment the credit is back this is due again, without waiting for tomorrow.
   // CLOSED means the day's obligation was DISCHARGED, and only two answers do that (see runtime/research-run's `replenish`): the stock reached the target, or every candidate on the current manifest was spent on and none produced. A quota failure, a provider failure or an empty bounded batch leaves it open, so the work is owed again the moment the block lifts.
-  // AND A CLOSED DAY REOPENS WHEN THE QUESTION CHANGES. The memory is stamped with the basis and the evidence version it was answered under, so fresh evidence for the very same pages makes the stock owed again today rather than tomorrow.
-  const stockClosed = progress.replenish?.day === day && progress.replenish.closed != null
+  // AND A CLOSED DAY REOPENS THE MOMENT ITS ANSWER STOPS BEING TRUE. Two ways that happens. The question changed:
+  // the memory is stamped with the basis and the evidence version it was answered under, so fresh evidence for the
+  // very same pages makes the stock owed again today rather than tomorrow. Or the stock itself moved: a day closed
+  // because it REACHED five says nothing once the operator implements one and four are left, and the live count
+  // below already proves that, so only a proven exhaustion may hold the day shut (Codex, 2026-08-22).
+  const stockClosed = progress.replenish?.day === day && progress.replenish.closed === "candidates_exhausted"
     && progress.replenish.fingerprint.startsWith(`${basis.value ?? ""}::v${version.value ?? ""}::`);
   if (ready.value != null && ready.value < READY_STOCK_TARGET && !stockClosed && !creditHeld.value) due.push("replenish_ready");
   if (sources.value > 0) due.push("refresh_sources");
