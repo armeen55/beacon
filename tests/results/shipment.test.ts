@@ -391,8 +391,7 @@ describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-
   });
 });
 
-/** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI numbers were captured only where Google already had something to say, so a new or quiet page lost the baseline of exactly the change
- *  it existed for. */
+/** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI numbers were captured only where Google already had something to say, so a new or quiet page lost the baseline of exactly the change it existed for. */
 describe("an AI change on a page Google cannot see yet still measures", () => {
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
     const { objectiveOfStage } = await import("@/domains/measurement/shipment-ai-outcome");

@@ -166,8 +166,7 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const blind: CompleteFn = async () => ({ value: {} as never }); const out = await produceBundleForSnapshot(snapshot(), { complete: blind, ...OPTS }); expect(out.status).toBe("none"); if (out.status !== "none") return; expect(out.reason).toContain("nothing is handed over rather than filler"); });
 }); describe("one pass, one row per change", () => { it("bundles the proven page once, and carries no vertical assumption into a single prompt", async () => {
     env.snap = topicSnapshot(); const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.coverage).toBeNull(); const queue = await loadProposalQueue(TENANT); expect(queue.ranked.every((p) => p.kind === "existing_edit")).toBe(true); // research this thin decides nothing, so no topic becomes a page
-    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result. A MEASURED GAP WITH NO DIAGNOSED CAUSE MINTS NO TITLE GUESS (operator,
-    // 2026-08-17): the compost page's 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest output is the investigation path plus the page's real defects, never a rewrite nobody can justify.
+    // THE BOUNDARY HOLDS: the ai_answer_gap card used to admit /rain-barrels on word overlap with no page reading; now withheld with its reason on the run result. A MEASURED GAP WITH NO DIAGNOSED CAUSE MINTS NO TITLE GUESS (operator, 2026-08-17): the compost page's 1,200 impressions at position 6 used to earn a best-guess merge; the cause is unknown, so the honest output is the investigation path plus the page's real defects, never a rewrite nobody can justify.
     expect(res.proposals.map((p) => [p.id, p.status]).sort()).toEqual([[`${TENANT}::/compost::existing_edit::missing_description`, "needs_review"], [`${TENANT}::/rain-barrels::existing_edit::title-family`, "ready"]]);
     expect(res.held.some((h) => h.pageUrl.includes("/rain-barrels"))).toBe(true);
     // FIVE GUARDS ON ONE PASS: host and path key the page (two hosts share /compost and the weak row must carry ITS OWN title), an em dash in a brand tail is never pasted, a page the strict path covered takes no second weaker row, a page beating its own curve on its ONE measured search is refused even through the AEO clause that waives the click test, and a search whose results page I never bought still earns ONE best-guess card, at the lowest confidence I have, rather than the silence that left a losing page with nothing to do.
@@ -504,8 +503,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       preferFinished(brief, { ...banked, claims: undefined }).researchOnly, preferFinished({ ...brief, evidence: { ...brief.evidence, hints: [] } }, banked).researchOnly,
       kept.supportFacts, preferFinished(brief, { ...banked, supportFacts: undefined }).researchOnly])
       .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, banked.claims, false, "Achae", "A newer", true, true, false, banked.supportFacts, true]); });
-  // THE CLOSING "READ THIS PAGE" LINE, on the two descriptions that carried one into the live queue on 2026-08-15. A description whose last sentence tells the reader to read the page carries filler where a fact belongs, which is the description equivalent of "click here". Trimmed where the field still fills without it, sent back for ONE redraft where it does not, and NEITHER card is special-cased: the achaemenid line loses too much (104 characters left, under the 110 a description takes) and the accessories line does not (142 left).
-  // LIST-SHAPED COPY (review, 2026-08-22): a CTA that is a whole last LINE is dropped whole, and the " - " separating a phrase from its meaning on an honest list item is never a cut point on multi-line copy.
+  // THE CLOSING "READ THIS PAGE" LINE, on the two descriptions that carried one into the live queue on 2026-08-15. A description whose last sentence tells the reader to read the page carries filler where a fact belongs, which is the description equivalent of "click here". Trimmed where the field still fills without it, sent back for ONE redraft where it does not, and NEITHER card is special-cased: the achaemenid line loses too much (104 characters left, under the 110 a description takes) and the accessories line does not (142 left). LIST-SHAPED COPY (review, 2026-08-22): a CTA that is a whole last LINE is dropped whole, and the " - " separating a phrase from its meaning on an honest list item is never a cut point on multi-line copy.
   it("drops a CTA last line from list-shaped copy and never amputates a phrase-meaning item", () => {
     const LIST = "Persian greetings people actually use every day, from the first hello to the goodbye at the door:\nSalam - hello, the everyday greeting you can use with anyone at any time of day.\nKhodahafez - goodbye, literally may God protect you, said when parting.\nMerci - thank you, borrowed from French and completely common in Iran.";
     expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST);
@@ -527,8 +525,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
       .toEqual([true, true, false]); });
-  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped the words its own searches earn clicks on,
-  // and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
+  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
   it("never drops a word the page earns clicks on, and demand vocabulary overrides the banned list", () => {
     const body = "Persian boy names with meanings, a list of classic and modern Iranian names for boys.";
     const pk = (demand: { preserve: string[]; vocabulary: string[] }, bannedTerms: string[] = [], fact = 'people search "persian boy names list" 4,100 times in 90 days') => ({
@@ -601,8 +598,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([await acceptDeliverable(meta([...REAL, { text: "These Persian shoes are waterproof", supportedBy: ["page-title"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops, and these Persian shoes are waterproof.") as never, P as never, yes), await acceptDeliverable(meta([...REAL, { text: "The page includes Love \"Eshgh\" black and white variants", supportedBy: ["page-heading-3", "page-heading-4"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops; the page includes black and white slip-ons.") as never, P as never, yes), await acceptDeliverable(meta(REAL, "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops and white and black Persian calligraphy slip-ons.") as never, P as never, yes)])
       .toEqual([["its copy says \"waterproof\" on a claim of its own, and the evidence that claim names does not carry it"], [], []]); }); // "include" is carrier grammar now: the verb that states a list is not a fact about the page
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
-    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says
-    // what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
+    // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
     const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
@@ -780,9 +776,7 @@ describe("finished copy survives a pass that cannot redraft", () => {
   });
 });
 
-/** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced
- *  nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work
- *  spent in front of the globally ranked line. These pin the arithmetic and the order. */
+/** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work spent in front of the globally ranked line. These pin the arithmetic and the order. */
 describe("the paid line is compiled, priced and funded ONCE, before a cent is spent", () => {
   const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS) => ({ key, family, impact, calls });
   const plan = (jobs: ReturnType<typeof job>[], over: Partial<Parameters<typeof DRAFT_BUDGET.plan>[0]> = {}) => DRAFT_BUDGET.plan({ jobs, candidates: 2, calls: 30, ...over });
@@ -793,6 +787,19 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(b.funded[0]!.key).toBe("/best");
     expect([b.take("topic:wildlife"), b.take("/best") != null]).toEqual([null, true]); // it asks FIRST in the pass and still gets nothing
   });
+  it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
+    // THE DEFECT (Codex, 2026-08-22): a deep bundle and an editor card on one page were two candidates and two allowances, so a rewrite that SUCCEEDED left the editor's slot funded and unused, and one that FAILED let the same page spend twelve calls and then three more while other pages went unfunded.
+    const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
+    expect(b.funded.map((f) => [f.key, f.family, f.calls, [...f.fallbacks]])).toEqual([["/next", "field_draft", 3, []], ["/one", "deep_bundle", 12, ["editor"]]]);
+    const rewrite = b.draw("/one", DRAFT_BUDGET.BUNDLE_CALLS)!; rewrite.left = 0; // the rewrite produced, spending its allowance
+    expect([b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS), b.spent().calls]).toEqual([null, 12]); }); // and nothing else on that page may spend after it
+  it("lets a failed rewrite's fallback draw its own price from the SAME allowance, never a second one", () => {
+    const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55)], { candidates: 5 });
+    const rewrite = b.draw("/one", DRAFT_BUDGET.BUNDLE_CALLS)!; rewrite.left = 10; // refused after two calls
+    const editor = b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS)!;
+    expect(editor.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // its OWN deliverable's price, never the page's whole remainder
+    editor.left = 0;
+    expect([b.spent().calls, b.funded.length]).toEqual([5, 1]); }); // two calls then three, all inside the ONE twelve-call allowance, on ONE funded candidate
   it("refuses a key nobody put on the manifest, whenever it asks", () => expect(plan([job("/best", "field_draft", 90)]).take("/never-declared")).toBeNull());
   it("prices a whole page and a deep bundle at TWELVE charged calls, and shows that price to the ranking before it funds one", () => {
     const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });

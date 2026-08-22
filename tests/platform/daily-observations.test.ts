@@ -1,6 +1,4 @@
-/** The daily AI-answer plan (V1 Truth Convergence Phase 1): ONE canonical reading per tracked question, per engine, per UTC day; core questions first and
- * oldest-missing-first; an already-answered pair is never asked twice; extra readings only on an explicit ask, only after the canonical round, never past three; a version bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back step: one gateway call per NEW answer hash, and
- * zero calls on a re-run. Fixtures only, zero network. */
+/** The daily AI-answer plan (V1 Truth Convergence Phase 1): ONE canonical reading per tracked question, per engine, per UTC day; core questions first and oldest-missing-first; an already-answered pair is never asked twice; extra readings only on an explicit ask, only after the canonical round, never past three; a version bump is a NEW measurement identity; an engine I cannot ask is excluded and blocks nobody. Plus the read-back step: one gateway call per NEW answer hash, and zero calls on a re-run. Fixtures only, zero network. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 /** The ONE fake in this file: Postgres, and only for the tracked-question read below. Every other test here is pure fixtures and injects its own readers, so nothing else ever reaches it. */
 const pg = vi.hoisted(() => ({ queued: [] as { data: unknown; error: unknown }[], queries: 0, cols: [] as string[], inserted: [] as Record<string, unknown>[] }));
@@ -195,8 +193,7 @@ describe("reading the answers back", () => {
     expect([(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).read, groups]).toEqual([0, []]);
   });
   it("reads a WHOLE day of 140 answers back in four passes, three calls at a time, which is what makes a backlog fall instead of grow", async () => {
-    // 35 questions on 4 engines is 140 answers a day, and this account was 687 behind on 7 August because 20 a pass could not keep up with its own intake. Forty a
-    // pass, across the 48 passes a day the schedule already runs, is capacity of 1,920 a day against an intake of 140: the debt falls even if most passes never run.
+    // 35 questions on 4 engines is 140 answers a day, and this account was 687 behind on 7 August because 20 a pass could not keep up with its own intake. Forty a pass, across the 48 passes a day the schedule already runs, is capacity of 1,920 a day against an intake of 140: the debt falls even if most passes never run.
     const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)]));
     let calls = 0, passes = 0, live = 0, peak = 0;
     const deps = { readObservations: async () => [...store.values()], readPrompts: async () => null, identity: BRAND,
@@ -230,8 +227,7 @@ describe("reading the answers back", () => {
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id)))).toEqual([]); // nothing this pass read is left owing
   });
   it("settles the batches of one wave independently, so a throttled call costs its neighbours nothing", async () => {
-    // A pass sends three calls at once now. The one that came back with no body and no receipt is re-read one answer at a time; the two that ANSWERED are stored whatever it did, because
-    // their calls already returned and were already paid for, and throwing those readings away is the exact leak this file exists to close.
+    // A pass sends three calls at once now. The one that came back with no body and no receipt is re-read one answer at a time; the two that ANSWERED are stored whatever it did, because their calls already returned and were already paid for, and throwing those readings away is the exact leak this file exists to close.
     const rows = Array.from({ length: 15 }, (_, i) => row(`w${String(i).padStart(2, "0")}`, `hw${i}`, null, false)), saved = new Map<string, Record<string, unknown>>();
     let live = 0, peak = 0, batches = 0, singles = 0;
     const { read } = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, max: 15,
@@ -256,8 +252,7 @@ describe("reading the answers back", () => {
     expect([written, saved.size]).toEqual([taken.length, taken.length]);
     expect(selectAnalysisTargets(rows.filter((r) => !saved.has(r.id))).length).toBeGreaterThan(0); // And the rest are still due, exactly as they were: nothing was consumed to produce nothing.
   });
-  /** ONE WORD, `refused`, USED TO COVER EVERYTHING: a reader saying no, a shape I could not parse, an answer cut off half way, a call abandoned at my own timeout and a spent provider balance. THE WHOLE
-   *  COMPOSITION IS UNDER TEST, never a hand-typed error string: the real gateway reads a real provider reply, the drafter names WHOSE failure it was, and the readback settles on that NAME, or refuses to. */
+  /** ONE WORD, `refused`, USED TO COVER EVERYTHING: a reader saying no, a shape I could not parse, an answer cut off half way, a call abandoned at my own timeout and a spent provider balance. THE WHOLE COMPOSITION IS UNDER TEST, never a hand-typed error string: the real gateway reads a real provider reply, the drafter names WHOSE failure it was, and the readback settles on that NAME, or refuses to. */
   it("names WHY a reading did not land, off the real transport's own answer, and each name decides whether the answer settles for good or stays owed", async () => {
     process.env.OPENAI_API_KEY = "sk-test";
     let wire = 0; const envelope = (over: Record<string, unknown> = {}) => ({ id: "resp_1", model: "gpt-5-mini", status: "completed", created_at: 1, usage: { input_tokens: 10, output_tokens: 5 }, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "not json" }] }], output_text: "not json", ...over });
@@ -267,8 +262,7 @@ describe("reading the answers back", () => {
       await runAnswerAnalyses(T, DAY, { readObservations: async () => [row(id, `h-${id}`, null, false)], readPrompts: async () => null, identity: BRAND, persist: async (_t, _i, a, h) => void saved.push([a, h]) });
       return saved[0] == null ? "nothing stored, still owed" : [saved[0][0].readOutcome, saved[0][0].outcome, saved[0][1] === `h-${id}`]; };
     expect([await settle("r", { body: envelope({ output: [{ type: "message", role: "assistant", content: [{ type: "refusal", refusal: "I will not." }] }] }) }), await settle("i", { body: envelope({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }) }), await settle("s", {})]).toEqual([["provider_refused", "refused", true], ["incomplete", "refused", true], ["schema_invalid", "refused", true]]); // A BODY CAME BACK WITH A USAGE RECEIPT, so each is permanent for this exact answer, under its own name, stamped with the answer's own hash
-    // AND A RECEIPTED CALL IS A LEDGERED ONE, whatever verdict it produced. The readback lane records through recordSpend, which writes the durable llm_budget_ledger row under platform `adjudicator-openai`; the
-    // bare `openai` platform holds ONLY the credit stop's own sentinel row, dated 1970-01-01 with no calls on it, which is why reading that platform shows $0.000000 lifetime and always will.
+    // AND A RECEIPTED CALL IS A LEDGERED ONE, whatever verdict it produced. The readback lane records through recordSpend, which writes the durable llm_budget_ledger row under platform `adjudicator-openai`; the bare `openai` platform holds ONLY the credit stop's own sentinel row, dated 1970-01-01 with no calls on it, which is why reading that platform shows $0.000000 lifetime and always will.
     expect([ledger.spent.length >= 3, ledger.spent.every((c) => c > 0)]).toEqual([true, true]);
     // NO USABLE RECEIPT CAME BACK, so nothing is stored, nothing is billed (an empty pass that had paid would say so loudly), the answer stays owed, and the LAST NUMBER IS THE WIRE COUNT: a busy minute wearing the code OpenAI actually sends, a server fault and a dead socket are each worth the gateway's one retry at both rungs of the ladder, so they cost four calls, while MY OWN DEADLINE is worth no retry at all and costs two. The last two cases are the ones the envelope never finished arriving for: headers, then the body stops mid read, which used to be read as a shape I could not use and settled somebody's answer permanently on a reply nobody ever finished reading.
     const timeout = () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
@@ -283,8 +277,7 @@ describe("reading the answers back", () => {
     expect([selectAnalysisTargets([asRead]), selectAnalysisTargets([{ ...asRead, answerHash: "h-new" }]).map((r) => r.id)]).toEqual([[], ["x"]]);
   });
   it("treats a throttled reader as the provider's problem, not the answer's: no verdict, still due, and the 278 already stamped come back", async () => {
-    // Aug 3 and 4: 278 answers, every one rejected on a 429 and stamped with its own answer hash, so the system believed it had read them forever and Visibility divided by the handful the matcher happened to match. A refusal on the CONTENT is the opposite: it settles, names itself permanent, and
-    // carries the deterministic verdict in BOTH polarities, so the denominator is every answer read rather than every match found.
+    // Aug 3 and 4: 278 answers, every one rejected on a 429 and stamped with its own answer hash, so the system believed it had read them forever and Visibility divided by the handful the matcher happened to match. A refusal on the CONTENT is the opposite: it settles, names itself permanent, and carries the deterministic verdict in BOTH polarities, so the denominator is every answer read rather than every match found.
     const rows = Array.from({ length: 20 }, (_, i) => row(`t${i}`, `ht${i}`, null, false)), saved: Array<[string, Record<string, unknown>, string]> = [];
     const missed = { ...row("n", "h-n", null, false), answerText: "This answer names nobody at all." };
     await runAnswerAnalyses(T, DAY, { readObservations: async () => [missed, row("y", "h-y", null, false)], readPrompts: async () => null, identity: BRAND, analyzeBatch: async () => null, analyze: async () => null, persist: async (_t, id, a, hash) => void saved.push([id, a, hash]) });
@@ -321,9 +314,7 @@ describe("reading the answers back", () => {
     expect([[...unread], days[0], widest, passes < 30]).toEqual([[], DAY, 2, true]); // nothing bought is abandoned, TODAY is read before the older debt in the same window, and the per-pass bound holds: two lean window reads, never a store scan
   });
   it("drains old debt at EVERY age while today keeps taking new answers in, so no age band is unreachable and a day that is never quiet starves nothing behind it", async () => {
-    // Newest-owed-wins meant a day still collecting outranked every older debt forever: 140 answers arrive daily and one pass reads at most 40, so today was never quiet and 12 August's 140 answers stayed unreachable.
-    // AND THE TURN MUST NOT SHARE THE WINDOW'S CLOCK: 26 windows is an EVEN count, so an hourly parity carried the window index's parity and only odd multiples of seven ever took an oldest turn. Age 15 sits in the
-    // 14-20 band, one of the twelve bands (84 of 182 days) that were then unreachable at any number of passes. Half-hour parity is independent, so every window gets an oldest turn while it is the one open.
+    // Newest-owed-wins meant a day still collecting outranked every older debt forever: 140 answers arrive daily and one pass reads at most 40, so today was never quiet and 12 August's 140 answers stayed unreachable. AND THE TURN MUST NOT SHARE THE WINDOW'S CLOCK: 26 windows is an EVEN count, so an hourly parity carried the window index's parity and only odd multiples of seven ever took an oldest turn. Age 15 sits in the 14-20 band, one of the twelve bands (84 of 182 days) that were then unreachable at any number of passes. Half-hour parity is independent, so every window gets an oldest turn while it is the one open.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
     const unread = new Set([DAY, back(9), back(15)]), days: string[] = [];
     for (let half = 0; half < 6; half += 1) await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now: half * 1_800_000,
@@ -597,8 +588,7 @@ describe("work that is genuinely finished", () => {
     expect(await dueObservations(T, "2026-08-03", world)).toHaveLength(2);      // and a missed day is not backfilled: it is simply the day I am asked about
   });
 });
-/** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so every reading came back "not mentioned" and the AI trend
- * was computed from that. These go through the real production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and the account's own website, and a deterministic second read of the same answer catches what the model missed. */
+/** WHO the answer was read for. Beacon used to ask the model "was this brand mentioned" with an EMPTY brand, so every reading came back "not mentioned" and the AI trend was computed from that. These go through the real production wiring (no injected identity): the Account kernel derives the name from the confirmed profile and the account's own website, and a deterministic second read of the same answer catches what the model missed. */
 describe("every written form that still means this business", () => {
   it("says nothing at all about an account that has neither a name nor a website", () => {
     // No forms is the caller's signal to stop: asking a model "was this brand mentioned" with an empty brand comes back "no" every time, and a whole AI trend was computed off that answer.

@@ -1,5 +1,4 @@
-/** Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE tasks_ready), the
- *  PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live routing, the envelope rule, and method-aware resolution. */
+/** Provider-contract proof: the capability registry composed with the money-safe core, bound to BOUNDED official DataForSEO fixtures. No network, no Supabase, no spend. Pins the exact paths (post, FREE task_get, FREE tasks_ready), the PER-ENGINE request body with its documented output-token bound, DYNAMIC Standard-vs-Live routing, the envelope rule, and method-aware resolution. */
 import { describe, it, expect, vi } from "vitest";
 import { providerCall, keywordIdeasBatched, collectCapability, parseCapability, resolveEngineModel } from "@/domains/evidence/dataforseo/capabilities";
 import { identityCacheKey } from "@/domains/evidence/dataforseo/cached-call";

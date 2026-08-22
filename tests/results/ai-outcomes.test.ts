@@ -418,8 +418,7 @@ describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction,
   });
 });
 
-/** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on mentions, so a change raised because the site was read and never credited was banked as a win the moment it was named more often, which
- *  is the thing it was already doing. */
+/** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on mentions, so a change raised because the site was read and never credited was banked as a win the moment it was named more often, which is the thing it was already doing. */
 describe("a shipment is judged on the objective it declared (AEO reconstruction, 2026-08-19)", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
   const mine = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
@@ -508,8 +507,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
   });
 });
 
-/** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The
- *  whole table is here, because a sign error hides in the combination nobody wrote. */
+/** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The whole table is here, because a sign error hides in the combination nobody wrote. */
 describe("a conversion objective is graded on both halves, each on its own polarity", () => {
   const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example"; // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
   const links = (d: string) => [{ url: `https://${d}/page`, domain: d, title: null }];
@@ -608,8 +606,7 @@ describe("controls and per-assistant verdicts", () => {
   });
 });
 
-/** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on.
- *  Membership is what it must cover; write order is not membership. */
+/** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on. Membership is what it must cover; write order is not membership. */
 describe("the identity of the scope a baseline was frozen over", () => {
   const DAY = "2026-07-20";
   const SCOPE = { caseKey: "fanout:haft-seen", promptIds: ["p1", "p2"], promptVersions: [1, 2], engines: ["chatgpt", "gemini"],

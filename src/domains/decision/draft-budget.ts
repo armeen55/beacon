@@ -19,18 +19,18 @@ import "server-only";
  *  for ever: 364 charged calls produced seven visible changes, about fifty two calls each. */
 const MAX_PAID_CALLS = 30;
 
-/** THE KEY ONE PAID JOB IS FUNDED UNDER: its family and the page it is for, with the page reduced to its path. TWO
- *  RULES IN ONE STRING. The path reduction is the point of the second half: the deep door knows a page by its full
- *  address and every other family knows it by its path, so keying on whichever string was to hand funded ONE page
- *  twice, at three calls and then at twelve, which is "no hidden second capacity" broken by a spelling. And the
- *  family is the point of the first half: a twelve-call bundle and a three-call description are different work with
- *  different prices, so they are different candidates, each ranked and funded on its own terms rather than one
- *  quietly spending the other's allowance. One account is one site here, so a path identifies a page. */
-const keyOf = (family: string, p: { pagePath?: string | null; pageUrl?: string | null }): string => {
+/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE PAGE, reduced to its path, and never the family working on it. Both
+ *  halves were learned the hard way. Keying on whichever string was to hand (the deep door knows a page by its full
+ *  address, every other family by its path) funded ONE page twice, at three calls and then at twelve. Keying by
+ *  family did the same thing in daylight: a page with a rewrite AND an editor card took two candidate slots and two
+ *  allowances, so a successful rewrite left the editor's slot funded and unused, and a failed one let the same page
+ *  spend twelve calls and then three more. One page is ONE candidate, with ONE allowance, and the families working
+ *  on it draw from that one allowance in turn. One account is one site here, so a path identifies a page. */
+const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string => {
   const raw = (p.pagePath ?? p.pageUrl ?? "").trim().toLowerCase();
-  const path = !raw ? "unknown-page" : raw.startsWith("/") ? raw.replace(/\/+$/, "") || "/"
-    : (() => { try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; } })();
-  return `${family}:${path}`;
+  if (!raw) return "unknown-page";
+  if (raw.startsWith("/")) return raw.replace(/\/+$/, "") || "/";
+  try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
 };
 
 /** WHAT ONE DELIVERABLE COSTS: a draft, its judge and the final reviewer. A single-field change owes exactly one
@@ -45,7 +45,8 @@ const BUNDLE_DELIVERABLES = 4;
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could
  *  plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole
  *  allowance, already multiplied out. */
-type PaidJob = { key: string; family: string; impact: number; calls: number };
+type PaidJob = { key: string; family: string; impact: number; calls: number;
+  /** The cheaper families that also want work on this page. They run only if the funded one does not produce, and they draw on ITS allowance, never a second. */ fallbacks?: readonly string[] };
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
@@ -57,10 +58,15 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
  *  record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
-  // ONE ENTRY PER KEY. A family that declares the same job twice declares it once: the stronger claim on it wins, and
-  // no job is ever funded, or priced, twice over.
+  // ONE ENTRY PER PAGE, DECIDED BEFORE ANYTHING IS RANKED. Several families can want work on one page; the most
+  // expensive of them is the one that page is funded for, and the cheaper ones are its FALLBACKS, drawing on that
+  // same allowance rather than each buying their own. The page is worth the most any of them thinks it is worth.
   const byKey = new Map<string, PaidJob>();
-  for (const j of input.jobs) { const at = byKey.get(j.key); if (!at || j.impact > at.impact) byKey.set(j.key, { ...j }); }
+  for (const j of input.jobs) { const at = byKey.get(j.key);
+    if (!at) byKey.set(j.key, { ...j });
+    else byKey.set(j.key, { key: j.key, impact: Math.max(at.impact, j.impact),
+      family: j.calls > at.calls ? j.family : at.family, calls: Math.max(at.calls, j.calls),
+      fallbacks: [...new Set([...(at.fallbacks ?? []), ...(j.fallbacks ?? []), j.calls > at.calls ? at.family : j.family])].filter((f) => f !== (j.calls > at.calls ? j.family : at.family)) }); }
   const ranked = [...byKey.values()].sort((a, b) =>
     (b.impact / Math.max(1, b.calls)) - (a.impact / Math.max(1, a.calls)) || b.impact - a.impact || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
@@ -77,10 +83,10 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** The charged calls the plan left unfunded: money this pass decided not to commit, not money it has yet to spend. */
     calls: { left: callsLeft },
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
-    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact })),
+    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [] })),
     declined: declined as readonly DeclinedJob[],
-    /** COLLECT AN ALLOWANCE ALREADY DECIDED. An unfunded key gets null, and so does an UNKNOWN one: a family that
-     *  never declared its job on the manifest cannot spend, whenever it asks. One allowance per key, handed out once. */
+    /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never
+     *  declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
     take(key: string) {
       const open = held.get(key);
       if (open) return open.left > 0 ? open : null;
@@ -89,6 +95,20 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       const slice = { left: price };
       held.set(key, slice);
       return slice;
+    },
+    /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is
+     *  what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three
+     *  and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the
+     *  page was not funded or has nothing left, which is a refusal, not an error. */
+    draw(key: string, price: number) {
+      const open = this.take(key);
+      if (!open || open.left <= 0) return null;
+      let cap = Math.max(0, Math.min(Math.round(price), open.left));
+      if (cap <= 0) return null;
+      return {
+        get left() { return Math.min(cap, open.left); },
+        set left(v: number) { const spent = Math.max(0, Math.min(cap, open.left) - v); open.left -= spent; cap = Math.max(0, cap - spent); },
+      };
     },
     /** WHAT WAS ACTUALLY SPENT, off the allowances themselves: arithmetic, never a claim. */
     spent() {

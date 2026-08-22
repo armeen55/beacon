@@ -61,8 +61,7 @@ describe("what a job changes, and what a missing one may never change", () => {
       sectionFit(POPULATION, ["beautiful", "city", "iran"], CORPUS), sectionFit(null, ["tabriz"]), sectionFit(undefined, ["tabriz"]),
       sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in iran"), sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in tabriz"),
       sectionFit(TIMELINE, ["famous", "people", "history"], CORPUS, "who are some famous iranian people in history")])
-      // TIMELINE reads wrong_type now: a GUIDE is scoped to its own name like a city is (the /karaj travel guide walked past the city rule on its model-assigned type), and this fixture's bare "/timeline" address shares no word with the ask.
-      // Refused for scope instead of coverage; still never minted.
+      // TIMELINE reads wrong_type now: a GUIDE is scoped to its own name like a city is (the /karaj travel guide walked past the city rule on its model-assigned type), and this fixture's bare "/timeline" address shares no word with the ask. Refused for scope instead of coverage; still never minted.
       .toEqual(["fits", "fits", "off_topic", "off_topic", "wrong_type", "off_topic", "off_topic", "unknown", "unknown", "wrong_type", "fits", "wrong_type"]);
     // THE LIVE 2026-08-16 CASE, exactly as stored: /karaj typed "guide" with a landmarks topic may not answer a country-wide landmarks question, and still answers one that names Karaj.
     const KARAJ = page("karaj", "guide", "Provide travelers with essential information about Karaj's history, tourist attractions, climate, population, things to do, outdoor activities, festivals, and FAQs before they go.", "travelers", ["karaj history", "population", "climate", "tourist attractions and landmarks", "things to do"]);

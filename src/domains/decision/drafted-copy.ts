@@ -552,7 +552,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   // and the same charged calls as every other drafting family.
   // A caller that hands in no plan gets one made from these cards alone, priced and ranked by the same rules; the production caller hands in the pass's shared plan, so the editor competes for the same slots and charged calls as every other family.
   const budget = opts.budget ?? DRAFT_BUDGET.plan({ candidates: MAX_DRAFTS,
-    jobs: cards.filter((c) => kindFor(c) != null).map((c) => ({ key: DRAFT_BUDGET.keyOf("editor", c), family: "editor", impact: c.impactScore ?? 0, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })) });
+    jobs: cards.filter((c) => kindFor(c) != null).map((c) => ({ key: DRAFT_BUDGET.keyOf(c), family: "editor", impact: c.impactScore ?? 0, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })) });
   if (!opts.budget) log.info("[drafted-copy] no pass plan was handed in, so this run plans its own", { tenantId: opts.tenantId });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => kindFor(c) != null)
@@ -566,7 +566,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
     // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own.
-    const slice = budget.take(DRAFT_BUDGET.keyOf("editor", card));
+    const slice = budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     const drafted = done?.d;

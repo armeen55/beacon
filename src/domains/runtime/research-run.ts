@@ -79,6 +79,8 @@ export type ResearchRunProgress = {
     blocker?: string | null;
     /** THE DAY the ready-inventory check already ran (operator, 2026-08-22): durable, so a run resumed at the keyword phase five times cannot pay for five replenish passes, exactly like synthesisAttempted. */
     replenishedDay?: string;
+    /** WHY that day closed, kept beside it so what ended the obligation is inspectable rather than inferred from a date: the stock reached the target, or a funded drive finished nothing and proved no candidate on file can finish yet. */
+    replenishReason?: string;
   };
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {

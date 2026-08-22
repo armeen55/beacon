@@ -1,5 +1,4 @@
-/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one pool of three. ZERO IS
- *  PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
+/** PAUSING RESEARCH MUST STOP THE BUYING, NOT JUST THE RESEARCH CYCLE (operator, 2026-08-19): every stale surface rebuild ran the producer, which minted its paid budgets unconditionally, and maxDrafts bounded one pool of three. ZERO IS PROVED DIRECTLY: the doors are called and asked whether they touched the network. */
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
 import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";

@@ -180,27 +180,25 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const c of candidates) { const k = pageKeys(c.pageUrl).at(-1) ?? ""; if (!k) continue;
     worth.set(k, Math.max(worth.get(k) ?? 0, c.recoverableClicks, (pageKeys(c.pageUrl).map((x) => audience.get(x)).find((x) => x != null) ?? 0) / 100)); }
   const worthOf = (u: string | null | undefined): number => pageKeys(u).map((k) => worth.get(k)).find((v) => v != null) ?? 0;
-  /** THE ONE MANIFEST OF PAID WORK, COMPILED BEFORE A CENT IS SPENT AND PRICED BEFORE IT IS RANKED (Codex, 2026-08-22). Every family that can spend model money on this pass is on it: the winning-pattern reading, the new page, the shallow field drafts, the deep bundles, Beacon's own correction review and the editor. Nothing claims a slot by being reached first any more, and a key that is not on this list can never spend, whenever it asks. */
+  /** THE ONE MANIFEST OF PAID WORK, COMPILED BEFORE A CENT IS SPENT, PRICED BEFORE IT IS RANKED, AND CANONICAL BY PAGE (Codex, 2026-08-22). Every family that can spend model money on this pass declares here: the winning-pattern reading, the new page, the shallow field drafts, the deep bundles, Beacon's own correction review and the editor. Nothing claims a slot by being reached first, and a key that is not on this list can never spend, whenever it asks. AND SEVERAL FAMILIES WANTING ONE PAGE IS ONE JOB, not several: the plan collapses them to a single candidate priced at the dearest of them, so a page can never occupy two slots or two allowances. Declaring them separately meant a successful rewrite left an editor slot funded and unused, and a failed twelve-call rewrite unlocked another three calls on the same page while other pages went unfunded. */
   const newPageIds = coverage && earnedNewPage(coverage.decision) ? [coverage.investigation.key, ...coverage.investigation.aliasKeys] : null;
   const heldNewPage = newPageIds ? [...existing.values()].find((r) => r.kind === "new_page" && r.status !== "implemented_pending_verification" && basis != null && r.basis === basis && newPageIds.some((k) => r.id.includes(`::${k}::`))) ?? null : null;
   const topicWorth = (coverage?.investigation.demand.monthlySearchVolume ?? 0) / 100; // the same unit as every other row: searches a month read as the clicks a page for them could plausibly take
-  const jobs: { key: string; family: string; impact: number; calls: number }[] = [], editorCards: ChangeProposal[] = [];
+  const jobs: { key: string; family: string; impact: number; calls: number; fallbacks?: string[] }[] = [], editorCards: ChangeProposal[] = [];
+  const page = (c: { pagePath?: string | null; pageUrl?: string | null }) => DRAFT_BUDGET.keyOf(c);
   if (patternKey) jobs.push({ key: patternKey, family: "winning_pattern", impact: topicWorth, calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   if (newPageIds && !heldNewPage) jobs.push({ key: `topic:${coverage!.investigation.key}`, family: "new_page", impact: topicWorth, calls: DRAFT_BUDGET.BUNDLE_CALLS });
-  /** ONE PAGE, ONE PAID DELIVERABLE PER PASS, stated here rather than left to which write happened first. A bundle REPLACES its own shallow drafts, so a page the deep door selected declares the bundle and never both; and a page either half is already drafting takes no editor card beside it. This used to be true only by accident: the $0 queue ran after the drafters and skipped whatever pages already had a row on file, so a page whose draft failed got a second card and a page whose draft landed did not. The queue now runs before the pass spends anything, and the rule says itself. */
-  const bundling = new Set(deep.flatMap((d) => pageKeys(d.pageUrl)));
-  for (const i of inputs) { if (pageKeys(i.page.url ?? i.page.path).some((k) => bundling.has(k))) continue;
-    jobs.push({ key: DRAFT_BUDGET.keyOf("field_draft", { pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS }); }
-  for (const d of deep) jobs.push({ key: DRAFT_BUDGET.keyOf("deep_bundle", { pageUrl: d.pageUrl }), family: "deep_bundle", impact: worthOf(d.pageUrl), calls: DRAFT_BUDGET.BUNDLE_CALLS });
-  for (const c of factual.cards) jobs.push({ key: DRAFT_BUDGET.keyOf("correction_review", c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)) });
+  for (const d of deep) jobs.push({ key: page({ pageUrl: d.pageUrl }), family: "deep_bundle", impact: worthOf(d.pageUrl), calls: DRAFT_BUDGET.BUNDLE_CALLS });
+  for (const i of inputs) jobs.push({ key: page({ pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
+  for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)) });
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to.
   if (!quietDay) editorCards.push(...recovery.cards, ...extra.cards);
-  for (const c of editorCards) jobs.push({ key: DRAFT_BUDGET.keyOf("editor", c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
+  for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
-  if (patternKey) { const slice = budget.take(patternKey);
+  if (patternKey) { const slice = budget.draw(patternKey, DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (slice) { await readPattern(slice); candidates = compile(); acted = candidates.filter((c) => c.action === "act_existing_page"); earned = candidatesToEvidenceInputs(snapshot, acted); inputs = earned.slice(0, bound);
       cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")])); deep = selectDeepCandidates({ candidates, coverage, limit: bound }); } }
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the coverage walk owns what happens next, on the NEXT pass, exactly as before.
@@ -377,7 +375,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const heldPage = heldNewPage ?? live.find((r) => r.kind === "new_page" && current(r) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => r.id.includes(`::${k}::`))) ?? null; // An id this case ABSORBED still names this case's page, or a merge builds a second page for one subject.
     if (heldPage) { proposals.push(heldPage); reused += 1; }
     else {
-      const slot = budget.take(`topic:${decided.investigation.key}`); // THE WHOLE PAGE IS A TWELVE-CALL PROPOSAL and the plan above ranked it as one, against everything else this pass could have bought instead.
+      const slot = budget.draw(`topic:${decided.investigation.key}`, DRAFT_BUDGET.BUNDLE_CALLS); // THE WHOLE PAGE IS A TWELVE-CALL PROPOSAL and the plan above ranked it as one, against everything else this pass could have bought instead.
       const built = slot ? await buildNewPageProposal(decided, tenantId, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, attempts: slot }).catch((e) => ({ status: "none" as const, reason: e instanceof Error ? e.message : String(e) }))
         : { status: "none" as const, reason: "the pass's paid plan funded stronger work than a whole new page" };
       if (built.status === "built") { const page = { ...built.proposal, ...(basis ? { basis } : {}) }; proposals.push(page); await persistIfChanged(page); }
@@ -390,7 +388,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase())) continue;
     if (!(await admit(c))) continue;
     // BEACON REVIEWS ITS OWN CORRECTIONS, ON THE PLAN'S OWN TERMS: the review was priced and ranked with everything else, so it can no longer spend in front of higher-ranked completable work, and an unfunded review leaves the card exactly as minted rather than promoting anything nobody read.
-    const slot = budget.take(DRAFT_BUDGET.keyOf("correction_review", c));
+    const slot = budget.draw(DRAFT_BUDGET.keyOf(c), DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)));
     const card = slot ? await defects.FACTUAL_DEFECTS.review(c, { tenantId, now: opts.now ?? new Date(), attempts: slot,
       ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => c) : c;
     const p = { ...card, ...(basis ? { basis } : {}) };
@@ -451,7 +449,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
     doorWalked.add((d.pageUrl ?? "").trim().toLowerCase()); // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
     for (const k of pageKeys(d.pageUrl)) doorWalked.add(k.trim().toLowerCase());
-    const slot = budget.take(DRAFT_BUDGET.keyOf("deep_bundle", { pageUrl: d.pageUrl })); // A DEEP BUNDLE IS A TWELVE-CALL PROPOSAL, ranked as one above against every cheaper change it would have starved.
+    const slot = budget.draw(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), DRAFT_BUDGET.BUNDLE_CALLS); // A DEEP BUNDLE IS A TWELVE-CALL PROPOSAL, ranked as one above against every cheaper change it would have starved.
     if (!slot) { log.info("[produce-proposals] the pass's paid plan funded no allowance for this deep read", { tenantId, page: d.pageUrl }); continue; }
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, attempts: slot, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
@@ -486,15 +484,12 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
         proposals.push(restamped); reused += 1; await persistIfChanged(restamped); }
       continue;
     }
-    // ONE ALLOWANCE, WHICHEVER FAMILY IS SPENDING IT: a page the deep door selected has no field-draft entry on the manifest, so its fallback draws on the rewrite's own remainder, bounded to one deliverable so a stubborn card can never eat the twelve.
-    const shared = pageKeys(input.page.url ?? input.page.path).some((k) => bundling.has(k)) ? budget.take(DRAFT_BUDGET.keyOf("deep_bundle", { pageUrl: input.page.url ?? input.page.path })) : null;
-    const slot = shared ? { left: Math.min(DRAFT_BUDGET.DELIVERABLE_CALLS, shared.left) } : budget.take(DRAFT_BUDGET.keyOf("field_draft", { pagePath: input.page.path, pageUrl: input.page.url ?? null }));
+    // ONE ALLOWANCE, WHICHEVER FAMILY IS SPENDING IT: this draws its own deliverable's price from the page's single allowance, so on a page the deep door selected it is the rewrite's FALLBACK on the rewrite's own remainder, never a second purchase.
+    const slot = budget.draw(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slot || slot.left <= 0) { noDraft += 1; log.info("[produce-proposals] the pass's paid plan funded no allowance for this page", { tenantId, page: input.page.path }); continue; }
-    const lent = slot.left;
     const outcome = await proposeExistingPageChange(input, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, attempts: slot }).catch((e) => {
       log.warn("[produce-proposals] propose threw (fail-soft)", { tenantId, id: input.opportunity.query, error: e instanceof Error ? e.message : String(e) });
       return { status: "no_draft" as const, reason: "threw", drafterStatus: "error" }; });
-    if (shared) shared.left -= lent - slot.left; // what the fallback actually spent comes off the page's one allowance, so the receipt stays arithmetic
     if (outcome.status !== "ready") {
       noDraft += 1;
       // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.

@@ -1,11 +1,7 @@
-/** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write
- *  validation before I/O, the fail-closed write contract, and the canonical
- *  Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the
- *  foundation guard, not source scans. */
+/** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write validation before I/O, the fail-closed write contract, and the canonical Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the foundation guard, not source scans. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
-// ONE in-memory repository seam for every write in this file: `mem.upsert` is null
-// by default, so an unexpected write hits a client it cannot reach and fails loud.
+// ONE in-memory repository seam for every write in this file: `mem.upsert` is null by default, so an unexpected write hits a client it cannot reach and fails loud.
 const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
@@ -133,9 +129,7 @@ describe("a canonical write that did not land never reads as done", () => {
     expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]);
     expect(out.detail).toMatch(/^snapshot_write_failed:/); });
 });
-// ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset
-// variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk
-// one wins silently in production. Supabase unless the operator asks for files out loud.
+// ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk one wins silently in production. Supabase unless the operator asks for files out loud.
 describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
   it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
     const { usesSupabase } = await import("@/lib/persistence/repositories");
@@ -167,8 +161,7 @@ describe("Tier A sync* helpers stay tenant-wired", () => {
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
-  // Supabase stub: select("user_id") answers the collision probe with `owners`;
-  // the membership idempotency probe answers empty so provisioning proceeds.
+  // Supabase stub: select("user_id") answers the collision probe with `owners`; the membership idempotency probe answers empty so provisioning proceeds.
   const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) =>
     ({ from: (table: string) => ({
       select: (cols: string) => ({ eq: () => Object.assign(Promise.resolve({ data: cols === "user_id" ? owners : [], error: null }), { order: () => Promise.resolve({ data: [], error: null }) }) }),
@@ -181,8 +174,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const inserted: Record<string, unknown>[] = [];
     expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
     const { __table: _t, ...row } = inserted.find((r) => r.__table === "tenants")!;
-    // Any key that is not a real column takes EVERY signup down with PGRST204;
-    // the physical set also proves no vertical vocabulary is written.
+    // Any key that is not a real column takes EVERY signup down with PGRST204; the physical set also proves no vertical vocabulary is written.
     expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]);
     expect(typeof row.business_name === "string" && (row.business_name as string).length > 0, "business_name is NOT NULL").toBe(true);
     // A colliding id already owned by someone else is refused, never adopted.
@@ -363,9 +355,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard") }); // every product path resumes setup
       repo(withStatus({ status: "paused" }));
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
-      // ACTIVE IS A STATUS, NOT PROOF OF SETUP, and AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth
-      // cannot be read at all, so the one verdict is the bounded retry surface and never a bounce back into setup for a
-      // customer who finished it months ago, while an account with no website at all resumes at the step that asks for one.
+      // ACTIVE IS A STATUS, NOT PROOF OF SETUP, and AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth cannot be read at all, so the one verdict is the bounded retry surface and never a bounce back into setup for a customer who finished it months ago, while an account with no website at all resumes at the step that asks for one.
       repo(withStatus({ status: "active" }));
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "unavailable", reason: "unreadable" });
       repo(withStatus({ status: "active", domain: "" }));

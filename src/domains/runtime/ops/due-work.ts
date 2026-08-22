@@ -31,6 +31,7 @@ import type { ResearchRunProgress } from "../research-run";
  *  sequence. What these DO decide, when a RECOVERY pass is opened on them, is which phases that pass may run
  *  at all: a pass opened to read stored answers has no business re-buying keywords, results pages or winners. */
 export type DuePhase =
+  | "replenish_ready"
   | "refresh_sources"
   | "crawl_pages"
   | "daily_observations"
@@ -244,7 +245,22 @@ type DueWorkDeps = {
   analysisFingerprint?: (tenantId: string) => Promise<string | null>;
   consumedAnalyses?: (tenantId: string, basis: string) => Promise<string | null>;
   factDebt?: (tenantId: string) => Promise<{ owed: number; everChecked: boolean } | null>;
+  readyStock?: (tenantId: string) => Promise<number | null>;
+  creditHeld?: (tenantId: string) => Promise<boolean>;
 };
+
+/** THE FINISHED-CHANGE STOCK THE SCHEDULER KEEPS AHEAD OF ACQUISITION, and the one place it is written down. It is
+ *  owed work like any other debt: without that, a drive could take the queue from nothing to two, finish, and the
+ *  account would sit there three changes short until some UNRELATED debt happened to open the next run (Codex,
+ *  2026-08-22). Internal: never a customer setting, never UI. */
+export const READY_STOCK_TARGET = 5;
+
+/** How many finished changes are on file right now. $0: a lean projection of rows already stored. */
+async function readyStock(tenantId: string): Promise<number | null> {
+  const d = await import("@/domains/decision");
+  const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
+  return (await d.loadProposalQueue(tenantId, { currentBasis: basis })).ready.length;
+}
 
 /** CLAIMS THE PAGES MAKE THAT NOBODY HAS CHECKED against a source outside them. */
 async function factDebt(tenantId: string): Promise<{ owed: number; everChecked: boolean } | null> {
@@ -289,6 +305,12 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     basis.value ? settled((deps.consumedAnalyses ?? consumedAnalyses)(tenantId, basis.value), null as string | null) : Promise.resolve({ value: null, ok: true }),
     settled((deps.factDebt ?? factDebt)(tenantId), null as { owed: number; everChecked: boolean } | null),
   ]);
+  // THE STOCK, AND WHETHER TOPPING IT UP CAN ACHIEVE ANYTHING RIGHT NOW. Both are $0 reads of durable state. The
+  // credit stop is asked with the PURE reader, so asking can never spend the probe the transport is owed.
+  const [ready, creditHeld] = await Promise.all([
+    settled((deps.readyStock ?? readyStock)(tenantId), null as number | null),
+    settled((deps.creditHeld ?? (async (t: string) => (await import("@/domains/decision/llm/gateway")).creditBreakerHeld(t)))(tenantId), false),
+  ]);
 
   const progress = run.value?.progress ?? {};
   const focus = progress.focus ?? null;
@@ -315,6 +337,12 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     && (decided == null || decided.basis !== basis.value || decided.rowVersion < version.value);
 
   const due: DuePhase[] = [];
+  // 1. THE FINISHED-CHANGE STOCK. A queue under the target is owed work until it reaches the target or a drive
+  //    proves nothing can finish, and the day's close is stamped on the run with its reason, so this cannot spin.
+  //    While the provider's own credit is spent there is nothing a drive could achieve, so nothing is owed and the
+  //    day is NOT closed either: the moment the credit is back this is due again, without waiting for tomorrow.
+  const stockClosed = progress.state?.replenishedDay === day;
+  if (ready.value != null && ready.value < READY_STOCK_TARGET && !stockClosed && !creditHeld.value) due.push("replenish_ready");
   if (sources.value > 0) due.push("refresh_sources");
   // THE WEBSITE IS A SOURCE TOO, and reading it is the one piece of evidence nobody else supplies. An account
   // whose inventory still holds pages I have never opened is owed a batch, whatever else is quiet today.
@@ -346,7 +374,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // question, so it is not returned at all. It used to lean on two of the nine, so a crawl debt, a measurement ledger, a surface, a source, a basis or
   // an unread-answer probe that THREW was swallowed into "nothing is due" and the scheduler reported a healthy idle over a day it could not judge. An
   // individually EMPTY signal is untouched by this: zero stale sources is an honest zero, not an outage.
-  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok;
+  // ...AND THE FACT DEBT IS ONE OF THEM. It was read, judged and then left out of this line, so a fact-check store that THREW reported a readable day with check_page_facts quietly missing from it: exactly the swallowed outage this rule exists to stop, on the one debt nothing else can infer (Codex, 2026-08-22). The stock and the credit stop join it for the same reason.
+  const readable = run.ok && checks.value != null && sources.ok && basis.ok && version.ok && surface.ok && debt.ok && pages.ok && unread.ok && analyses.ok && consumed.ok && facts.ok && ready.ok && creditHeld.ok;
   if (!readable) log.debug("[due-work] durable state unreadable; the caller decides which way that falls", { tenantId });
   return {
     due: readable ? due : [], readable,

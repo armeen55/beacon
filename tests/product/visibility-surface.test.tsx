@@ -1,5 +1,4 @@
-/** VISIBILITY. What a customer READS on the one surface that answers "where do I stand, and why": headline numbers that name their own denominator, EVERY page that moved, every search Google named, the questions I ask the assistants with
- *  the runs behind them, and the whole of one run. Fixtures only, no clock, no dash, no lab word, no provider call. */
+/** VISIBILITY. What a customer READS on the one surface that answers "where do I stand, and why": headline numbers that name their own denominator, EVERY page that moved, every search Google named, the questions I ask the assistants with the runs behind them, and the whole of one run. Fixtures only, no clock, no dash, no lab word, no provider call. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -77,8 +76,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const bare = google({ days: [] });
     expect([bare.pages, bare.queries, bare.chart]).toEqual([null, null, null]);
     expect(bare.limitation).toContain("No Search Console numbers are on file for this account");
-    // A SITE WITH CLICKS HAS PAGES: coming back with none of them is a read that did not land. THE FAILURE SPEAKS GOOGLE'S OWN VOCABULARY (operator, 2026-08-21): it names Google, says the totals above are current, and
-    // never mentions AI answers or "stored answers" inside the Google tab.
+    // A SITE WITH CLICKS HAS PAGES: coming back with none of them is a read that did not land. THE FAILURE SPEAKS GOOGLE'S OWN VOCABULARY (operator, 2026-08-21): it names Google, says the totals above are current, and never mentions AI answers or "stored answers" inside the Google tab.
     const broken = google({ decay: [], pages: new Map() });
     for (const said of [broken.pages!.empty, broken.queries!.empty, broken.tiles[3]!.basis]) {
       expect(said).toContain("could not be read in time just now");
@@ -109,8 +107,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const v = ai();
     expect(v.tiles[0]!.basis).toBe("9 of the 20 answers finished checking over 3 days");
     expect(v.tiles[0]!.delta).toBe("+18.3 points"); expect(v.tiles[3]!.basis).toContain("across the 1 answers over 3 days that reported where you sat"); // both windowed, both naming the window
-    // 15 credited pages across 15 domains, ONE vote each: a chatty answer cannot outvote the rest of the window. ONE VOTE PER ANSWER, and this answer credits standards.example on TWO pages: counting links would make it 16
-    // votes and two crediting answers. AND THE VOTES OBEY THE CHOSEN STRETCH: the older reading sits outside the 3 days these numbers name, so it is excluded here exactly as it is excluded from every rate above.
+    // 15 credited pages across 15 domains, ONE vote each: a chatty answer cannot outvote the rest of the window. ONE VOTE PER ANSWER, and this answer credits standards.example on TWO pages: counting links would make it 16 votes and two crediting answers. AND THE VOTES OBEY THE CHOSEN STRETCH: the older reading sits outside the 3 days these numbers name, so it is excluded here exactly as it is excluded from every rate above.
     expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site over the last 3 days, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
     // AND THE TABLE SAYS THE SAME WINDOW THE TILE DOES. It named the last day read while every table beside it aggregated the stretch, so the range picker above it changed nothing at all.
     expect(v.citations!.note).toBe("Every site the assistants credited over the last 3 days, counting one vote per answer so a chatty answer cannot outvote the rest. 15 votes across 15 sites.");

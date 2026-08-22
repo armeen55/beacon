@@ -1,6 +1,4 @@
-/** Slice 6/6C/6D/6E/6F canonical evidence cache + atomic money path + task lifecycle. Every seam injected: no network, no Supabase, no spend. Proves reserve -> network -> reconcile, single-flight, tenant-independent identity, the envelope
- *  rule, free resumption, the STRUCTURED dispositions, the PAID-RESPONSE status policy (a reported zero cost never authorizes a silent paid retry), the DURABLE blocked hold beside the INDEFINITE uncertain quarantine, the one-GET listing
- *  memo, fail-closed reads and writes. No paid call is ever repeated. */
+/** Slice 6/6C/6D/6E/6F canonical evidence cache + atomic money path + task lifecycle. Every seam injected: no network, no Supabase, no spend. Proves reserve -> network -> reconcile, single-flight, tenant-independent identity, the envelope rule, free resumption, the STRUCTURED dispositions, the PAID-RESPONSE status policy (a reported zero cost never authorizes a silent paid retry), the DURABLE blocked hold beside the INDEFINITE uncertain quarantine, the one-GET listing memo, fail-closed reads and writes. No paid call is ever repeated. */
 import { describe, it, expect, vi } from "vitest";
 import { runResolvedCall, collectResolvedTask, identityCacheKey, type CachedCallDeps, type ResolvedCall } from "@/domains/evidence/dataforseo/cached-call";
 /** Every UPDATE matches ZERO rows here, so the production write seam must throw. */

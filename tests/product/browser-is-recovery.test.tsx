@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-/** THE BROWSER IS A RECOVERY SURFACE, NOT THE ENGINE (2026-08-02). One global scheduler drives the daily round now, so the tab-side loop that used to finish the day is gone and what is left has to be honest: ONE press of Update data is
- *  ONE recovery continuation, and Settings carries a pause switch that says plainly what pausing costs. Two seams are faked (the server actions and the router); zero network. */
+/** THE BROWSER IS A RECOVERY SURFACE, NOT THE ENGINE (2026-08-02). One global scheduler drives the daily round now, so the tab-side loop that used to finish the day is gone and what is left has to be honest: ONE press of Update data is ONE recovery continuation, and Settings carries a pause switch that says plainly what pausing costs. Two seams are faked (the server actions and the router); zero network. */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -68,8 +67,7 @@ describe("the pause switch over daily research", () => {
     expect(button.textContent).toBe("Resume daily research"); await press(button);
     expect([calls.paused, el.querySelector("button")!.textContent]).toEqual([[false], "Pause daily research"]);
   });
-  // A STATE THAT COULD NOT BE READ IS ITS OWN STATE. Rendering the switch as on or paused there is a claim about whether money is being spent right now, made
-  // out of a failed read, and a toggle under it invites the operator to "fix" a setting nobody can see.
+  // A STATE THAT COULD NOT BE READ IS ITS OWN STATE. Rendering the switch as on or paused there is a claim about whether money is being spent right now, made out of a failed read, and a toggle under it invites the operator to "fix" a setting nobody can see.
   it("says the status could not be checked when the state is unreadable, and offers no toggle to guess with", async () => {
     const el = await mount(<ResearchPause permission="unreadable" />);
     const copy = el.textContent ?? "";

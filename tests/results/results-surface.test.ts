@@ -177,8 +177,7 @@ describe("what the screen calls the work, and what it will not promise", () => {
 
 });
 
-/** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under
- *  "Worked" for traffic it never aimed at. */
+/** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under "Worked" for traffic it never aimed at. */
 describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(14, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
@@ -277,8 +276,7 @@ describe("the totals reconcile with what the rows actually show", () => {
   });
 });
 
-/** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop.
- *  RENDERED, never read off the view object: what a customer sees is what is pinned. */
+/** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop. RENDERED, never read off the view object: what a customer sees is what is pinned. */
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
     const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([

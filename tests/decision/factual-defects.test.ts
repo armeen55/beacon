@@ -99,8 +99,7 @@ describe("a correction bundle survives the round trip", () => {
   });
 });
 
-/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22): a clean reviewed bundle arrives ready; one failed component is held WITH its reason and never erases the valid ones; an unaffordable review promotes nothing
- *  and says why. `complete` is the gateway's own test seam. */
+/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22): a clean reviewed bundle arrives ready; one failed component is held WITH its reason and never erases the valid ones; an unaffordable review promotes nothing and says why. `complete` is the gateway's own test seam. */
 describe("the correction bundle is reviewed by Beacon itself", () => {
   const three = () => { checks.rows = [check(), check({ subject: "Bahar", current: "Spring wind.", proposed: "Spring, the season, in Persian." }),
     check({ subject: "Ciara", current: "Dark one.", proposed: "It's mean 'dark'." })]; };

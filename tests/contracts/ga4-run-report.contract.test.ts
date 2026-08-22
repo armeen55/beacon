@@ -1,5 +1,4 @@
-/** N40 contract test - GA4 runReport: a checked-in REAL response body through the ACTUAL narrowing parsers (narrowRunReportRows / narrowRevenueRows), so a silent upstream change fails a named test here instead of surfacing as zero traffic
- *  rows. NO live calls. */
+/** N40 contract test - GA4 runReport: a checked-in REAL response body through the ACTUAL narrowing parsers (narrowRunReportRows / narrowRevenueRows), so a silent upstream change fails a named test here instead of surfacing as zero traffic rows. NO live calls. */
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";

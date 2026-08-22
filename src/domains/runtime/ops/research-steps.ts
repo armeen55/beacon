@@ -30,7 +30,7 @@ import { publishCustomerSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
-import { accountBasis, dueWork, evidenceRowVersion, type DuePhase, type DueWork } from "./due-work";
+import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, type DuePhase, type DueWork } from "./due-work";
 import type { ResearchPhase } from "../research-run";
 
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
@@ -102,8 +102,6 @@ export type ResearchCycleSteps = {
     reason: "at_target" | "reached_target" | "grew_below_target" | "credit_exhausted" | "nothing_finished" } | null>;
 };
 
-/** The Ready stock the scheduler keeps ahead of acquisition. Internal: never a customer setting, never UI. */
-const READY_STOCK_TARGET = 5;
 /** How many deliverables one drive may finish toward the target: bounded so drafting stays inside the lease. A drive
  *  is therefore a STEP toward the target and not the whole of it, which is exactly why reaching the target and merely
  *  growing are two different answers here: the day is marked replenished on the first alone. */

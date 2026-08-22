@@ -1,5 +1,4 @@
-/** Per-account LLM budget isolation (closure, 2026-07-24). The promise: one account's LLM spend can never change another account's remaining budget or cap it, on EITHER layer (per-account file backstop + per-account durable ledger), and
- *  no budget operation runs without an explicit account. */
+/** Per-account LLM budget isolation (closure, 2026-07-24). The promise: one account's LLM spend can never change another account's remaining budget or cap it, on EITHER layer (per-account file backstop + per-account durable ledger), and no budget operation runs without an explicit account. */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
