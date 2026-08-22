@@ -143,7 +143,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   let cursor: Record<string, unknown> | null = run.phase_cursor ?? null;
   /** THE PASS RUNS WHAT IT WAS OPENED FOR. Null on the day's first genuine run, which walks the whole cycle. */
   const allowed = plannedPhases(run.progress ?? null);
-  // THE ONLY REASON THIS RUN OPENED IS THE FINISHED-CHANGE STOCK, so it tops the stock up and buys nothing at all.
+  // THE ONLY REASON THIS RUN OPENED IS THE FINISHED-CHANGE STOCK, so it tops the stock up and buys NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It does spend the bounded drafting allowance, which is the whole point of it, and saying it "buys nothing" was false (Codex, 2026-08-22).
   const stockOnly = (run.progress?.plan?.units ?? []).length > 0 && (run.progress?.plan?.units ?? []).every((u) => u === "replenish_ready");
   /** This pass owes a READING of answers already bought, and owes nobody a new one: the observation phase reads and buys nothing. */
   const planUnits = run.progress?.plan?.units ?? [];
@@ -169,7 +169,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
-  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 90_000, LEASE_REPROVE_AFTER_MS = 1_000; let replenished = false; // one inventory check per DAY before the first exploratory phase: MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait
+  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000; let replenished = false; // one inventory check per DAY before the first exploratory phase: MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait. The box doubled with the drive (operator, 2026-08-22): a drive allowed to finish five candidates needs room to finish them, and a boxed drive now writes nothing off, so the cost of waiting too long is a retry rather than a false exhaustion.
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
     // A DEAD DAY IS NEVER WORKED LATE, FROM ANY PHASE. Every phase's work is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and resumed after it would buy, crawl, publish and stamp for a day that is gone: a missed day is missed. This guard used to fire only on the observation phase, so a run paused at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill_chunk or publish_surface could pause its way across midnight over and over and HOLD the one-open-run index against today's own cycle. It sits at the top of EVERY resumed drive now, in front of the lease renewal and therefore in front of any paid or externally visible side effect in any phase; the pass closes with every piece of evidence it wrote intact and its remainder visibly short forever, and closing is what frees TODAY's cycle to be claimed.
@@ -217,24 +217,26 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (basis === null) return pause({ phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() });
 
     // READY BEFORE ACQUISITION, FROM WHICHEVER PHASE THIS PASS IS ON (operator, 2026-08-22). Bound to keyword_discovery alone, a run already parked at serp_analysis could never replenish at all, so a blocked account stayed blocked for ever. It now runs before the exploratory work of ANY funnel phase. SUCCESS IS PROVEN, NEVER ASSUMED: the marker is stamped only when the step re-read the queue and found the stock at target or genuinely grown, so a credit-exhausted, budget-refused, boxed or empty-handed attempt leaves the day retryable instead of recording itself as today's completed replenishment.
-    if (FUNNEL_PHASES.has(phase) && !replenished && progress.state?.replenishedDay !== run.cycle_key.slice(-10)) {
+    if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed == null) {
       replenished = true;
+      const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
       const runway = deadline - nowFn().getTime() - REPLENISH_RESERVE_MS;
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
         const r = await Promise.race([
-          steps.replenishReady(tenantId, nowFn()).catch(() => null),
+          steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [] }).catch(() => null),
           new Promise<null>((res) => setTimeout(res, Math.min(runway, REPLENISH_BOX_MS))),
         ]);
         log.info("[research-run] ready inventory checked before buying evidence", { tenantId, ...(r ?? { boxed: true }) });
-        // THE DAY CLOSES ON TWO ANSWERS AND NO OTHERS (Codex, 2026-08-22): the stock reached the target, or a funded drive finished NOTHING, which proves no candidate on file can finish right now. Growth that stops short leaves the day open, so the next scheduler dispatch continues from what is still owed; so does a boxed or credit-blocked drive, which spent nothing and proved nothing. The reason is stamped beside the day, so what closed it is inspectable rather than inferred from a date.
-        if (r?.satisfied === true || r?.reason === "nothing_finished") {
-          progress = { ...progress, state: { ...(progress.state ?? {}), replenishedDay: run.cycle_key.slice(-10), replenishReason: r!.reason } };
-          if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the marker persists and the lease is re-proven before the phase spends
+        // TWO ANSWERS MAY END THE DAY'S OBLIGATION AND NO OTHERS: the stock reached the target, or every candidate on the current manifest was spent on and not one produced. A quota failure, a provider failure, a boxed drive, an unreadable read and a bounded batch that simply came up empty all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
+        if (r) {
+          const closed = r.reason === "target_reached" || r.reason === "candidates_exhausted" ? r.reason : undefined;
+          progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(closed ? { closed } : {}) } };
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the day's memory persists and the lease is re-proven before the phase spends
         // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
         } else if (nowFn().getTime() - began >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
       }
-      // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NOTHING: the top-up has run, so this phase is finished with. THE OBLIGATION OUTLIVES THE RUN. A stock still short of the target stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list (see the claim door below), bounded by the day's own runaway ceiling. That is what makes 0 to 2 continue instead of ending the day three changes short: the run finishing is not the obligation finishing.
+      // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
       if (stockOnly) {
         const next = nextPlanned(nextPhase(phase), allowed ?? new Set<ResearchPhase>());
         if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";

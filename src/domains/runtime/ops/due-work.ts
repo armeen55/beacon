@@ -341,7 +341,8 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   //    proves nothing can finish, and the day's close is stamped on the run with its reason, so this cannot spin.
   //    While the provider's own credit is spent there is nothing a drive could achieve, so nothing is owed and the
   //    day is NOT closed either: the moment the credit is back this is due again, without waiting for tomorrow.
-  const stockClosed = progress.state?.replenishedDay === day;
+  // CLOSED means the day's obligation was DISCHARGED, and only two answers do that (see runtime/research-run's `replenish`): the stock reached the target, or every candidate on the current manifest was spent on and none produced. A quota failure, a provider failure or an empty bounded batch leaves it open, so the work is owed again the moment the block lifts.
+  const stockClosed = progress.replenish?.day === day && progress.replenish.closed != null;
   if (ready.value != null && ready.value < READY_STOCK_TARGET && !stockClosed && !creditHeld.value) due.push("replenish_ready");
   if (sources.value > 0) due.push("refresh_sources");
   // THE WEBSITE IS A SOURCE TOO, and reading it is the one piece of evidence nobody else supplies. An account

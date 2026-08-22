@@ -14,10 +14,14 @@ import "server-only";
  *  manifest once and decides the funded set once, and each family then collects an allowance already decided for it.
  *  A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
 
-/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. The
- *  old cap counted only the drafts that WORKED, so a pass whose every draft was refused simply bought another one,
- *  for ever: 364 charged calls produced seven visible changes, about fifty two calls each. */
-const MAX_PAID_CALLS = 30;
+/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It
+ *  is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this
+ *  only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty
+ *  (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can
+ *  actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is
+ *  NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the
+ *  same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
+const MAX_PAID_CALLS = 60;
 
 /** THE KEY ONE PAID JOB IS FUNDED UNDER: THE PAGE, reduced to its path, and never the family working on it. Both
  *  halves were learned the hard way. Keying on whichever string was to hand (the deep door knows a page by its full
@@ -56,7 +60,8 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
  *  jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans
  *  the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise
  *  record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
-function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean }) {
+function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
+  /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, DECIDED BEFORE ANYTHING IS RANKED. Several families can want work on one page; the most
   // expensive of them is the one that page is funded for, and the cheaper ones are its FALLBACKS, drawing on that
@@ -69,11 +74,12 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       fallbacks: [...new Set([...(at.fallbacks ?? []), ...(j.fallbacks ?? []), j.calls > at.calls ? at.family : j.family])].filter((f) => f !== (j.calls > at.calls ? j.family : at.family)) }); }
   const ranked = [...byKey.values()].sort((a, b) =>
     (b.impact / Math.max(1, b.calls)) - (a.impact / Math.max(1, a.calls)) || b.impact - a.impact || a.key.localeCompare(b.key));
-  const funded = new Map<string, number>(), declined: DeclinedJob[] = [];
+  const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
-    if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
+    if (skip.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
     else if (price > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `this needs ${price} charged calls and ${callsLeft} were left` });
     else { funded.set(j.key, price); slots -= 1; callsLeft -= price; }
@@ -82,6 +88,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   return {
     /** The charged calls the plan left unfunded: money this pass decided not to commit, not money it has yet to spend. */
     calls: { left: callsLeft },
+    /** EVERY candidate this pass could see, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). */
+    declared: ranked.map((j) => j.key),
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
     funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [] })),
     declined: declined as readonly DeclinedJob[],

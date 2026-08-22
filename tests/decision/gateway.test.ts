@@ -157,7 +157,7 @@ describe("a due probe is spent on the provider call itself, never on a guard in 
     vi.doMock("@/lib/persistence/supabase", () => ({ isSupabaseConfigured: () => true, getSupabaseAdmin: () => ({ from: () => ({
       select: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { metadata: ROW }, error: null }) }) }) }) }),
       upsert: async (r: { metadata: { creditBreaker: unknown } }) => (ROW.creditBreaker = r.metadata.creditBreaker, { error: null }) }) }) }));
-    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => ({ ready: [] }), produceProposalsForTenant: async () => ({ persisted: 0, held: [] }) })); // only the queue and the producer body stand in: the DRIVE is the real one
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => ({ ready: [] }), produceProposalsForTenant: async () => ({ persisted: 0, held: [], paid: { declared: [], funded: [], spentCalls: 0 } }) })); // only the queue and the producer body stand in: the DRIVE is the real one
     process.env.VITEST = "false"; // the module short-circuits every ledger read under vitest, and this one test wants the durable path it protects
     return await import("@/domains/decision/llm/gateway"); };
   it("survives every guard unspent, is claimed by the one request that leaves the process, and makes no call at all while held", async () => {
@@ -166,7 +166,7 @@ describe("a due probe is spent on the provider call itself, never on a guard in 
       const g = await realBreaker(), probe = () => (ROW.creditBreaker as { probeAt: string | null }).probeAt;
       const { defaultSteps } = await import("@/domains/runtime/ops/research-steps");
       // THE REAL REPLENISH DRIVE ASKS, then the producer's own guard asks: the exact two guards that used to eat it. After both, the probe is STILL unspent and neither refused the work over a credit stop.
-      expect([(await defaultSteps.replenishReady(T, new Date()))?.reason, await g.creditBreakerHeld(T), probe()]).toEqual(["nothing_finished", false, null]);
+      expect([(await defaultSteps.replenishReady(T, new Date()))?.reason, await g.creditBreakerHeld(T), probe()]).toEqual(["candidates_exhausted", false, null]);
       const wire = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null })));
       expect((await g.openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, costBreakerImpl: allowBreaker }))).kind).toBe("ok");
       expect([wire.capture.calls, ROW.creditBreaker]).toEqual([1, null]); // ONE real request received the probe, and the provider's answer cleared the stop outright

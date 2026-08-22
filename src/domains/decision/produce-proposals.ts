@@ -34,7 +34,8 @@ import { suggestedEdits } from "./suggested-edits";
 export type ProduceProposalsOptions = ProposeOptions & {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, and passing this skips that read. */
   intersection?: IntersectionEvidence;
-  /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number; /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[]; /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean; zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
+  /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number;
+  /** Pages a pass TODAY already spent on and got nothing from: declared on the manifest, never funded again, so the next pass walks DOWN the ranking rather than buying the same refusal twice. */ skipKeys?: readonly string[]; /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[]; /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean; zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
 };
 /** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they are VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
@@ -44,6 +45,8 @@ export type ProduceProposalsResult = {
   /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number; /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number; /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[]; coverage: DecidedTopic | null;
   /** the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking" */ waitingUntil: string | null;
   /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[];
+  /** THE PASS'S OWN MONEY RECEIPT: every candidate the manifest saw, the ones it funded, and what was actually charged. A caller topping an inventory up needs all three to tell "two attempts failed" from "there is nothing left to attempt" (Codex, 2026-08-22). */
+  paid: { declared: readonly string[]; funded: readonly string[]; spentCalls: number };
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
@@ -106,7 +109,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const blind = snapshot.sources.find((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed");
   if (blind) {
     log.warn(`[produce-proposals] the ${blind.source === "gsc" ? "search data" : "page inventory"} did not answer, so this pass changes nothing`, { tenantId });
-    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [] }; }
+    return { proposals: [], candidates: [], outcome: "evidence_unreadable", actionable: 0, investigating: 0, noDraft: 0, persisted: 0, reused: 0, heldForMeasurement: 0, investigations: [], coverage: null, waitingUntil: null, held: [], paid: { declared: [], funded: [], spentCalls: 0 } }; }
   const profile = await loadBusinessProfile(tenantId).catch(() => null), allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
   const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
   /** TWO HARD BUDGETS, and every paid Decision call this pass can reach decrements one of them BEFORE the call, whether it succeeded, refused or threw. 1. THE PAID PLAN (decision/draft-budget, compiled and funded below once every $0 producer has run): the reading of the winning pages, the new page, the shallow field drafts, every deep bundle piece, Beacon's own correction review and the editor. `maxDrafts` is the number of CANDIDATES the whole pass may spend on and MAX_PAID_CALLS caps the charged calls behind them, so no family keeps a pool and none can claim by being reached first. 2. `pageReads` (MAX_NEW_READS_PER_PASS): the durable page readings the $0 producers buy to place their cards (producers/page-job). These are a DIFFERENT thing bought at a different rate and are not folded into the call pool, where sixty of them would starve every drafter; they are named, counted and reported instead. A tripped provider breaker funds nothing at all. */
@@ -194,7 +197,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to.
   if (!quietDay) editorCards.push(...recovery.cards, ...extra.cards);
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
-  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen });
+  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
+  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), spentCalls: budget.spent().calls });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
@@ -406,7 +410,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return { proposals: await rankAndStamp(proposals), candidates: runReceipt(),
       outcome: proposals.length > 0 ? "proposals_persisted" : investigating > 0 ? "investigating"
         : consolidating > 0 ? "actionable_but_no_trusted_draft" : "no_actionable_candidate",
-      actionable: consolidating, investigating, noDraft: 0, persisted, reused, heldForMeasurement, ...research() };
+      actionable: consolidating, investigating, noDraft: 0, persisted, reused, heldForMeasurement, paid: receipt(), ...research() };
   }
   /** Every page a door selected, by both keys: a bundle for a page this pass did not select is dropped. */
   const selectedKeys = new Set(deep.flatMap((d) => pageKeys(d.pageUrl)));
@@ -540,5 +544,5 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   log.info("[produce-proposals] paid work this pass", { tenantId, ...budget.spent(), callsUncommitted: Math.max(0, budget.calls.left), pageReadsMade: MAX_NEW_READS_PER_PASS - Math.max(0, pageReads.left), pageReadsLeft: Math.max(0, pageReads.left) });
   if (outcome !== "proposals_persisted") log.warn("[produce-proposals] pass produced no durable work", { tenantId, outcome, actionable: acted.length, noDraft, writeFailures });
   return { proposals: await rankAndStamp(proposals), candidates: runReceipt(), outcome,
-    actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, ...research() };
+    actionable: acted.length + consolidating, investigating, noDraft, persisted, reused, heldForMeasurement, paid: receipt(), ...research() };
 }

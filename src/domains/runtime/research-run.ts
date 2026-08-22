@@ -77,11 +77,10 @@ export type ResearchRunProgress = {
     nextDueAt?: string | null;
     /** The pause vocabulary, persisted beside the numbers it explains. */
     blocker?: string | null;
-    /** THE DAY the ready-inventory check already ran (operator, 2026-08-22): durable, so a run resumed at the keyword phase five times cannot pay for five replenish passes, exactly like synthesisAttempted. */
-    replenishedDay?: string;
-    /** WHY that day closed, kept beside it so what ended the obligation is inspectable rather than inferred from a date: the stock reached the target, or a funded drive finished nothing and proved no candidate on file can finish yet. */
-    replenishReason?: string;
+
   };
+  /** THE DAY'S READY-INVENTORY WORK, day-scoped like the other day memories here. `fingerprint` names the manifest it was working through (a different basis or candidate set is a different question and starts again), `attempted` is the pages already spent on under it, and `closed` is set ONLY by an answer that may end the obligation: the stock reached the target, or every candidate on that manifest was spent on and none produced. A quota failure, a transient failure or an unreadable read leaves it absent, so the work is owed again the moment the block lifts. */
+  replenish?: { day: string; fingerprint: string; attempted: string[]; closed?: "target_reached" | "candidates_exhausted" };
   /** Slice 6: real persisted funnel counters (never fabricated). */
   funnel?: {
     rawKeywords?: number; normalizedKeywords?: number; retainedKeywords?: number;
@@ -325,6 +324,8 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
     if (out.capped == null && p.capped?.day === day) out.capped = p.capped;
     if (out.continuations == null && p.continuations?.day === day) out.continuations = p.continuations; if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
     if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
+    // THE DAY'S TOP-UP MEMORY TRAVELS WITH THE DAY, not with the run. Without this every extra same-day pass started from an empty attempted list, re-funded the same two failing pages and could never reach the third (Codex, 2026-08-22).
+    if (out.replenish == null && p.replenish?.day === day) out.replenish = p.replenish;
   }
   return out;
 }
