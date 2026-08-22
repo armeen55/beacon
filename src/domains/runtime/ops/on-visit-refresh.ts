@@ -103,8 +103,7 @@ const FACT_CHECK_HARD_STOP = new Set(["lease_lost", "lease_exhausted", "inventor
     const refreshedProviders = [...new Set([...(progress.refreshedProviders ?? []), ...result.succeeded])];
     const next = { ...progress, refreshedProviders, sourcesRefreshed: refreshedProviders.length };
     if (result.failures.length > 0) {
-      // Some connected sources failed to refresh: pause at refresh_sources with a bounded receipt. The succeeded ones kept their freshness stamps, so the
-      // retry targets only the remaining stale/failed sources. Do NOT publish off a failed refresh.
+      // Some connected sources failed to refresh: pause at refresh_sources with a bounded receipt. The succeeded ones kept their freshness stamps, so the retry targets only the remaining stale/failed sources. Do NOT publish off a failed refresh.
       return { progress: next, pause: { phase: "refresh_sources", failures: result.failures, at: now.toISOString(),
         message: `${result.failures.length} of ${result.attempted} connected sources failed to refresh`.slice(0, 300) } };
     }
@@ -139,8 +138,7 @@ function resolveAttemptKey(tenantId: string, runId: string, cycleKey: string, ph
 /** WHAT THE RUN DURABLY BECAME, read off the state that actually landed and never off "the function returned": completed and paused landed on the row, lost_lease means another instance owns it, failed means execution threw or the state did not persist. The daily dispatch counts its receipt off exactly this. */
 type DriveReceipt = "completed" | "paused" | "failed" | "lost_lease";
 
-/** Execute the claimed run from its current_phase to done, or pause durably. The DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase;
- *  if a renew / advance / finish reports our lease was lost, we abort immediately. */
+/** Execute the claimed run from its current_phase to done, or pause durably. The DATABASE lease we hold (via ownerToken) is renewed BEFORE every phase; if a renew / advance / finish reports our lease was lost, we abort immediately. */
 async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date, deadline: number, steps: ResearchCycleSteps, work: DueWork): Promise<DriveReceipt> {
   const tenantId = run.tenant_id;
   /** EVERY TERMINAL PATH STAMPS THE MONEY. The funnel counter sees only search buys, so a pass whose money went on model calls stamped $0 forever: 20 of 22 real runs. The day ledger holds EVERY platform's spend, so the BIGGER of the funnel number and the ledger's movement across the run is stamped; a run crossing midnight keeps the funnel number. A PAUSED RUN STAMPS EXACTLY AS A COMPLETED ONE DOES (operator, 2026-08-21): the live run sat paused at $0.00 while the day's ledger held $0.90, because only completion ever wrote the accumulator. A pause is only a pause once it LANDED: finishRun answers false when the lease was gone, and a pause nobody recorded is a failure. */
@@ -189,14 +187,13 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn
    *  this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
-  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 90_000; let replenished = false; // one inventory check per DAY before the first exploratory phase: MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait
+  const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 90_000, LEASE_REPROVE_AFTER_MS = 1_000; let replenished = false; // one inventory check per DAY before the first exploratory phase: MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
-    // A DEAD DAY IS NEVER WORKED LATE, FROM ANY PHASE. Every phase's work is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and resumed after it would buy, crawl, publish and stamp
-    // for a day that is gone: a missed day is missed. This guard used to fire only on the observation phase, so a run paused at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill_chunk or
-    // publish_surface could pause its way across midnight over and over and HOLD the one-open-run index against today's own cycle. It sits at the top of EVERY resumed drive now, in front of the lease renewal and
-    // therefore in front of any paid or externally visible side effect in any phase; the pass closes with every piece of evidence it wrote intact and its remainder visibly short forever, and closing is what frees
-    // TODAY's cycle to be claimed.
+    // A DEAD DAY IS NEVER WORKED LATE, FROM ANY PHASE. Every phase's work is scoped to the RUN'S OWN reporting day, so a run that paused before midnight Pacific and resumed after it would buy, crawl, publish and stamp for a day that is gone: a missed
+    // day is missed. This guard used to fire only on the observation phase, so a run paused at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill_chunk or publish_surface could pause its way across midnight over and over and
+    // HOLD the one-open-run index against today's own cycle. It sits at the top of EVERY resumed drive now, in front of the lease renewal and therefore in front of any paid or externally visible side effect in any phase; the pass closes with every
+    // piece of evidence it wrote intact and its remainder visibly short forever, and closing is what frees TODAY's cycle to be claimed.
     if (run.cycle_key.slice(-10) !== reportingDay(nowFn().getTime())) {
       log.info("[research-run] this pass belongs to a day that has ended, so I closed it and start today fresh", { tenantId, day: run.cycle_key.slice(-10) });
       // THE DEAD RUN KEEPS ITS OWN NUMBERS. `progress` above carries the counters this pass's due-work read for the day that has ALREADY begun, so
@@ -240,36 +237,38 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       phase = next; cursor = null; continue;
     }
 
-    // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a new basis and strands prior derived state. PUBLISHING NEEDS THAT BASIS TOO, because a run resumed straight at
-    // publish_surface would otherwise reach the staleness check and the release build with a basis nobody could read. NO BASIS, NO WORK OF ANY KIND: a basis I cannot read PAUSES this same phase before reconciliation,
-    // before any focus, unit, provider call, website fetch or surface write, so surfacePublished is never set and the release already saved stays visible. The retry re-resolves the basis, reconciles, then freezes, and
-    // it re-runs no completed evidence phase to get there.
+    // Every funnel unit runs under the account's CURRENT basis; a change in website/profile/goal mints a new basis and strands prior derived state. PUBLISHING NEEDS THAT BASIS TOO, because a run resumed straight at publish_surface would otherwise reach
+    // the staleness check and the release build with a basis nobody could read. NO BASIS, NO WORK OF ANY KIND: a basis I cannot read PAUSES this same phase before reconciliation, before any focus, unit, provider call, website fetch or surface write, so
+    // surfacePublished is never set and the release already saved stays visible. The retry re-resolves the basis, reconciles, then freezes, and it re-runs no completed evidence phase to get there.
     const basis = FUNNEL_PHASES.has(phase) || phase === "publish_surface" ? (await steps.currentBasis(tenantId)) || null : "";
     if (basis === null) return pause({ phase, message: NO_BASIS_DETAIL, at: nowFn().toISOString() });
 
-    // READY BEFORE ACQUISITION (operator, 2026-08-22; bounded per review): at the first exploratory-evidence phase, with fewer than five finished changes on file, the strongest stored opportunities are finished FIRST
-    // through the one canonical producer. ONCE PER DAY, DURABLY: the marker rides run progress like synthesisAttempted, so a run resumed at this phase five times pays once. TIME-BOXED WITH RESERVED RUNWAY: the drive
-    // stops waiting at the box so the daily observation phases keep their room, and a drafting pass still running finishes detached, writing proposals through the same canonical store.
-    if (phase === "keyword_discovery" && !replenished && progress.state?.replenishedDay !== run.cycle_key.slice(-10)) {
+    // READY BEFORE ACQUISITION, FROM WHICHEVER PHASE THIS PASS IS ON (operator, 2026-08-22). Bound to keyword_discovery alone, a run already parked at serp_analysis could never replenish at all, so a blocked account stayed blocked for ever. It now runs
+    // before the exploratory work of ANY funnel phase. SUCCESS IS PROVEN, NEVER ASSUMED: the marker is stamped only when the step re-read the queue and found the stock at target or genuinely grown, so a credit-exhausted, budget-refused, boxed or
+    // empty-handed attempt leaves the day retryable instead of recording itself as today's completed replenishment.
+    if (FUNNEL_PHASES.has(phase) && !replenished && progress.state?.replenishedDay !== run.cycle_key.slice(-10)) {
       replenished = true;
       const runway = deadline - nowFn().getTime() - REPLENISH_RESERVE_MS;
       if (runway > REPLENISH_MIN_MS) {
-        progress = { ...progress, state: { ...(progress.state ?? {}), replenishedDay: run.cycle_key.slice(-10) } };
+        const began = nowFn().getTime();
         const r = await Promise.race([
           steps.replenishReady(tenantId, nowFn()).catch(() => null),
           new Promise<null>((res) => setTimeout(res, Math.min(runway, REPLENISH_BOX_MS))),
         ]);
         log.info("[research-run] ready inventory checked before buying evidence", { tenantId, ...(r ?? { boxed: true }) });
-        if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the day marker persists and the lease is re-proven before the phase spends
+        if (r?.satisfied === true) {
+          progress = { ...progress, state: { ...(progress.state ?? {}), replenishedDay: run.cycle_key.slice(-10) } };
+          if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the proven marker persists and the lease is re-proven before the phase spends
+        // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
+        } else if (nowFn().getTime() - began >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
       }
     }
 
     if (FUNNEL_PHASES.has(phase)) {
-      // FREEZE THE INVESTIGATION ONCE PER RUN, durably, BEFORE a cent is spent: the ordered topic, the exact search it owes, the date it may next be retried and the basis it was chosen under, picked when this run
-      // first reaches the results-page phase and reused unchanged by winning-pages and the comparison, through advancePhase on the SAME phase. Only a REAL focus is frozen: an open run can span days, so one transient
-      // empty read must not silence it for that whole life. IDENTITY IS RECONCILED AND PERSISTED ON EVERY PHASE FIRST, not only when a plan is frozen, and A FAILURE PAUSES THIS SAME PHASE AND SPENDS NOTHING. THE
-      // READING IS BOUNDED PER RUN, NOT PER UNIT ITERATION: a phase iterates many times, so the marker rides run PROGRESS (the extraSamples pattern), persisted the moment an attempt is made, so a resumed run does not
-      // ask again; the plan this run froze rides along and is reviewed first.
+      // FREEZE THE INVESTIGATION ONCE PER RUN, durably, BEFORE a cent is spent: the ordered topic, the exact search it owes, the date it may next be retried and the basis it was chosen under, picked when this run first reaches the results-page phase
+      // and reused unchanged by winning-pages and the comparison, through advancePhase on the SAME phase. Only a REAL focus is frozen: an open run can span days, so one transient empty read must not silence it for that whole life. IDENTITY IS
+      // RECONCILED AND PERSISTED ON EVERY PHASE FIRST, not only when a plan is frozen, and A FAILURE PAUSES THIS SAME PHASE AND SPENDS NOTHING. THE READING IS BOUNDED PER RUN, NOT PER UNIT ITERATION: a phase iterates many times, so the marker rides run
+      // PROGRESS (the extraSamples pattern), persisted the moment an attempt is made, so a resumed run does not ask again; the plan this run froze rides along and is reviewed first.
       let asked = false;
       try { await steps.reconcileCases(tenantId, basis, { planKeys: (progress.focus?.topics ?? []).map((t) => t.topicKey).filter((k): k is string => !!k), maySynthesize: progress.synthesisAttempted !== true, mark: () => { asked = true; } }); }
       catch (error) { return pause({ phase, message: (error instanceof Error ? error.message : String(error)).slice(0, 300), at: nowFn().toISOString() }); }
@@ -313,9 +312,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
           phase = past; cursor = null; continue; }
         return pause(unit.status === "waiting" ? null : { phase, message: (unit.detail ?? "evidence step could not finish").slice(0, 300), at: nowFn().toISOString() });
       }
-      // THE BATCH IS NOT THE DAY. The unit answers for the window it was handed; the DAY is what the operator was promised, so a settled window RE-READS the
-      // canonical planner before this phase may move on. Unreadable pauses fail-closed, anything still owed keeps this same phase under a renewed lease, and
-      // only settled == intended advances, carrying the whole day's breakdown so completion reports the day and never the last batch.
+      // THE BATCH IS NOT THE DAY. The unit answers for the window it was handed; the DAY is what the operator was promised, so a settled window RE-READS the canonical planner before this phase may move on. Unreadable pauses fail-closed, anything still
+      // owed keeps this same phase under a renewed lease, and only settled == intended advances, carrying the whole day's breakdown so completion reports the day and never the last batch.
       if (phase === "prompt_observations") {
         const day = await steps.dayStanding(tenantId, run.cycle_key.slice(-10)).catch(() => null);
         if (day == null) return pause({ phase, message: DAY_UNREADABLE, at: nowFn().toISOString() });
@@ -341,10 +339,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       continue;
     }
 
-    // THE WEBSITE, READ UNTIL THERE IS NOTHING LEFT TO READ. One bounded batch per pass meant an account holding two hundred pages nobody had opened waited most of a year for its own inventory, which is not the
-    // product. The phase REPEATS its batch now, each round under a lease renewed at the loop top (a crawl is a real fetch, so it never runs on an unrenewed lease), until a batch reads nothing at all, the round cap
-    // stops it, or the pass runs out of time. A batch that reads nothing is the honest terminal answer (every page crawled, blocked with a retry date, unsupported, gone, or deferred by a bound on file) and the durable
-    // inventory keeps the whole score, so nothing here remembers anything between passes.
+    // THE WEBSITE, READ UNTIL THERE IS NOTHING LEFT TO READ. One bounded batch per pass meant an account holding two hundred pages nobody had opened waited most of a year for its own inventory, which is not the product. The phase REPEATS its batch now,
+    // each round under a lease renewed at the loop top (a crawl is a real fetch, so it never runs on an unrenewed lease), until a batch reads nothing at all, the round cap stops it, or the pass runs out of time. A batch that reads nothing is the honest
+    // terminal answer (every page crawled, blocked with a retry date, unsupported, gone, or deferred by a bound on file) and the durable inventory keeps the whole score, so nothing here remembers anything between passes.
     if (phase === "crawl_pages") {
       let read = 0;
       try { read = await steps.crawlPages(tenantId, nowFn()); }
@@ -355,9 +352,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       phase = next; cursor = again ? attemptCursor : null; continue;
     }
 
-    // VERIFY BEFORE ANYTHING IS PUBLISHED OFF IT (verify_and_measure). A change the operator marked as done is a claim until I have read their page, and Results
-    // answers "did Beacon verify it on the live website" off exactly this. It runs here, in front of the surface build, under the lease this loop just renewed:
-    // bounded to three pages, free (owned reads on the polite-fetch path, never a provider), and fail-soft, because a page I could not read must not pause a pass.
+    // VERIFY BEFORE ANYTHING IS PUBLISHED OFF IT (verify_and_measure). A change the operator marked as done is a claim until I have read their page, and Results answers "did Beacon verify it on the live website" off exactly this. It runs here, in front
+    // of the surface build, under the lease this loop just renewed: bounded to three pages, free (owned reads on the polite-fetch path, never a provider), and fail-soft, because a page I could not read must not pause a pass.
     if (phase === "publish_surface" && work.due.includes("verify_and_measure")) {
       const verified = await steps.verifyShipments(tenantId, nowFn()).catch(() => 0);
       if (verified > 0) log.info("[research-run] checked what you marked as done on your live pages", { tenantId, verified });
@@ -378,17 +374,15 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     }
     if (outcome.pause) {
       log.warn("[research-run] phase reported failures; pausing (recoverable)", { tenantId, phase, failures: outcome.pause.failures?.length ?? 0 });
-      // Persist the partial success (the providers that DID sync) durably BEFORE pausing, at the SAME phase with the SAME attempt cursor, so a mixed attempt
-      // never strands its succeeded sources. If our lease was lost, abort with no finish call.
+      // Persist the partial success (the providers that DID sync) durably BEFORE pausing, at the SAME phase with the SAME attempt cursor, so a mixed attempt never strands its succeeded sources. If our lease was lost, abort with no finish call.
       const saved = await advancePhase(tenantId, run.id, ownerToken,
         { phase, progress: { ...outcome.progress, state: { ...outcome.progress.state, blocker: outcome.pause.message } }, cursor: attemptCursor });
       if (!saved) return "lost_lease";
       return pause(outcome.pause);
     }
     progress = outcome.progress;
-    // THE DECIDE WATERMARK. A pass that reached the end of the decision step stamps the basis and the research-notes version it consumed, published or not: in both cases it looked and concluded. Notes that move PAST
-    // this are new evidence, which is what makes another pass the same day worth its money instead of a repeat. It is read here, after this pass's own writes, so a pass never counts its own discovery as somebody
-    // else's news and re-opens itself forever.
+    // THE DECIDE WATERMARK. A pass that reached the end of the decision step stamps the basis and the research-notes version it consumed, published or not: in both cases it looked and concluded. Notes that move PAST this are new evidence, which is what
+    // makes another pass the same day worth its money instead of a repeat. It is read here, after this pass's own writes, so a pass never counts its own discovery as somebody else's news and re-opens itself forever.
     if (phase === "publish_surface" && basis) {
       const version = await steps.evidenceVersion(tenantId, basis).catch(() => null);
       if (version != null) progress = { ...progress, decided: { basis, rowVersion: version } };
@@ -413,8 +407,7 @@ export async function driveClaimed(run: ResearchRun, ownerToken: string, work: D
   const fresh = run.current_phase === "refresh_sources" && run.phase_cursor == null;
   if (fresh && work != null && work.readable && work.due.length === 0) {
     log.info("[research-run] nothing is due; closing the pass at zero cost", { tenantId, nextDueAt: work.nextDueAt });
-    // The numbers go down BEFORE the close, on the same row, so a finished-with-nothing-owed pass can still tell the operator what it checked and the date the
-    // waiting ends. A pass that closes silently looks identical to one that never ran.
+    // The numbers go down BEFORE the close, on the same row, so a finished-with-nothing-owed pass can still tell the operator what it checked and the date the waiting ends. A pass that closes silently looks identical to one that never ran.
     await advancePhase(tenantId, run.id, ownerToken, { phase: run.current_phase, cursor: null, progress: { ...(run.progress ?? {}),
       state: { ...(run.progress?.state ?? {}), checksDone: work.checks.done, checksTotal: work.checks.total,
         checksAnswers: work.checks.answers, checksUnavailable: work.checks.unavailable, checksUnsupported: work.checks.unsupported,
@@ -436,9 +429,8 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   const steps: ResearchCycleSteps = { ...defaultSteps, ...options.steps };
   const deadline = nowFn().getTime() + deadlineMs;
 
-  // Slice 5 pre-activation gate: no research work runs before an account is active, and none runs unless the pause switch READS as running. FAIL CLOSED: a
-  // missing/unknown account, any read error, and a switch that could not be read at all are each a no-op (logged), never a claim. claim_research_run carries
-  // NEITHER guard (the fleet enumeration does), so this is the whole gate on the visit door, and the money is spent past it.
+  // Slice 5 pre-activation gate: no research work runs before an account is active, and none runs unless the pause switch READS as running. FAIL CLOSED: a missing/unknown account, any read error, and a switch that could not be read at all are each a
+  // no-op (logged), never a claim. claim_research_run carries NEITHER guard (the fleet enumeration does), so this is the whole gate on the visit door, and the money is spent past it.
   const account = await getTenant(tenantId).catch(() => null);
   if (!account || account.status !== "active") {
     log.debug("[research-run] skipped: account not active (no research before activation)", { tenantId, status: account?.status ?? "unknown" }); return; }
@@ -472,11 +464,10 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
  *  is the whole safety story: each hop is its own request with its own lease claim, so a closed tab simply stops, and this stops a live one from looping forever on a due list it can never clear. */
 const MAX_CONTINUATIONS = 6;
 
-/** ONE bounded continuation hop, and an honest answer about whether another is owed. The trigger stays what it was: next/after on render, one hop, no unawaited promise living past the response. What
- *  is new is that a hop reports back, so the surface that asked for it can ask again while work remains. Each hop is a SEPARATE request that claims the lease for itself, which is why a closed tab
- *  stops safely, a reopened one resumes exactly where the row says, and two tabs cannot both advance a run. THE HOP IS NOT THE CLIENT'S TO COUNT. It arrives from the browser, so a caller that kept
- *  sending 0 got a fresh allowance every time and the bound bounded nothing. The count is kept on the account's own row, scoped to the reporting day, inherited by every pass that opens that day, and
- *  the ceiling is enforced against THAT number; the client's claim is a fallback for the one case where nothing can be counted yet. */
+/** ONE bounded continuation hop, and an honest answer about whether another is owed. The trigger stays what it was: next/after on render, one hop, no unawaited promise living past the response. What is new is that a hop reports back,
+ *  so the surface that asked for it can ask again while work remains. Each hop is a SEPARATE request that claims the lease for itself, which is why a closed tab stops safely, a reopened one resumes exactly where the row says, and two
+ *  tabs cannot both advance a run. THE HOP IS NOT THE CLIENT'S TO COUNT. It arrives from the browser, so a caller that kept sending 0 got a fresh allowance every time and the bound bounded nothing. The count is kept on the account's
+ *  own row, scoped to the reporting day, inherited by every pass that opens that day, and the ceiling is enforced against THAT number; the client's claim is a fallback for the one case where nothing can be counted yet. */
 export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean }> {
   const claimed = Math.max(0, Math.trunc(hop));
   if (!tenantId) return { hop: claimed, more: false };

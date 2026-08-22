@@ -1,31 +1,19 @@
 import "server-only";
 
-/** decision/producers/factual-defects - THE PAGE SAYS SOMETHING UNTRUE, minted from banked research and from
- *  nothing else. Written after 165 sourced corrections were injected straight into a stored proposal payload
- *  by hand, overwritten by the next producer pass, and reapplied by hand again (operator, 2026-08-17: the
- *  store is persistence, not an authoring interface). Everything here is DETERMINISTIC from
- *  evidence/pages/fact-checks: the same banked checks mint the same bundle on every pass, a check that moves
- *  moves the bundle, and a page whose checks all pass mints nothing, which is how the card retires itself
- *  once the operator has corrected the page and the next check run says so.
- *
- *  ONLY CONFIRMED CORRECTIONS BECOME WORK. `likely` and `disputed` are real findings and stay in the research
- *  lane where they argue for themselves; `unsupported` names its missing source and proposes nothing. A
- *  correction with no scholarly, dictionary or encyclopedia source behind it never reaches a component,
- *  because a baby-name page is not authority to overwrite published words.
- *
- *  IT IS NOT A RANKING STORY. This cause is `factual_error` and carries no click figure: whether the wrong
- *  meanings also cost the page positions is a separate finding with separate evidence, and merging them would
- *  let a correction inherit a loss nothing ties it to. */
+/** decision/producers/factual-defects - THE PAGE SAYS SOMETHING UNTRUE, minted from banked research and from nothing else. Written after 165 sourced corrections were injected straight into a stored proposal payload by hand,
+ *  overwritten by the next producer pass, and reapplied by hand again (operator, 2026-08-17: the store is persistence, not an authoring interface). Everything here is DETERMINISTIC from evidence/pages/fact-checks: the same banked
+ *  checks mint the same bundle on every pass, a check that moves moves the bundle, and a page whose checks all pass mints nothing, which is how the card retires itself once the operator has corrected the page and the next check run
+ *  says so. ONLY CONFIRMED CORRECTIONS BECOME WORK. `likely` and `disputed` are real findings and stay in the research lane where they argue for themselves; `unsupported` names its missing source and proposes nothing. A correction
+ *  with no scholarly, dictionary or encyclopedia source behind it never reaches a component, because a baby-name page is not authority to overwrite published words. IT IS NOT A RANKING STORY. This cause is `factual_error` and carries
+ *  no click figure: whether the wrong meanings also cost the page positions is a separate finding with separate evidence, and merging them would let a correction inherit a loss nothing ties it to. */
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { authorizedCorrections, correctionSeverity, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
-/** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred
- *  and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE
- *  CAP (Codex, 2026-08-18: 62 confirmed corrections vanished behind an alphabetical top 40): the card says
- *  which batch it is, how many corrections remain, and orders by severity so the worst are never the ones cut. */
+/** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
+ *  2026-08-18: 62 confirmed corrections vanished behind an alphabetical top 40): the card says which batch it is, how many corrections remain, and orders by severity so the worst are never the ones cut. */
 const MAX_COMPONENTS = 40, BATCH = 10;
 
 const pathOf = (url: string): string => {
@@ -34,8 +22,7 @@ const pathOf = (url: string): string => {
 const n = (x: number): string => x.toLocaleString("en-US");
 const sourceLine = (c: FactCheck): string => c.sources.slice(0, 2).map((s) => s.url).join(", ");
 
-/** One banked check as one copy-ready component: the exact words on the page, the exact replacement, where
- *  else the same statement appears, and the source that authorizes it. */
+/** One banked check as one copy-ready component: the exact words on the page, the exact replacement, where else the same statement appears, and the source that authorizes it. */
 function componentOf(c: FactCheck, index: number): BundleComponent {
   const also = c.alsoAt.filter(Boolean);
   return {
@@ -57,12 +44,9 @@ function componentOf(c: FactCheck, index: number): BundleComponent {
 
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
-/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at
- *  needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control.
- *  Batches of ten go to the one gateway with the exact current statement, replacement, source quote and
- *  locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch
- *  that cannot be read (unaffordable, refused, no key) reviews nothing and the card stays honestly at
- *  needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
+/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one
+ *  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)
+ *  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
 const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component judge only: does the replacement read as grammatical natural English a person would publish in place of the current statement; is it consistent with the quoted source; does it contradict any OTHER component in this batch. Return ONLY {\"rulings\":[{\"index\",\"publish\",\"reason\"}]} with one ruling per component, reason one short sentence. When in doubt on a component, publish=false.";
 async function reviewComponents(tenantId: string, components: readonly BundleComponent[], now: Date,
   wiring: { attempts?: { left: number }; complete?: unknown; bypassCache?: boolean }): Promise<Map<number, string> | null> {
@@ -90,11 +74,39 @@ async function reviewComponents(tenantId: string, components: readonly BundleCom
   return held;
 }
 
-/** Every page whose banked checks contradict it, as one card each. Guarded like every producer: a read that
- *  fails narrows the pass and sweeps nothing. `review` wires Beacon's own sense review: with it, a bundle
- *  whose survivors all pass is promoted to ready; without it (or unaffordable) the card stays needs_review. */
-export async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
-  review?: { attempts?: { left: number }; complete?: unknown; bypassCache?: boolean } }): Promise<FactualDefectRun> {
+/** BEACON REVIEWS ITS OWN CORRECTIONS, AS ONE RANKED PAID CANDIDATE. The minted card carries every authorized correction and waits at needs_review; this reads them in batches of ten against their own sources and returns the card the
+ *  operator should see. Survivors stay and the card is promoted; a failed component is held WITH its reason on the receipt and never erases the valid ones; a review that holds EVERYTHING keeps every piece and promotes nothing (an
+ *  empty bundle is a card the contract cannot read back); a review that could not run at all returns the card untouched, so the pass reports no promotion it did not earn. */
+async function reviewFactualBundle(card: ChangeProposal, wiring: { tenantId: string; now: Date;
+  attempts?: { left: number }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal> {
+  const parts = card.bundle?.components ?? [];
+  if (parts.length === 0) return card;
+  const held = await reviewComponents(wiring.tenantId, parts, wiring.now, wiring).catch(() => null);
+  if (held == null) return card; // unaffordable, refused or unreadable: nothing is promoted and nothing is lost
+  const survivors = parts.filter((_, i) => !held.has(i));
+  const allHeld = survivors.length === 0;
+  const out = allHeld ? [...parts] : survivors;
+  const heldLines = [...held.entries()].map(([i, why]) => `Held by Beacon's own review, ${parts[i]?.label ?? `entry ${i + 1}`}: ${why}`);
+  const kept = (card.bundle!.receipt.missing ?? []).filter((m) => !m.startsWith("Held by Beacon's own review"));
+  const n = (x: number): string => x.toLocaleString("en-US");
+  return { ...card, status: allHeld ? card.status : "ready",
+    opportunityType: `${n(out.length)} sourced corrections on ${card.pagePath}`,
+    recommendedChange: { kind: "existing_edit", field: "section", before: null,
+      after: `${n(out.length)} corrected statements, each with its exact current wording, its replacement and the source that establishes it. Work through them piece by piece below.` },
+    estimatedEffortMinutes: Math.max(10, out.length * 2),
+    operatorSteps: (card.operatorSteps ?? []).map((step) => step.startsWith("Work through the ")
+      ? `Work through the ${n(out.length)} corrections below in ${n(Math.ceil(out.length / BATCH))} ${Math.ceil(out.length / BATCH) === 1 ? "batch" : "batches"} of about ${BATCH}` : step),
+    limitations: [allHeld
+      ? "Beacon's own reviewer read every correction and held all of them, so nothing here is offered until the next check run rewrites them; each reason is on the receipt."
+      : `Each correction was read by Beacon's own reviewer for grammar, source fit and contradictions before this was offered${heldLines.length > 0 ? `; ${n(heldLines.length)} ${heldLines.length === 1 ? "component is" : "components are"} held with the reason on the receipt` : ""}.`,
+      ...card.limitations.slice(1)],
+    bundle: { ...card.bundle!, objective: `${n(out.length)} statements on ${card.pagePath} stop contradicting their own sources.`,
+      components: out, plan: { ...card.bundle!.plan!, entries: out.map((c) => ({ kind: c.kind, label: c.label, disposition: "change" as const })) },
+      receipt: { ...card.bundle!.receipt, missing: [...heldLines, ...kept] } } };
+}
+
+/** Every page whose banked checks contradict it, as one card each, at $0. Guarded like every producer: a read that fails narrows the pass and sweeps nothing. Beacon's own sense review is a separate ranked candidate. */
+async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<FactualDefectRun> {
   const { tenantId, snapshot, now } = input;
   try {
     const checks = await readFactChecks(tenantId);
@@ -105,8 +117,7 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const key = canonicalUrlKey(c.page.startsWith("http") ? c.page : `${snapshot.scope.site ?? ""}${c.page}`);
       const list = byPage.get(key) ?? []; list.push(c); byPage.set(key, list);
     }
-    // THE PAGE VERSION DECISION CAN ACTUALLY SEE: a correction is work only while the page still says what it
-    // objected to, so the hash is recomputed from the same stored words. Bounded to pages holding one.
+    // THE PAGE VERSION DECISION CAN ACTUALLY SEE: a correction is work only while the page still says what it objected to, so the hash is recomputed from the same stored words. Bounded to pages holding one.
     const candidateUrls = [...byPage].filter(([k, rows]) => owned.has(k) && authorizedCorrections(rows).length > 0)
       .map(([k]) => owned.get(k)!.url);
     const pageHashes = new Map<string, string>();
@@ -125,10 +136,8 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       const page = owned.get(key);
       if (!page) continue; // a check for a page this account no longer owns is history, not work
       const path = pathOf(page.url);
-      // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats
-      // elsewhere on the page is the one to fix, and it must never be the one the cap drops.
-      // ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK (Codex, 2026-08-18): an older version, or a
-      // source nobody recorded reading, is a finding and never a live instruction.
+      // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats elsewhere on the page is the one to fix, and it must never be the one the cap drops. ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK
+      // (Codex, 2026-08-18): an older version, or a source nobody recorded reading, is a finding and never a live instruction.
       const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null })
         .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
@@ -137,20 +146,11 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       if (corrections.length === 0) continue; // nothing authorized: the findings live in the checks, not in a card
       const shown = corrections.slice(0, MAX_COMPONENTS);
       const remaining = corrections.length - shown.length;
-      let components = shown.map(componentOf);
-      // BEACON'S OWN SENSE REVIEW, per component: survivors stay in the bundle, a failed component is held
-      // WITH its reason where the operator can read it, and a review that could not run promotes nothing.
-      // A REVIEW THAT HOLDS EVERYTHING HOLDS THE BUNDLE WHOLE (review, 2026-08-22): filtering to zero pieces
-      // minted a card the contract schema refuses to read back, which is a vanished card over an unreadable
-      // row. Survivors are what may be filtered TO; zero survivors keeps every piece and stays unpromoted.
-      const heldByReview = input.review ? await reviewComponents(tenantId, components, now, input.review).catch(() => null) : null;
-      const survivors = heldByReview ? components.filter((_, i) => !heldByReview.has(i)) : components;
-      const reviewedOut = heldByReview && survivors.length > 0 ? [...heldByReview.entries()].map(([i, why]) => ({ c: components[i]!, why })) : [];
-      if (heldByReview && survivors.length > 0) components = survivors;
-      const reviewed = heldByReview != null && survivors.length > 0;
-      const allHeld = heldByReview != null && survivors.length === 0 && components.length > 0;
-      // EVERY COUNT THE OPERATOR READS SPEAKS FOR THE SURVIVORS (review, 2026-08-22): a ready card announcing
-      // twelve corrections over nine rendered pieces is a contradiction on the primary surface.
+      const components = shown.map(componentOf);
+      // THE MINT IS $0 AND ALWAYS HAS BEEN. Beacon's own sense review is a PAID candidate that the pass ranks against every other one (operator, 2026-08-22: the reviewer used to spend in front of the globally ranked drafting line), so it runs through
+      // reviewFactualBundle below and never from inside the mint.
+      const reviewedOut: { c: BundleComponent; why: string }[] = [];
+      const reviewed = false, allHeld = false;
       const shownCount = components.length;
       const batches = Math.ceil(shownCount / BATCH);
       const totalBatches = Math.ceil(corrections.length / MAX_COMPONENTS);
@@ -162,9 +162,8 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
       cards.push({
         id: `${tenantId}::${path.toLowerCase()}::existing_edit::factual_correction`, tenantId, kind: "existing_edit",
         pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
-        // THE COLLAPSED CARD NAMES THE DELIVERABLE, and the umbrella `after` is a description of the bundle,
-        // NEVER the thing to paste: the card renders the pieces, and only each piece's own wording is copyable
-        // (Codex, 2026-08-21: an umbrella Copy button copied "Replace the 40 statements listed below").
+        // THE COLLAPSED CARD NAMES THE DELIVERABLE, and the umbrella `after` is a description of the bundle, NEVER the thing to paste: the card renders the pieces, and only each piece's own wording is copyable (Codex, 2026-08-21: an umbrella Copy
+        // button copied "Replace the 40 statements listed below").
         opportunityType: remaining > 0
           ? `${n(shownCount)} sourced corrections on ${path} (batch 1 of ${n(totalBatches)}, ${n(remaining)} more confirmed after this)`
           : `${n(shownCount)} sourced corrections on ${path}`,
@@ -179,7 +178,6 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
             keeps: [`Every statement on ${path} that the check run found correct (${n(rows.filter((r) => r.verdict === "page_correct").length)} of ${n(checked)})`], removes: [] },
           receipt: { items: receipt, missing: [
             ...reviewedOut.map((h) => `Held by Beacon's own review, ${h.c.label}: ${h.why}`),
-            ...(allHeld && heldByReview ? [...heldByReview.entries()].map(([i, why]) => `Held by Beacon's own review, ${shown[i]?.subject ?? `entry ${i + 1}`}: ${why}`) : []),
             ...unsupported.map((u) => `No credible source settles ${u.subject}, so nothing is proposed for it.`)],
             freshestObservedAt: rows.map((r) => r.checkedAt).filter(Boolean).sort().at(-1) ?? null },
           alternatives: [{ option: "Leave the wording and add a note", reason: "A page that states a wrong meaning and a right one beside it is harder to trust, not easier." },
@@ -221,3 +219,6 @@ export async function factualDefectCards(input: { tenantId: string; snapshot: Ev
     return { cards: [], complete: false };
   }
 }
+
+/** THE PRODUCER'S SURFACE, as one export: the $0 mint, and Beacon's own paid sense review of what it minted. */
+export const FACTUAL_DEFECTS = { cards: factualDefectCards, review: reviewFactualBundle } as const;

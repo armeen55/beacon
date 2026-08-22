@@ -42,8 +42,7 @@ const shown = (s: string | null): number => {
 describe("the numbers at the top", () => {
   it("counts only the changes that finished their 28 day read, and adds up the rows on the screen", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: sharedCredit })], NOW);
-    // BANKED FRAMING: the denominator is every finished read, and the ones that did not win are named as what they taught.
-    expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 3 finished", isCount: true });
+    expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 3 finished", isCount: true }); // BANKED FRAMING: the denominator is every finished read, and the ones that did not win are named as what they taught.
     expect(view.header.clicks).toEqual({ value: "+10", positive: true, note: "+40 from wins, -30 from the rest" });  // NET, NEVER THE WINS ALONE. The gross from the wins drops to the smaller second line beside what the rest gave back.
     expect(view.header.appearances).toEqual({ value: "+70", positive: true, note: "+120 from wins, -50 from the rest" });
     expect(view.header.window).toBe("Across the 3 changes that finished their 28 day read.");
@@ -194,15 +193,13 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.yardstick).toBe("Judged on being credited in AI answers");
   });
   it("refuses to call a change a win for traffic it was never aimed at", () => {
-    // Google says this one improved. Its own objective did not move, so it is not filed as a win.
-    const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") });
+    const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") }); // Google says this one improved. Its own objective did not move, so it is not filed as a win.
     expect(row.group).toBe("flat");
     expect(row.verdictWord).toBe("No clear movement"); // never "No change": nothing was called either way
   });
   it("keeps an unfinished AI read in the reading lane rather than calling it early", () => {
     expect(first({ judgedMetric: "ai_retrieval", ai: ai("unclear") }).group).toBe("reading");
-    // AND A LEAN TAKEN THREE DAYS IN IS NOT A VERDICT EITHER, however strongly it leans.
-    expect(first({ judgedMetric: "ai_retrieval", ai: ai("improved", 3) }).group).toBe("reading");
+    expect(first({ judgedMetric: "ai_retrieval", ai: ai("improved", 3) }).group).toBe("reading"); // AND A LEAN TAKEN THREE DAYS IN IS NOT A VERDICT EITHER, however strongly it leans.
   });
   it("files a retrieval objective that went backwards under went down", () => {
     expect(first({ judgedMetric: "ai_retrieval", ai: ai("worsened") }).group).toBe("down");
@@ -224,8 +221,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.happened).toBe("Ran 28 days. Credited in AI answers more often than before.");
     expect(row.taught).toBe("This page read as the line searchers saw not matching what they typed, it was answered with a content change, it was credited in AI answers more often than before. That carries into what gets recommended next on pages like this one. Backed by 6 checks.");
     expect(row.nextStep).toBe("Do this again on the next page AI answers name without crediting.");
-    // The read this row is judged over is its own 28 days from the stamp, not the Google windows beside it.
-    expect([row.readLabel, row.pipCaption, row.timeline[2]]).toEqual(["28 day read done", "Read over 28 days", { label: "28 day read done", done: true }]);
+    expect([row.readLabel, row.pipCaption, row.timeline[2]]).toEqual(["28 day read done", "Read over 28 days", { label: "28 day read done", done: true }]); // The read this row is judged over is its own 28 days from the stamp, not the Google windows beside it.
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
   });
   it("keeps a Google decline on the row under its own heading, and never as the answer", () => {
@@ -275,8 +271,7 @@ describe("the totals reconcile with what the rows actually show", () => {
     const clickOnly = buildResultsView([shipment()], NOW);
     const withAi = buildResultsView([shipment(), shipment({ judgedMetric: "ai_citation",
       ai: { direction: "improved", line: "Credited on 6 of 20 answers.", metricLines: [], boundary: null, daysElapsed: 28 } })], NOW);
-    // The AI row is counted in the tabs, and adds nothing to a clicks figure it never printed.
-    expect(withAi.counts.worked).toBe(clickOnly.counts.worked + 1);
+    expect(withAi.counts.worked).toBe(clickOnly.counts.worked + 1); // The AI row is counted in the tabs, and adds nothing to a clicks figure it never printed.
     expect(withAi.header.clicks).toEqual(clickOnly.header.clicks);
     expect(withAi.header.appearances).toEqual(clickOnly.header.appearances);
   });

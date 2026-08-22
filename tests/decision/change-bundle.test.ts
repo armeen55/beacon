@@ -1,6 +1,8 @@
 /** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap, receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { receiptComposition } from "@/domains/decision/contracts"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, applyDraftedCopy, deliverableFailures, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
+const makeDraftBudget = DRAFT_BUDGET.make;
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
@@ -101,8 +103,8 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    // Six calls, not three: the defect card's draft is refused by the deterministic contract and the editor buys up to THREE fed-back attempts, each told every refusal so far. Still every one an edit.
-    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
+    // FOUR CALLS, AND NEVER SIX (operator, 2026-08-22): one candidate may consume at most THREE charged calls before the failure is banked and the ranked line moves on, so a refused card buys its three fed-back attempts and the next candidate gets its own. Still every one an edit.
+    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
@@ -195,8 +197,7 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     const ranked = rankProposals([res.proposals[0]!, one]); expect(only(quiet)[0]!.whyItMatters).toContain("AI answers about this topic credit compostpro, never this site.");
     expect([!!ranked[0]!.whyRankedAboveNext, ranked[0]!.rankingReceipt!.basis.length > 0, ranked[1]!.rankingReceipt!.factors.length > 0, ranked[1]!.whyRankedAboveNext, ledgerProofLine({ windows: [] }),
       ledgerProofLine({ windows: [{ day: 7, ran: true, controlsUsed: 3, adjustedLift: 12.4 }, { day: 28, ran: true, controlsUsed: 4, adjustedLift: -3.2 }, { day: 56, ran: false, controlsUsed: 0 }] })]).toEqual([true, true, true, undefined, null, "clicks -3 against similar pages that were not changed"]);
-    // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
-    expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); });
+    expect(sent.join(" ")).not.toMatch(/encyclopedia|wikipedia|culture|dynast|cuisine|province/i); }); // B6: generic product code carries no vertical assumption, whatever this account happens to sell.
   /** ONE TRACKED QUESTION IS ASKED OF SEVERAL ENGINES, so its id names several different answers. Matching lineage on the question id alone handed one engine's fan-out to another engine's answer: below, only the answer this account's lineage actually names may join, and its neighbour's searches stay its neighbour's. */
   it("never lets one engine's answer borrow the searches another engine's answer went and ran", async () => {
     const obs = (engine: string, promptText: string) => canonObs({ observationId: `obs_px_${engine}`, promptId: "px", promptText, engine, promptVersion: 2, reportingDay: "2026-07-22", citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], observedAt: "2026-07-22T00:00:00.000Z" });
@@ -222,8 +223,7 @@ const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); 
   vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async (_s: string, rows: { computedAt: string }[]) => { published.push(...rows); }, claimScope: async () => true, releaseScope: async () => undefined }));
   vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/lib/single-flight", () => ({ runSingleFlight: async (_k: string, fn: () => Promise<unknown>) => fn() }));
-  // THE TRIPWIRE THE BUILD RUNS: what it was told is already measured, and what it reverted.
-  const swept: Array<{ shipped: string[] }> = [];
+  const swept: Array<{ shipped: string[] }> = []; // THE TRIPWIRE THE BUILD RUNS: what it was told is already measured, and what it reverted.
   vi.doMock("@/domains/measurement", () => ({ loadShippedChanges: ledger.read, loadShippedChangesForTenant: (_t: string) => ledger.read() }));
   vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce,
     reconcileImplementedWithoutShipment: async (_t: string, shipped: ReadonlySet<string>) => { swept.push({ shipped: [...shipped] }); return ["reverted"]; } }));
@@ -299,16 +299,13 @@ describe("the coverage verdict never invents a page this account already owns", 
     const asking = await adjudicateCoverage(INV({ exactSerps: [], serpFreshness: "missing", nextAcquisition: buy }), [ONE], TENANT, {});
     expect([asking.verdict, asking.acquisition]).toEqual(["research_needed", buy]);
     expect(asking.explanation).toContain('What changes this: buying the results page for "rain barrel sizing".');
-    // NO ENDLESS INVESTIGATION: the acquisition was tried, nothing left to buy moves it, so it becomes a decision
-    const blind = { demand: { ...INV().demand, intent: null } };
+    const blind = { demand: { ...INV().demand, intent: null } }; // NO ENDLESS INVESTIGATION: the acquisition was tried, nothing left to buy moves it, so it becomes a decision
     const spent = await adjudicateCoverage(INV({ ...blind, nextAcquisition: null, diminishing: true }), [ONE], TENANT, {});
     expect([spent.verdict, spent.missing, spent.acquisition]).toEqual(["do_nothing", [], undefined]);
     expect(spent.explanation).toContain("Nothing more that can be bought moves this today. It moves again when your own numbers move.");
-    // while something IS still buyable, the same topic stays an investigation and says what to buy
-    const again = await adjudicateCoverage(INV({ ...blind, nextAcquisition: buy }), [ONE], TENANT, {});
+    const again = await adjudicateCoverage(INV({ ...blind, nextAcquisition: buy }), [ONE], TENANT, {}); // while something IS still buyable, the same topic stays an investigation and says what to buy
     expect([again.verdict, again.missing, again.acquisition]).toEqual(["research_needed", ["intent"], buy]); }); });
-// ── the page by page comparison: the one paid check, and the only road to a new page ──
-describe("a new page is earned by read evidence, and never by a guess about pages of your own", () => {
+describe("a new page is earned by read evidence, and never by a guess about pages of your own", () => { // ── the page by page comparison: the one paid check, and the only road to a new page ──
   it("buys nothing for an investigation short of any cheaper check, and names the exact pages for the one that earned it", async () => {
     for (const [, over, owned] of GATES.filter((g) => g[3] !== "page_intersection")) expect(intersectionComparison(await adjudicateCoverage(INV(over), owned, TENANT, {}), INV(over), owned)).toBeNull();
     const earned = await adjudicateCoverage(INV(), [ONE], TENANT, {});     expect(intersectionComparison(earned, INV(), [ONE])).toEqual({ pages: [...WIN.map((w) => w.url), ONE_URL], intersection_mode: "union" });
@@ -322,8 +319,7 @@ describe("a new page is earned by read evidence, and never by a guess about page
     const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } });
     expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
     expect(d.explanation).toContain("nothing is worth building"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });
-// ── how a page is SERVED: the V1 technical catalogue, off the two stores that answer it ──
-const AT = "https://fixture-content.example";
+const AT = "https://fixture-content.example"; // ── how a page is SERVED: the V1 technical catalogue, off the two stores that answer it ──
 const row = (url: string, over: Record<string, unknown> = {}) => ({ url, discovered_via: "sitemap", crawl_state: "crawled", http_status: 200, redirects_to: null, ...over });
 /** One account's inventory and capture, in the stores' own column names, carrying exactly one of each fault. */
 const SERVED = { inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/gone`, { crawl_state: "gone", http_status: 404 }),
@@ -341,15 +337,12 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     expect(found[0]!.redirectTo).toBeUndefined(); expect(found[1]!.evidence).toBe("/old sends people to /mid, and /mid sends them on again to /rain-barrels.");
     expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`); // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one
     expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
-    // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
-    const orphan = found.find((f) => f.kind === "orphaned_page")!;
+    const orphan = found.find((f) => f.kind === "orphaned_page")!; // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
     expect(orphan.exact).toBe("Rain Barrel Sizing"); expect(orphan.exactFix).toContain("/rain-barrels");
     expect(orphan.exactFix).toContain('reading "Rain Barrel Sizing"');
-    // PIN (B, F8): the spot on the source page is named the way a person names it, never a bag of tokens.
-    expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"');
+    expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"'); // PIN (B, F8): the spot on the source page is named the way a person names it, never a bag of tokens.
     expect(JSON.stringify(found)).not.toMatch(/[–—]|SERP|crawl_state|http_status|discovered_via/);
-    // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
-    expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]); });
+    expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]); }); // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
   // PIN (D, packet 5 + 6): AN ACCESS STATE IS NOT A DEAD PAGE. Only the two answers that mean "the support is gone" produce a dead-page change; being turned away, rate-limited or unreachable says something about me, not about the page. A server error is a bad minute until a SECOND read on a LATER day agrees.
   it("calls a page dead only on 404, 410 or a twice-confirmed server error, and never on an access state", () => {
     const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] }).filter((f) => f.kind === "non_200");
@@ -383,8 +376,7 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf(parts) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]);
     expect(validateProposal(prop({ bundle: bundleOf(parts) })).verdict).toBe("rejected"); // the same levers filed as a low risk ready change
-    // and the ordinary ones pass the gate as the changes they are, copy and all
-    const safe = parts.filter((c) => !dangerousComponents(parts).includes(c));
+    const safe = parts.filter((c) => !dangerousComponents(parts).includes(c)); // and the ordinary ones pass the gate as the changes they are, copy and all
     for (const c of safe) expect(validateProposal(prop({ recommendedChange: { kind: "existing_edit", field: fieldForComponent(c.kind), before: null, after: c.after }, bundle: bundleOf([c]) })).verdict).not.toBe("rejected");
   }); });
 // ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
@@ -414,15 +406,13 @@ describe("the complete change universe answers for itself", () => { it("round-tr
       expect(v.verdict).not.toBe("rejected"); // every kind in the union is a shape this validator understands
       if (dangerous) { expect(v.verdict).toBe("needs_review"); expect(v.reasons.join(" ")).toContain("confirm it before you make the change"); }
     }
-    // no component without evidence, no fact without sources, and no new kind without its four answers
-    const blind = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section_add", evidenceKeys: [] })]) }));
+    const blind = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section_add", evidenceKeys: [] })]) })); // no component without evidence, no fact without sources, and no new kind without its four answers
     expect([blind.verdict, blind.reasons.some((r) => r.includes("cannot show you anything behind"))]).toEqual(["rejected", true]);
     const unsourced = validateProposal(prop({ bundle: bundleOf([comp({ kind: "factual_correction" })]) }));
     expect([unsourced.verdict, unsourced.reasons.some((r) => r.includes("carries no sources to check it against"))]).toEqual(["rejected", true]);
     const mute = validateProposal(prop({ bundle: bundleOf([comp({ kind: "restructure", where: undefined, mechanism: undefined })]) }));
     expect([mute.verdict, mute.reasons.some((r) => r.includes("where on the page it goes, why it fixes what I diagnosed"))]).toEqual(["rejected", true]);
-    // a lever that moves the page and is NOT marked as one is a mislabelled change, never a safe paste
-    const sneaky = validateProposal(prop({ bundle: bundleOf([comp({ kind: "redirect", risk: "safe" })]) }));
+    const sneaky = validateProposal(prop({ bundle: bundleOf([comp({ kind: "redirect", risk: "safe" })]) })); // a lever that moves the page and is NOT marked as one is a mislabelled change, never a safe paste
     expect([sneaky.verdict, sneaky.reasons.some((r) => r.includes("not marked as one that needs your confirmation"))]).toEqual(["rejected", true]); });
   it("refuses a page move, a de-indexing or a merge smuggled through an ordinary component", () => {
     // the kind is a label somebody typed, and the copy is the change: a section rewrite that redirects and de-indexes the page is neither
@@ -438,8 +428,7 @@ describe("the complete change universe answers for itself", () => { it("round-tr
     const legal = (risk: BundleComponent["risk"]): BundleComponent => comp({ kind: "factual_correction", risk, after: "Under the county statute the permit is required above 60 gallons.",
       sourcePack: { sourceRequirements: ["Cite the county statute."], factRequirements: ["Confirm the 60 gallon threshold."] } });
     expect(dangerousComponents([legal("safe")])).toHaveLength(1); // a statute is dangerous whatever the row claims
-    // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
-    expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected");
+    expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected"); // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]); }); });
 describe("one score orders every kind of change, and says why", () => { it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
@@ -450,16 +439,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads");
     expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
     expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
-    // both changes land on the same page, so each one discounts the other for confounding
-    expect([factorOf(ranked[0]!, "confounding"), factorOf(ranked[1]!, "confounding")]).toEqual([-5, -5]);
+    expect([factorOf(ranked[0]!, "confounding"), factorOf(ranked[1]!, "confounding")]).toEqual([-5, -5]); // both changes land on the same page, so each one discounts the other for confounding
     // a cause NOTHING on the page can fix rewards no lever and punishes none either: those changes rank on everything else
     for (const cause of ["demand_decline", "measuring_change"] as const) { const [only] = rankProposals([prop({ diagnosisCause: cause, bundle: bundleOf([comp({ kind: "title" })]) })]);
       expect(factorOf(only!, "causeFit")).toBe(0);
       expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
     } });
   // DRAFT CAPACITY FOLLOWS THIS RANKING, NEVER ARRIVAL ORDER (operator, 2026-08-21): produce-proposals ranks the eligible cards through THIS function before the bounded drafter walks them, so with
-  // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
-  it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => {
+  it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => { // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
     const six = Array.from({ length: 6 }, (_, i) => prop({ id: `card-${i}`, pagePath: `/p${i}`, impactScore: i === 5 ? 900 : 10 + i }));
     expect(rankProposals(six)[0]!.id).toBe("card-5");
   });
@@ -468,8 +455,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const losing = prop({ id: "losing", pagePath: "/persian-male-names", impactScore: 191, estimatedEffortMinutes: 30 });
     const errand = prop({ id: "errand", pagePath: "/tiny", impactScore: null, demandImpressions90d: 2, estimatedEffortMinutes: 1 });
     const ranked = rankProposals([errand, losing]); expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
-    // 191 recoverable clicks at medium confidence: 7.64 counted at 85 percent. The discount is named, never silent.
-    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[1]!, "effort")]).toEqual([6.49, 3.83]);
+    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[1]!, "effort")]).toEqual([6.49, 3.83]); // 191 recoverable clicks at medium confidence: 7.64 counted at 85 percent. The discount is named, never silent.
     expect(factorOf(ranked[0]!, "visibility")).toBeGreaterThan(factorOf(ranked[1]!, "effort"));
     // THE RECOVERY BELONGS TO THE CAUSE: a lever that does not touch the cause forfeits the figure outright, so a bigger page can never buy a wrong change past the right one however wide the visibility band gets.
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
@@ -508,8 +494,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const brief = prop({ ...banked, researchOnly: true, estimatedEffortMinutes: 15, limitations: [], operatorSteps: undefined, evidence: { ...banked.evidence, evidenceRefCount: 9 },
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that says what only this page answers." } });
     // IDENTITY IS MATERIAL, NOT PROVENANCE (operator, 2026-08-22): a basis stamp, a reworded hint or a new agreeing observation preserves finished words; only the page moving under them destroys, with the stale-basis demotion and the
-    // banked-copy re-reads still guarding truth on their own doors.
-    const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked);
+    const kept = preferFinished(brief, banked), moved = preferFinished({ ...brief, basis: "b9" }, banked); // banked-copy re-reads still guarding truth on their own doors.
     const recrawled = preferFinished({ ...brief, copyStamp: "a page that reads differently now" }, { ...banked, copyStamp: "the page as it read when this line was written" });
     expect((recrawled.recommendedChange as { after: string }).after.slice(0, 5)).toBe("Write");
     const fresher = preferFinished(prop({ ...banked, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "A newer finished line about the Achaemenid flag and what it meant." } }), banked);
@@ -558,8 +543,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([title("Persian Boy Names with Meanings | Iranopedia", pk({ preserve: ["persian boy names list"], vocabulary: [] })).includes(DROP),
       title("Persian Boy Names List with Meanings | Iranopedia", pk({ preserve: ["persian boy names list"], vocabulary: [] })).includes(DROP),
       title("Persian Boy Names with Meanings | Iranopedia", pk({ preserve: [], vocabulary: [] })).includes(DROP)]).toEqual([true, false, false]);
-    // The Farsi ruling: banned everywhere EXCEPT where a real stored search for this page carries it.
-    const farsi = (demand: string[]) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/persian-male-first-names",
+    const farsi = (demand: string[]) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/persian-male-first-names", // The Farsi ruling: banned everywhere EXCEPT where a real stored search for this page carries it.
       actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"],
       uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "clicks",
       claims: [{ text: "a list of classic and modern Iranian names for boys in Farsi", supportedBy: ["page-copy-1", "demand-1"] }],
@@ -568,16 +552,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([farsi(["persian boy names in farsi"]).some((r) => r.toLowerCase().includes("farsi")),
       farsi([]).some((r) => r.toLowerCase().includes("farsi"))]).toEqual([false, true]); });
   // A BLANK CAPTURE AUTHORIZES NOTHING. persian-last-names holds 194,554 lifetime impressions and a raw fetch reads zero words off its javascript body; until a rendered read lands, no body-dependent
-  // copy may be bought or written for it. A page that WAS read keeps earning its editor attention on the same pass.
-  it("an unread page buys no draft, while a read page on the same pass still leaves with work", async () => {
+  it("an unread page buys no draft, while a read page on the same pass still leaves with work", async () => { // copy may be bought or written for it. A page that WAS read keeps earning its editor attention on the same pass.
     const page = (path: string, wordCount: number) => ({ url: `https://www.iranopedia.com${path}`, content: { wordCount }, search: null });
     const snapshot = { ownedPages: [page("/persian-last-names", 0), page("/thin-guide", 120)], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
     const card = (path: string) => ({ ...prop({ id: `${TENANT}::${path}::existing_edit::thin_page`, pagePath: path, pageUrl: `https://www.iranopedia.com${path}`,
       changeFamily: "section", status: "needs_review" as const, researchOnly: true as const, limitations: [],
       recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add 200 to 300 words that answer its main question." } }) });
     const out = await applyDraftedCopy([card("/persian-last-names"), card("/thin-guide")], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, attempts: { left: 0 } });
-    // The unread page's card comes back UNTOUCHED, still research: not drafted, not decorated, not promoted.
-    expect([out[0]!.researchOnly, out[0]!.limitations.length, out[1]!.limitations.length]).toEqual([true, 0, 1]); });
+    expect([out[0]!.researchOnly, out[0]!.limitations.length, out[1]!.limitations.length]).toEqual([true, 0, 1]); }); // The unread page's card comes back UNTOUCHED, still research: not drafted, not decorated, not promoted.
   // THE THREE CARDS WITHDRAWN FROM A PAYING OPERATOR'S LIVE QUEUE ON 2026-08-14, as fixtures. Each was written by the model, passed every gate INCLUDING the live judge on all seven of its criteria, and reached the customer surface. Each is now refused DETERMINISTICALLY, by name, before any model is consulted. The judge is defence in depth behind these, never the thing they rest on.
   it("the cards that reached a customer are refused before a model is asked", () => { const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms, demand: { preserve: [], vocabulary: [] } });
     const d = (o: Record<string, unknown>) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "answer_block", naturalHeading: "A human heading", beforeText: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 30, measurementTarget: "citations", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], ...o } as never, (o.P as never) ?? pk(""));
@@ -644,16 +626,13 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
     expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
     expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
-    // every factor stays inside its own ceiling, so no single input can quietly decide the order
-    for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); });
+    for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); }); // every factor stays inside its own ceiling, so no single input can quietly decide the order
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
-    // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
-    const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]);
+    const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]); // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
     expect(factorOf(floored!, "evidence")).toBe(0); expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
     // WORTH DECIDES, AND ONLY WORTH: 9,999 clicks proven recoverable outranks none, and the stage a row is at contributes nothing either way. Being safe to paste was worth 250, more than every other factor together.
     expect(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))).toBeGreaterThan(proposalValueScore(floored!));
-    // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
-    const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]);
+    const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]); // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
     expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
@@ -798,5 +777,52 @@ describe("finished copy survives a pass that cannot redraft", () => {
       expect(out.previousCopy?.after).toBe("The finished words, one item per line.");
       expect(out.previousCopy?.retiredBecause).toContain(said);
     }
+  });
+});
+
+/** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced
+ *  nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work
+ *  spent in front of the globally ranked line. These pin the arithmetic and the order. */
+describe("paid drafting spends once, in rank order, and no candidate can eat the pass", () => {
+  const ORDER = ["/best", "/second", "/third", "/last"];
+  const budget = (over: Partial<Parameters<typeof makeDraftBudget>[0]> = {}) =>
+    makeDraftBudget({ candidates: 2, calls: 30, order: ORDER, ...over });
+  it("funds at most `candidates` candidates across every family, whichever asks", () => {
+    const b = budget();
+    expect([b.claim("/best") != null, b.claim("/second") != null, b.claim("/third") != null]).toEqual([true, true, false]);
+    expect(b.spent().candidates).toBe(2);
+  });
+  it("refuses a lower-ranked candidate while better-ranked ones have not been offered", () => {
+    const b = budget(); // The exact defect: the correction reviewer and the deep read asked first and took the money.
+    expect(b.claim("/last")).toBeNull();
+    expect(b.claim("/best")).not.toBeNull();
+  });
+  it("caps one candidate at three charged calls and still funds the next ranked one", () => {
+    const b = budget();
+    const first = b.claim("/best")!;
+    expect(first.left).toBe(3);
+    first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
+    expect(b.claim("/best")).toBeNull();              // banked: it may not come back for more
+    expect(b.claim("/second")).not.toBeNull();        // and the next ranked candidate is attempted
+    expect(b.spent().calls).toBe(3);
+  });
+  it("never lets the families together exceed the pass ceiling", () => {
+    const b = makeDraftBudget({ candidates: 50, calls: 7, perCandidate: 3, order: [] });
+    let granted = 0, sum = 0;
+    for (let i = 0; i < 50; i += 1) { const s = b.claim(`/p${i}`); if (!s) break; granted += 1; sum += s.left; s.left = 0; }
+    expect(sum).toBeLessThanOrEqual(7);
+    expect(granted).toBeLessThanOrEqual(3);
+  });
+  it("claims nothing at all while the provider's own credit is spent", () => {
+    const b = budget({ breakerOpen: true });
+    expect([b.claim("/best"), b.reserve()]).toEqual([null, null]);
+    expect(b.spent().calls).toBe(0);
+  });
+  it("lets a coverage read draw calls without taking a drafting candidate's slot", () => {
+    const b = budget();
+    const read = b.reserve()!;
+    read.left = 0;
+    expect(b.spent()).toEqual({ calls: 3, candidates: 0 });
+    expect([b.claim("/best") != null, b.claim("/second") != null]).toEqual([true, true]);
   });
 });

@@ -22,8 +22,7 @@ function row(over: RowOver = {}): AiObservationRecord {
     requested_at: `${reporting_day}T09:00:00.000Z`, completed_at: `${reporting_day}T09:00:10.000Z`,
     cost_usd: 0, status: "observed", failure_reason: null, answer_text: "an answer", answer_hash: "abc",
     journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null },
-    // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial deliberately carries a different hash, which is exactly what keeps it out of every denominator.
-    analysis, analysis_hash: analysis ? "abc" : null, ...rest,
+    analysis, analysis_hash: analysis ? "abc" : null, ...rest, // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial deliberately carries a different hash, which is exactly what keeps it out of every denominator.
   } as AiObservationRecord;
 }
 
@@ -47,21 +46,16 @@ describe("the daily AI trend, over stored answers only", () => {
     ]);
     const days = allDays(await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-22", readObservations }));
     expect(days.map((d) => d.day)).toEqual(["2026-07-20", "2026-07-21"]);
-    // Three answers came back; two of them were read closely; one of those two named the account.
-    expect(days[0]).toMatchObject({ observed: 3, analyzed: 2, mentioning: 1, mentionRate: 0.5 });
-    // NOTHING was read closely on the 21st, so the rate is null. Zero would claim AI never named them.
-    expect(days[1]).toMatchObject({ observed: 2, analyzed: 0, mentioning: 0, mentionRate: null });
+    expect(days[0]).toMatchObject({ observed: 3, analyzed: 2, mentioning: 1, mentionRate: 0.5 }); // Three answers came back; two of them were read closely; one of those two named the account.
+    expect(days[1]).toMatchObject({ observed: 2, analyzed: 0, mentioning: 0, mentionRate: null }); // NOTHING was read closely on the 21st, so the rate is null. Zero would claim AI never named them.
   });
   it("reads citations, citation rank and retrieved-but-not-cited only where the engine reported them", async () => {
     const journey = (over: Partial<AiObservationRecord["journey"]>) =>
       ({ fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null, ...over });
     const readObservations = reader([
-      // Credited third, behind two others.
-      row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: journey({ cited_sources: [link("rival.example"), link("other.example"), link(`www.${SITE}`)] }) }),
-      // Read the page and credited someone else.
-      row({ day: "2026-07-20", prompt_id: "p2", mentioned: false, journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link(SITE)] }) }),
-      // The engine reported nothing about its sources at all: it joins neither sample.
-      row({ day: "2026-07-20", prompt_id: "p3", mentioned: false }),
+      row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: journey({ cited_sources: [link("rival.example"), link("other.example"), link(`www.${SITE}`)] }) }), // Credited third, behind two others.
+      row({ day: "2026-07-20", prompt_id: "p2", mentioned: false, journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link(SITE)] }) }), // Read the page and credited someone else.
+      row({ day: "2026-07-20", prompt_id: "p3", mentioned: false }), // The engine reported nothing about its sources at all: it joins neither sample.
       // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash and a fragment. A page the engine cited was never a page it read and passed over.
       row({ day: "2026-07-20", prompt_id: "p4", mentioned: true, journey: journey({
         cited_sources: [{ url: `https://www.${SITE}/guide/`, domain: `www.${SITE}`, title: null }],
@@ -97,8 +91,7 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p1", sample_slot: 2, mentioned: true }),
     ]);
     const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
-    // Slot 0 said no. Two extra samples said yes and neither one may move the line.
-    expect(day).toMatchObject({ observed: 1, analyzed: 1, mentioning: 0, mentionRate: 0 });
+    expect(day).toMatchObject({ observed: 1, analyzed: 1, mentioning: 0, mentionRate: 0 }); // Slot 0 said no. Two extra samples said yes and neither one may move the line.
   });
   it("counts what each engine was asked against what came back, and never invents a missed day", async () => {
     const readObservations = reader([
@@ -106,8 +99,7 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p2", engine: "chatgpt", status: "failed", mentioned: null }),
       row({ day: "2026-07-20", prompt_id: "p3", engine: "chatgpt", mentioned: null }), // came back, nobody has read it closely yet
       row({ day: "2026-07-20", prompt_id: "p1", engine: "claude", model_served: "claude-4", mentioned: false }),
-      // Nothing at all on the 21st. The 22nd resumes.
-      row({ day: "2026-07-22", prompt_id: "p1", engine: "chatgpt", mentioned: true }),
+      row({ day: "2026-07-22", prompt_id: "p1", engine: "chatgpt", mentioned: true }), // Nothing at all on the 21st. The 22nd resumes.
     ]);
     const report = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-22", readObservations });
     const days = allDays(report);
@@ -136,8 +128,7 @@ describe("the daily AI trend, over stored answers only", () => {
     expect(rows).toHaveLength(3920);
     const report = await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-28", readObservations: reader(rows) });
     const days = allDays(report);
-    // A 2,000 row cap over the newest readings held about a fortnight, so a 28 day report was half a month.
-    expect([observedIn(report), days[0]!.day, days.at(-1)!.day, days.length]).toEqual([3920, "2026-07-01", "2026-07-28", 28]);
+    expect([observedIn(report), days[0]!.day, days.at(-1)!.day, days.length]).toEqual([3920, "2026-07-01", "2026-07-28", 28]); // A 2,000 row cap over the newest readings held about a fortnight, so a 28 day report was half a month.
     expect(observedIn(await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-30", readObservations: reader(history(30, 50)) }))).toBe(6000);
   });
   it("never reads another account's answers", async () => {
@@ -170,8 +161,7 @@ describe("the model and mode boundary", () => {
   it("splits on a mode change too, and a silent engine never breaks the line on its own", async () => {
     const readObservations = reader([
       row({ day: "2026-07-20", mentioned: true }),
-      // The engine was asked and said nothing: no answer, so no evidence the instrument changed.
-      row({ day: "2026-07-21", status: "unavailable", model_served: null, mentioned: null }),
+      row({ day: "2026-07-21", status: "unavailable", model_served: null, mentioned: null }), // The engine was asked and said nothing: no answer, so no evidence the instrument changed.
       row({ day: "2026-07-22", observation_mode: "consumer_search", mentioned: true }),
     ]);
     const { segments } = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-22", readObservations });
@@ -210,8 +200,7 @@ describe("what the AI answers did around one shipped change", () => {
   };
   /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
-    // 140 answers, 100 read closely, 90 naming: the rate before is 0.9, where the old count said 0.64.
-    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, // 140 answers, 100 read closely, 90 naming: the rate before is 0.9, where the old count said 0.64.
       shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 100, mentioning: 90 } } },
     { readObservations: reader(stretch("2026-07-21", TO28, 2)), now: NOW28 });
     expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 100, mentioning: 90, rate: 0.9, from: "on_file" });
@@ -220,8 +209,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).toContain("90 of 100 before it");
   });
   it("says unclear when the starting day itself was barely read, however clear the days since are", async () => {
-    // 40 of 140 read closely that day: a fact about how much analysis finished, not about what AI said.
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4));
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4)); // 40 of 140 read closely that day: a fact about how much analysis finished, not about what AI said.
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 140, analyzed: 40, mentioning: 24 } }, }, { readObservations, now: NOW });
     expect(outcome?.after.rate).toBe(1);
     expect(outcome?.direction).toBe("unclear");
@@ -238,8 +226,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).not.toMatch(/[\u2014\u2013]/); // no em or en dashes, ever
   });
   it("reports a supported early move as movement, never as a verdict, before the 28 days have run", async () => {
-    // Eleven days in, a clear rise on adequate sides: the line says it is moving, and the direction waits, because day 7 and day 14 carry movement only (Codex, 2026-08-21).
-    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP,
+    const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, // Eleven days in, a clear rise on adequate sides: the line says it is moving, and the direction waits, because day 7 and day 14 carry movement only (Codex, 2026-08-21).
       shipmentBaseline: { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } } },
     { readObservations: reader(stretch("2026-07-21", "2026-07-31", 3)), now: NOW });
     expect(outcome?.direction).toBe("no_clear_movement");
@@ -255,8 +242,7 @@ describe("what the AI answers did around one shipped change", () => {
     const readObservations = reader([...stretch("2026-07-19", "2026-07-20", 3), ...stretch("2026-07-21", "2026-07-31", 1)]);
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: null } }, { readObservations, now: NOW });
     expect(outcome?.before).toMatchObject({ day: "2026-07-20", checked: 4, mentioning: 3, rate: 0.75, from: "stored_answers" });
-    // Four before-answers can describe where things stood; they can never support a verdict.
-    expect(outcome?.direction).toBe("no_clear_movement");
+    expect(outcome?.direction).toBe("no_clear_movement"); // Four before-answers can describe where things stood; they can never support a verdict.
   });
   it("counts the share over the answers it actually READ, so unfinished analysis is not a fall", async () => {
     // Every answer read closely named the account; a quarter of them have not been read yet. Dividing by everything that came back would report that backlog as AI turning against the account.
@@ -283,8 +269,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.line).not.toContain("the same share as");
   });
   it("says unclear when I read fewer than half the days that have passed", async () => {
-    // Eleven days have passed and only three carry a reading.
-    const readObservations = reader(stretch("2026-07-21", "2026-07-23", 4));
+    const readObservations = reader(stretch("2026-07-21", "2026-07-23", 4)); // Eleven days have passed and only three carry a reading.
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 0 } }, }, { readObservations, now: NOW });
     expect(outcome?.direction).toBe("unclear");
     expect(outcome?.coverage).toEqual({ daysObserved: 3, daysElapsed: 11 });
@@ -346,8 +331,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "scoped" });
     expect(batch).toHaveLength(3);
     expect(batch[2]).toBeNull();
-    // And each change is still judged on ITS OWN 28 days, byte for byte what it got when it read alone.
-    for (const [i, s] of shipments.entries()) {
+    for (const [i, s] of shipments.entries()) { // And each change is still judged on ITS OWN 28 days, byte for byte what it got when it read alone.
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));
     }
   });
@@ -369,17 +353,13 @@ describe("what the AI answers did around one shipped change", () => {
       { scopeQueries: Q, implementedAt: "2026-07-10T10:00:00.000Z", shipmentBaseline: held },
       { scopeQueries: Q, implementedAt: "2026-02-01T10:00:00.000Z", shipmentBaseline: held },   // its own stretch, and it throws
     ], { readObservations, now: NOW });
-    // Three overlapping windows are ONE read, so a day two changes both need is fetched once; the fourth change sits on its own stretch and is read on its own.
-    expect(asked).toEqual([
+    expect(asked).toEqual([ // Three overlapping windows are ONE read, so a day two changes both need is fetched once; the fourth change sits on its own stretch and is read on its own.
       { fromDay: "2026-01-04", toDay: "2026-02-28" },
       { fromDay: "2026-06-07", toDay: "2026-07-31" },
     ]);
-    // Fetched once: a day counted twice would double every one of these.
-    expect(batch.slice(0, 3).map((o) => o?.after.checked)).toEqual([44, 108, 88]);
-    // Verdicts wait for day 28; the two mature windows call, the eleven-day one reports movement only.
-    expect(batch.slice(0, 3).map((o) => o?.direction)).toEqual(["no_clear_movement", "no_clear_movement", "no_clear_movement"]);
-    // And the one whose answers I could not reach says so, instead of reading as a change AI never noticed.
-    expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } });
+    expect(batch.slice(0, 3).map((o) => o?.after.checked)).toEqual([44, 108, 88]); // Fetched once: a day counted twice would double every one of these.
+    expect(batch.slice(0, 3).map((o) => o?.direction)).toEqual(["no_clear_movement", "no_clear_movement", "no_clear_movement"]); // Verdicts wait for day 28; the two mature windows call, the eleven-day one reports movement only.
+    expect(batch[3]).toMatchObject({ direction: "unclear", coverage: { daysObserved: 0, daysElapsed: 28 } }); // And the one whose answers I could not reach says so, instead of reading as a change AI never noticed.
     expect(batch[3]?.line).toBe("The answers for this period could not be read just now. They are safe, and the next refresh reads them.");
   });
   /** THE DAY A CHANGE SHIPPED IS THE OPERATOR'S DAY. Observations are filed under the Pacific reporting day; deriving the shipped day in UTC put every evening stamp on tomorrow, so that same evening's answers, taken AFTER the operator made the change, were counted on the BEFORE side of it. */
@@ -394,8 +374,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.from).toBe("2026-08-04");                 // the operator's day, not the UTC one
     expect(outcome?.before.day).toBe("2026-08-03");                 // so the evening's own answers are not "before"
     expect(outcome?.after.checked).toBe(52);                        // 13 days x 4 answers, the 4th included
-    // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone boundary above is the whole of what this pins.
-    expect(outcome?.direction).toBe("no_clear_movement");
+    expect(outcome?.direction).toBe("no_clear_movement"); // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone boundary above is the whole of what this pins.
   });
 });
 
@@ -490,13 +469,11 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     const readObservations = reader(days("2026-07-21", "2026-07-31", () => ({ mentioned: true, journey: journeyOf(["rival.example", "fixture-outdoors.example"], null) })));
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_mentioned_not_cited") },
       { readObservations, now: NOW });
-    // Credited second on every answer since, against fourth on the frozen day.
-    expect([outcome?.citations.rankBefore, outcome?.citations.rankAfter]).toEqual([4, 2]);
+    expect([outcome?.citations.rankBefore, outcome?.citations.rankAfter]).toEqual([4, 2]); // Credited second on every answer since, against fourth on the frozen day.
     expect(outcome?.metricLines).toContain("Credited in position 2 on average, from position 4.");
   });
   it("says null, never zero, for a metric no answer on that side reported", async () => {
-    // Not one answer since said which sources it used. Zero would claim AI credited the page on none of them.
-    const readObservations = reader(days("2026-07-21", "2026-07-31", () => ({ mentioned: true })));
+    const readObservations = reader(days("2026-07-21", "2026-07-31", () => ({ mentioned: true }))); // Not one answer since said which sources it used. Zero would claim AI credited the page on none of them.
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_retrieved_not_cited") },
       { readObservations, now: NOW });
     expect(outcome?.citations.after).toEqual({ sample: 0, hits: 0, rate: null });
@@ -516,8 +493,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       { engine: "chatgpt", modelServed: "gpt-5.5", mode: "api", answers: 24 },
     ]);
     expect(outcome?.boundary).toBe("The instrument changed under this reading: ChatGPT moved from gpt-5 to gpt-5.5. A step here is the instrument, not the change.");
-    // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made on empties the after side, which reads on screen as the change losing everything it had.
-    expect(outcome?.after.checked).toBe(44);
+    expect(outcome?.after.checked).toBe(44); // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made on empties the after side, which reads on screen as the change losing everything it had.
   });
   /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
   it("reports an unmeasurable AI outcome when no starting numbers were frozen, and rebuilds none", async () => {
@@ -535,8 +511,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
 /** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The
  *  whole table is here, because a sign error hides in the combination nobody wrote. */
 describe("a conversion objective is graded on both halves, each on its own polarity", () => {
-  // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
-  const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example";
+  const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example"; // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
   const links = (d: string) => [{ url: `https://${d}/page`, domain: d, title: null }];
   /** One answer to this change's own question, saying what it credited and what it read. Null on either side = the engine reported nothing there, so that answer joins no sample at all. */
   const answer = (day: string, i: number, cited: string | null, read: string | null) =>
@@ -578,8 +553,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
   });
   it("says out loud that being passed over rose, on the numbers, instead of reporting no change", async () => {
     const outcome = await judged(before(1, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE]);
-    // Credited on exactly the share it started at, and passed over on two thirds of the answers that read the page, up from a quarter.
-    expect([outcome?.citations.before.rate, outcome?.citations.after.rate]).toEqual([0.25, 0.25]);
+    expect([outcome?.citations.before.rate, outcome?.citations.after.rate]).toEqual([0.25, 0.25]); // Credited on exactly the share it started at, and passed over on two thirds of the answers that read the page, up from a quarter.
     expect([outcome?.retrievedNotCited.before.rate, outcome?.retrievedNotCited.after.rate]).toEqual([0.25, 0.667]);
     expect(outcome?.metricLines).toContain("Read and passed over on a larger share than before, which is the thing this change was raised to stop.");
     expect(outcome?.line).not.toMatch(/[—–]/); // no em or en dashes, ever
@@ -611,8 +585,7 @@ describe("controls and per-assistant verdicts", () => {
   const C1 = "an unaffected question", C2 = "another unaffected question", MINE = "where should I go";
 
   it("subtracts the unaffected questions' own drift before calling a verdict", async () => {
-    // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly as much: the world moved, not the change, and the receipt says so.
-    const outcome = await judge([
+    const outcome = await judge([ // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly as much: the world moved, not the change, and the receipt says so.
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
     expect([outcome?.controls?.questions, outcome?.controls?.mentionDrift]).toEqual([2, 0.75]);
@@ -626,8 +599,7 @@ describe("controls and per-assistant verdicts", () => {
     expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]);
   });
   it("reports a split when two assistants genuinely disagree, never an average", async () => {
-    // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both adequately sampled, and the one honest overall answer is that they split.
-    const outcome = await judge([
+    const outcome = await judge([ // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both adequately sampled, and the one honest overall answer is that they split.
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);
     expect(outcome?.direction).toBe("mixed");
@@ -643,8 +615,7 @@ describe("the identity of the scope a baseline was frozen over", () => {
   const SCOPE = { caseKey: "fanout:haft-seen", promptIds: ["p1", "p2"], promptVersions: [1, 2], engines: ["chatgpt", "gemini"],
     models: ["gpt-5", "gpt-5.5"], modes: ["api", "consumer_search"], fanoutKey: "haft seen table items list",
     fanouts: ["alpha search", "beta search"], observationIds: ["obs-a", "obs-b"], stage: "owned_mentioned_not_cited" };
-  // A store that answers the probe AND the day it names, so every scope below freezes off the same single answer and only the scope moves.
-  const readObservations = vi.fn(async (_t: string, o: { day?: string }) =>
+  const readObservations = vi.fn(async (_t: string, o: { day?: string }) => // A store that answers the probe AND the day it names, so every scope below freezes off the same single answer and only the scope moves.
     (o.day == null || o.day === DAY ? [row({ day: DAY, prompt_id: "p1", engine: "chatgpt", mentioned: true })] : []));
   const print = async (over: Partial<typeof SCOPE> = {}): Promise<string> =>
     (await aiBaselineFor(T, { ...SCOPE, ...over }, { readObservations }))!.scopeFingerprint!;

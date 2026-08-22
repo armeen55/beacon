@@ -1,12 +1,7 @@
 import "server-only";
 
-/**
- * research-steps (V1 Truth Convergence Phase 5, 2026-07-31) - the PHASE BODIES of a Research Run:
- * what each phase actually does, and the injectable shape the runner drives them through. Split
- * out of on-visit-refresh.ts, which owns the ordering, the lease and the truth boundary; the
- * contract between the two is `ResearchCycleSteps` and nothing else. A test replaces one body and
- * gets the real ordering; production passes none and gets the real bodies below.
- */
+/** research-steps (V1 Truth Convergence Phase 5, 2026-07-31) - the PHASE BODIES of a Research Run: what each phase actually does, and the injectable shape the runner drives them through. Split out of on-visit-refresh.ts, which owns
+ *  the ordering, the lease and the truth boundary; the contract between the two is `ResearchCycleSteps` and nothing else. A test replaces one body and gets the real ordering; production passes none and gets the real bodies below. */
 
 import { autoRefreshStaleConnectorsForTenant } from "@/lib/connectors/on-use-refresh";
 import {
@@ -41,19 +36,16 @@ import type { ResearchPhase } from "../research-run";
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
  *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
-/** How many accounts one recovery probe may look at, and how the fleet ROTATES past that bound. Twenty was a fixed HEAD of the account list, so account twenty one
- *  was never probed, ever: it could be short every day forever and nothing would find it. The window MOVES now, by a deterministic offset off the clock in id
- *  order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no fleet held in memory and
- *  no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
+/** How many accounts one recovery probe may look at, and how the fleet ROTATES past that bound. Twenty was a fixed HEAD of the account list, so account twenty one was never probed, ever: it could be short every day forever and
+ *  nothing would find it. The window MOVES now, by a deterministic offset off the clock in id order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no
+ *  fleet held in memory and no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
 const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000;
 
-/** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source
- *  failure detail for the rest. `succeeded` is a list of provider identities (not a count) so retries can UNION distinct successes rather than
- *  double-count them. */
+/** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
+ *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
 
-/** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is
- *  a THROW, never a value. */
+/** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is a THROW, never a value. */
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 
 /** Injectable phase bodies + clock/deadline so the runner is testable with a short budget and stub executors; production passes nothing and uses the real
@@ -61,9 +53,8 @@ type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: 
 export type ResearchCycleSteps = {
   refreshSources: (tenantId: string, now: Date, attemptKey: string) => Promise<RefreshSourcesResult>;
   backfillChunk: (tenantId: string, now: Date, attemptKey: string) => Promise<BackfillChunkResult>;
-  /** ONE bounded batch of the account's OWN website (crawl_pages). The polite raw reads are free; pages the
-   *  raw fetch stored as zero-word 200s then get a BOUNDED rendered read through the one provider gateway,
-   *  because a CMS page rendered with javascript is invisible to a raw fetch and blindness is not evidence. */
+  /** ONE bounded batch of the account's OWN website (crawl_pages). The polite raw reads are free; pages the raw fetch stored as zero-word 200s then get a BOUNDED rendered read through the one provider gateway, because a CMS page
+   *  rendered with javascript is invisible to a raw fetch and blindness is not evidence. */
   crawlPages: (tenantId: string, now: Date) => Promise<number>;
   /** The four Slice 6 evidence executors (evidence facade), one per funnel phase. */
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
@@ -71,24 +62,19 @@ export type ResearchCycleSteps = {
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
-  /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW
-   *  pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory reading: which cases this run froze (they are reviewed first),
-   *  whether a reading may still be attempted at all this run, and `mark`, called at the instant one is attempted so the runner can persist that fact. */
+  /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory
+   *  reading: which cases this run froze (they are reviewed first), whether a reading may still be attempted at all this run, and `mark`, called at the instant one is attempted so the runner can persist that fact. */
   reconcileCases: (tenantId: string, basis: string, plan: CaseReconcilePlan) => Promise<void>;
   publishSurface: (tenantId: string, attemptKey: string) => Promise<void>;
-  /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase
-   *  never blocks a run, because a page whose statements could not be checked today is not an outage. */
-  /** ONE RESEARCH UNIT'S WORTH of source checking. `budgetMs` is what is LEFT of the drive's own deadline, not
-   *  a fresh allowance of its own, and `renew` is the caller's lease: a claim is only ever started while the
-   *  lease is genuinely held. Answers in the run's vocabulary (advanced / done / failed) so a pass that
-   *  checked one claim cannot be read as a page, or an account, that is finished. */
+  /** CHECK ONE PAGE'S OWN CLAIMS AGAINST SOURCES OUTSIDE IT. Bounded, budgeted and fail-soft: this phase never blocks a run, because a page whose statements could not be checked today is not an outage. */
+  /** ONE RESEARCH UNIT'S WORTH of source checking. `budgetMs` is what is LEFT of the drive's own deadline, not a fresh allowance of its own, and `renew` is the caller's lease: a claim is only ever started while the lease is genuinely
+   *  held. Answers in the run's vocabulary (advanced / done / failed) so a pass that checked one claim cannot be read as a page, or an account, that is finished. */
   factCheck: (tenantId: string, budgetMs: number, renew?: () => Promise<boolean>)
     => Promise<{ status: "advanced" | "done" | "failed"; banked: number; pagesComplete: number; failure?: string; reason?: string }>;
   surfaceStale: (tenantId: string, nowMs: number) => Promise<boolean>;
-  /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many
-   *  ended with a durable verdict, how many of those were a non-reading, and how many real readings landed, so a run row can say what a pass actually did instead
-   *  of showing a count nobody can check against the debt. Derived work: it never pauses the run. `budgetMs` is what is LEFT of the drive's own deadline, and the reading obeys it before every wave and every single:
-   *  a bound counted in answers is not a bound on the wall clock the hosting platform actually enforces. */
+  /** Read back the day's NEW answers (bounded, $0 when nothing changed). Returns THE PASS'S OWN RECEIPT, not a bare number: how many answers it took on, how many ended with a durable verdict, how many of those were a non-reading, and
+   *  how many real readings landed, so a run row can say what a pass actually did instead of showing a count nobody can check against the debt. Derived work: it never pauses the run. `budgetMs` is what is LEFT of the drive's own
+   *  deadline, and the reading obeys it before every wave and every single: a bound counted in answers is not a bound on the wall clock the hosting platform actually enforces. */
   analyzeAnswers: (tenantId: string, reportingDay: string, budgetMs: number) => Promise<{ attempted: number; settled: number; refused: number; read: number; outcomes: Record<string, number> }>;
   /** WHAT THE OPERATOR SAID THEY SHIPPED, checked on the live page (verify_and_measure). Bounded to three pages per pass and free: every one is a read of a page the account owns, on the same polite-fetch
    *  path as every other owned read, never a provider. Returns how many verifications landed. Derived work: a check I could not make never pauses the run. */
@@ -101,19 +87,17 @@ export type ResearchCycleSteps = {
   dueWork: (tenantId: string, now: Date) => Promise<DueWork>;
   /** TODAY'S WHOLE-DAY STANDING off the canonical planner: settled of intended, and how the settled ones landed. Null = I could not read it, which is never "the day is finished". Free. */
   dayStanding: (tenantId: string, reportingDay: string) => Promise<DueWork["checks"] | null>;
-  /** Every active, unpaused account that still genuinely owes work right now AND EXACTLY WHAT IT OWES, off the ONE canonical due-work truth. The probe already
-   *  computed that list to decide the account was short, and throwing it away is what left the pass it opens with no idea why it existed. Free and bounded; the
-   *  clock is passed in because the bounded window ROTATES across the fleet with it. Empty = a read that SUCCEEDED and proved nothing was left behind; a read
-   *  that could not be made THROWS, because an outage and an idle fleet are different answers. */
+  /** Every active, unpaused account that still genuinely owes work right now AND EXACTLY WHAT IT OWES, off the ONE canonical due-work truth. The probe already computed that list to decide the account was short, and throwing it away
+   *  is what left the pass it opens with no idea why it existed. Free and bounded; the clock is passed in because the bounded window ROTATES across the fleet with it. Empty = a read that SUCCEEDED and proved nothing was left behind;
+   *  a read that could not be made THROWS, because an outage and an idle fleet are different answers. */
   strandedToday: (nowMs: number) => Promise<Array<{ tenantId: string; due: DuePhase[] }>>;
   /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
-  /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under
-   *  the target, finish the strongest stored opportunities through the ONE canonical producer before this
-   *  cycle buys exploratory evidence. Bounded per drive; null = the count could not be read, which defers
-   *  nothing and claims nothing. */
-  replenishReady: (tenantId: string, now: Date) => Promise<{ ready: number; deficit: number; persisted: number } | null>;
+  /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under the target, finish the strongest stored opportunities through the ONE canonical producer before this cycle buys exploratory
+   *  evidence. Bounded per drive; null = the count could not be read, which defers nothing and claims nothing. */
+  replenishReady: (tenantId: string, now: Date) => Promise<{ ready: number; deficit: number; persisted: number;
+    /** TRUE only when the stock is genuinely at target or a post-pass re-read PROVED it grew. Anything else (credit spent, budget refusal, timeout, nothing finished) leaves the day retryable. */ satisfied: boolean } | null>;
 };
 
 /** The Ready stock the scheduler keeps ahead of acquisition. Internal: never a customer setting, never UI. */
@@ -121,8 +105,7 @@ const READY_STOCK_TARGET = 5;
 /** How many deliverables one drive may finish toward the target: bounded so drafting stays inside the lease. */
 const REPLENISH_DRAFTS_PER_DRIVE = 2;
 
-/** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself
- *  (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
+/** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
 const PAGES_PER_PASS = 3;
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
@@ -133,11 +116,10 @@ type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () 
 const canonicalRegistry = (rows: readonly ResearchCase[] = []): string => JSON.stringify([...rows].map((c) => ({ id: c.id, anchors: [...c.anchors].sort(), aliasOf: c.aliasOf ?? null, parentId: c.parentId ?? null, pages: (c.pages ?? []).map((p) => `${p.url}|${p.relation}`).sort() })).sort((a, b) => a.id.localeCompare(b.id)));
 const sameRegistry = (before: readonly ResearchCase[] = [], after: readonly ResearchCase[] = []): boolean => canonicalRegistry(before) === canonicalRegistry(after);
 
-/** Fold this account's case identities onto the ones already on file and PERSIST them, or THROW. It used to swallow every failure, so a run whose
- *  identities were never written went straight on to freeze a plan and spend against them: the comparison it bought belonged to an id nothing on file
- *  agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually
- *  moved this pass AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the
- *  deterministic identities are already saved, so a reading I could not get, could not trust or could not write is simply absent. */
+/** Fold this account's case identities onto the ones already on file and PERSIST them, or THROW. It used to swallow every failure, so a run whose identities were never written went straight on to freeze a plan and spend against them:
+ *  the comparison it bought belonged to an id nothing on file agreed with. A losing row version is a failure too, because nothing was saved. Nothing here is a partial success. THEN, and only when the registry actually moved this pass
+ *  AND this run has not asked yet, ONE advisory semantic reading of it (see decision/case-synthesis). That step is fail-soft by contract: the deterministic identities are already saved, so a reading I could not get, could not trust
+ *  or could not write is simply absent. */
 async function reconcileCases(tenantId: string, basis: string, plan: CaseReconcilePlan): Promise<void> {
   const saved = await (async () => {
     const snapshot = await loadEvidenceSnapshot(tenantId);
@@ -153,9 +135,8 @@ async function reconcileCases(tenantId: string, basis: string, plan: CaseReconci
   if (!saved) throw new Error("I could not save which of your topics are which, so I stopped before spending anything on them. I pick this up again on your next visit.");
 }
 
-/** The ONE semantic pass over the registry that just changed, applied through the SAME identity rules and saved through the SAME path. Everything it
- *  proposes is checked before it is applied, and what I refuse is recorded rather than argued with. A lost row version here changes nothing that is
- *  already on file. */
+/** The ONE semantic pass over the registry that just changed, applied through the SAME identity rules and saved through the SAME path. Everything it proposes is checked before it is applied, and what I refuse is recorded rather than
+ *  argued with. A lost row version here changes nothing that is already on file. */
 async function refineCases(tenantId: string, basis: string, snapshot: EvidenceSnapshot, cases: ResearchCase[], state: FunnelState, rowVersion: number, planKeys: string[] = []): Promise<void> {
   const investigations = buildTopicInvestigations(snapshot);
   if (investigations.length < 2) return;
@@ -187,22 +168,32 @@ async function decliningPagesFirst(tenantId: string): Promise<typeof nextCrawlCa
 export const defaultSteps: ResearchCycleSteps = {
   async replenishReady(tenantId, now) {
     const d = await import("@/domains/decision");
+    const { creditBreakerActive } = await import("@/domains/decision/llm/gateway");
     const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
-    const queue = await d.loadProposalQueue(tenantId, { currentBasis: basis }).catch(() => null);
-    if (queue == null) return null;
-    const deficit = Math.max(0, READY_STOCK_TARGET - queue.ready.length);
-    if (deficit === 0) return { ready: queue.ready.length, deficit: 0, persisted: 0 };
-    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, its
-    // drafting walks the global ranking, and every finished result persists before acquisition runs.
+    const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => q.ready.length).catch(() => null);
+    const before = await read();
+    // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
+    if (before == null) return null;
+    const deficit = Math.max(0, READY_STOCK_TARGET - before);
+    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING.
+    if (deficit === 0) return { ready: before, deficit: 0, persisted: 0, satisfied: true };
+    // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NO SUCCESS (operator, 2026-08-22): the deficit stands, the marker is not stamped, and the next drive retries the moment the credit is back.
+    if (await creditBreakerActive(tenantId).catch(() => true)) {
+      log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
+      return { ready: before, deficit, persisted: 0, satisfied: false };
+    }
+    // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its drafting walks the ONE globally ranked line under the pass's ONE budget.
     const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE) }).catch(() => null);
     // WHAT BLOCKED EACH ATTEMPTED CANDIDATE IS ON THE RECEIPT, never a silent shortfall.
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
-    return { ready: queue.ready.length, deficit, persisted: out?.persisted ?? 0 };
+    // SUCCESS IS PROVEN BY RE-READING THE QUEUE, never by having run: a pass that drafted nothing finished is not a topped-up inventory, and reporting it as one is what let one blocked day stand as done.
+    const after = await read();
+    const satisfied = after != null && (after > before || after >= READY_STOCK_TARGET);
+    return { ready: after ?? before, deficit: Math.max(0, READY_STOCK_TARGET - (after ?? before)), persisted: out?.persisted ?? 0, satisfied };
   },
   async refreshSources(tenantId, now) {
-    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources
-    // contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not run, and the runner must pause rather than record a false
-    // "0 sources, all healthy".
+    // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not
+    // run, and the runner must pause rather than record a false "0 sources, all healthy".
     const results = await autoRefreshStaleConnectorsForTenant(tenantId, now);
     return { attempted: results.length, succeeded: results.filter((r) => r.ok).map((r) => String(r.provider)),
       failures: results.filter((r) => !r.ok).map((r) => ({ provider: String(r.provider), detail: String(r.detail).slice(0, 200) })) };
@@ -216,16 +207,12 @@ export const defaultSteps: ResearchCycleSteps = {
       return { kind: "advanced", complete: result.complete, daysPulled: result.daysPulled };
     }
     if (BENIGN_BACKFILL_SKIPS.has(result.reason)) return { kind: "no_work" };
-    // A real failure (auth / quota / network / unexpected) throws so the runner pauses AT gsc_backfill_chunk with the cursor untouched, making the retry the
-    // identical window.
+    // A real failure (auth / quota / network / unexpected) throws so the runner pauses AT gsc_backfill_chunk with the cursor untouched, making the retry the identical window.
     throw new Error(`gsc backfill chunk did not advance: ${result.reason}`.slice(0, 200));
   },
-  // THE ONE PLACE THE WEBSITE GETS READ, AND THE ONE PLACE A CRAWL BEGINS. A render must never crawl, so the
-  // resumable frontier is driven here, one bounded batch per pass. Cold start used to fire only from onboarding,
-  // so an account that predates it had no frontier at all: every pass asked to CONTINUE one, was told there is
-  // none, and called that a healthy no-op forever. A missing frontier is now initialized once, NEVER forced, so
-  // an instance that got there first is loaded and continued rather than reset; unreachable is persisted truth
-  // and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
+  // THE ONE PLACE THE WEBSITE GETS READ, AND THE ONE PLACE A CRAWL BEGINS. A render must never crawl, so the resumable frontier is driven here, one bounded batch per pass. Cold start used to fire only from onboarding, so an account that predates it had
+  // no frontier at all: every pass asked to CONTINUE one, was told there is none, and called that a healthy no-op forever. A missing frontier is now initialized once, NEVER forced, so an instance that got there first is loaded and continued rather than
+  // reset; unreachable is persisted truth and stops here. Fail-soft throughout, and a site already read whole is still a no-op that advances.
   async crawlPages(tenantId) {
     const deps = { pickCandidates: await decliningPagesFirst(tenantId) };
     const first = await continueColdStartCrawlIfStarted(tenantId, deps);
@@ -238,12 +225,10 @@ export const defaultSteps: ResearchCycleSteps = {
       + await renderUnreadOwnedPages(tenantId).catch(() => 0); },
   async dayStanding(tenantId, day) { const c = await dailyChecks(tenantId, day);
     return c == null ? null : { done: c.done, total: c.total, answers: c.answers, unavailable: c.unavailable, unsupported: c.unsupported }; },
-  // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left
-  // the day short is owed nothing further and the rest of the day never happens. This is the free question that finds those accounts, and it asks ONE canonical
-  // question: due-work, the same planner every other door consults. It used to ask only whether today's AI observations were short, so an account whose answers
-  // were all collected but whose website was two hundred pages unread, whose bought answers nobody had read closely, whose promised evidence date had arrived or
-  // whose release was never published looked finished and was never opened again that day. FREE either way (every read is a lean projection of state on file), and
-  // A READ THAT FAILED IS NOT AN EMPTY FLEET, so it THROWS rather than answering with a list: empty now means a read that succeeded and proved nobody was left.
+  // THE DAY THE FLEET CLAIM CANNOT SEE. claim_due_research_work excludes an account the moment ANY run completed today, so a pass that settled its batch and left the day short is owed nothing further and the rest of the day never happens. This is the
+  // free question that finds those accounts, and it asks ONE canonical question: due-work, the same planner every other door consults. It used to ask only whether today's AI observations were short, so an account whose answers were all collected but
+  // whose website was two hundred pages unread, whose bought answers nobody had read closely, whose promised evidence date had arrived or whose release was never published looked finished and was never opened again that day. FREE either way (every read
+  // is a lean projection of state on file), and A READ THAT FAILED IS NOT AN EMPTY FLEET, so it THROWS rather than answering with a list: empty now means a read that succeeded and proved nobody was left.
   async strandedToday(nowMs) {
     const active = () => getSupabaseAdmin().from("tenants").select("id", { count: "exact" }).eq("status", "active").not("research_paused", "is", true).order("id", { ascending: true });
     const read = async (start: number, take: number) => {
@@ -261,22 +246,18 @@ export const defaultSteps: ResearchCycleSteps = {
   currentBasis: accountBasis,
   dueWork,
   evidenceVersion: evidenceRowVersion,
-  // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence resolves the id against what is already on file
-  // (evidence/case-identity carries the whole rule and the incident behind it); this persists that answer through the funnel's own save path, and FAILS
-  // CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
+  // RUNTIME IS THE ONLY WRITER OF A CASE IDENTITY, and it writes them BEFORE the plan names one. Evidence resolves the id against what is already on file (evidence/case-identity carries the whole rule and the incident behind it); this persists that
+  // answer through the funnel's own save path, and FAILS CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
-    // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the
-    // caller, never re-picked here: landing a results page closes that search, so a second, independent lookup handed winning-pages a different three than
-    // the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND
-    // stage, so a real lease renewal sits in front of it. A topic whose next legal read is still in the future contributes no search at all: a cooldown is
-    // not a queue position.
+    // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the caller, never re-picked here: landing a results page closes that search, so a second, independent
+    // lookup handed winning-pages a different three than the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND stage, so a real lease renewal sits in front of
+    // it. A topic whose next legal read is still in the future contributes no search at all: a cooldown is not a queue position.
     const { queries, cases, ownedUrl } = focusReads(focus, Date.now(), (cursor?.basis as string) ?? null);
     if (phase === "serp_analysis") return serpAnalysisUnit({}, queries)(tenantId, cursor, budgetMs);
     if (phase === "winning_pages") {
-      // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison stage: nothing is asked for before winners exist.
-      // Fail-soft, and no reconfirmed ask means no buy.
+      // The ask is recomputed for the SAME frozen topic under the CURRENT basis, and only at the comparison stage: nothing is asked for before winners exist. Fail-soft, and no reconfirmed ask means no buy.
       const ask = cursor?.stage === "compare" ? await comparisonForFocus(tenantId, focus, (cursor.basis as string) ?? null).catch(() => null) : null;
       // AT MOST ONE page of the account's OWN per run, and only one the frozen plan named and is due to read.
       // THE OPERATOR'S OWN CHANGE BUSTS THE PAGE'S FRESHNESS (Phase 6). The unit's fifth argument `ownedBustedAt` is when that page's truth moved underneath me, and the Shipment record is its supplier: the moment the
@@ -287,10 +268,9 @@ export const defaultSteps: ResearchCycleSteps = {
       return winningPagesUnit({}, queries, ask, ownedUrl, bustedAt)(tenantId, cursor, budgetMs);
     }
     if (phase === "prompt_observations") {
-      // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely
-      // overridden, because two selectors meant one of them re-asked a question the other had already read today. One canonical reading per question, per
-      // engine, per REPORTING day (src/lib/reporting-day.ts is the one timezone contract), core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S own cycle
-      // day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
+      // THE DAILY PLAN decides what gets asked, and it is the ONLY thing that does: the unit's own weekly stalest-pair sweep is deleted, not merely overridden, because two selectors meant one of them re-asked a question the other had already read
+      // today. One canonical reading per question, per engine, per REPORTING day (src/lib/reporting-day.ts is the one timezone contract), core first and oldest-missing-first. A null plan (I could not read what is due) asks NOTHING. The day is the RUN'S
+      // own cycle day, not the wall clock, so a run that spans midnight keeps reporting into the day it opened instead of silently splitting itself.
       const day = String(cursor?.cycle ?? "").slice(-10) || reportingDay(Date.now());
       return promptObservationUnit({}, await dueObservations(tenantId, day))(tenantId, cursor, budgetMs);
     }
@@ -302,13 +282,9 @@ export const defaultSteps: ResearchCycleSteps = {
   async measureShipments(tenantId, now) { return settleDueMeasurements(tenantId, { now }); },
   // publishCustomerSurfaces PROPAGATES failure (no internal swallow): a throw pauses publish_surface and the previously saved surface stays visible.
   async publishSurface(tenantId) { await publishCustomerSurfaces(tenantId); },
-  // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a
-  // pass, statements it has not already checked at this version of the page, and every finding banked as a
-  // row of its own. Fail-soft by construction: the answer is a count and a reason, never a thrown run.
-  // ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took
-  // the single most-shown page, so once that page was exhausted every later pass took it again and page two was
-  // unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT
-  // content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
+  // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a pass, statements it has not already checked at this version of the page, and every finding banked as a row of its own. Fail-soft by construction:
+  // the answer is a count and a reason, never a thrown run. ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took the single most-shown page, so once that page was exhausted every later pass took it
+  // again and page two was unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
   async factCheck(tenantId, budgetMs, renew) {
     // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: every call inside is bounded by what remains of it.
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
@@ -330,9 +306,8 @@ export const defaultSteps: ResearchCycleSteps = {
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
-      // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns seven booleans for ever.
-      // THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine
-      // that could not be reached are three different debts, and the unit names each one on the run row.
+      // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns seven booleans for ever. THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine that could not be reached are three different
+      // debts, and the unit names each one on the run row.
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
         const left = deadlineAt - Date.now();
         if (left <= 0) return { hold: "unavailable" as const };
@@ -343,8 +318,7 @@ export const defaultSteps: ResearchCycleSteps = {
         return { hold: r?.status === "blocked_budget" ? "capped" as const : r?.status === "validation_failed" ? "refused" as const : "unavailable" as const };
       };
       const { providerCall, parseCapability, collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
-      // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING, and a provider hold keeps its NAME: capped, waiting
-      // and transport failure are different debts and the unit types each one (Codex, 2026-08-18).
+      // A POSTED TASK IS COLLECTED, NEVER LEFT PENDING, and a provider hold keeps its NAME: capped, waiting and transport failure are different debts and the unit types each one (Codex, 2026-08-18).
       const bought = async (cap: "serp_organic" | "onpage_content_parsing", input: Record<string, unknown>, key: string) => {
         if (Date.now() >= deadlineAt) return null;
         let call = await providerCall(cap, input as never, { tenantId, unitKey: `fact-check:${key}` }).catch(() => null);

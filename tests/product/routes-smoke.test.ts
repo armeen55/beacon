@@ -18,8 +18,7 @@ vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
 
 /** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
-// after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
-vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} }));
+vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} })); // after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
 const DB = vi.hoisted(() => ({ ledgerError: null as { code: string; message: string } | null }));
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()), isSupabaseConfigured: () => true,
   getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {};
@@ -38,13 +37,11 @@ describe("Today renders, and tells the truth about its own queue", () => {
   }, 15_000);
   it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
     const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
-    // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
-    DB.ledgerError = { code: "PGRST301", message: "JWT expired" };
+    DB.ledgerError = { code: "PGRST301", message: "JWT expired" }; // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
     const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     expect(html).toContain("Your measured changes could not be read just now, so none is not the answer.");
     expect(html).not.toContain("No changes are being measured yet");
-    // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
-    DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" };
+    DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" }; // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
     const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     expect(fallback).not.toContain("could not be read just now");
     DB.ledgerError = null; }, 15_000);

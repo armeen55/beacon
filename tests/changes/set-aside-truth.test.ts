@@ -139,8 +139,7 @@ describe("an account that skipped the connectors still reaches its own Today", (
     };
     const held = (tracked: unknown[]) => () => ({ forTenant: () => ({ getPromptAnswerObservations: async () => [], getTrackedPrompts: async () => tracked }) });
     expect([(await gate(held([{ is_active: true, tags: ["core_v1"] }]))).isDemoMode, (await gate(held([]))).isDemoMode]).toEqual([false, true]);
-    // A read I could not take is not proof the account is empty, so it may not send them to the connect prompt.
-    const blind = await gate(() => { throw new Error("database unreachable"); });
+    const blind = await gate(() => { throw new Error("database unreachable"); }); // A read I could not take is not proof the account is empty, so it may not send them to the connect prompt.
     expect([blind.isDemoMode, blind.unreadable]).toEqual([false, true]);
     for (const m of ["@/lib/seed-data.server", "@/lib/connector-store", "@/lib/persistence/repositories"]) vi.doUnmock(m);
     vi.resetModules(); }); });
@@ -216,8 +215,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
     const { withCurrentBasisOnly, setAsideHint } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
-    // demotedStaleBasis 2 OVERLAPS the 3 listed rows in an old-rule release: 3, never 5.
-    const mixed = { ...emptyView(2), proposals: [bundled("basis_old::d2", "t::old"), bundled(NOW, "t::now"), { ...bundled("", "t::none"), basis: undefined }],
+    const mixed = { ...emptyView(2), proposals: [bundled("basis_old::d2", "t::old"), bundled(NOW, "t::now"), { ...bundled("", "t::none"), basis: undefined }], // demotedStaleBasis 2 OVERLAPS the 3 listed rows in an old-rule release: 3, never 5.
       ready: [bundled("basis_old::d2", "t::old")], summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const held = withCurrentBasisOnly(mixed, { tenantId: "t", currentBasis: NOW }); // the current row survives; it was never set aside
     expect([held.proposals.map((p) => p.basis), held.ready.length, held.summary.ready, held.demotedStaleBasis]).toEqual([[NOW], 0, 0, 2]);

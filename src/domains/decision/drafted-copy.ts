@@ -11,10 +11,12 @@ import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from ".
 import type { AtomicEditDraft } from "./llm/schemas";
 import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
+import { DRAFT_BUDGET } from "./draft-budget";
+type DraftBudget = ReturnType<typeof DRAFT_BUDGET.make>;
 
 /** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the
  *  hardest cards every pass, so the completable descriptions behind them never got a body. */
-const MAX_DRAFTS = 8;
+const MAX_DRAFTS = 5;
 const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
 const ANSWER_MIN = 40, ANSWER_MAX = 90; // the drafter's own brief in words; a block outside it ignored the brief and is refused, never trimmed
 /** Headings this many read winners share before they are worth naming, and how many are named. */
@@ -33,7 +35,9 @@ const words = (s: string): number => s.trim().split(/\s+/).filter(Boolean).lengt
 type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
   /** The account's banned vocabulary, read once per pass by the caller so this file does no I/O of its own. */
   bannedTerms?: readonly string[];
-  /** The pass's shared attempt budget. Absent = this file owns one of its own for this run. */
+  /** The pass's ONE shared budget. Absent = this file owns one of its own for this run. */
+  budget?: DraftBudget;
+  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */
   attempts?: { left: number } };
 
 const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted
@@ -86,8 +90,7 @@ const CHROME = /\b(?:top|bottom) of page/gi;
 const CHROME_AT = /\b(?:top|bottom) of page/i;
 const ANCHOR_MAX = 160; // a place on the page, not a paragraph: a 300 character blob is not an anchor
 const BODY_TO_JUDGE = 24_000; // how much of a stored page fits in one judging call beside the rest of the prompt
-/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes.  The old cap counted only the drafts that WORKED, so a pass whose every draft was refused simply bought another one, for ever: 364 charged calls produced seven visible changes, about fifty two calls each. */
-export const MAX_PAID_CALLS = 90; // raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
+// raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
 const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
 /** MARKUP IS NOT WORDS. A drafted title read "Colors &amp; History": pasted, a reader sees the entity, not the ampersand. */
 const ENTITY = /&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
@@ -501,9 +504,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
-  // THE PROMOTION IS THE VERDICT, NOT A HABIT, AND THE FINAL ADVERSARIAL REVIEWER IS PART OF IT (operator, 2026-08-17): copy that cleared the drafter, the deterministic contract, the sense judge and the canon
-  // validator STILL faces one hostile reading before it may wear Ready. Any false field is a blocking finding; the row stays at needs_review and the reviewer's sentence lands on the card as the reason. Unaffordable or
-  // unreadable means NOT promoted, never promoted unreviewed.
+  // THE PROMOTION IS THE VERDICT, NOT A HABIT, AND THE FINAL ADVERSARIAL REVIEWER IS PART OF IT (operator, 2026-08-17): copy that cleared the drafter, the deterministic contract, the sense judge and the canon validator STILL faces one hostile reading
+  // before it may wear Ready. Any false field is a blocking finding; the row stays at needs_review and the reviewer's sentence lands on the card as the reason. Unaffordable or unreadable means NOT promoted, never promoted unreviewed.
   let ready = verdict.verdict === "ready";
   if (ready) {
     if (opts.attempts && (opts.attempts.left -= 1) < 0) {
@@ -546,11 +548,10 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
 /** The same cards, with words wherever this pass could honestly put them. Never adds, drops or reorders a card. Fail-soft: anything that does not land leaves the producer's own card intact. */
 export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: DraftedCopyOptions): Promise<ChangeProposal[]> {
   const out: ChangeProposal[] = [];
-  // EVERY ATTEMPT COUNTS, NOT EVERY SUCCESS. `bought` counted the drafts that WORKED, so a card whose draft was refused simply left the cap where it was and the next card bought another call, and the next, without limit. The pass's shared budget is decremented inside the editor before each charged call instead, so this is only the reading of it. THE PASS OWNS THAT BUDGET: called without one this minted a SECOND pool the same size beside the one the deep bundles were already spending, so a 30 call ceiling bought 60. The fallback is for a caller standing on its own, and it says so; the one production caller hands its own budget in.
-  const attempts = opts.attempts ?? { left: MAX_PAID_CALLS };
-  if (!opts.attempts) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own attempts", { tenantId: opts.tenantId, left: attempts.left });
-  /** ONE STUBBORN CANDIDATE MAY NOT STARVE THE REST (operator, 2026-08-22): each card drafts inside its own slice of the shared pool (a draft, its judge, one fed-back retry, the reviewer); the unused half returns to the pool. */
-  const PER_CARD_ATTEMPTS = 8;
+  // THE PASS OWNS THE MONEY, AND THIS FAMILY HAS NO POOL OF ITS OWN. A caller that hands in no budget gets one sized for a single family standing alone; the production caller hands in the pass's shared budget, so the editor competes for the same slots
+  // and the same charged calls as every other drafting family.
+  const budget = opts.budget ?? DRAFT_BUDGET.make({ candidates: MAX_DRAFTS });
+  if (!opts.budget) log.info("[drafted-copy] no pass budget was handed in, so this run counts its own", { tenantId: opts.tenantId });
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => kindFor(c) != null)
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
@@ -562,10 +563,11 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     // AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names the rendered read as the next step, and no body-dependent copy may stand on words nobody holds.
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
-    if (attempts.left <= 0) log.info("[drafted-copy] paid work stopped: the pass has spent its whole attempt budget", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
-    const slice = { left: Math.min(PER_CARD_ATTEMPTS, attempts.left) };
-    const done = attempts.left > 0 ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
-    if (attempts.left > 0) attempts.left -= Math.min(PER_CARD_ATTEMPTS, attempts.left) - Math.max(0, slice.left);
+    // ONE CLAIM PER CANDIDATE PAGE: refused means this pass may spend nothing more here, and the card leaves with its owed note exactly as it does when a draft comes back unfinished. Never an early return: the NEXT ranked card still gets its own claim
+    // (operator, 2026-08-22).
+    const slice = budget.claim(DRAFT_BUDGET.keyOf(card));
+    if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass has no slot or no calls left for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
+    const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     const drafted = done?.d;
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;
@@ -624,7 +626,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     }
     out.push({ ...card, limitations: [...card.limitations, owedNote(meta ? "description" : title ? "title" : h1 ? "heading" : link ? "link sentence" : "answer")] });
   }
-  log.info("[drafted-copy] paid attempts left after this pass", { tenantId: opts.tenantId, left: Math.max(0, attempts.left) });
+  log.info("[drafted-copy] paid work this pass", { tenantId: opts.tenantId, ...budget.spent(), callsLeft: Math.max(0, budget.calls.left) });
   return out;
 }
 
@@ -668,7 +670,7 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
   // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
   const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription };
-  if (held && field in line && c.before != null && flat(c.before) !== flat(line[field] ?? " ")) out.push("the line it says it replaces is not the one this page carries");
+  if (held && field in line && c.before != null && (line[field] == null || flat(c.before) !== flat(line[field]!))) out.push("the line it says it replaces is not the one this page carries");
   return [...new Set(out)];
 }
 

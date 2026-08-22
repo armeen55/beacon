@@ -93,8 +93,7 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
   });
 });
 
-// ── the replay through the REAL funnel executors ─────────────────────────────
-const PROMPTS = [{ id: "p1", text: "where can I see a kite festival" }];
+const PROMPTS = [{ id: "p1", text: "where can I see a kite festival" }]; // ── the replay through the REAL funnel executors ─────────────────────────────
 /** Runtime's daily plan: the ONLY thing the observation unit will act on. */
 const DUE: DueObservation[] = PROMPTS.flatMap((p) => (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot: 0 as const, day: "2026-07-21" })));
 const evidenceOf = (envelope: ProviderEnvelope, cacheKey: string): CachedCallResult => ({ state: "ok", envelope, costUsd: 0.01, cacheKey, modelServed: null });
@@ -158,8 +157,7 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
   });
 });
 
-// ── the replay through the REAL decision pass ────────────────────────────────
-const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns", confidence: "high",
+const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns", confidence: "high", // ── the replay through the REAL decision pass ────────────────────────────────
   rationale: "The stored title is two words and misses the traditions searchers ask about.", risks: ["keep the title readable"],
   evidenceRefs: [{ source: "gsc", detail: "many views for kite festival traditions with a low click rate" }],
   operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" } };
@@ -191,7 +189,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect([gap.action, gap.query, gap.gap, gap.recoverableClicks]).toEqual(["act_existing_page", GAP_QUERY, "ctr_deficit", 300]);
     expect(gap.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 1, body: false }); // the replayed results page and the ONE readable winner are what make this judgeable
     expect(res.candidates.find((c) => c.pageUrl === `https://${WINNER_URL}`)?.action).toBe("watch"); // a page already beating the clicks its positions earn is watched, never worked
-    expect([res.outcome, seam.calls(), res.proposals.every((p) => p.status === "needs_review"), res.noDraft]).toEqual(["proposals_persisted", 5, true, 1]); // FIVE drafting calls: one for the page the evidence earned, one for the drafted description pass behind the $0 cards, and THREE fed-back retries each told every refusal so far; a draft the gates refuse is WITHDRAWN, and every queue row sits at needs_review
+    expect([res.outcome, seam.calls(), res.proposals.every((p) => p.status === "needs_review"), res.noDraft]).toEqual(["proposals_persisted", 2, true, 1]); // TWO drafting calls, where this pass used to buy five: one candidate may spend at most THREE charged calls (operator, 2026-08-22), which is one draft, its judge and the final reviewer, so a refused card has no fed-back retry left and the ranked line moves on insteadefusal so far; a draft the gates refuse is WITHDRAWN, and every queue row sits at needs_review
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
 });

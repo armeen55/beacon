@@ -118,7 +118,7 @@ const NOTHING_DUE: DueWork = { ...SOMETHING_DUE, due: [] }, NO_READING = { attem
 /** Benign no-op steps; a phase-truth test overrides the ONE step under test. */
 const BENIGN: ResearchCycleSteps = {
   dueWork: async () => SOMETHING_DUE, evidenceVersion: async () => null, reconcileCases: async () => {},
-  replenishReady: async () => null, // the inventory step's own pins drive a spy; benign passes defer nothing
+  replenishReady: async () => null, // the inventory step's own pins drive a spy; a null is unreadable, so nothing is stamped
   dayStanding: async () => NO_CHECKS, // nothing owed and nothing landed: settled == intended, so the AI phase advances
   strandedToday: async () => [], // no account was left short of its day, so the dispatch opens no recovery pass
   refreshSources: async () => ({ attempted: 0, succeeded: [], failures: [] }),
@@ -911,23 +911,45 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
 /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target
  *  checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
+  const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
     const order: string[] = [];
-    const rows = withRun();
-    void rows;
+    void withRun();
     await run({ ...healthySteps(order),
-      replenishReady: async () => (order.push("replenish"), { ready: 1, deficit: 4, persisted: 2 }),
+      replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
     const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery");
     expect(replenishAt).toBeGreaterThanOrEqual(0);
     expect(firstBuy).toBeGreaterThan(replenishAt);
     expect(order.filter((x) => x === "replenish")).toHaveLength(1);
   });
-  // ONCE PER DAY, DURABLY (review, 2026-08-22): the marker rides run progress, so a run resumed at the keyword phase does not pay for a second replenish the same day.
-  it("never replenishes twice in one day, however many drives resume the run", async () => {
+  // ONCE PER DAY, DURABLY, AND ONLY ON PROVEN SUCCESS (operator, 2026-08-22): the marker rides run progress, so a resumed run never pays twice for a day that really was topped up.
+  it("never replenishes twice in one day once the day's success is on the row", async () => {
     let calls = 0;
     void withRun({ current_phase: "keyword_discovery", progress: { state: { replenishedDay: ckey(T, NOW).slice(-10) } } });
-    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, { ready: 0, deficit: 5, persisted: 0 }) });
+    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
     expect(calls).toBe(0);
+  });
+  // THE DEFECT THIS REPAIR EXISTS FOR: the marker used to be stamped BEFORE the pass, so a credit-exhausted, budget-refused, boxed or empty-handed attempt recorded itself as today's completed replenishment and the account stayed blocked all day.
+  it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
+    for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false }]) {
+      const rows = withRun({ current_phase: "keyword_discovery" });
+      await run({ ...healthySteps([]), replenishReady: async () => answer });
+      expect(rows.at(-1)!.progress?.state?.replenishedDay, `stamped on ${JSON.stringify(answer)}`).toBeUndefined();
+    }
+  });
+  it("stamps the day only once the step PROVED the stock at target or grown", async () => {
+    const rows = withRun({ current_phase: "keyword_discovery" });
+    await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
+    expect(rows.at(-1)!.progress?.state?.replenishedDay).toBe(ckey(T, NOW).slice(-10));
+  });
+  // A RUN ALREADY PARKED PAST THE FIRST PHASE STILL REPLENISHES BEFORE IT BUYS: bound to keyword_discovery alone, the live run sitting at serp_analysis could never top the inventory up at all.
+  it("replenishes before acquisition from a run already at serp_analysis", async () => {
+    const order: string[] = [];
+    void withRun({ current_phase: "serp_analysis" });
+    await run({ ...healthySteps(order), replenishReady: async () => (order.push("replenish"), REPLENISHED),
+      funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
+    expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));
   });
 });
