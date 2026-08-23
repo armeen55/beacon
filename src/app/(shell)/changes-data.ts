@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, stampQueueRanking } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -23,6 +23,8 @@ import { loadWithDeadline } from "@/lib/load-with-deadline";
 type ChangesSummary = { todo: number; ready: number; research: number; implemented: number; measuring: number; results: number };
 
 export type ChangesView = {
+  /** THE ONE GLOBAL ORDER, every lane interleaved by worth: computed by the build, COMMITTED by the release in one transaction with the surface blob. Absent on cached reads. */
+  stampRows?: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>;
   /** The ranked pre-ship queue, cut to ONE page. `summary` carries the true totals, counted in the database. */
   proposals: ChangeProposal[];
   /** Validated-safe, exact-copy-ready proposals (the Ready tab). */
@@ -271,19 +273,14 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
         : "No finished change is ready right now. The next one is ranked here the moment Beacon has written the exact work.";
   }
 
-  // THE RANKING IS PERSISTED, THE RELEASE IS NOT THE QUEUE. Every row gets its position in THIS ranking written down, so the list pages it
-  // in the database and the release carries one page. The stamp names the ID this release publishes under, so Today, Changes and every
-  // "show more" name one release; a stamp that does not land ABORTS THE PUBLISH and the previous complete release keeps serving.
+  // THE RANKING IS NO LONGER STAMPED HERE (Codex, 2026-08-23): stamping during the build meant a build that later
+  // failed had already replaced the live order. The build COMPUTES the one global order (research included,
+  // interleaved by worth with the lane as the control fact) and hands it to the release, which commits ranking and
+  // surface in ONE database transaction or neither. `stampRows` below is that hand-off.
   const nowMs = Date.now();
-  // THE ONE GLOBAL ORDER IS STAMPED, research included: `queue.ranked` interleaves every lane by worth, and
-  // the lane rides beside each id as the control fact. Stamping lanes as separate lists was how research
-  // never ranked and Today and Changes could only agree lane by lane (Codex, 2026-08-21).
   const laneOf = (p: ChangeProposal): "ready" | "todo" | "research" =>
     queue.research.some((r) => r.id === p.id) ? "research" : queue.ready.some((r) => r.id === p.id) ? "ready" : "todo";
-  if (!(await stampQueueRanking(tenantId, releaseId,
-    queue.ranked.map((p) => ({ id: p.id, lane: laneOf(p) }))).catch(() => false))) {
-    throw new Error("The order of your changes could not be written down, so your previous list was kept rather than publishing one that cannot be paged.");
-  }
+  const stampRows = queue.ranked.map((p) => ({ id: p.id, lane: laneOf(p) }));
   const receiptLine = buildReceiptLine({
     source: "your Search Console and AI demand data",
     checkedAt: new Date(nowMs).toISOString(),
@@ -293,6 +290,7 @@ export async function buildChangesViewUncached(tenantId: string, releaseId: stri
   });
 
   return {
+    stampRows,
     proposals: queue.ranked.slice(0, CHANGES_PAGE_SIZE),
     // BEFORE THE SLICE, because the contradiction this kills lives on page nineteen as much as page one.
     queuedPages: [...new Set(queue.ranked.map((p) => (p.pagePath ?? p.pageUrl ?? "").replace(/^https?:\/\/[^/]+/, "")).filter((s) => s.length > 0))],

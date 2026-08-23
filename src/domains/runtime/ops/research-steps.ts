@@ -104,8 +104,9 @@ export type ResearchCycleSteps = {
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
-    /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change (a reading of the winning pages), which must never be presented or counted as one. */
-    outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] } } | null>;
+    /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
+    outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
+      receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; reconciled: boolean } } } | null>;
 };
 /** How many deliverables ONE drive may finish toward the target. Raised from two to the target itself (operator,
  *  2026-08-22, "no guardrails, unlimited money"): at two a drive could never reach five however much credit there
@@ -213,7 +214,10 @@ export const defaultSteps: ResearchCycleSteps = {
     // drafts written before today's gates existed, failed the same gates in the same way, spent nothing, and left the
     // queue on zero. A stall with no cost signal at all: the 22:00Z drive funded five candidates and made not one OpenAI
     // call. The top-up is exactly the path that must never re-serve a refusal, so it always pays for a fresh take.
+    const { getTenantSpentThisMonthUsd } = await import("@/lib/cost/budget-ledger-supabase");
+    const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null);
     const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
+    const ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
     if (out == null || out.outcome === "evidence_unreadable" || out.outcome === "persistence_failed") return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::unread`, held);
@@ -228,8 +232,12 @@ export const defaultSteps: ResearchCycleSteps = {
     const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal").map((r) => r.key);
     const attempted = [...new Set([...fresh, ...settled])];
     const count = (o: string) => out.paid.receipts.filter((r) => r.outcome === o).length;
+    const metered = Number(out.paid.receipts.reduce((n, r) => n + (r.costUsd ?? 0), 0).toFixed(6));
+    const delta = ledgerBefore != null && ledgerAfter != null ? Number((ledgerAfter - ledgerBefore).toFixed(6)) : -1;
     const tally = { readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal"), blocked: count("retryable_blocked"), unreached: count("not_reached"),
-      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `: ${r.why}` : ""}`).slice(0, 5) };
+      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `: ${r.why}` : ""}`).slice(0, 5),
+      receipts: out.paid.receipts as unknown[], // the COMPLETE per-page record, durable: logs are not the receipt
+      ledger: ledgerBefore != null && ledgerAfter != null ? { before: ledgerBefore, after: ledgerAfter, delta, metered, reconciled: Math.abs(delta - metered) < 0.005 } : undefined };
     if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));

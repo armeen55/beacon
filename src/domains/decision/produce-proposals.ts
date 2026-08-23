@@ -52,6 +52,7 @@ export type ProduceProposalsResult = {
       /** `produced` = finished work exists for this key. `deterministic_refusal` = one of Beacon's OWN gates read the work against today's evidence and said no. `retryable_blocked` = nobody could answer for it (credit, cap, timeout, provider, unreadable) or the drafter's own answer was unusable. `not_reached` = funded and never got to. ONLY the first two may ever write a key off. */
       /** `evidence_banked` is work that SUCCEEDED and is not a Change: a reading of the winning pages informs the next decision and can never be counted, shown or reported as something the operator can act on. */
       outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** What settled it, in its own words. */ why?: string;
+      treatment?: string | null; impact?: number; allowance?: number; ops?: number;
       /** REAL provider calls and REAL dollars this page consumed, off the gateway's receipts. Logical attempt units are budget bookkeeping and are neither. */ providerCalls?: number; costUsd?: number }[] };
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
@@ -82,8 +83,7 @@ async function measuringPaths(tenantId: string, existing: Map<string, ChangeProp
 
 /** TWO CONSECUTIVE 28-DAY WINDOWS PER PAGE, Google's and GA4's side by side: the only read that tells "Google moved this page" apart from "something on this page stopped working". $0, fail-soft. */
 type Windows = Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; clicksNow: number; clicksPrior: number; impressionsNow: number; impressionsPrior: number; windowEnd: string; lostClicks: number }>;
-async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> {
-  const out: Windows = new Map();
+async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> { const out: Windows = new Map();
   const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null), import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
   if (!decay) return out;
   for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior, sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior, windowEnd: d.windowNowEnd, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
@@ -91,16 +91,14 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
 }
 
 /** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed. Fail-soft to nothing. */
-async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
-  const out = new Map<string, { readings: number; netLift: number }>();
+async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> { const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
   if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
   for (const r of ledger) {
     const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0];
     if (!read) continue;
     const cur = out.get(actionFamilyOf(r.actionType)) ?? { readings: 0, netLift: 0 };
-    out.set(actionFamilyOf(r.actionType), { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) });
-  }
+    out.set(actionFamilyOf(r.actionType), { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) }); }
   return out;
 }
 
@@ -192,7 +190,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
   const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
   if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
-  for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
+  for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(c.treatment ? { treatment: c.treatment } : {}) });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
   // meters: REAL per-page spend off the gateway's receipts; gateWords: the rule that refused each page, in its own words.
@@ -212,22 +210,17 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (persist && extra.needsOwnPage.length > 0) await recordCoverageNeeds(tenantId, extra.needsOwnPage, opts.now ?? new Date()).catch(() => undefined);
 
   const recoverableByKey = new Map<string, number>(), readinessByKey = new Map<string, EvidenceReadiness>(), diagnosisByKey = new Map<string, ActionDiagnosis>();
-  /** THE CAUSE LADDER'S WHOLE FINDING, indexed by page alone, not by query: one page gets one reading. */
-  const causeByKey = new Map<string, CauseFinding>();
+  const causeByKey = new Map<string, CauseFinding>(); // the cause ladder's whole finding, indexed by page alone, not by query: one page gets one reading
   /** THE WINNING DIAGNOSIS FOR EVERY PAGE THIS PASS JUDGED, not only the ones that earned an action. The boundary below asks it of every card whatever producer minted it, so a lever that cannot treat what the evidence NAMED is never offered. */
-  const judged = new Map<string, QualifiedCandidate>();
-  for (const c of candidates) for (const k of pageKeys(c.pageUrl)) judged.set(k, c);
+  const judged = new Map<string, QualifiedCandidate>(); for (const c of candidates) for (const k of pageKeys(c.pageUrl)) judged.set(k, c);
   // A SPLIT IS A FAMILY'S DIAGNOSIS, NOT ONE PAGE'S. Every page the ladder named as competing carries it, or the sibling keeps its own "add a section here" card and goes on making the overlap worse.
   for (const c of candidates) if (c.cause.payload?.cause === "cannibalization") for (const u of c.cause.payload.competingPaths)
     for (const k of pageKeys(u)) if ((judged.get(k)?.cause.cause ?? "no_problem") === "no_problem") judged.set(k, c);
-  for (const c of acted) {
-    for (const k of pageKeys(c.pageUrl)) {
-      recoverableByKey.set(k, c.recoverableClicks);
-      causeByKey.set(k, c.cause);
+  for (const c of acted) { for (const k of pageKeys(c.pageUrl)) {
+      recoverableByKey.set(k, c.recoverableClicks); causeByKey.set(k, c.cause);
       if (c.readiness && c.query) readinessByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.readiness); // Readiness is a fact about ONE page and ONE EXACT SEARCH, never about a page alone.
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
-    }
-  }
+    } }
   /** Stamp the basis, the ranking scalar, the cause the ladder named, and confidence by evidence completeness, whichever producer built it. Never invents a figure. */
   const stamp = (p: ChangeProposal): ChangeProposal => {
     const key = (p.pageUrl ?? "").trim().toLowerCase(), pathKey = (p.pagePath ?? "").trim().toLowerCase();
@@ -235,9 +228,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const qk = canonicalQueryKey(p.primaryQuery); // only the readiness measured for THIS proposal's own search may set its confidence
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
     const finding = causeByKey.get(key) ?? causeByKey.get(pathKey);
-    return {
-      ...p,
-      ...(basis ? { basis } : {}),
+    return { ...p, ...(basis ? { basis } : {}),
       ...(finding && p.diagnosisCause == null ? { causeFinding: finding, diagnosisCause: finding.cause } : {}), // The ladder's own reasoning, carried rather than re-derived, and ONLY onto a proposal that brought none.
       impactScore: recoverable ?? p.impactScore,
       confidence: p.bundle ? p.confidence : readiness ? confidenceFor(readiness, diagnosisByKey.get(`${key}::${qk}`) ?? null) : p.confidence, // A BUNDLE KEEPS ITS OWN CONFIDENCE: it built its own receipt, so a coarser readiness never overwrites it.
@@ -260,8 +251,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const currentById = (id: string): ChangeProposal | null => { const p = existing.get(id); return p && p.status !== "implemented_pending_verification" && current(p) ? p : null; };
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null => live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
   /** THE AUDIENCE BEHIND A CARD, as a real field off this account's own rows and never read back out of a sentence. A defect card carries no recoverable click figure, so without this the order collapsed onto how long the work takes. Only stamped where the row brought none. */
-  const byPage = new Map<string, number>();
-  for (const o of snapshot.ownedPages) if (o.search) for (const k of pageKeys(o.url)) byPage.set(k, o.search.impressions90d);
+  const byPage = new Map<string, number>(); for (const o of snapshot.ownedPages) if (o.search) for (const k of pageKeys(o.url)) byPage.set(k, o.search.impressions90d);
   const sized = (p: ChangeProposal): ChangeProposal => p.demandImpressions90d != null ? p : { ...p,
     demandImpressions90d: byPage.get((p.pageUrl ?? "").trim().toLowerCase()) ?? byPage.get((p.pagePath ?? "").trim().toLowerCase()) ?? null };
   /** WHAT THIS PASS LEARNED ABOUT ONE PAGE, keyed by its address: the door a drafted change came through, and the reads a signal asked for rather than turned into a card. THE RUN RECEIPT SAYS BOTH. */
@@ -273,12 +263,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       const entry = pageKeys(c.pageUrl).map((k) => enteredBy.get(k)).find(Boolean) ?? enteredBy.get(c.pageUrl ?? "");
       return entry ? { ...c, reason: `${c.reason} ${entry}` } : c;
     });
-  const retired = new Set<string>();
-  const retire = async (p: ChangeProposal, why: string): Promise<void> => { if (persist) await withdrawChangeProposal(p, why); existing.delete(p.id); retired.add(p.id); };
-  for (const p of held) {
-    if (!p.bundle || actionableProposalFailures(p, { tenantId: p.tenantId, currentBasis: p.basis ?? null, now: opts.now }).length === 0) continue;
-    await retire(p, "retired: this bundle no longer passes the bar a change must clear to be offered");
-  }
+  const retired = new Set<string>(); const retire = async (p: ChangeProposal, why: string): Promise<void> => { if (persist) await withdrawChangeProposal(p, why); existing.delete(p.id); retired.add(p.id); };
+  for (const p of held) { if (!p.bundle || actionableProposalFailures(p, { tenantId: p.tenantId, currentBasis: p.basis ?? null, now: opts.now }).length === 0) continue;
+    await retire(p, "retired: this bundle no longer passes the bar a change must clear to be offered"); }
   const live = held.filter((p) => !retired.has(p.id));
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
@@ -295,21 +282,28 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // The words this page is PAID for right now, off the same rows the drafter's own gate reads, so banked copy answers to today's earning list and not the one that stood when it was written.
     const preserve = [...(own?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
     // BANKED COPY IS RE-READ AGAINST EVERY DETERMINISTIC RULE THAT STANDS TODAY, because banking skips the drafter and every gate: a closing line telling the reader to read the page, a figure that walked away from its own qualifier, and support that was reworded underneath the words all outlived the rules that refuse them. The closing line is TRIMMED where the field still fills without it, and then the ONE re-read decides: any reason at all and the copy is not preserved, so the card goes back through the normal drafting path rather than being served on. $0, no fresh read, no re-judging. A RESEARCH CARD CARRIES NO FINISHED COPY, so it is never put through the banked-copy gate: its `after` is the SENTENCE SAYING WHAT IS STILL OWED, and reading that as words to preserve failed the gate every pass, dropped the stored row out of sight, and rewrote a settled card twice on every refresh.
-    const held0 = existing.get(raw.id), copy0 = held0 && !held0.bundle && held0.researchOnly !== true && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
+    // A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Copy is valid only for the treatment that produced it:
+    // live, /cities was re-diagnosed technical_reachability ("copy is premature") while its OLD section draft sat beside that verdict as
+    // actionable review work. A non-writing incoming treatment RETIRES the stored deliverable with its receipt (previousCopy keeps the
+    // words and the reason) and the opportunity persists as the research card it now is. The evidence loses nothing; the contradiction dies.
+    const NON_WRITING = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
+    const held0 = existing.get(raw.id), treatmentSwap = held0 != null && NON_WRITING.has(raw.treatment ?? "") && held0.researchOnly !== true
+      && held0.recommendedChange.kind === "existing_edit" && held0.recommendedChange.after.trim().length > 0;
+    const copy0 = held0 && !treatmentSwap && !held0.bundle && held0.researchOnly !== true && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
     const clean = copy0 ? withoutCta(copy0.after, copy0.field) : null, trimmed = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
-    const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held, false, preserve) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const prior = why.length === 0 ? trimmed : null;
+    const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held, false, preserve) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const prior = treatmentSwap ? null : why.length === 0 ? trimmed : null; // a treatment swap forfeits preservation outright: the old copy is retired above, with its receipt
     // FINISHED COPY RETIRED BY TODAY'S RULES STILL LEAVES ITS RECEIPT (review, 2026-08-22): nulling the prior took the words out of preferFinished's sight entirely, so the one loss path a rule change opens was the one
-    const retired = why.length > 0 && trimmed && !trimmed.researchOnly && trimmed.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.after.trim() // loss path with no history. The receipt rides the incoming row before preservation runs.
-      ? { previousCopy: { after: trimmed.recommendedChange.after, retiredBecause: why[0]!, at: (opts.now ?? new Date()).toISOString() } } : {};
+    const retired = treatmentSwap
+      ? { previousCopy: { after: held0!.recommendedChange.kind === "existing_edit" ? held0!.recommendedChange.after : "", retiredBecause: `the diagnosis changed to ${raw.treatment}: copy for this page is premature until that work is done`, at: (opts.now ?? new Date()).toISOString() } }
+      : why.length > 0 && trimmed && !trimmed.researchOnly && trimmed.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.after.trim() // loss path with no history. The receipt rides the incoming row before preservation runs.
+        ? { previousCopy: { after: trimmed.recommendedChange.after, retiredBecause: why[0]!, at: (opts.now ?? new Date()).toISOString() } } : {};
     const carried = preferFinished({ ...sized(raw), ...retired, ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
     const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
     const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
     const p: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])] } : ranked;
     const result = await saveChangeProposal(p);
-    if (result === "failed") writeFailures += 1;
-    else if (result === "saved") persisted += 1; // "unchanged" wrote nothing, so it counts as nothing
-    else if (result === "blocked") heldForMeasurement += 1;
+    if (result === "failed") writeFailures += 1; else if (result === "saved") persisted += 1; else if (result === "blocked") heldForMeasurement += 1; // "unchanged" wrote nothing, so it counts as nothing
     // ONLY WHAT LANDED IS REMEMBERED. A row the store refused or could not take is not on file, and holding it in the pass's own map made every later reader believe it was: the reuse check, the ranking write-back and the receipt below all read this map (Codex, 2026-08-22).
     if (result === "saved" || result === "unchanged") existing.set(p.id, p);
     return result; };
@@ -323,8 +317,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const ownership = ownershipCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey });
   /** THE AUTHORIZATION BOUNDARY, asked of every card an independent producer mints. A change whose lever cannot treat the winning diagnosis for its OWN page is not offered: adding copy to one of two pages splitting a search leaves them splitting it, and the ranking picking the biggest number is exactly how that card led. It is withheld with its reason on the run receipt and any row on file for it is taken back. A page with no material diagnosis authorizes everything, byte for byte as before. A BUNDLE IS NOT ASKED: it is produced BY the ladder and refuses itself when the producer does not match the cause. */
   const admit = async (p: ChangeProposal): Promise<boolean> => {
-    const key = (p.pageUrl ?? "").trim().toLowerCase(), path = (p.pagePath ?? "").trim().toLowerCase();
-    const cause = (judged.get(key) ?? judged.get(path))?.cause.cause;
+    const key = (p.pageUrl ?? "").trim().toLowerCase(), path = (p.pagePath ?? "").trim().toLowerCase(), cause = (judged.get(key) ?? judged.get(path))?.cause.cause;
     if (cause === "cannibalization" && !ownership.covered.has(key) && !ownership.covered.has(path)) return true; // NO CARD, NO REFUSAL: a split this pass does not settle may not silence the page it names.
     const no = withholdReason(p, cause);
     if (!no) return true;
@@ -524,6 +517,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again. A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
     if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
+  // A NON-WRITING DIAGNOSIS IS RESEARCH WORK, PERSISTED ON ANY DAY (Codex, 2026-08-23): the funding filter above keeps these cards out of the editor, and on an ordinary day nothing else saved them, so the diagnosis that retires premature copy was DISCARDED whenever the day was not quiet. They buy nothing and file nothing; they land as the research cards they are, and persistIfChanged retires any finished copy the changed treatment has made premature.
+  if (!quietDay) for (const c of [...recovery.cards, ...extra.cards].filter((x) => needsDecisions.has(x.treatment ?? ""))) {
+    const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()], taken = new Set(proposals.flatMap((r) => [(r.pagePath ?? "").trim().toLowerCase(), (r.pageUrl ?? "").trim().toLowerCase()]).filter(Boolean));
+    if (at.some((k) => measuringPagesEarly.has(k)) || !(await admit(c))) continue;
+    const p = { ...c, ...(basis ? { basis } : {}) };
+    if (!proposals.some((x) => x.id === p.id) && !at.some((k) => taken.has(k))) { proposals.push(p); await persistIfChanged(p); }
+  }
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).
   for (let i = 0; i < proposals.length; i += 1) {
     const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : "";

@@ -339,15 +339,15 @@ export async function loadChangeProposal(tenantId: string, id: string, opts: { r
 }
 
 /** STAMP THE LIVE RANKING in ONE statement per release: ONE GLOBAL RANK across every nonterminal opportunity, the id list IS the order, and the lane rides beside it as a control fact, never a second order (v1 numbered lanes separately and never stamped research; Codex, 2026-08-21). A stamp that cannot land leaves the ranking on file serving, which is why this is fail-soft. */
-export async function stampQueueRanking(tenantId: string, release: string, rows: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>): Promise<boolean> {
-  try {
-    const { error } = await getSupabaseAdmin()
-      .rpc("stamp_change_queue_v2", { p_tenant_id: tenantId, p_release: release,
-        p_ids: rows.map((r) => r.id), p_lanes: rows.map((r) => r.lane) });
-    if (!error) return true;
-    log.error("[proposal-store] the new ranking did not stamp, so the list keeps paging the one on file", { tenantId, release, error: error.message });
-  } catch (e) { log.error("[proposal-store] stamping the ranking threw", { tenantId, error: e instanceof Error ? e.message : String(e) }); }
-  return false;
+/** THE ATOMIC CUSTOMER RELEASE (Codex, 2026-08-23): ranking stamp and surface blob commit in ONE database transaction, or neither lands. The old shape stamped first and wrote the blob second, with a rollback that never fired because the blob writer suppressed its own failures: a failed build could un-rank live rows and keep the old surface. An expected-prior mismatch aborts before either write. Throws on failure; the previous release and its ranking are untouched by construction. */
+export async function publishCustomerRelease(args: { tenantId: string; expectedPrior: string | null; release: string;
+  rows: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>; scopeKey: string; storeName: string; content: unknown }): Promise<string> {
+  const { data, error } = await getSupabaseAdmin().rpc("publish_customer_release", {
+    p_tenant_id: args.tenantId, p_expected_prior: args.expectedPrior, p_release: args.release,
+    p_ids: args.rows.map((r) => r.id), p_lanes: args.rows.map((r) => r.lane),
+    p_scope_key: args.scopeKey, p_store_name: args.storeName, p_content: [args.content] });
+  if (error) throw new Error(`the release could not commit: ${error.message}`);
+  return String(data ?? args.release);
 }
 
 /** ONE BOUNDED PAGE of the live ranking, cut in the database and never in memory. `total` is a COUNT taken without loading the queue; `release` names the ranking these rows came from, so paging a replaced order is told rather than fed a different one. `nextRank` is the last rank actually READ, never a row count: a dismissal leaves a hole, and counting rows through it would serve the change after it twice. */

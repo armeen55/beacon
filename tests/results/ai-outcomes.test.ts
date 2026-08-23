@@ -457,6 +457,58 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.after.checked).toBe(20);
     expect(outcome?.line ? [outcome.line, ...(outcome.metricLines ?? [])].join(" ") : "").toBeDefined();
   });
+  /** THE INSTRUMENT IS THE EXACT TUPLE (Codex, 2026-08-23): engine, served model and mode TOGETHER. The marginal
+   *  lists cross, and a cross authorizes pairings nobody observed; the frozen tuples are the only authority. */
+  it("never lets engines and modes seen apart authorize the pairing, and names the cross as its own segment", async () => {
+    const readObservations = reader([
+      ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })), // the one frozen tuple: chatgpt, gpt-5, api
+      ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true, observation_mode: "consumer_search" })), // the read returns slot 0 only, so the cross rides the same slot
+    ]);
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen({
+      engines: ["chatgpt", "gemini"], models: ["gpt-5", "g-web"], modes: ["api", "consumer_search"],
+      instruments: ["chatgpt|gpt-5|api", "gemini|g-web|consumer_search"] }), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    // Both marginal lists contain gpt-5 and consumer_search, and the exact record still refuses the pairing.
+    expect(outcome?.after.checked).toBe(44);
+    expect(outcome?.line).toContain("44 answers arrived on ChatGPT on gpt-5 (consumer search), which this change's starting numbers never saw");
+  });
+  it("treats the same model and mode on a different engine as a new instrument, never a member", async () => {
+    const readObservations = reader([
+      ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })),
+      ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true, engine: "gemini" })),
+    ]);
+    const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP,
+      shipmentBaseline: frozen({ instruments: ["chatgpt|gpt-5|api"] }), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations, now: NOW });
+    expect(outcome?.after.checked).toBe(44); // gpt-5 on api is not one instrument: Gemini's copy is its own segment
+    expect(outcome?.line).toContain("Gemini on gpt-5 (api), which this change's starting numbers never saw");
+  });
+  /** CONTROLS SIT ON THE SAME TUPLE AS THE READING THEY ADJUST: an unaffected question answered on an instrument
+   *  the comparison excludes would subtract that other instrument's weather from this verdict. */
+  it("holds no control from an instrument the comparison excludes, and keeps the same rows as controls on the frozen tuple", async () => {
+    const ctl = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
+      row({ prompt_id: "p-ctl", prompt_text: "an unaffected question", ...over });
+    const ctlDays = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) => {
+      const out: AiObservationRecord[] = [];
+      for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
+        for (let i = 0; i < 4; i += 1) out.push(ctl({ day: d.toISOString().slice(0, 10), ...make(i) }));
+      }
+      return out;
+    };
+    const members = days("2026-07-21", "2026-07-31", () => ({ mentioned: true }));
+    const on = (over: Partial<AiObservationRecord>) => [
+      ...ctlDays("2026-07-15", "2026-07-20", () => ({ mentioned: false, ...over })),
+      ...ctlDays("2026-07-21", "2026-07-31", () => ({ mentioned: true, ...over })),
+    ];
+    const ask = async (rows: AiObservationRecord[]) => aiOutcomeForShipment(T, { implementedAt: STAMP,
+      shipmentBaseline: frozen({ instruments: ["chatgpt|gpt-5|api"] }), aiScope: scope("owned_mentioned_not_cited") },
+      { readObservations: reader(rows), now: NOW });
+    const foreign = await ask([...members, ...on({ engine: "gemini", model_served: "g-web", observation_mode: "consumer_search" })]);
+    expect(foreign?.controls).toBeNull(); // every control answer sits on an excluded instrument, so none holds
+    expect(foreign?.line).toContain("No unaffected question of yours held enough answers over these days");
+    const same = await ask([...members, ...on({})]);
+    expect([same?.controls?.questions, same?.controls?.mentionDrift]).toEqual([1, 1]); // 0 of 24 naming before, 44 of 44 since
+  });
   /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
   it("reports an unmeasurable AI outcome when no starting numbers were frozen, and rebuilds none", async () => {
     const readObservations = reader([...days("2026-07-19", "2026-07-20", () => ({ mentioned: false })), ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true }))]);

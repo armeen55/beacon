@@ -19,8 +19,7 @@ type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 const MAX_DRAFTS = 5;
 const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
 const ANSWER_MIN = 80, ANSWER_MAX = 150; // ONE length contract with the canon (Codex, 2026-08-23): the editor demanded 40 to 90 while the canon's quality band demands 80 to 150, so only an 80-to-90-word answer could ever survive both and everything else was written to be refused
-/** Headings this many read winners share before they are worth naming, and how many are named. */
-const AGREEING_WINNERS = 2, MAX_HEADINGS = 5;
+/** Headings this many read winners share before they are worth naming, and how many are named. */ const AGREEING_WINNERS = 2, MAX_HEADINGS = 5;
 const MAX_HEADING_WORDS = 8; // a heading past this is a wrapped paragraph, and site furniture is not a subject
 const FURNITURE = /^(home|menu|search|contact|about|share|follow|newsletter|comments?|related|categories|tags|advertisement|subscribe|navigation|footer|privacy|terms)\b/i;
 const UNSAFE = /[–—]|\[|\]|\{|\}/; // nothing an operator can paste: a dash Beacon never writes, a bracket somebody forgot to fill in
@@ -90,13 +89,11 @@ const OFFERED = /\b(?:by|such as|including)\s+([a-z][a-z' -]{2,40})/gi;
 const MEMBER_WORDS = 4; // past this a comma joins clauses rather than listing members
 /** CRAWLER MARKERS ARE NOT PAGE COPY. The capture brackets every body with these, and an anchor cut from them ("top of pagePopular Persian...") names a string no operator can find on the rendered page. */
 const CHROME = /\b(?:top|bottom) of page/gi;
-/** The same marker, NON-global: a /g regex carries `lastIndex` between calls, so testing with the one used for replacing alternates true and false. */
-const CHROME_AT = /\b(?:top|bottom) of page/i;
+/** The same marker, NON-global: a /g regex carries `lastIndex` between calls, so testing with the one used for replacing alternates true and false. */ const CHROME_AT = /\b(?:top|bottom) of page/i;
 const ANCHOR_MAX = 160; // a place on the page, not a paragraph: a 300 character blob is not an anchor
 const BODY_TO_JUDGE = 24_000; // how much of a stored page fits in one judging call beside the rest of the prompt
 const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/; // raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
-/** MARKUP IS NOT WORDS. A drafted title read "Colors &amp; History": pasted, a reader sees the entity, not the ampersand. */
-const ENTITY = /&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
+/** MARKUP IS NOT WORDS. A drafted title read "Colors &amp; History": pasted, a reader sees the entity, not the ampersand. */ const ENTITY = /&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
 /** THE WORDS THAT MAKE A FIGURE MEAN SOMETHING NARROWER THAN THE BARE NUMBER. A description shipped "ships in 7-21  business days" off a sentence that said INTERNATIONAL delivery takes 7-21 days while the same page promises 2-6 days inside the country: every digit was lifted from the page and the sentence was still false. */
 const QUALIFIER = /\b(international(?:ly)?|excluding|from|up to|per|depending)\b/i;
 /** A SITE NAMED IN THIS CARD'S EVIDENCE. A rival the answers cite is WHY the card exists and is never copy for the operator's page. */
@@ -104,9 +101,10 @@ const HOSTISH = /\b([a-z][a-z0-9-]{3,})\.(?:com|org|net|io|co|edu|info)\b/gi;
 /** WHAT ONE PAGE ACTUALLY COST, off the gateway's own receipts: real provider calls (a structured call retries once internally, so one logical operation can be two calls) and real dollars. Logical attempt units are budget bookkeeping and are never reported as either (Codex, 2026-08-23: the seven-unit price met a sixteen-call dispatch). */
 type EditorMeter = { ops: number; providerCalls: number; costUsd: number };
 const spendOf = (m: EditorMeter | undefined, r: unknown): void => { if (!m || !r) return; m.ops += 1;
-  const x = r as { status?: string; cached?: boolean; retried?: boolean; costUsd?: number };
+  const x = r as { status?: string; cached?: boolean; retried?: boolean; costUsd?: number; attempts?: number };
   if (x.status === "off" || x.status === "blocked_budget" || x.cached === true) return;
-  m.providerCalls += 1 + (x.retried ? 1 : 0); m.costUsd += x.costUsd ?? 0; };
+  // EXACT attempts when the gateway counted them; the retried-boolean inference remains ONLY for results predating the counter, and the receipt is what says which.
+  m.providerCalls += x.attempts ?? (1 + (x.retried ? 1 : 0)); m.costUsd += x.costUsd ?? 0; };
 const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
 const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
@@ -277,10 +275,12 @@ export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, j
   if (hard.length > 0) return hard;
   if (!judge) return ["nothing read it for sense, so it is not finished"];
   const v = await judge(d, p).catch(() => null); if (!v) return ["no reading of it came back, so nothing is accepted"];
-  return ([["pageFit", "it does not belong on this page"], ["claimsEntailed", "the evidence it names does not carry every claim it makes"],
+  const failed = ([["pageFit", "it does not belong on this page"], ["claimsEntailed", "the evidence it names does not carry every claim it makes"],
     ["usefulAndNatural", "it is not useful or does not read naturally"], ["placementCorrect", "it lands in the wrong place"],
     ["implementableNow", "an operator could not act on it as written"], ["improvesPage", "it repeats the search instead of improving the page"],
     ["wouldHandToCustomer", "no serious editor would hand this to a customer"]] as const).filter(([k]) => v[k] !== true).map(([, why]) => why);
+  // THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK, not the checkbox labels (Codex, 2026-08-23): the notes name the single worst defect and were being thrown away, so the retry heard "not useful" and never WHY. The note rides first, so the corrective loop repeats the evaluator's exact objection to the writer.
+  return failed.length > 0 && typeof v.notes === "string" && v.notes.trim() ? [`the evaluator's exact objection: ${v.notes.trim()}`, ...failed] : failed;
 }
 
 /** THE STORED FACTS THIS PAGE'S EDIT IS CHECKED AGAINST, each under an id the drafter is handed and the  deliverable must name back. Nothing here is fetched: it is the snapshot's own capture and this card's own evidence, so "the evidence supports this" is a lookup rather than a belief. */
@@ -320,9 +320,11 @@ type EditorField = "title" | "h1" | "meta" | "answer_block" | "internal_link";
 
 /** THE EDITOR OVER ONE PACKET: the drafter writes the field against that page's own stored words, the deterministic half of the contract reads its homework against the same packet, and the judge reads it for sense. Null is a refusal, never a draft, and every refusal names itself through `refuse`. */
 async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: string, hints: string[],
-  minutes: number, opts: EditorWiring, refuse: (why: string, extra?: Record<string, unknown>) => null, redrafted = false,
+  minutes: number, opts: EditorWiring, refuse: (why: string, extra?: Record<string, unknown>) => null,
   /** A LINK RUN CARRIES ITS OWN TWO FACTS: the owned page the sentence lands a link on, and the words that become the link. Both are the caller's, read off the card, never the model's. */
-  link: { to: string; anchor: string } | null = null): Promise<EditorDeliverable | null> {
+  link: { to: string; anchor: string } | null = null,
+  /** REWRITE TARGET (Codex, 2026-08-23): the stored passage this copy REPLACES and the stored heading it sits under. Present means rewrite_existing_section: the deliverable's `before` IS that passage and the card says Replace, never "a new section". */
+  rewrite: { heading: string | null; replaces: string } | null = null): Promise<EditorDeliverable | null> {
   // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field edit was refused for disagreeing with itself.
   const held = field === "meta" ? packet.metaDescription : field === "title" ? packet.title : field === "h1" ? packet.h1 : null;
   // THE MONEY IS SPENT HERE, SO THE BUDGET IS READ HERE. Counted down before the call and never after it, so a call that fails, refuses or throws has still been paid for and still counts against what this pass may spend.
@@ -359,12 +361,16 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-");
   const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
   // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for, so the anchor is resolved to that and only an anchor nothing on the page carries is refused below. THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third.
+  // THE CTA REPAIR IS DETERMINISTIC AND FREE (Codex, 2026-08-23): the closing line is trimmed when the field still fills, and when too little is left the refusal goes to the PRICED corrective loop like every other lesson, instead of recursively buying a draft the six-unit price never counted.
   const trimmed = withoutCta(deliverable.finalCopy, field);
-  if (trimmed == null) return redrafted ? refuse("its closing line asks the reader to read the page and too little is left without it")
-    : runEditor(packet, field, pageLabel, [...hints, NO_CTA], minutes, opts, refuse, true, link);
+  if (trimmed == null) return refuse("its closing line asks the reader to read the page and too little is left without it", { reasons: [NO_CTA] });
   deliverable.finalCopy = trimmed;
   // PLACEMENT IS MECHANICAL, NOT GENERATIVE (Codex, 2026-08-23). The model invented anchors and the live gate refused them ("the place it says it lands is not on the stored page", /iran-flags/achaemenid-empire-flag, 01:30Z). For an answer block CODE chooses the place: the page's own stored H1, else its title, else its first clean stored heading, which is exactly where a summary answer belongs. Whatever the model wrote in the anchor slot is bookkeeping. No trustworthy stored anchor means the candidate stays OWED with that exact reason, never an invented place.
-  if (field === "answer_block") {
+  if (field === "answer_block" && rewrite) {
+    // A REWRITE REPLACES; IT NEVER APPENDS. The anchor is the section's own stored heading (else the page top), and `before` IS the stored passage being replaced, so the gate that demands `before` exist on the page holds this to a real section.
+    deliverable.placementAnchor = (rewrite.heading ?? packet.h1 ?? packet.title ?? "").trim() || deliverable.placementAnchor;
+    deliverable.beforeText = rewrite.replaces;
+  } else if (field === "answer_block") {
     const spot = [packet.h1, packet.title, ...packet.headings].find((x): x is string => !!x && !blankish(x) && x.trim().length <= ANCHOR_MAX && !CHROME_AT.test(x) && !/[a-z][A-Z]/.test(x));
     if (!spot) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("the page's stored copy carries no clean heading to place this answer under"); }
     deliverable.placementAnchor = spot.trim(); }
@@ -445,6 +451,16 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // A LINK DELIVERABLE IS ONE SENTENCE, and both its facts are the card's own: the destination off its instruction line, the anchor off the search it names. Either unreadable is a refusal, never a guess.
   const dest = kind === "link" ? linkDestOf(card) : null;
   if (kind === "link" && !dest) return refuse("the destination this link names cannot be read off the card");
+  // THE REWRITE TREATMENT IDENTIFIES ITS SECTION OR REFUSES (Codex, 2026-08-23): live, a rewrite_existing_section card still said "A new section ... placed after the H1", because the vocabulary changed and the delivery did not. The stored passage sharing the most topic words with the tracked question IS the section being replaced; a page where none overlaps has no identifiable section, and that is a refusal, never an append.
+  let rewrite: { heading: string | null; replaces: string } | null = null;
+  if (kind === "answer" && card.treatment === "rewrite_existing_section") {
+    const q = new Set(topicTokens(card.primaryQuery));
+    const best = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-"))
+      .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length })).sort((a, b) => b.n - a.n)[0];
+    if (!best || best.n < 2) return refuse("the section this rewrite should replace cannot be identified in the stored page copy");
+    const heading = packet.headings.find((h) => topicTokens(h).some((w) => q.has(w))) ?? null;
+    rewrite = { heading, replaces: best.t };
+  }
   // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
   const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, id.startsWith("page-copy") ? 700 : 400)}`),
@@ -477,15 +493,15 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused.",
     "Return sources as an empty array; never send a source entry with blank fields. evidenceRefs is DIFFERENT and required: cite at least one of the evidence ids handed to you above. A claim's supportedBy lists at most 8 ids."];
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
-  let deliverable = await runEditor(packet, field, card.pageLabel, hints,
-    card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
+  let deliverable = await runEditor(packet, field, card.pageLabel, [...hints, ...(rewrite ? [`You are REWRITING the existing section that currently reads: "${rewrite.replaces.slice(0, 500)}". Your copy REPLACES it in place: keep everything true it says, add the mapping, structure or precision it lacks, and never write it as a new section.`] : [])],
+    card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite);
   // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free. A RETRY IS CORRECTIVE, NEVER "TRY AGAIN" (Codex, 2026-08-23): the exact words a gate called unsupported are named back as removals, so the next attempt fixes the named defect instead of rediscovering it. The full reasons still follow, oldest first, so fixing one cannot quietly reintroduce another.
   const corrective = (): string => { const bad = [...new Set(lessons.filter((l) => /copy says|drops/.test(l)).flatMap((l) => [...l.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]!)))];
     return [bad.length > 0 ? `REMOVE these exact words from your copy, or reword the sentence so a claim you declare carries them and cites the stored passage proving them: ${bad.map((w) => `"${w}"`).join(", ")}. For any category word, use the exact category the cited evidence establishes, or omit the category.` : "",
       `${lessons.length} previous ${lessons.length === 1 ? "attempt was" : "attempts were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`].filter(Boolean).join(" "); };
   for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1)
     deliverable = await runEditor(packet, field, card.pageLabel, [...hints, corrective()],
-      card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
+      card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite);
   if (!deliverable) return null;
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
@@ -564,7 +580,9 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
           // WHERE IT GOES, IN THE PAGE'S OWN WORDS: the anchor the editor found in the stored copy, checked against that copy before it got here. A field edit replaces its own line and names no place.
           where: meta || h1 || title ? null : link
             ? `One sentence placed after "${drafted.placementAnchor}", with "${card.primaryQuery}" linked to ${dest ?? "the page it names"}`
-            : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
+            : card.treatment === "rewrite_existing_section" && drafted.beforeText
+              ? `Replaces the existing passage under "${drafted.placementAnchor}"`
+              : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
         operatorSteps: meta
           ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
             "Mark it done here and the click rate gets read again"]
@@ -579,9 +597,12 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
                 "Paste the sentence above straight after it",
                 `Make the words "${card.primaryQuery}" in that sentence a link to ${dest ?? "the page this card names"}`,
                 "Mark it done here and the position gets read again"]
-              : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
-                `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
-                "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
+              : card.treatment === "rewrite_existing_section" && drafted.beforeText
+                ? [`Open the site editor on ${card.pagePath}`, `Find the passage beginning "${drafted.beforeText.slice(0, 80)}" under "${drafted.placementAnchor}"`,
+                  "Replace that passage with the copy above, exactly as written", "Mark it done here and the next answers get checked against it"]
+                : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
+                  `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
+                  "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
         limitations: [...card.limitations, ...drafted.uncertaintyOrOmitted, meta
           ? "This line is written off the page's own title, headings and stored copy as last read, so check it still describes the page before you publish it."
           : title

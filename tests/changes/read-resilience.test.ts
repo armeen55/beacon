@@ -30,7 +30,7 @@ vi.mock("@/domains/decision", () => ({
   countLedgerLifecycle: () => ({ measuring: 0, decided: 0 }),
   loadProposalQueue: async () => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0 }),
   readQueuePage: async () => ({ rows: [], total: 0, nextRank: 0, release: null, more: false, dropped: 0 }),
-  stampQueueRanking: async () => true,
+  publishCustomerRelease: async () => "rel",
 }));
 vi.mock("@/app/(shell)/surface-release", () => ({
   readCustomerSurface: vi.fn(async () => {

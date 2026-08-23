@@ -25,7 +25,7 @@ const BUNDLE_DELIVERABLES = 4;
 const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
-type PaidJob = { key: string; family: string; impact: number; calls: number;
+type PaidJob = { key: string; family: string; impact: number; calls: number; treatment?: string;
   /** The cheaper families that also want work on this page. They run only if the funded one does not produce, and they draw on ITS allowance, never a second. */ fallbacks?: readonly string[] };
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
@@ -34,17 +34,17 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
-  // ONE ENTRY PER PAGE, AND THE PAGE GETS ITS HIGHEST-VALUE TREATMENT, NEVER ITS MOST EXPENSIVE (Codex, 2026-08-23).
-  // The dearest-job-wins rule buried a seven-unit title behind a twenty-eight-unit bundle on the same page and then
-  // divided the page's worth by the inflated price, so the strongest cheap work ranked last. The job with the best
-  // impact per unit now wins the page; the others stay recorded as its fallbacks, never as extra funded work.
+  // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
+  // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
+  // optimised the API bill instead of the site. And BOTH versions handed the winner the loser's impact score, so a
+  // cheap edit inherited the expected value of the rewrite it does not perform. The winner keeps ITS OWN impact and
+  // ITS OWN price; the losers stay recorded as fallbacks, never as extra funded work and never as donors.
   const byKey = new Map<string, PaidJob>();
   for (const j of input.jobs) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
-    else { const win = (j.impact / Math.max(1, j.calls)) > (at.impact / Math.max(1, at.calls)) ? j : at, lose = win === j ? at : j;
-      byKey.set(j.key, { ...win, impact: Math.max(at.impact, j.impact), fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
-  const ranked = [...byKey.values()].sort((a, b) =>
-    (b.impact / Math.max(1, b.calls)) - (a.impact / Math.max(1, a.calls)) || b.impact - a.impact || a.key.localeCompare(b.key));
+    else { const win = j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at, lose = win === j ? at : j;
+      byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
+  const ranked = [...byKey.values()].sort((a, b) => b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
@@ -62,7 +62,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** EVERY candidate this pass could see, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). */
     declared: ranked.map((j) => j.key),
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
-    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [] })),
+    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [], ...(j.treatment ? { treatment: j.treatment } : {}) })),
     declined: declined as readonly DeclinedJob[],
     /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
     take(key: string) {

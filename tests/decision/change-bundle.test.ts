@@ -6,7 +6,9 @@ import { proposalFingerprint } from "@/domains/decision/proposal-store"; import 
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
   withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
-vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle"; import { ledgerProofLine } from "@/domains/decision/changes/lifecycle-counts";
+vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); const bodyStore = vi.hoisted(() => ({ map: null as null | Map<string, unknown> }));
+vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
+  loadOwnedPageBodies: async () => { if (bodyStore.map) return bodyStore.map; throw new Error("no body store in this fixture"); } })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle"; import { ledgerProofLine } from "@/domains/decision/changes/lifecycle-counts";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -219,14 +221,16 @@ describe("what a receipt will and will not accept", () => { it("takes the result
     expect([blind.demotedStaleBasis, store.rows.size]).toEqual([5, rows]); }); // every set-aside row is still counted, and not one stored row is rewritten
 }); // ── the release: a fresh timestamp may never sit on top of a failed production run ──
 const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); const published: { computedAt: string }[] = [];
-  vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async (_s: string, rows: { computedAt: string }[]) => { published.push(...rows); }, claimScope: async () => true, releaseScope: async () => undefined }));
-  vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
+  vi.doMock("@/lib/persistence/json-store", () => ({ readStore: async () => [], writeStore: async () => {}, claimScope: async () => true, releaseScope: async () => undefined }));
+  vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => TENANT, slugForTenantId: async () => "fixture", runWithTenant: async (_t: string, fn: () => Promise<unknown>) => fn() }));
   vi.doMock("@/lib/single-flight", () => ({ runSingleFlight: async (_k: string, fn: () => Promise<unknown>) => fn() }));
   const swept: Array<{ shipped: string[] }> = []; // THE TRIPWIRE THE BUILD RUNS: what it was told is already measured, and what it reverted.
   vi.doMock("@/domains/measurement", () => ({ loadShippedChanges: ledger.read, loadShippedChangesForTenant: (_t: string) => ledger.read() }));
   vi.doMock("@/domains/decision", () => ({ produceProposalsForTenant: produce,
+    // The atomic commit IS the publish now: `published` records what the transaction landed, not what a cache wrote.
+    publishCustomerRelease: async (a: { release: string; content: { computedAt: string } }) => { published.push(a.content); return a.release; },
     reconcileImplementedWithoutShipment: async (_t: string, shipped: ReadonlySet<string>) => { swept.push({ shipped: [...shipped] }); return ["reverted"]; } }));
-  vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [] }) }));
+  vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [], stampRows: [] }) }));
   const signals: { declineNotes?: { page: string; note: string }[] }[] = [];
   vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async (_v: unknown, sig: { declineNotes?: { page: string; note: string }[] }) => { signals.push(sig); return { headline: "" }; } }));
   return { ...(await import("@/app/(shell)/surface-release")), published, signals, swept };
@@ -586,6 +590,79 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? idiom : good2 }) } as never);
       expect([asked.length > 1, /REMOVE these exact words[^]*"idiom"/.test(asked.at(-1)!)]).toEqual([true, true]); }); // the gate refused the first, and the retry named the exact word rather than "improve it"
+    /** THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst
+     *  defect, and they were being thrown away, so every retry heard only checkbox labels. */
+    it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
+      const asked: string[] = []; let judged = 0;
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
+        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
+        judge: async () => ((judged += 1) === 1
+          ? ({ ...OKJ, usefulAndNatural: false, notes: "the opening sentence answers a different question than the reader asked" } as never)
+          : (OKJ as never)),
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
+      expect(asked.length).toBeGreaterThan(1); // the first verdict refused, so the writer was asked again
+      expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); });
+    /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted
+     *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
+    it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
+      const asked: string[] = []; let round = 0;
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["card-1"] }] };
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
+        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const budget = DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? cta : good2 }) } as never);
+      expect(asked.length).toBe(2); // the repair is a second PAID draft, not a hidden free one
+      expect(budget.spent().calls).toBe(2); // and both drafts came off the page's one declared allowance
+      expect(asked.at(-1)).toContain("it points at the page instead of answering"); // the CTA objection, in the gate's own words
+      expect([out[0]!.status, out[0]!.recommendedChange.kind === "existing_edit" ? out[0]!.recommendedChange.after.includes("Jeegareto") : false]).toEqual(["ready", true]); });
+    /** THE REWRITE TREATMENT REPLACES AN IDENTIFIED SECTION OR REFUSES (Codex, 2026-08-23). Live, a
+     *  rewrite_existing_section card still rendered "A new section ... placed after the H1": the output was a
+     *  different deliverable than the treatment sold. The card must name the stored passage it replaces, and a
+     *  page whose stored copy cannot be identified is a refusal, never a new section. */
+    it("a rewrite names the exact stored passage it replaces, never a new section", async () => {
+      const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
+      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), BODY]]);
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
+        limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async () => ({ value: rewritten }) } as never);
+      const rc = out[0]!.recommendedChange;
+      expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
+      expect(rc.kind === "existing_edit" ? rc.before : null).toBe(P1); // the exact stored passage, held as the before
+      expect(JSON.stringify(out[0]!.operatorSteps)).toContain("Replace that passage with the copy above, exactly as written");
+      expect(JSON.stringify(out[0])).not.toContain("A new section");
+      bodyStore.map = null;
+    });
+    it("a rewrite that cannot identify its section refuses in those words, and never invents a placement", async () => {
+      const notes: string[] = [];
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
+        limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+        note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async () => ({ value: GOOD }) } as never); // no stored body is on file, so no passage can be identified
+      expect(notes.join(" ")).toContain("the section this rewrite should replace cannot be identified in the stored page copy");
+      expect([out[0]!.status === "ready", JSON.stringify(out[0]!.recommendedChange).includes("A new section")]).toEqual([false, false]);
+    });
     it("a grounded answer passes every editor gate AND the canon, mechanically placed", async () => {
       const d = await drive({ ...GOOD, placementAnchor: "whatever" }); expect([d?.anchor, (d?.after ?? "").includes(P2)]).toEqual(["Funny Farsi Phrases", true]);
       const v = validateProposal(prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const,
@@ -599,7 +676,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const learn = "Persian Greetings and Basic PhrasesSay hello, goodbye, thank you, and much more with confidence. This guide covers the most common Persian greetings and everyday phrases, along with cultural notes and pronunciation tips, so you know when and how to use them naturally.";
     const blob = "Visual Timeline of Persia/IranA comprehensive visual timeline of Iran's history, capturing pivotal events from ancient Persia to to modern Iran. Explore significant milestones, cultural developments, political changes, and influential figures that have shaped Iran's rich and diverse heritage.";
     // 1: names slang terms the stored page never carries (caught by reading the COPY, since it declared none of them as claims), self-points, uses a word this account bans, and anchors on the crawl's own marker. 2: says the page LISTS phrases it only mentions in passing, which the self-pointer rule can see. 3: hands over a paragraph where a place on the page belongs.
-    console.log("RECV>>", JSON.stringify([d({ P: pk(chrome, ["Farsi"]), placementAnchor: chrome, finalCopy: "Funny Persian phrases and idioms are common Farsi insults and playful slang such as Pedar Sag, Topoli, Gooz, and Bikhial. See the sections below for each example." }), d({ P: pk(learn), placementAnchor: "Persian Greetings and Basic Phrases", finalCopy: "Basic Persian phrases for beginners include common greetings, simple everyday sentences, and numbers one to ten. This guide lists each with pronunciation." })]));
     const RECV=[d({ P: pk(chrome, ["Farsi"]), placementAnchor: chrome, finalCopy: "Funny Persian phrases and idioms are common Farsi insults and playful slang such as Pedar Sag, Topoli, Gooz, Bikhial, and Chert-o-Pert. This page lists those expressions, gives brief meanings and typical contexts. See the headings below for each example and its short meaning." }),
       d({ P: pk(learn), placementAnchor: "Persian Greetings and Basic Phrases", finalCopy: "Basic Persian phrases for beginners include common greetings, simple everyday sentences, and numbers shown in Finglish so you can speak before learning the script. This page lists hello, goodbye, thank you, pronunciation tips and cultural notes, and recommends gamified lessons to practice these phrases aloud." }),
       d({ P: pk(blob), placementAnchor: blob, finalCopy: "Famous Iranian people in history and today include Cyrus the Great and the poet Ferdowsi, who founded an empire and wrote the epic that carried the Persian language across many centuries of recorded history, verse and memory, and who are named on this timeline among the milestones that shaped Iran." })];
@@ -776,6 +852,47 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
 });
 
 /** FINISHED COPY SURVIVES EVERYTHING BUT A MATERIAL CHANGE (operator, 2026-08-22): a paused $0 pass reworded its generator's prose and DESTROYED the one Ready change in production. Identity is material now, and a genuine replacement of finished words stamps an inspectable retirement receipt. */
+
+/** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed
+ *  technical_reachability ("copy is premature until reachability work is done") while its old finished section
+ *  draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep
+ *  the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing
+ *  treatments away from the editor was also the only path that persisted them outside quiet days. */
+describe("a changed treatment retires the copy it makes premature, on any kind of day", () => {
+  const CITIES = `${TENANT}::/cities::existing_edit::ai_answer_gap`;
+  const heldRow = (over: Partial<ChangeProposal> = {}) => prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
+    pageLabel: "Cities", primaryQuery: "cities of iran", changeFamily: "section", status: "ready", researchOnly: false, basis: "basis_test",
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The finished cities section, drafted when this was still writing work." }, ...over });
+  const incoming = (over: Partial<ChangeProposal> = {}) => prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
+    pageLabel: "Cities", primaryQuery: "cities of iran", changeFamily: "section", status: "needs_review", researchOnly: true,
+    treatment: "technical_reachability", opportunityType: "Win an AI answer",
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "No stored answer reports reading this page while rivals are credited, so the work is reachability first." },
+    evidence: { query: "cities of iran", hints: ["No stored answer reports reading this page"], evidenceRefCount: 1 }, ...over });
+  const runWith = async (card: ChangeProposal) => { vi.resetModules();
+    vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({
+      run: { cards: [card], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
+    const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
+    env.snap = snapshot(); // /rain-barrels still earns an acted candidate, so this is an ORDINARY day, not a quiet one
+    return run(TENANT, { complete: seam, ...OPTS });
+  };
+  it("retires the finished copy with its receipt, keeps the opportunity as research work, and persists on an ordinary day", async () => {
+    store.rows.set(CITIES, heldRow());
+    await runWith(incoming());
+    const out = store.rows.get(CITIES)!;
+    expect(out.previousCopy?.after).toBe("The finished cities section, drafted when this was still writing work.");
+    expect(out.previousCopy?.retiredBecause).toContain("technical_reachability");
+    // The row IS the research card now: the old words did not survive as the offered change.
+    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("reachability first");
+    expect([out.researchOnly, out.status === "ready", out.evidence.hints.some((h) => h.includes("reports reading"))]).toEqual([true, false, true]);
+  });
+  it("retires nothing when there is no finished copy to make premature", async () => {
+    store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));
+    await runWith(incoming());
+    expect(store.rows.get(CITIES)!.previousCopy).toBeUndefined();
+  });
+});
+
 describe("finished copy survives a pass that cannot redraft", () => {
   const finished = (over: Partial<ChangeProposal> = {}) => prop({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O",
     diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["card-1"] }], supportFacts: [{ id: "card-1", fact: "f" }],
@@ -807,15 +924,16 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
     // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");
-    expect([b.take("topic:wildlife"), b.take("/best") != null]).toEqual([null, true]); // it asks FIRST in the pass and still gets nothing
+    // Impact orders the line: the strongest candidate leads however early the weak new page asked; with two slots the new page funds BEHIND it and the weakest is declined for slots, never for asking late.
+    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/best", "topic:wildlife"], true, "/rugs"]);
   });
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     // THE DEFECT (Codex, 2026-08-22): a deep bundle and an editor card on one page were two candidates and two allowances, so a rewrite that SUCCEEDED left the editor's slot funded and unused, and one that FAILED let the same page spend twelve calls and then three more while other pages went unfunded.
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
-    // THE PAGE GETS ITS HIGHEST-VALUE TREATMENT, NOT ITS MOST EXPENSIVE (Codex, 2026-08-23): the editor at 55 impact for 6 units beats the bundle at 60 for 12, so the page costs 6 and the bundle survives only as its fallback.
-    expect(b.funded.map((f) => [f.key, f.family, f.calls, [...f.fallbacks]])).toEqual([["/one", "editor", DRAFT_BUDGET.DELIVERABLE_CALLS, ["deep_bundle"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, []]]);
-    const winner = b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS)!; winner.left = 0; // the winning treatment produced, spending its allowance
-    expect([b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS), b.spent().calls]).toEqual([null, DRAFT_BUDGET.DELIVERABLE_CALLS]); }); // and nothing else on that page may spend after it
+    // THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23): the bundle at 60 beats the editor at 55, WINS AT ITS OWN PRICE, and keeps ITS OWN score: a cheap edit never inherits the expected value of the rewrite it does not perform, and cost breaks ties only.
+    expect(b.funded.map((f) => [f.key, f.family, f.calls, f.impact, [...f.fallbacks]])).toEqual([["/one", "deep_bundle", 12, 60, ["editor"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, 30, []]]);
+    const winner = b.draw("/one", 12)!; winner.left = 0; // the winning treatment produced, spending its allowance
+    expect([b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS), b.spent().calls]).toEqual([null, 12]); }); // and nothing else on that page may spend after it
   it("lets a failed rewrite's fallback draw its own price from the SAME allowance, never a second one", () => {
     const b = plan([job("/one", "deep_bundle", 90, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 20)], { candidates: 5 }); // 90/12 beats 20/6, so the bundle genuinely wins this page and the editor is its fallback
     const rewrite = b.draw("/one", DRAFT_BUDGET.BUNDLE_CALLS)!; rewrite.left = 10; // refused after two units
@@ -827,9 +945,9 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("prices a whole page and a deep bundle at TWELVE charged calls, and shows that price to the ranking before it funds one", () => {
     const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });
   it("does not let one expensive bundle silently starve several higher-value small changes", () => {
-    expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/a", "/b", "/c", "/d", "/bundle"]); // 4 x 6 + 12 fits in forty, so everything is bought, cheapest-per-click first
-    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 33 }); // and when it does not fit, the finishable changes are bought and the bundle says why it was not
-    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/a", "/b", "/c", "/d"], ["this needs 12 charged calls and 9 were left"]]);
+    expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/bundle", "/a", "/b", "/c", "/d"]); // impact orders the line: the 60-impact bundle leads and everything still fits in forty
+    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 33 }); // and when the last cheap job does not fit, the walk KEPT funding strong work past the expensive leader instead of starving on it
+    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/bundle", "/a", "/b", "/c"], ["this needs 6 charged calls and 3 were left"]]);
   });
   it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
     .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));

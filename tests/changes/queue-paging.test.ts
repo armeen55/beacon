@@ -4,13 +4,20 @@ import { supabaseFake, type Row } from "../helpers/supabase-fake";
 
 const db = vi.hoisted(() => ({ rows: [] as Row[], legacy: [] as Row[], reads: [] as number[], basis: "b1" as string | null, stampFails: false }));
 const client: Record<string, unknown> = {
-  // The v2 stamp: clear this account, then ONE global ordinality with the lane riding beside each id.
-  rpc(_name: string, a: { p_tenant_id: string; p_release: string; p_ids: string[]; p_lanes: string[] }) {
+  // The database's side of the release: one transaction that validates the expected prior (null means "no
+  // release on file", exactly like the live plpgsql), clears this account, stamps ONE global ordinality with
+  // the lane riding beside each id, and lands the surface blob. An error leaves EVERY half untouched.
+  rpc(name: string, a: { p_tenant_id: string; p_release: string; p_ids: string[]; p_lanes: string[]; p_expected_prior?: string | null; p_content?: unknown[] }) {
     if (db.stampFails) return Promise.resolve({ data: null, error: { message: "the ranking did not stamp" } });
+    if (name === "publish_customer_release") {
+      const prior = (blob.stored as { releaseId?: string } | null)?.releaseId ?? null;
+      if ((a.p_expected_prior ?? null) !== prior) return Promise.resolve({ data: null, error: { message: `release conflict: expected prior ${a.p_expected_prior}, found ${prior}` } });
+    }
     for (const r of db.rows) if (r.tenant_id === a.p_tenant_id) { r.queue_lane = null; r.queue_rank = null; }
     a.p_ids.forEach((id, i) => { const r = db.rows.find((x) => x.tenant_id === a.p_tenant_id && x.id === id);
       if (r) { r.queue_lane = `${a.p_release}::${a.p_lanes[i]}`; r.queue_rank = i + 1; } });
-    return Promise.resolve({ data: null, error: null });
+    if (name === "publish_customer_release") blob.stored = (a.p_content ?? [null])[0];
+    return Promise.resolve({ data: a.p_release ?? null, error: null });
   },
 };
 Object.assign(client, supabaseFake({ rows: (t) => (t === "change_proposals" ? db.rows : db.legacy),
@@ -44,7 +51,7 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement } from "react";
 import { readChangesPage, loadChangesView, buildChangesViewUncached } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
-import { readQueuePage, stampQueueRanking, loadChangeProposals } from "@/domains/decision/proposal-store";
+import { readQueuePage, loadChangeProposals, publishCustomerRelease } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
 
@@ -63,7 +70,11 @@ const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id:
   payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: `2026-07-30T00:00:${String(p.impactScore).padStart(4, "0")}Z`, ...over });
 
 const ALL = Array.from({ length: N }, (_, i) => proposal(i));
-async function stamp(release: string, ready = ALL) { await stampQueueRanking(T, release, ready.map((p) => ({ id: p.id, lane: "ready" as const }))); }
+/** The fixture ranking, written straight onto the fake rows: production stamps ONLY through the atomic release now. */
+async function stamp(release: string, rows: Array<{ id: string; lane: string }> = ALL.map((p) => ({ id: p.id, lane: "ready" }))) {
+  for (const r of db.rows) if (r.tenant_id === T) { r.queue_lane = null; r.queue_rank = null; }
+  rows.forEach((x, i) => { const r = db.rows.find((y) => y.tenant_id === T && y.id === x.id); if (r) { r.queue_lane = `${release}::${x.lane}`; r.queue_rank = i + 1; } });
+}
 beforeEach(async () => {
   db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
   await stamp("rel-1"); });
@@ -103,23 +114,40 @@ describe("Today and Changes answer one question once", () => {
     releaseFails.value = false; }); });
 
 describe("one release identity, or no release at all", () => {
-  it("stamps the ranking with the id it publishes under, never publishes one it could not stamp, and pages no change whose receipt stopped resolving", async () => {
+  it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
     const view = await buildChangesViewUncached(T, "rel-9");
     // ONE id and ONE ready count reach both surfaces: a navigation can never answer this twice.
-    expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]); expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9");
+    expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
+    // THE BUILD IS PURE (Codex, 2026-08-23): the old shape stamped the ranking mid-build, so a build that later
+    // failed had already replaced the live order. The release on file is still rel-1, and the whole order rides
+    // out on `stampRows` for the ONE transaction that commits ranking and surface together.
+    expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
       confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null },
       components: [{ kind: "title", label: "Title", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }] } } as Partial<ChangeProposal>);
     db.rows[0]!.payload = JSON.parse(serializeChangeProposal(broken));
     expect((await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows.map((p) => p.id)).not.toContain(broken.id);
+    // THE COMMIT: one call, both halves land, and the committed id is the one every surface pages under.
+    const args = (release: string, expectedPrior: string | null) => ({ tenantId: T, expectedPrior, release,
+      rows: view.stampRows!, scopeKey: "customer-surface::tenant:fixture", storeName: "customer-surface", content: { releaseId: release } });
+    expect(await publishCustomerRelease(args("rel-9", null))).toBe("rel-9");
+    const committed = async () => [(await readQueuePage(T, "ready", "b1", 0, 1)).release, (blob.stored as { releaseId?: string } | null)?.releaseId ?? null];
+    expect(await committed()).toEqual(["rel-9", "rel-9"]);
+    // FAILURE DIRECTION ONE: the transaction refuses, and NEITHER the ranking nor the surface moves.
     db.stampFails = true;
-    await expect(buildChangesViewUncached(T, "rel-10")).rejects.toThrow();
-    expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9"); // the complete release on file is untouched
+    await expect(publishCustomerRelease(args("rel-10", "rel-9"))).rejects.toThrow("could not commit");
+    expect(await committed()).toEqual(["rel-9", "rel-9"]);
+    db.stampFails = false;
+    // FAILURE DIRECTION TWO: a prior this build never read is a conflict, not a licence. A null expectation over
+    // a live release (the failed-read shape) and a stale expectation both abort BEFORE any write.
+    await expect(publishCustomerRelease(args("rel-10", null))).rejects.toThrow("release conflict");
+    await expect(publishCustomerRelease(args("rel-10", "rel-7"))).rejects.toThrow("release conflict");
+    expect(await committed()).toEqual(["rel-9", "rel-9"]);
   }); });
 
 describe("one global rank across every lane", () => {
   it("interleaves research and drafts with ready work by worth, and the stamped lane rides each row", async () => {
-    await stampQueueRanking(T, "rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
+    await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
     expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
     await stamp("rel-1"); // restore the fixture ranking for the suites below
   });
@@ -161,7 +189,7 @@ describe("the ranked queue pages in the database", () => {
 /** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
 describe("a publish that half landed", () => {
   it("rolls the order back onto the release still serving when the blob does not land", async () => {
-    const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release"); await stamp("rel-prev", ALL.slice(0, 3));
+    const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release"); await stamp("rel-prev", ALL.slice(0, 3).map((p) => ({ id: p.id, lane: "ready" })));
     blob.stored = { schemaVersion: 2, releaseId: "rel-prev", computedAt: "2026-08-03T00:00:00.000Z", tenantId: T,
       changes: { surfaceVersion: "rel-prev", ready: ALL.slice(0, 3), toDo: [] }, today: {} };
     blob.writeFails = true;

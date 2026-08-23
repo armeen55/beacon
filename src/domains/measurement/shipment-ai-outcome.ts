@@ -63,6 +63,8 @@ export type HeldAiBaseline = {
   citationSample?: number; ownedCiting?: number; rankSum?: number; rankCount?: number;
   retrievalSample?: number; ownedRetrieved?: number; retrievedNotCited?: number;
   engines?: string[]; models?: string[]; modes?: string[]; scopeFingerprint?: string; objective?: ShipmentObjective;
+  /** THE EXACT INSTRUMENT TUPLES the starting numbers were read on, `engine|model|mode` each (Codex, 2026-08-23): the record of the pairings themselves, where the marginal lists above can only cross. */
+  instruments?: string[];
 };
 
 /** What the AI answers did around one shipped change. Direction only: this is an observation, not a proof. */
@@ -266,6 +268,7 @@ export async function aiBaselineFor(tenantId: string, aiScope: NonNullable<Shipm
     day, checked: share.checked, analyzed: share.analyzed, mentioning: share.mentioning,
     ...countLinks(onDay, ownedRootOf(onDay, opts.ownedHost)),
     engines: distinct((r) => r.engine), models: distinct((r) => r.model_served), modes: distinct((r) => r.observation_mode),
+    instruments: distinct((r) => `${r.engine}|${r.model_served ?? ""}|${r.observation_mode ?? ""}`),
     scopeFingerprint: scopeFingerprint(aiScope), objective: objectiveOfStage(aiScope.stage),
   };
 }
@@ -360,8 +363,9 @@ function directionOf(objective: ShipmentObjective, mentionDirection: Direction,
  *  the same engines, straight off rows already read. Never bought for the purpose; too few answers on either
  *  side holds nothing. Drift = after rate minus before rate, per metric, in raw points. */
 function controlsOf(nonMembers: readonly AiObservationRecord[], stamp: string, engines: ReadonlySet<string> | null,
-  ownedHost: string | null): ShipmentAiOutcome["controls"] {
-  const pool = nonMembers.filter((r) => cameBack(r) && (r.prompt_id ?? "").length > 0 && (engines == null || engines.has(r.engine)));
+  ownedHost: string | null, sameInstrument: (r: AiObservationRecord) => boolean): ShipmentAiOutcome["controls"] {
+  // ON THE SAME INSTRUMENT TUPLE AS THE READING THEY ADJUST (Codex, 2026-08-23): a control answered on an excluded instrument would subtract that other instrument's weather from this verdict.
+  const pool = nonMembers.filter((r) => cameBack(r) && (r.prompt_id ?? "").length > 0 && (engines == null || engines.has(r.engine)) && sameInstrument(r));
   if (pool.length === 0) return null;
   const beforeC = pool.filter((r) => r.reporting_day < stamp), afterC = pool.filter((r) => r.reporting_day >= stamp);
   const mB = namedShare(beforeC), mA = namedShare(afterC);
@@ -399,17 +403,24 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
 
   const afterAll = rows.filter((r) => r.reporting_day >= stamp && r.reporting_day <= to);
   // AN INSTRUMENT CHANGE STARTS A NEW SEGMENT, NEVER A FOOTNOTE UNDER A CROSS-INSTRUMENT NUMBER (Codex, 2026-08-23).
-  // The baseline froze the models and modes it was read on; an answer served on a model or mode the baseline never
-  // saw is a DIFFERENT instrument, and comparing across it sells an instrument swap as the change working or
-  // failing. Those answers are excluded from the DIRECTION arithmetic only: they still appear in `instruments` and
-  // the boundary sentence, and they become the new segment's own record. A baseline old enough to have frozen no
-  // instruments changes nothing here.
-  const frozenInstruments = held?.models?.length || held?.modes?.length
-    ? new Set([...(held.models ?? ["*"])].flatMap((m) => [...(held.modes ?? ["*"])].map((o) => `${m}::${o}`)))
-    : null;
-  const sameInstrument = (r: AiObservationRecord): boolean => frozenInstruments == null
-    || frozenInstruments.has(`${r.model_served ?? "*"}::${r.observation_mode ?? "*"}`)
-    || frozenInstruments.has(`${r.model_served ?? "*"}::*`) || frozenInstruments.has(`*::${r.observation_mode ?? "*"}`);
+  // THE INSTRUMENT IS AN EXACT TUPLE: engine, served model and mode together (Codex, 2026-08-23). Marginal lists
+  // were CROSSED here before, so a start read on ChatGPT's API and Gemini's consumer search authorized ChatGPT's
+  // consumer search, a pairing nobody observed. Exactness comes from the best record available: tuples frozen at
+  // mark time, else the tuples on this change's own stored answers from before the stamp, else marginals ONLY
+  // where they name one pairing (one model or one mode); marginals crossing on both sides certify nothing, so
+  // every later answer starts its own segment. Excluded answers leave the DIRECTION arithmetic only: they still
+  // appear in `instruments`, the boundary sentence and the named-segments line below.
+  const tupleOf = (r: AiObservationRecord): string => `${r.engine}|${r.model_served ?? ""}|${r.observation_mode ?? ""}`;
+  const sameInstrument: (r: AiObservationRecord) => boolean = (() => {
+    if (held == null) return () => true;
+    if (held.instruments?.length) { const s = new Set(held.instruments); return (r: AiObservationRecord) => s.has(tupleOf(r)); }
+    if (beforeRows.length > 0) { const s = new Set(beforeRows.map(tupleOf)); return (r: AiObservationRecord) => s.has(tupleOf(r)); }
+    const es = held.engines ?? [], ms = held.models ?? [], os = held.modes ?? [];
+    if (ms.length === 0 && os.length === 0) return () => true;
+    if (ms.length > 1 && os.length > 1) return () => false;
+    return (r: AiObservationRecord) => (es.length === 0 || es.includes(r.engine)) && (ms.length === 0 || ms.includes(r.model_served ?? ""))
+      && (os.length === 0 || os.includes(r.observation_mode ?? ""));
+  })();
   const afterRows = afterAll.filter(sameInstrument);
   const answered = afterRows.filter(cameBack);
   const newInstrumentRows = afterAll.length - afterRows.length;
@@ -433,7 +444,7 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
   const thin = thinDays || before.rate == null || after.rate == null || beforeSide.thin || tooThin(share);
   // THE CONTROLS' OWN DRIFT comes off the verdicts, per metric, so the account's whole world moving is never
   // sold as this change working. Where too few controls hold, drift is zero and the receipt says none held.
-  const controls = controlsOf(nonMembers.filter((r) => r.reporting_day >= window.from && r.reporting_day <= to), stamp, scopeEngines, ownedHost);
+  const controls = controlsOf(nonMembers.filter((r) => r.reporting_day >= window.from && r.reporting_day <= to), stamp, scopeEngines, ownedHost, sameInstrument);
   const mDrift = controls?.mentionDrift ?? 0, cDrift = controls?.citationDrift ?? 0;
   const mentionDirection: Direction = thin ? "unclear"
     : gapDir(metricOf(before.checked, before.mentioning), metricOf(after.analyzed, after.mentioning), "good_rate", mDrift);
@@ -466,7 +477,9 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
   const metricLines = metricLinesOf(objective, startLinks != null, mentionDirection, citationsAdj, retrieval, passedOver);
   const extraLines = [
     ...(movement ? [movement] : []),
-    ...(newInstrumentRows > 0 ? [`${newInstrumentRows} answers arrived on a model or mode this change's baseline never saw; they start their own segment and are not compared against the frozen starting point, because an instrument swap is not a result.`] : []),
+    ...(newInstrumentRows > 0 ? [(() => { const label = (t: string) => { const [e, m, o] = t.split("|"); return `${engineLabel(e ?? "")} on ${m || "an unnamed model"} (${(o || "unknown mode").replace(/_/g, " ")})`; };
+      const named = [...new Set(afterAll.filter((r) => !sameInstrument(r)).map(tupleOf))].sort().map(label).join(", ");
+      return `${newInstrumentRows} answers arrived on ${named}, which this change's starting numbers never saw; each starts its own segment and none is compared against them, because an instrument swap is not a result.`; })()] : []),
     ...(conflicted ? [`The assistants disagree: ${called.map((e) => `${engineLabel(e.engine)} ${e.direction}`).join(", ")}. A split verdict is reported as a split, never averaged.`] : []),
     ...(controls && (controls.mentionDrift != null || controls.citationDrift != null)
       ? [`Read against ${controls.questions} of your own unaffected questions over the same days; their movement is subtracted before anything is called.`]

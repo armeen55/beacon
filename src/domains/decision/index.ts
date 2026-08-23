@@ -50,7 +50,7 @@ export {
   dismissChangeProposal,
   queueLaneCounts,
   readQueuePage,
-  stampQueueRanking,
+  publishCustomerRelease,
 } from "./proposal-store";
 export { reconcileImplementedWithoutShipment } from "./implemented-repair";
 

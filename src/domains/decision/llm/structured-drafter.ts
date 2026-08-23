@@ -55,13 +55,13 @@ export type StructuredDraftResult<T> =
   | { status: "off" }
   | { status: "blocked_budget"; reason: string }
   /** `failure` is WHOSE failure it was, typed (gateway.ts's LlmFailure); `errors`/`reason` are the same facts as prose, for a log line and nothing else. */
-  | { status: "validation_failed"; reason: string; errors: string[]; failure: LlmFailure; costUsd: number; retried: boolean }
+  | { status: "validation_failed"; reason: string; errors: string[]; failure: LlmFailure; costUsd: number; retried: boolean; /** EXACT network attempts made for this logical operation, counted at the gateway call site, never inferred (Codex, 2026-08-23). */ attempts?: number }
   | {
       status: "drafted";
       kind: StructuredDraftKind;
       value: T;
       costUsd: number;
-      retried: boolean;
+      retried: boolean; attempts?: number;
       fewShot?: FewShotProvenance;
       /** R16: present when this exact request was served from the call cache ($0). */
       cached?: true;
@@ -520,7 +520,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
           kind: req.kind,
           value: stampAnySources(revalidated.data, req.authoritativeSourceDomains) as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
           costUsd: 0,
-          retried: false,
+          retried: false, attempts: 0,
           cached: true,
           ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
         };
@@ -551,7 +551,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   const sourceTextCache = new Map<string, Promise<{ ok: boolean; text: string; finalUrl?: string; blocked?: boolean }>>();
   const verifyNowIso = (req.now ?? new Date()).toISOString();
 
-  let totalCost = 0;
+  let totalCost = 0, networkAttempts = 0;
   let lastProvenance: LlmProvenance | undefined;
   // WHOSE FAILURE THE LAST ATTEMPT WAS. It defaults to (and returns to) `schema_invalid`, because every rejection below this line is one I make about a body that DID come back.
   let failure: LlmFailure = "schema_invalid";
@@ -600,6 +600,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       if (rv.allowed === false) return { status: "blocked_budget", reason: rv.reason };
     }
 
+    networkAttempts += 1; // counted AT the call, so the receipt reports what actually left the process
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId });
 
     const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd); totalCost += attemptCost;
@@ -700,7 +701,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       kind: req.kind,
       value: verifiedData,
       costUsd: totalCost,
-      retried,
+      retried, attempts: networkAttempts,
       ...(lastProvenance ? { provenance: lastProvenance } : {}),
       ...(req.fewShotProvenance ? { fewShot: req.fewShotProvenance } : {}),
       ...(templated ? { repeatFlag: REPEAT_FLAG } : {}),
@@ -725,7 +726,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   }
 
   log.warn("[structured-drafter] fail-closed", { kind: req.kind, failure, errors: errors.slice(0, 6) });
-  return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, failure, costUsd: totalCost, retried: true };
+  return { status: "validation_failed", reason: errors[0] ?? "unknown", errors, failure, costUsd: totalCost, retried: true, attempts: networkAttempts };
 }
 
 // ── intent-aware drafting (C) ───────────────────────────────────────────────── The searcher's dominant intent decides the ANSWER TYPE. A "when" query must be answered with a date, not a definition (the chaharshanbe failure). This directive is injected into the prompt so the LLM writes the right kind of answer. Intent strings mirror answer-intent.ts (kept as a loose string to avoid an llm -> experiments domain import). Empty string when unknown = no constraint.

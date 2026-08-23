@@ -190,7 +190,11 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     }
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;
-    const changes = await buildChangesViewUncached(tenantId, releaseId);
+    const built = await buildChangesViewUncached(tenantId, releaseId);
+    // The order rides to the COMMIT, never into the blob: the release stores what renders, and the ranking
+    // lives in the rows the same transaction stamps. A build that cannot say its order publishes nothing.
+    const { stampRows, ...changes } = built;
+    if (!stampRows) throw new Error("the build handed over no ranking, so nothing was published and the previous release keeps serving");
     // The verdicts for pages this pass JUDGED and declined to change, carried into the
     // release so Today can quote the decision for the page it blames instead of a
     // generic "still checking". Biggest measured gap first, bounded: Today quotes at
@@ -233,21 +237,17 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
       ...visibility,
     };
-    // Publish the one shared release consumed by Today + Changes. THE TWO WRITES END TOGETHER OR NOT AT ALL:
-    // if the blob does not land, the order stamped a moment ago is rolled back onto the release still serving,
-    // so the list always pages the ranking the screen it sits on was published with. The previous release
-    // carries one page per lane, so this restores exactly what that release could ever serve; with no previous
-    // release the stamp is cleared, and the reader falls back to the release's own page. A restamp that
-    // itself fails is swallowed: the publish failure below is the news, and it must not be replaced.
-    try { await writeCustomerSurface(surface); }
-    catch (publishFailure) {
-      const { stampQueueRanking } = await import("@/domains/decision");
-      const prior = previous?.changes ?? null;
-      await stampQueueRanking(tenantId, prior?.surfaceVersion ?? `${tenantId}:rolled-back`,
-        [...(prior?.ready ?? []).map((p) => ({ id: p.id, lane: "ready" as const })),
-          ...(prior?.toDo ?? []).map((p) => ({ id: p.id, lane: "todo" as const }))]).catch(() => false);
-      throw publishFailure;
-    }
+    // ONE ATOMIC COMMIT (Codex, 2026-08-23). Ranking stamp and surface blob land in ONE database transaction, or
+    // neither does: the old stamp-then-write shape had a rollback that never fired, because the blob writer
+    // suppressed its own hosted failures, so a failed build could un-rank live rows while the old surface survived.
+    // The expected prior release is validated inside the same transaction, and a conflict aborts before any write.
+    const { publishCustomerRelease } = await import("@/domains/decision");
+    const { slugForTenantId } = await import("@/lib/tenant-context");
+    const slug = await slugForTenantId(tenantId);
+    await publishCustomerRelease({ tenantId, expectedPrior: previous?.releaseId ?? null, release: releaseId,
+      rows: stampRows, scopeKey: `customer-surface::tenant:${slug}`, storeName: "customer-surface", content: surface });
+    // The local file mirror is a cache behind the committed row, refreshed best-effort and never load-bearing.
+    await writeCustomerSurface(surface).catch(() => undefined);
     return surface;
     } finally {
       // Released with this build's own token: a rebuild that outlived its TTL comes back to somebody else's
