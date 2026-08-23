@@ -261,6 +261,11 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
               <CopyButton text={after} onToast={onToast}
                 label={review ? "Copy draft" : `Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
+            {/* WHERE IT GOES BELONGS TO THE FINISHED CARD MOST OF ALL. This line was rendered inside the held-draft
+                box, so the one card an operator is meant to act on was the one card that never said where its copy
+                lands: paste-ready work, no place to paste it. A section names its heading and the line it follows,
+                a field edit replaces its own line and names none, and the card prints whichever it has. */}
+            {placement ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-placement="true">Where it goes: {placement}</p> : null}
           </div>
         )}
 
@@ -270,7 +275,6 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
               {hold.why.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
-            {placement ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-draft-placement="true">Where it goes: {placement}</p> : null}
             <p className="text-[12px] leading-relaxed text-muted-foreground">Copying it takes an imperfect starting point, not proven work.</p>
           </div>
         ) : null}
