@@ -305,6 +305,7 @@ export type ChangeProposal = {
   /** THIS CARD IS A READ, NOT AN EDIT: nothing on it is written, so no surface offers it as copy and the server refuses to record it done. Set where such a card is minted (decision/authorization). It was read off a substring of customer-facing prose until 2026-08-14, so rewording that line handed out a Copy button and a Mark done. Absent on a pre-field row, which reads as an edit. */
   researchOnly?: boolean; research?: { missing: string; next: string };
   /** THE ONE CHOSEN TREATMENT for this page's diagnosis (Codex, 2026-08-23): a closed vocabulary every producer, drafter, queue card and measurement scope reads, so the same stage can never mean "answer block" to one of them and "reachability work" to another. Absent on rows minted before it existed. */
+  /** THE IDENTITY OF THE WORK ITSELF, not of the page it lands on (Codex, 2026-08-23): reuse compared the broad cause alone, so an incomplete title bundle and a newly selected rewrite both read as "cannibalization" and the writer was skipped for a page worth 312 recoverable clicks. Two pieces of work are the same only when the page, the evidence, the family, the treatment, the cause and the search all match. */ workKey?: string;
   treatment?: "rewrite_existing_section" | "add_answer_section" | "title_or_h1" | "meta_description" | "internal_link_or_navigation" | "technical_reachability" | "consolidate_or_differentiate" | "factual_correction_batch" | "new_page"; // `research`: WHAT THE MINTING PRODUCER ALREADY KNOWS, typed so the feed never re-guesses it from `recommendedChange.after` or the last string in `operatorSteps`; absent on a row minted before this field existed, said honestly rather than guessed.
   /** THE CAUSE the ladder named, so the ranker can ask whether this change's levers address it. Absent when nothing was diagnosed; an unrecognised value on a hand-edited row matches no lever and is discounted nothing. */
   diagnosisCause?: CauseFinding["cause"];
@@ -427,7 +428,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
     engines: z.array(z.string()), models: z.array(z.string()).optional(), modes: z.array(z.string()).optional(),
     fanoutKey: z.string().optional(), fanouts: z.array(z.string()), observationIds: z.array(z.string()).optional(), stage: z.string() }).optional(),
   bundle: ChangeBundleSchema.optional(),
-  basis: z.string().optional(),
+  basis: z.string().optional(), workKey: z.string().optional(),
   researchOnly: z.boolean().optional(), research: z.object({ missing: z.string().min(1), next: z.string().min(1) }).optional(),
   treatment: z.enum(["rewrite_existing_section", "add_answer_section", "title_or_h1", "meta_description", "internal_link_or_navigation", "technical_reachability", "consolidate_or_differentiate", "factual_correction_batch", "new_page"]).optional(), // unknown keys are STRIPPED here: leave researchOnly out and a research card reloads as an edit
   diagnosisCause: z.string().min(1).optional(),

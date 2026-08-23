@@ -205,6 +205,37 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const guide = out.paid.receipts.find((r) => r.key === "/nowruz-guide");
     if (guide) expect(guide.outcome).not.toBe("not_reached"); });
 
+  /** SAME PAGE AND SAME CAUSE IS STILL NOT SAME WORK, AND A DRAFT AWAITING REVIEW IS NEVER READY (Codex, 2026-08-23).
+   *  Both proved through the REAL producer against the live counterexample: an incomplete title bundle on
+   *  /iran-flags/iran-islamic-republic-flag-history answered a newly selected rewrite because both said
+   *  "cannibalization", so the writer was skipped, zero calls were spent, and the receipt said produced for a page
+   *  the queue could not see. */
+  it("never reuses a stored bundle that is not this exact work, and never calls a review draft produced", async () => {
+    reset(BOTH());
+    const sameCause = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide",
+      pageUrl: GAP_URL, basis: "basis_today", status: "needs_review", diagnosisCause: "cannibalization", workKey: "a-different-piece-of-work",
+      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [],
+        components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }],
+        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
+    env.store = new Map([[sameCause.id, sameCause]]);
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
+    // NOT ONE receipt may claim finished work on the strength of a row the queue cannot serve.
+    for (const r of out.paid.receipts) {
+      if (r.outcome !== "produced") continue;
+      expect(r.why ?? "").not.toContain("answers this exact diagnosis"); // the cause-only sentence is gone with the cause-only rule
+    }
+    expect(out.paid.receipts.every((r) => (r.why ?? "").length > 0 || r.outcome === "produced")).toBe(true); });
+
+  it("stops drafting a page whose deep door named the reading it is missing, instead of spending on a fallback", async () => {
+    reset(BOTH());
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
+    for (const owed of out.paid.evidenceOwed ?? []) {
+      expect(["serp", "page_source", "competitor_page", "factual_source"]).toContain(owed.kind); // TYPED, so the runtime never parses English
+      expect(owed.query.length).toBeGreaterThan(0);
+      const spent = out.paid.receipts.find((r) => r.key === owed.key);
+      expect(spent?.outcome).toBe("evidence_required");   // the page reports what it needs
+    } });
+
   /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that
    *  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one
    *  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */

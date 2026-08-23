@@ -169,8 +169,6 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
-  /** A REFUSAL ASKING FOR FACTS, in the words the evaluator and the gates actually use. */
-  const FACT_DEBT = /not reliable|unreliable|no facts|cannot be verified|unverified|source|evidence that claim|likely-wrong/i;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000;
   // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
@@ -257,13 +255,16 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       // so the next drive hands the writer the same contradicted page and earns the same refusal forever. Buying
       // unrelated keywords while five changes are owed is still wrong; going and getting the exact facts a funded
       // candidate was refused for is the work itself.
-      const owedFacts = (r?.outcomes?.stuck ?? []).some((line) => FACT_DEBT.test(line));
+      const owedFacts = (r?.evidenceOwed ?? []).length > 0; // TYPED, never a regex over English (Codex, 2026-08-23): "No results page for X is on file" matched no phrase the old pattern knew, so the one reading that finishes the account's strongest page was never fetched.
       if (shortStock && r != null && r.reason !== "target_reached" && !owedFacts) {
         log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
-      if (owedFacts) log.info("[research-run] a funded candidate was refused for facts it does not hold, so this dispatch goes on to the phase that fetches them", { tenantId, phase });
+      if (owedFacts) log.info("[research-run] a funded candidate named the exact reading it needs, so this dispatch goes on to fetch it", { tenantId, phase, owed: (r?.evidenceOwed ?? []).slice(0, 3) });
       // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
-      if (stockOnly) {
+      // A STOCK-ONLY RUN STILL EXECUTES THE READING A FUNDED CANDIDATE NAMED. Skipping straight on was the second half
+      // of the deadlock: the requirement was raised, persisted, and then jumped over, so the next drive drafted from
+      // the same missing evidence. Broad exploration still waits; this exact reading does not.
+      if (stockOnly && !owedFacts) {
         const next = nextPlanned(nextPhase(phase), allowed ?? new Set<ResearchPhase>());
         if (!await advancePhase(tenantId, run.id, ownerToken, { phase: next, progress, cursor: null })) return "lost_lease";
         phase = next; cursor = null; continue;
