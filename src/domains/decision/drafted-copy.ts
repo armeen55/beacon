@@ -141,6 +141,9 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
     .find((r) => flatCopy.includes(r) && !mine.includes(r));
   if (rival) out.push(`it names ${rival}, which this page's own words never mention, so the copy points a reader at somebody else's site`);
   // A BANNED WORD THE SEARCHERS THEMSELVES USE IS DIFFERENT SPEECH (operator ruling, 2026-08-16): "Persian, never Farsi" holds for Beacon's own voice, but when a real search for this page carries the word, using it beside the preferred term is meeting the searcher, not breaking the rule. The exception is demand-gated and generic: a term clears only when a stored search phrase for THIS page contains it.
+  // BEACON'S OWN WORKFLOW WORDS ARE NOT CUSTOMER COPY (Codex, 2026-08-23): the drafted answer opened "Funny Persian phrases in the evidence include", leaking the brief's vocabulary onto the page. SOFT, so the otherwise-good answer lands in Review with this note rather than being destroyed.
+  const leaked = ["evidence", "grounding", "supportedBy", "claim ids"].find((w) => new RegExp(`\\b${w}\\b`, "i").test(copy));
+  if (leaked) out.push(`it says "${leaked}", which is Beacon's own workflow word rather than the page's`);
   const banned = p.bannedTerms.filter((t) => t.trim() && new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(`${copy} ${heading ?? ""}`)
     && !p.demand.vocabulary.some((v) => new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(v)));
   if (banned.length > 0) out.push(`it uses words this account does not publish: ${banned.slice(0, 3).join(", ")}`);
@@ -173,11 +176,7 @@ const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase)
 const fold = (w: string): string => w.replace(/se$/, "s");
 /** A CAPITAL LETTER RUNNING OUT OF A LOWERCASE ONE IS TWO WORDS. The capture glues a heading to the sentence under it ("Persian AccessoriesShowcase your heritage"), and matching whole words against that string calls the page's own word missing. Both sides are split the same way, so this can only ever restore a boundary a crawl removed. */
 const words2 = (t: string): string[] => topicTokens(t.replace(/([a-z])([A-Z])/g, "$1 $2"));
-function ungroundedClaimWords(claims: EditorDeliverable["claims"], evidence: Readonly<Record<string, string>>, copy: string): string[] {
-  const inCopy = new Set(words2(copy).map(fold)); return [...new Set(claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => evidence[id] ?? "").join(" ").replace(/([a-z])([A-Z])/g, "$1 $2")).replace(/[^a-z0-9]+/g, " ");
-    const held = new Set([...q.split(" ").filter(Boolean), ...topicTokens(q)].map(fold));
-    return words2(c.text).filter((w) => !CARRIER.has(w.toLowerCase()) && inCopy.has(fold(w)) && !held.has(fold(w))); }))];
-}
+
 
 /** WHY THIS DELIVERABLE IS NOT FINISHED, or empty. PURE, and no line here is an opinion about whether the copy is any good. */
 export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): string[] {
@@ -190,8 +189,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (unknown.length > 0) out.push(unknown.some((id) => SOURCE_KIND.has(id))
     ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
     : `it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
-  if (d.claims.length === 0) out.push("it makes no claim anybody could check");
-  if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
+  if (d.claims.length === 0) out.push("it makes no claim anybody could check"); if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
   // THE COPY IS READ INDEPENDENTLY OF WHAT WAS DECLARED, so an assertion the writer simply did not mention is held to the same evidence as one it did. NOT A VOCABULARY TEST: asking whether every word of a sentence is printed on the page refuses the one thing an editor is for, a faithful paraphrase, and this codebase has already thrown that mechanism out once. This asks a STRUCTURAL question instead. Enumerating is naming MEMBERS, and a member either exists or it does not. The HEAD of a list is skipped on purpose: a pattern reading backwards from the first comma swallows the verb in front of it ("browse and filter Persian accessories by type"), and judging that phrase judges the sentence rather than the member. AND A LIST OF LONG MEMBERS IS NOT A LIST: "Ferdowsi, who founded an empire and wrote the epic that carried the Persian language" is a chain of clauses wearing commas, so a match with any member past MEMBER_WORDS is discarded whole rather than read as a claim about what the page holds.
   const members = (t: string): string[] => t.split(",").slice(1).flatMap((x) => x.split(/\band\b|\bor\b/)).map((x) => x.trim()).filter((x) => x.length > 2);
   const asserted = [...new Set([...[...d.finalCopy.matchAll(ENUMERATED)].map((m) => members(m[1]!)),
@@ -661,10 +659,12 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
     if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
   }
   out.push(...rereadableRefusals(c.after, packet));
-  // WHAT THE COPY LEANS ON HAS TO STILL CARRY IT. Support reworded, re-pointed or dropped leaves banked words arguing from something nobody banked, and a stored claim cannot say that about itself.
-  const ungrounded = ungroundedClaimWords(claims, evidence, c.after), uncovered = unheld(`${flat(claims.map((x) => x.text).join(" "))} ${flat(facts.map((f) => f.fact).join(" "))}`.replace(/[^a-z0-9]+/g, " "), c.after);
-  if (ungrounded.length > 0) out.push(`its copy says ${ungrounded.slice(0, 3).map((t) => `"${t}"`).join(", ")} on a claim of its own, and the evidence that claim names does not carry it`);
-  if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
+  // WORD CONTAINMENT WAS DELETED FROM THE EDITOR AND SURVIVED HERE (Codex, 2026-08-23), so a rule no fresh draft is held to went on destroying banked work: the second finished /funny-farsi-phrases answer was retired over the ordinary word "evidence". What it was protecting is kept in the only form that survives a paraphrase: a claim whose cited evidence is ABOUT SOMETHING ELSE ENTIRELY. Support that was reworded still passes; support that was swapped for a different reading does not, and no banked row can argue from something nobody banked.
+  const inventedNames = unheldNames(`${facts.map((f) => f.fact).join(" ")} ${claims.map((x) => x.text).join(" ")} ${(held?.outline ?? []).join(" ")} ${held?.title ?? ""}`, c.after);
+  if (inventedNames.length > 0) out.push(`its copy names ${inventedNames.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and nothing on file about this page mentions them`);
+  const adrift = claims.filter((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w)), its = new Set(topicTokens(x.supportedBy.map((id) => evidence[id] ?? "").join(" ")));
+    return mine.length >= 4 && mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
+  if (adrift.length > 0) out.push(`the evidence "${adrift[0]!.text.slice(0, 60)}" names is about something else entirely, so this copy argues from support nobody banked`);
   // A LINK IS ONE SENTENCE, filed under `section` for the store's sake. Its id still says what it is, and re-reading it against section's forty word floor would withdraw every finished link sentence on the sweep.
   const band = p.id.endsWith("::internal_link") ? "internal_link" as const : field; const [lo, hi, unit] = BAND[band], n = unit === "c" ? c.after.trim().length : words(c.after);
   if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);

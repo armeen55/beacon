@@ -911,7 +911,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
     expect([why(), why({}, null), why(copy(GOOD.replace("International ", "")))[0], why({ supportFacts: [{ id: "card-1", fact: SHIP }, { id: "card-2", fact: "An entirely different reading nobody wrote this copy from." }] })[0],
       why({ supportFacts: [{ id: "card-1", fact: SHIP }] })[0], why({}, { ...page, metaDescription: "A description this page no longer carries." })[0], why({ claims: undefined })])
       .toEqual([[], [], "the figure's own sentence says international, and the copy drops it",
-        'its copy says "order", "earn", "store" on a claim of its own, and the evidence that claim names does not carry it',
+        'the evidence "Every order earns store credit toward the next pair" names is about something else entirely, so this copy argues from support nobody banked',
         "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
   // A WORD IS THE WORD IT IS. The fold that made "showcase" and "showcases" one token also made "rate" and "rat" one, so evidence about a rat was read as carrying copy about a rate, in both directions. Only the tokenizer's own over-trim is repaired now.
   // THE THREE LANES, AND THE ONE DEMOTION THAT KEEPS THE WORK. Nothing written is research; exact copy owing only a look is a draft a person may approve; copy whose placement nobody can re-check is a draft nobody may approve, and its words, claims and evidence are untouched by the demotion.

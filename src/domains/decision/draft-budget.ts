@@ -141,6 +141,6 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
 
 /** THE MONEY SURFACE, as one export: the ceilings, the prices, the plan and the key every family agrees on. */
 /** THE FOUR REASONS THAT MAY KILL FINISHED WORK (Codex, 2026-08-23): an unsupported fact or figure, the wrong page, a placeholder, and a placement that does not exist. Everything else is a note on a REVIEW draft: a soft rule that discards a complete answer turns one imperfect word into zero output, which is how the live /funny-farsi-phrases answer was destroyed back to its own brief over the single word "Farsi". */
-const HARD_REFUSAL = /not on the stored page|is not the one this page carries|page this evidence is not about|blank or still carries a placeholder|not banked beside them|does not carry it|no such thing|mentions them|names evidence that is not on file|no claim anybody could check|names no evidence at all|cannot be identified/;
+const HARD_REFUSAL = /not on the stored page|is not the one this page carries|page this evidence is not about|blank or still carries a placeholder|not banked beside them|no such thing|mentions them|names evidence that is not on file|no claim anybody could check|names no evidence at all|cannot be identified/;
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY, HARD_REFUSAL,
   BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, plan, keyOf } as const;
