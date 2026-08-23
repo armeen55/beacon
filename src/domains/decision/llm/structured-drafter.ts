@@ -81,7 +81,10 @@ export type CompleteFn = (args: {
   /** The owning account, threaded to the gateway for spend + provenance. */
   tenantId: string;
   /** `failure` is the TYPED name of what went wrong and `error` the same thing as text, for logs; an injected transport naming no type reads as a body I could not use. */
-}) => Promise<{ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number; failure?: LlmFailure }>;
+  /** REQUESTS THAT ACTUALLY LEFT THE PROCESS for this one completion, counted at the gateway's own fetch line
+   *  and never here (Codex, 2026-08-23). Absent means ZERO: a transport that cannot say it reached the network
+   *  did not, which is the honest default for every injected seam and every pre-network refusal. */
+}) => Promise<({ value: unknown; provenance?: LlmProvenance } | { error: string; retryable: boolean; costUsd?: number; failure?: LlmFailure }) & { httpAttempts?: number }>;
 
 /** BEACON_500 item 74: turn a confident pattern-hint cell into the one-line, plain- English provenance the draft-provenance surface shows. Pure - no I/O. Names the real winning page when one is known; otherwise names the page family only (never fabricates a page). */
 function fewShotProvenanceFrom(
@@ -440,17 +443,17 @@ function defaultComplete(apiKey: string, promptId: PromptId): CompleteFn {
       budget: { mode: "caller", note: "checkBudget + recordSpend live in callStructuredLLM" },
     });
     // WHOSE FAILURE IT WAS IS DECIDED ONCE, AT THE DOOR THAT SAW IT, and travels as a TYPE; the `error` text below is for a log line only. When a caller had to recognise a throttle by matching `openai_429` exactly, the same throttle wearing the code OpenAI actually sends read as a bad shape, and answers nobody was billed for settled as refused.
-    const failure = llmFailureOf(outcome);
+    const failure = llmFailureOf(outcome), httpAttempts = outcome.httpAttempts;
     switch (outcome.kind) {
-      case "ok": return { value: outcome.value, provenance: outcome.provenance }; // gateway parsed + null-normalized; the drafter still Zod-validates it
-      case "blocked_budget": return { error: "blocked_budget", retryable: false, failure };
-      case "blocked_credit": return { error: "blocked_credit", retryable: false, failure }; // the door already holds every call for this account, so asking again is the storm this closes
-      case "refusal": return { error: "refusal", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined, failure };
-      case "incomplete": return { error: "incomplete", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined, failure };
-      case "invalid_response": return { error: outcome.reason || "invalid_response", retryable: false, costUsd: outcome.provenance?.costUsd ?? undefined, failure }; // a POST-network invalid carries provenance: bill its REAL usage cost
+      case "ok": return { httpAttempts, value: outcome.value, provenance: outcome.provenance }; // gateway parsed + null-normalized; the drafter still Zod-validates it
+      case "blocked_budget": return { httpAttempts, error: "blocked_budget", retryable: false, failure };
+      case "blocked_credit": return { httpAttempts, error: "blocked_credit", retryable: false, failure }; // the door already holds every call for this account, so asking again is the storm this closes
+      case "refusal": return { httpAttempts, error: "refusal", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined, failure };
+      case "incomplete": return { httpAttempts, error: "incomplete", retryable: false, costUsd: outcome.provenance.costUsd ?? undefined, failure };
+      case "invalid_response": return { httpAttempts, error: outcome.reason || "invalid_response", retryable: false, costUsd: outcome.provenance?.costUsd ?? undefined, failure }; // a POST-network invalid carries provenance: bill its REAL usage cost
       // AN EMPTY BALANCE IS NEVER RETRYABLE however it is dressed: it arrives as a 429, which the throttle rule alone would send back into the same wall.
-      case "http_error": return { error: `openai_${outcome.status}${outcome.code ? `_${outcome.code}` : ""}`, retryable: failure !== "credit_exhausted" && httpStatusRetryable(outcome.status), failure };
-      case "error": return { error: outcome.reason || "fetch_failed", retryable: !outcome.timedOut, failure }; // a dead socket is worth one more try; MY OWN DEADLINE only re-buys the same slow call, and it has no receipt to show either way
+      case "http_error": return { httpAttempts, error: `openai_${outcome.status}${outcome.code ? `_${outcome.code}` : ""}`, retryable: failure !== "credit_exhausted" && httpStatusRetryable(outcome.status), failure };
+      case "error": return { httpAttempts, error: outcome.reason || "fetch_failed", retryable: !outcome.timedOut, failure }; // a dead socket is worth one more try; MY OWN DEADLINE only re-buys the same slow call, and it has no receipt to show either way
     }
   };
 }
@@ -494,7 +497,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
   // Slice 3 account isolation: fail closed on a missing account BEFORE touching the cache, the budget, or the network - a draft with no owner is a bug, never a global call or a shared-cache read.
   const tenantId = (req.tenantId ?? "").trim();
   // No call was made and nothing was billed, so a missing account is named transient: a bug of mine never settles somebody's work.
-  if (!tenantId) return { status: "validation_failed", reason: "missing_tenant", errors: ["missing_tenant"], failure: "transient", costUsd: 0, retried: false };
+  if (!tenantId) return { status: "validation_failed", reason: "missing_tenant", errors: ["missing_tenant"], failure: "transient", costUsd: 0, retried: false, attempts: 0 }; // refused before any transport: zero requests left this process
   const apiKey = process.env.OPENAI_API_KEY;
   // R16: every structured call carries a registered prompt identity (all kinds are registered as draft.<kind>; the registry test enforces coverage).
   const promptId = `draft.${req.kind}` as PromptId;
@@ -600,8 +603,12 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
       if (rv.allowed === false) return { status: "blocked_budget", reason: rv.reason };
     }
 
-    networkAttempts += 1; // counted AT the call, so the receipt reports what actually left the process
+    // THE ATTEMPT IS COUNTED BY WHOEVER TOUCHED THE WIRE. Incrementing here counted every pre-network refusal
+    // (research paused, credit held, breaker, budget, an unconvertible schema) as a charged provider call, and
+    // the operator read those as money spent (Codex, 2026-08-23, from a live receipt). The gateway stamps the
+    // one transport fact on its outcome; this adds it, and a seam that reports nothing adds nothing.
     const out = await complete({ system, user: req.user, maxTokens, timeoutMs, kind: req.kind, tenantId });
+    networkAttempts += Math.max(0, Math.round((out as { httpAttempts?: number }).httpAttempts ?? 0));
 
     const attemptCost = attemptCostUsd("error" in out ? out.costUsd : out.provenance?.costUsd); totalCost += attemptCost;
     // Onboarding SETTLES its reservation against the real cost EVERY time, including zero, which refunds in full the reservation an attempt that bought nothing had already parked. Everyone else records only a receipt: a call that returned no usage records no spend (onboarding still reconciles to zero, touching the row and its capless call counter: money stays purchases-only).

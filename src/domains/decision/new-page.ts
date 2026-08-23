@@ -182,6 +182,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     kind: "new_page_brief", tenantId, system: SYSTEM, user, grounded: facts.join(" "),
     projectedCostUsd: 0.03, maxTokens: 2600, complete: opts.complete, now, bypassCache: opts.bypassCache,
   });
+  opts.attempts?.record?.(call); // real requests and real dollars, onto this page's own allowance
   if (call.status !== "drafted") {
     log.warn("[new-page] no usable brief", { tenantId, topicKey: inv.key, status: call.status });
     return { status: "none", reason: "This page did not reach a standard worth handing over, so nothing is handed over rather than filler." };
@@ -256,6 +257,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     const drafted = await draftSectionStructured({ tenantId, query: inv.label, pageLabel: v.proposedTitle,
       heading: s.heading, brief: `${s.covers} Write no figure that is not in the evidence you were given, including a list length such as 5 or 10: name the items without counting them.`, outline, evidenceHints: facts },
       { complete: opts.complete, now, bypassCache: opts.bypassCache });
+    opts.attempts?.record?.(drafted); // real requests and real dollars, onto this page's own allowance
     if (drafted.status !== "drafted") break;
     written.push(`${drafted.value.heading}\n\n${drafted.value.body}`.replace(/[–—]/g, " "));
   }

@@ -201,7 +201,7 @@ export async function readWinningPattern(
   /** The shape the results ALREADY settled, counted in code one gate earlier. Supplied, it is told to the
    *  model AND enforced on the answer: the model repeats a settled shape, it never re-votes one. */
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, decremented BEFORE the call below like every other charged call in the pass. This read used to be the one paid Decision call the pool never saw, so "one budget pays every attempt" was untrue by exactly this call every pass that reached a verdict. Absent = a reading standing on its own, which spends against the money caps alone. */
-  & { pageType?: SerpPageType | null; attempts?: { left: number } } = {},
+  & { pageType?: SerpPageType | null; attempts?: { left: number; record?: (r: unknown) => void } } = {},
 ): Promise<WinningPattern | null> {
   // ONLY PAGES I ACTUALLY READ, and only one vote per publisher: three pages from one site are one site's house style, and nothing downstream of this file may ever call that a pattern.
   const pages: PageFacts[] = [];
@@ -230,6 +230,7 @@ export async function readWinningPattern(
     projectedCostUsd: PATTERN_COST_USD, maxTokens: 1800,
     complete: opts.complete, cacheImpl: opts.cacheImpl, now: opts.now,
   });
+  opts.attempts?.record?.(call); // real requests and real dollars, onto this page's own allowance
   if (call.status !== "drafted") {
     log.info("[winning-pattern] no reading of the winning pages this pass", { tenantId, status: call.status });
     return null;

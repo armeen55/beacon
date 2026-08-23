@@ -649,6 +649,36 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(out[0])).not.toContain("A new section");
       bodyStore.map = null;
     });
+    /** THE LIVE FAILURE, AS A FIXTURE (Codex, 2026-08-23). Production refused this exact page's rewrite with "the
+     *  words it says it replaces are not on the stored page" over copy taken FROM that page: the body the gate
+     *  matches against has crawler markers stripped, the passages handed to the writer did not, so a passage
+     *  carrying "top of page" could never be found. The retry re-installed the same doomed target and re-earned
+     *  the same refusal at full price. One normalizer answers for both sides now. */
+    it("replaces a passage its own page carries under a crawler marker, instead of refusing copy taken from that page", async () => {
+      const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
+      const CHROMED = `top of page${P1}`; // exactly how the crawler stored this account's own section
+      const body = { ...BODY, passages: [CHROMED, P2, P3] };
+      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), body]]);
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
+        limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const notes: string[] = [];
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+        note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async () => ({ value: rewritten }) } as never);
+      expect(notes.join(" ")).not.toContain("the words it says it replaces are not on the stored page");
+      const rc = out[0]!.recommendedChange;
+      // VERBATIM, marker and all: the comparison ignores markers on both sides, but what the operator is told to
+      // find is exactly what their page carries. Stripping it out left words no Ctrl-F would ever match.
+      expect(rc.kind === "existing_edit" ? rc.before : null).toBe(CHROMED);
+      expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
+      expect(out[0]!.status).toBe("ready");
+      bodyStore.map = null;
+    });
     it("a rewrite that cannot identify its section refuses in those words, and never invents a placement", async () => {
       const notes: string[] = [];
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
@@ -918,9 +948,31 @@ describe("finished copy survives a pass that cannot redraft", () => {
 
 /** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work spent in front of the globally ranked line. These pin the arithmetic and the order. */
 describe("the paid line is compiled, priced and funded ONCE, before a cent is spent", () => {
-  const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS) => ({ key, family, impact, calls });
+  const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS): { key: string; family: string; impact: number; calls: number; blocked?: string } => ({ key, family, impact, calls });
   const plan = (jobs: ReturnType<typeof job>[], over: Partial<Parameters<typeof DRAFT_BUDGET.plan>[0]> = {}) => DRAFT_BUDGET.plan({ jobs, candidates: 2, calls: 30, ...over });
   const SMALLS = ["/a", "/b", "/c", "/d"].map((k, i) => job(k, "field_draft", 40 - i)), BUNDLE = job("/bundle", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS);
+  /** A KNOWN-DEAD JOB TAKES NO SLOT, AND AN UNREACHED ONE DOES NOT HOLD ONE FOREVER (Codex, 2026-08-23). Both
+   *  were live defects on one dispatch: three of five slots came back unreached while cheaper completable work
+   *  went unfunded, and the same pages would have been funded first again on the next drive. */
+  it("declares a blocked job with its own reason and funds it never, so the money walks to the next one that can finish", () => {
+    const b = plan([{ ...job("/measuring", "editor", 90), blocked: "a change on this page is already being measured, so a second one cannot be saved until that finishes" },
+      job("/live", "editor", 40), job("/next", "editor", 30)], { candidates: 1 });
+    // EXCLUDED from `declared`, because a blocked job can never be funded and so can never settle: leaving it there made "every declared candidate is settled" unreachable, which held the day open and re-drove it on every visit.
+    expect(b.declared).not.toContain("/measuring");
+    expect(b.funded.map((f) => f.key)).toEqual(["/live"]); // and the slot went to the strongest job that can be done
+    expect(b.declined.find((d) => d.key === "/measuring")?.reason).toContain("already being measured");
+    expect(b.declined.find((d) => d.key === "/next")?.reason).toContain("stronger work filled them"); }); // an ordinary refusal still reads as one
+  it("lets a live job outrank a blocked one on the same page, whatever the scores say", () => {
+    const b = plan([{ ...job("/p", "field_draft", 90), blocked: "this work was already taken back under this evidence, so it is not offered again" },
+      job("/p", "editor", 10)], { candidates: 1 });
+    expect(b.funded.map((f) => [f.key, f.family, f.impact])).toEqual([["/p", "editor", 10]]); // ONE page, and the family that can still do something owns it
+    expect(b.declined).toEqual([]); });
+  it("ranks a page funded and never reached LAST next time, without writing it off", () => {
+    const jobs = [job("/a", "editor", 90), job("/b", "editor", 80), job("/c", "editor", 70)];
+    expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/a", "/b"]);
+    const next = plan(jobs, { candidates: 2, defer: ["/a", "/b"] }); // both were funded and never started
+    expect(next.funded.map((f) => f.key)).toEqual(["/c", "/a"]);     // the untried page goes first; the deferred are still owed
+    expect(next.declared).toEqual(["/c", "/a", "/b"]); });           // and every one of them is still on the manifest
   it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
     // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");

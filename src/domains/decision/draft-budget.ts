@@ -26,13 +26,21 @@ const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
 type PaidJob = { key: string; family: string; impact: number; calls: number; treatment?: string;
+  /** WHY THIS JOB CANNOT BE DONE THIS PASS, in the caller's own words, decided from what was already on file
+   *  BEFORE any funding (Codex, 2026-08-23). A page already under measurement, work the operator took back, a
+   *  stored row that still stands and a card the authorization boundary will refuse are all knowable here, and
+   *  funding them anyway is how three of five slots came back `not_reached` while cheaper completable work went
+   *  unfunded. A blocked job stays DECLARED, so the manifest still names it, and is never funded. */ blocked?: string;
   /** The cheaper families that also want work on this page. They run only if the funded one does not produce, and they draw on ITS allowance, never a second. */ fallbacks?: readonly string[] };
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
-  /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[] }) {
+  /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
+  /** Pages a previous pass TODAY funded and never reached (the drive ran out of time before starting them).
+   *  They are still owed work, so they are NOT written off; they go to the BACK of the ranking, so the next
+   *  drive funds what has not been tried instead of holding the same slots open forever (Codex, 2026-08-23). */ defer?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -42,25 +50,48 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const byKey = new Map<string, PaidJob>();
   for (const j of input.jobs) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
-    else { const win = j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at, lose = win === j ? at : j;
+    else { // A LIVE JOB ALWAYS BEATS A BLOCKED ONE on the same page, whatever the scores say: a page is only blocked
+      // when EVERY family that wants it is blocked, or a stale field draft would silence a live editor card.
+      const cmp = at.blocked && !j.blocked ? j : j.blocked && !at.blocked ? at
+        : j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at;
+      const win = cmp, lose = win === j ? at : j;
       byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
-  const ranked = [...byKey.values()].sort((a, b) => b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
+  const defer = new Set(input.defer ?? []);
+  const ranked = [...byKey.values()].sort((a, b) =>
+    Number(defer.has(a.key)) - Number(defer.has(b.key)) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
-    if (skip.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
+    else if (skip.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
     else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
     else if (price > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `this needs ${price} charged calls and ${callsLeft} were left` });
     else { funded.set(j.key, price); slots -= 1; callsLeft -= price; }
   }
   const held = new Map<string, { left: number }>();
+  /** WHAT EACH PAGE ACTUALLY CONSUMED, kept BY THE MONEY SURFACE ITSELF (Codex, 2026-08-23). It used to be a
+   *  separate map the caller handed to one family, so five of the six families spent real dollars that no
+   *  receipt could name. Every family already draws its allowance here, so this is the one place that sees
+   *  them all: `ops` counts logical operations, `providerCalls` counts requests the gateway says actually left
+   *  the process, and `costUsd` is the provider's own receipt. None of it is ever inferred. */
+  const spend = new Map<string, { ops: number; providerCalls: number; costUsd: number }>();
+  const recordOn = (key: string, r: unknown): void => {
+    if (!r) return;
+    const rec = spend.get(key) ?? { ops: 0, providerCalls: 0, costUsd: 0 };
+    const x = r as { status?: string; cached?: boolean; costUsd?: number; attempts?: number };
+    rec.ops += 1;
+    if (!(x.status === "off" || x.status === "blocked_budget" || x.cached === true)) {
+      rec.providerCalls += Math.max(0, Math.round(x.attempts ?? 0)); rec.costUsd += x.costUsd ?? 0;
+    }
+    spend.set(key, rec);
+  };
   return {
     /** The charged calls the plan left unfunded: money this pass decided not to commit, not money it has yet to spend. */
     calls: { left: callsLeft },
-    /** EVERY candidate this pass could see, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). */
-    declared: ranked.map((j) => j.key),
+    /** EVERY candidate this pass COULD WORK ON, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). A BLOCKED job is not on it (Codex, 2026-08-23): it can never be funded, so it can never settle, and leaving it here made "every declared candidate is settled" unreachable for any account with one page under measurement, which held the day open and re-drove it on every visit. Blocked work is named in `declined`, with its reason. */
+    declared: ranked.filter((j) => !j.blocked).map((j) => j.key),
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
     funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [], ...(j.treatment ? { treatment: j.treatment } : {}) })),
     declined: declined as readonly DeclinedJob[],
@@ -70,10 +101,13 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       if (open) return open.left > 0 ? open : null;
       const price = funded.get(key);
       if (price == null) return null;
-      const slice = { left: price };
+      const slice = { left: price, record: (r: unknown) => recordOn(key, r) };
       held.set(key, slice);
       return slice;
     },
+    /** WHAT ONE PAGE SPENT, off the records above: real operations, real requests, real dollars, or null when
+     *  nothing was ever drawn for it. Arithmetic the caller can print on a receipt, never a claim. */
+    meterOf(key: string) { const m = spend.get(key); return m ? { ops: m.ops, providerCalls: m.providerCalls, costUsd: Number(m.costUsd.toFixed(6)) } : null; },
     /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the page was not funded or has nothing left, which is a refusal, not an error. */
     draw(key: string, price: number) {
       const open = this.take(key);
@@ -82,7 +116,11 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       if (cap <= 0) return null;
       return {
         get left() { return Math.min(cap, open.left); },
-        set left(v: number) { const spent = Math.max(0, Math.min(cap, open.left) - v); open.left -= spent; cap = Math.max(0, cap - spent); },
+        set left(v: number) { const now = Math.min(cap, open.left), spent = now - v; // NEGATIVE IS A REFUND, and it must actually land: a cache hit reached no provider, and clamping the give-back at zero let twelve cached refusals eat a pass (Codex, 2026-08-23, proved by execution)
+          if (spent >= 0) { open.left -= spent; cap = Math.max(0, cap - spent); } else { const back = Math.min(-spent, price - cap); open.left += back; cap += back; } },
+        /** ONE completed provider result, onto this page's own record. Every family calls it where its result
+         *  comes back, so the receipt reports what the pass really did rather than what it was allowed to do. */
+        record: (r: unknown) => recordOn(key, r),
       };
     },
     /** WHAT WAS ACTUALLY SPENT, off the allowances themselves: arithmetic, never a claim. */

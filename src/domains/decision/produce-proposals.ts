@@ -1,63 +1,34 @@
 /** decision/produce-proposals: the ONE server path that turns a tenant's cached evidence into persisted ChangeProposals. loadEvidenceSnapshot ($0) -> compileCandidates (act / watch / do nothing) -> candidatesToEvidenceInputs (only what EARNED an action) -> the cold, gated, budgeted drafter plus the ONE validator -> saveChangeProposal. PAID DRAFTING IS BOUNDED to the strongest DEFAULT_MAX_DRAFTS pages. The deep read has FIVE doors (deep-candidates.ts) and each page carries the door it came through. Three halves reach the operator: the strict drafts, every concrete edit the held evidence supports (suggested-edits.ts) and the $0 extras (producers/extra.ts), the last two at needs_review. ONE EVIDENCE BASIS, ONE ROW: an unchanged fingerprint is never re-drafted and never re-inserted. A family this pass rewrites in full and did not re-emit is SWEPT, so a card the rules retired leaves the queue. Publishing stays MANUAL: this only proposes. server-only. */
-import "server-only";
-import { log } from "@/lib/logger";
-import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { fitCurveForOwnedPages } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import { loadBusinessProfile } from "@/domains/account";
-import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals";
-import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities";
-import type { CauseFinding } from "./diagnosis";
-import { selectDeepCandidates } from "./deep-candidates";
-import { produceBundleForSnapshot } from "./produce-bundle";
-import { proposeExistingPageChange, type ProposeOptions } from "./propose";
-import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store";
-import { actionableProposalFailures } from "./validate-proposal";
-import { rankProposals } from "./rank-proposals";
-import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization";
-import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { openHold, preferFinished } from "./completeness";
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
-import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation";
-import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
-import { extractPageFacts, readWinningPattern } from "./winning-pattern";
-import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass";
-import { applyDraftedCopy, staleCopyReasons, withoutCta } from "./drafted-copy";
-import { DRAFT_BUDGET } from "./draft-budget";
-import { creditBreakerHeld } from "./llm/gateway";
-import { MAX_NEW_READS_PER_PASS } from "./producers/page-job";
-import { readInventory } from "@/domains/evidence/scanning/owned-pages-store";
-import { readTechnicalFindings } from "./technical-findings";
-import { buildNewPageProposal } from "./new-page";
+import "server-only"; import { log } from "@/lib/logger"; import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
+import type { EvidenceSnapshot } from "@/domains/evidence/snapshot"; import { fitCurveForOwnedPages } from "@/domains/evidence/forecast/tenant-ctr-curve"; import { loadBusinessProfile } from "@/domains/account";
+import { pagesUnderMeasurement, resolveCurrentBasis } from "./load-proposals"; import { candidatesToEvidenceInputs, compileCandidates, type QualifiedCandidate } from "./opportunities"; import type { CauseFinding } from "./diagnosis";
+import { selectDeepCandidates } from "./deep-candidates"; import { produceBundleForSnapshot } from "./produce-bundle"; import { proposeExistingPageChange, type ProposeOptions } from "./propose";
+import { loadChangeProposals, saveChangeProposal, withdrawChangeProposal, withdrawnProposalIds } from "./proposal-store"; import { actionableProposalFailures } from "./validate-proposal"; import { rankProposals } from "./rank-proposals";
+import { ownershipCards, researchingCards, unsettledCause, withholdReason } from "./authorization"; import { confidenceFor, proposalId, type ActionDiagnosis, type ChangeProposal, type EvidenceReadiness } from "./contracts"; import { openHold, preferFinished } from "./completeness"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context"; import { buildTopicInvestigations, type TopicInvestigation } from "@/domains/evidence/topic-investigation"; import { earnedNewPage, type IntersectionEvidence } from "./coverage-adjudication";
+import { extractPageFacts, readWinningPattern } from "./winning-pattern"; import { readCoverage, recordCoverageNeeds, type DecidedTopic } from "./coverage-pass"; import { applyDraftedCopy, staleCopyReasons, withoutCta } from "./drafted-copy";
+import { DRAFT_BUDGET } from "./draft-budget"; import { creditBreakerHeld } from "./llm/gateway"; import { MAX_NEW_READS_PER_PASS } from "./producers/page-job";
+import { readInventory } from "@/domains/evidence/scanning/owned-pages-store"; import { readTechnicalFindings } from "./technical-findings"; import { buildNewPageProposal } from "./new-page";
 import { suggestedEdits } from "./suggested-edits";
 
 export type ProduceProposalsOptions = ProposeOptions & {
   /** A TEST SEAM ONLY: production reads the stored comparison out of the canonical evidence, and passing this skips that read. */
   intersection?: IntersectionEvidence;
-  /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number;
-  /** Pages a pass TODAY already spent on and got nothing from: declared on the manifest, never funded again, so the next pass walks DOWN the ranking rather than buying the same refusal twice. */ skipKeys?: readonly string[];
+  /** Hard cap on how many opportunities this pass drafts (budget guard). */ maxDrafts?: number; /** Pages a pass TODAY already spent on and got nothing from: declared on the manifest, never funded again, so the next pass walks DOWN the ranking rather than buying the same refusal twice. */ skipKeys?: readonly string[]; /** Pages a pass TODAY funded and never reached. Still owed, so never written off; ranked LAST, so the next drive funds what has not been tried instead of holding the same slots open forever. */
+  deferKeys?: readonly string[];
   /** WALL-CLOCK MOMENT THIS PASS MUST STOP STARTING PAID WORK (epoch ms). Not a cancel: work already in flight finishes and is filed. It exists because one deliverable is three charged calls and a reasoning call alone is floored at ninety seconds, so a caller that boxes the whole pass on a timer gets NO receipts at all and re-funds the same pages next time. Stopping cleanly means the pass returns what it learned. */ stopBy?: number; /** The pages still being measured, when the caller knows them: preferred over any derivation here. */ measuringPagePaths?: readonly string[]; /** Persist each landed proposal (default true). Tests pass false to stay pure. */ persist?: boolean; zeroSpend?: boolean; /** NOTHING IS BOUGHT ON THIS PASS, and a paused account drafts nothing whatever the caller asked for. Not a smaller budget: both paid pools are minted EMPTY and the caller runs the pass inside the fail-closed spend scope (lib/spend-scope), so the model door and the provider door refuse on their own however deeply they are reached. Bounding `maxDrafts` alone left the page-reading pool and the drafting attempt pool wide open, which is how a paused account went on paying (operator, 2026-08-19). NON-DESTRUCTIVE BY CONSTRUCTION: the deterministic families are still rewritten in full and only those are swept, banked copy outlives a brief re-minted over it, and no card is withdrawn for work this pass simply did not do. "Did not run" never means "rejected its previous work". */
 };
 /** How this pass ended. Only `persistence_failed` is a failure; `investigating` is the honest middle: proven gaps exist and what to change is not known yet, so they are VISIBLE rather than read as a quiet day. */
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
 
 export type ProduceProposalsResult = {
-  /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[]; candidates: QualifiedCandidate[]; /** Which of the honest endings this pass reached. */ outcome: ProducerOutcome; /** Candidates that earned an action: a page to edit, plus every consolidation this kernel cannot draft yet. */ actionable: number; /** Proven gaps whose cause is not identified yet: real work, not silence. */ investigating: number; noDraft: number; persisted: number;
-  /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number; /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number; /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[]; coverage: DecidedTopic | null;
-  /** the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking" */ waitingUntil: string | null;
-  /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[];
-  /** THE PASS'S OWN RECEIPT, PER JOB. Every candidate the manifest saw, the ones it funded, and what actually BECAME of each funded one. The aggregate this replaces was a fiction: allowances are decremented BEFORE the gateway is called, so one charged-looking number made every funded page look attempted even when the first call came back out of quota and the rest were never reached (Codex, 2026-08-22). `attemptUnitsSpent` keeps its honest name: it is allowance consumed, and it is not a billing figure and not proof anybody was asked. */
-  paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number;
-    receipts: readonly { key: string; funded: boolean; providerAttempted: boolean;
-      /** `produced` = finished work exists for this key. `deterministic_refusal` = one of Beacon's OWN gates read the work against today's evidence and said no. `retryable_blocked` = nobody could answer for it (credit, cap, timeout, provider, unreadable) or the drafter's own answer was unusable. `not_reached` = funded and never got to. ONLY the first two may ever write a key off. */
-      /** `evidence_banked` is work that SUCCEEDED and is not a Change: a reading of the winning pages informs the next decision and can never be counted, shown or reported as something the operator can act on. */
-      outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** What settled it, in its own words. */ why?: string;
-      treatment?: string | null; impact?: number; allowance?: number; ops?: number;
-      /** REAL provider calls and REAL dollars this page consumed, off the gateway's receipts. Logical attempt units are budget bookkeeping and are neither. */ providerCalls?: number; costUsd?: number }[] };
-};
-/** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
-const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
-/** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
+  /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[]; candidates: QualifiedCandidate[]; /** Which of the honest endings this pass reached. */ outcome: ProducerOutcome; /** Candidates that earned an action: a page to edit, plus every consolidation this kernel cannot draft yet. */ actionable: number; /** Proven gaps whose cause is not identified yet: real work, not silence. */ investigating: number; noDraft: number; persisted: number; /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number; /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number; /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[]; coverage: DecidedTopic | null; /** the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking" */ waitingUntil: string | null; /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[]; /** THE PASS'S OWN RECEIPT, PER JOB. Every candidate the manifest saw, the ones it funded, and what actually BECAME of each funded one. The aggregate this replaces was a fiction: allowances are decremented BEFORE the gateway is called, so one charged-looking number made every funded page look attempted even when the first call came back out of quota and the rest were never reached (Codex, 2026-08-22). `attemptUnitsSpent` keeps its honest name: it is allowance consumed, and it is not a billing figure and not proof anybody was asked. */
+  paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number; declined?: readonly { key: string; family: string; reason: string }[];
+    /** THE COMPLETE PER-PAGE RECORD, every field of it SET by the builder below and read off the surface that holds it. Nothing here is optional-and-absent: a receipt that cannot name the family, the treatment, the price it was funded at, the operations it ran, the requests that really left the process, the dollars they cost or the store's own answer is not a receipt (Codex, 2026-08-23). `why` is present whenever anything settled or blocked the page, and is never truncated here. */
+    receipts: readonly { key: string; funded: boolean; family: string; treatment: string | null; impact: number; allowance: number; fallbacks: readonly string[];
+      ops: number; providerCalls: number; costUsd: number; providerAttempted: boolean;
+      outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached";
+      /** The STORE's own word for what happened to the row, or null where nothing was written. */ persistence: string | null; /** What settled or blocked it, in its own words, WHOLE. */ why?: string }[] }; }; /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5; const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure /** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
 const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const; const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
 /** WHAT A PRODUCER REWROTE, AND WHETHER IT FINISHED. The sweep used to infer both from the length of one producer's output. A producer that read nothing and a producer that found nothing hand back the same empty list and mean opposite things, and on the night the search read timed out that inference retired cards out from under the operator mid-edit. Completeness is STATED, never read off an output length. */
 type ProducerRun = { families: readonly string[]; complete: boolean };
@@ -181,25 +152,57 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const heldNewPage = newPageIds ? [...existing.values()].find((r) => r.kind === "new_page" && r.status !== "implemented_pending_verification" && basis != null && r.basis === basis && newPageIds.some((k) => r.id.includes(`::${k}::`))) ?? null : null, topicWorth = (coverage?.investigation.demand.monthlySearchVolume ?? 0) / 100; // the same unit as every other row: searches a month read as the clicks a page for them could plausibly take
   const jobs: { key: string; family: string; impact: number; calls: number; fallbacks?: string[] }[] = [], editorCards: ChangeProposal[] = [];
   const page = (c: { pagePath?: string | null; pageUrl?: string | null }) => DRAFT_BUDGET.keyOf(c);
+  // WHAT CANNOT BE DONE THIS PASS IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came back `not_reached` while completable
+  // work below them went unfunded, and every fact that would have refused them was already on file when the manifest was priced: a page already carrying a change
+  // under measurement, work the operator took back, a stored row for this exact opportunity that still stands, and a card the authorization boundary refuses on its
+  // own diagnosis. A blocked job stays DECLARED, with the reason in the operator's words, and takes no slot, so the money walks down the ranking on the same drive.
+  const preJudged = new Map<string, QualifiedCandidate>(); for (const c of candidates) for (const k of pageKeys(c.pageUrl)) preJudged.set(k, c);
+  for (const c of candidates) if (c.cause.payload?.cause === "cannibalization") for (const u of c.cause.payload.competingPaths) for (const k of pageKeys(u)) // THE SAME PROPAGATION THE BOUNDARY READS, or the two answer differently and a slot is burned on a card admit was always going to refuse
+    if ((preJudged.get(k)?.cause.cause ?? "no_problem") === "no_problem") preJudged.set(k, c);
+  const preOwned = ownershipCards({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages, judged: candidates, queryKeyOf: canonicalQueryKey });
+  const measuringNow = (c: { pagePath?: string | null; pageUrl?: string | null }): boolean => [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()].some((k) => k.length > 0 && measuringPagesEarly.has(k));
+  const MEASURED = "a change on this page is already being measured, so a second one cannot be saved until that finishes", MARKED_DONE = "the change on file for this page is marked done and is being read, so nothing is redrafted for it";
+  /** WHY THIS ID CANNOT BE FUNDED, or undefined when it can: the stored row's own state, decided on the same identity the loop that would do the work uses. */
+  const blockedById = (id: string, at: { pagePath?: string | null; pageUrl?: string | null }, reuse: boolean): string | undefined => {
+    // WITHDRAWN IS DELIBERATELY NOT HERE (Codex, 2026-08-23): `withdrawnProposalIds` is basis-wide with no evidence comparison, while the store's own admission rule compares the readings underneath, so blocking on it would hold a row shut for a whole generation and refuse the redraft moved evidence had earned. The field-draft loop still settles a genuinely withdrawn row with its own receipt, which is where that answer belongs.
+    if (measuringNow(at)) return MEASURED;
+    const held = existing.get(id); if (held && held.status === "implemented_pending_verification") return MARKED_DONE;
+    return reuse && held && basis != null && held.basis === basis ? "the change already on file for this page still stands under today's evidence, so nothing is redrafted for it" : undefined; };
+  /** A card's own ineligibility, including the boundary's answer WITHOUT its withdrawal side effect: the real `admit` below asks the same question and owns the consequence. */
+  const blockedFor = (c: ChangeProposal): string | undefined => {
+    const key = (c.pageUrl ?? "").trim().toLowerCase(), path = (c.pagePath ?? "").trim().toLowerCase(), cause = (preJudged.get(key) ?? preJudged.get(path))?.cause.cause;
+    const split = cause === "cannibalization" && !preOwned.covered.has(key) && !preOwned.covered.has(path); // NO CARD, NO REFUSAL
+    return blockedById(c.id, c, false) ?? (split ? undefined : withholdReason(c, cause) ?? undefined); };
+  const blockedField = (i: Parameters<typeof proposalId>[0]): string | undefined => blockedById(proposalId(i), { pagePath: i.page.path, pageUrl: i.page.url ?? null }, true);
   if (patternKey) jobs.push({ key: patternKey, family: "winning_pattern", impact: topicWorth, calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   if (newPageIds && !heldNewPage) jobs.push({ key: `topic:${coverage!.investigation.key}`, family: "new_page", impact: topicWorth, calls: DRAFT_BUDGET.BUNDLE_CALLS });
   for (const d of deep) jobs.push({ key: page({ pageUrl: d.pageUrl }), family: "deep_bundle", impact: worthOf(d.pageUrl), calls: DRAFT_BUDGET.BUNDLE_CALLS });
-  for (const i of inputs) jobs.push({ key: page({ pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
-  for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)) });
+  for (const i of inputs) jobs.push({ key: page({ pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedField(i) ? { blocked: blockedField(i)! } : {}) });
+  for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)), ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}) });
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to.
   // A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
   const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
   if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
-  for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(c.treatment ? { treatment: c.treatment } : {}) });
-  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
+  for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
+  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}), ...(opts.deferKeys ? { defer: opts.deferKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
-  // meters: REAL per-page spend off the gateway's receipts; gateWords: the rule that refused each page, in its own words.
-  const meters = new Map<string, { ops: number; providerCalls: number; costUsd: number }>(), gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string }>(),
+  // gateWords: the rule that refused each page, in its own words. The MONEY is metered by the money surface itself.
+  const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string; persistence?: string }>(),
     RANK = { produced: 4, evidence_banked: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
   // The whole entry is REPLACED, never merged: a stronger answer must not inherit the words of the weaker one it overtook, which is how a produced page ends up carrying a refusal it never suffered.
+  const persisted_ = new Map<string, string>(); // what the STORE answered for this page, as its own word
   const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true, why?: string): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome, ...(why ? { why } : {}) }); };
   const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy; // checked at every paid door: work running is never abandoned, work not begun is not funded and reads `not_reached`, settling nothing
-  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => { const r = filed.get(f.key), m = meters.get(f.key); return { key: f.key, funded: true, providerAttempted: r?.providerAttempted ?? false, outcome: r?.outcome ?? "not_reached" as const, ...(r?.why ? { why: r.why.slice(0, 200) } : {}), ...(m ? { providerCalls: m.providerCalls, costUsd: Number(m.costUsd.toFixed(6)) } : {}) }; }) });
+  /** THE COMPLETE PER-PAGE RECORD, and every field of it read off the surface that actually holds it (Codex, 2026-08-23): the funded row carries family, treatment, expected impact and the whole allowance; the money surface carries the logical operations, the requests that really left the process and the dollars they cost; the outcome ledger carries what settled it, the store's own answer and the reason IN FULL, never cut. A live receipt that named none of this was reported as complete because only a mocked producer was ever asked for one. */
+  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls,
+    declined: budget.declined.map((d) => ({ key: d.key, family: d.family, reason: d.reason })), // WHAT THE PASS REFUSED TO BUY AND WHY, in the operator's words, DURABLE: a log line ages out and was cut at four
+    receipts: budget.funded.map((f) => { const r = filed.get(f.key), m = budget.meterOf(f.key); return {
+      key: f.key, funded: true, family: f.family, treatment: (f as { treatment?: string }).treatment ?? null, impact: Number(f.impact.toFixed(2)), allowance: f.calls, fallbacks: [...f.fallbacks],
+      ops: m?.ops ?? 0, providerCalls: m?.providerCalls ?? 0, costUsd: m?.costUsd ?? 0, // ASKED MEANS A REQUEST LEFT THE PROCESS, off the meter and nothing else: derived from an allowance decrement it read `true` beside "0 calls, $0" on one line
+      providerAttempted: (m?.providerCalls ?? 0) > 0, outcome: r?.outcome ?? "not_reached" as const, persistence: persisted_.get(f.key) ?? null,
+      // NO FUNDED KEY ENDS SILENT (Codex, 2026-08-23), and nothing here is INFERRED. A reason recorded where it happened wins; where nobody recorded one, the sentence says only what the outcome itself proves. Guessing at a cause (a time box read at the end of the pass) put a plausible falsehood in front of the operator.
+      ...(r?.why ? { why: r.why } : r?.outcome === "produced" ? {} : { why: (r?.outcome ?? "not_reached") === "not_reached" ? "this pass ended before this page was reached, and nothing was bought for it"
+        : "nobody could answer for this page on this pass, and no reason was recorded where it happened" }) }; }) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
@@ -309,6 +312,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     return result; };
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
   const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row settled it; one that FAILED or HELD it settled nothing
+    persisted_.set(key, r); // the STORE'S OWN ANSWER, on the receipt: "produced" is a claim, "saved" is what happened
     file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked", true,
       r === "refused" ? "the store refused this row: it does not pass the bar a change must clear to be offered" : r === "failed" ? "the store could not save this row" : undefined); };
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
@@ -319,13 +323,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const admit = async (p: ChangeProposal): Promise<boolean> => {
     const key = (p.pageUrl ?? "").trim().toLowerCase(), path = (p.pagePath ?? "").trim().toLowerCase(), cause = (judged.get(key) ?? judged.get(path))?.cause.cause;
     if (cause === "cannibalization" && !ownership.covered.has(key) && !ownership.covered.has(path)) return true; // NO CARD, NO REFUSAL: a split this pass does not settle may not silence the page it names.
-    const no = withholdReason(p, cause);
-    if (!no) return true;
+    const no = withholdReason(p, cause); if (!no) return true;
     extraHeld.push({ pageUrl: p.pageUrl ?? p.pagePath ?? "", reason: no });
-    const stored = existing.get(p.id);
-    if (stored && persist) { await withdrawChangeProposal(stored, no).catch(() => false); existing.delete(p.id); }
-    return false;
-  };
+    const stored = existing.get(p.id); if (stored && persist) { await withdrawChangeProposal(stored, no).catch(() => false); existing.delete(p.id); }
+    return false; };
   /** RANK, THEN WRITE THE ORDER BACK. Every card was written before the pass had ranked it, so the stored rows carried a null ranking receipt and nothing on file could say why a card sat where it sat. Written back ONLY where the order actually moved, so a settled queue still writes nothing, and never at all on a pass whose writes were already failing: a store that would not take the row will not take its order either. */
   const rankAndStamp = async (rows: readonly ChangeProposal[]): Promise<ChangeProposal[]> => {
     const ranked = rankProposals(rows.map((p) => existing.get(p.id) ?? p).map(recovered).map(sized), { ...measuring, familyHistory }); // WHAT WAS PERSISTED IS WHAT GETS RANKED, or a card whose banked copy was kept above would rank as a brief the store no longer holds.
@@ -347,9 +348,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip, windows, needs: enteredBy, curve })) {
       if (existing.get(s.id)?.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; }
       if (!await admit(s)) continue;
-      strict.push(s);
-      await persistIfChanged(s);
-    }
+      strict.push(s); await persistIfChanged(s); }
     return { families: SUGGESTED_FAMILIES, complete: gscComplete };
   };
   /** A CARD THIS PASS DID NOT RE-EMIT IS ONE THE GENERATOR NO LONGER STANDS BEHIND, so it is taken back. Serving it beside the card that replaced it is how a query-pasted title outlived its own fix. Only untouched needs_review rows in the families a producer that FINISHED rewrites IN FULL qualify: anything the operator acted on, every bundle, and every family nobody finished, all stay. */
@@ -385,8 +384,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
   const investigating = candidates.filter((c) => c.action === "research_needed").length, consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
   for (const c of factual.cards) {
-    if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase())) continue;
-    if (!(await admit(c))) continue;
+    if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue;
     // BEACON REVIEWS ITS OWN CORRECTIONS, ON THE PLAN'S OWN TERMS: the review was priced and ranked with everything else, so it can no longer spend in front of higher-ranked completable work, and an unfunded review leaves the card exactly as minted rather than promoting anything nobody read.
     const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf(c), DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)));
     const card = slot ? await defects.FACTUAL_DEFECTS.review(c, { tenantId, now: opts.now ?? new Date(), attempts: slot,
@@ -474,6 +472,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   let noDraft = 0;
   for (const input of inputs) {
     if (pageKeys(input.page.url ?? input.page.path).some((k) => bundledNow.has(k))) continue; // the rewrite landed, and it replaces this edit
+    if (measuringNow({ pagePath: input.page.path, pageUrl: input.page.url ?? null })) { heldForMeasurement += 1; continue; } // ONE page may be funded through a live sibling family; that never licenses drafting for a page under measurement
     const settled = existing.get(proposalId(input)); // A refresh re-pays nothing, and SETTLED WORK IS NOT REDRAFTED.
     if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; } // An IMPLEMENTED row is a change under measurement, so the fresh idea for that page is HELD, not dropped.
     if (withdrawn.has(proposalId(input))) { const k = DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }); // work already taken back under this evidence is SETTLED, not blocked
@@ -513,7 +512,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, unsettled: new Set<string>(), refusals: gateWords, meters, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, unsettled: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again. A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
     if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.

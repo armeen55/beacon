@@ -49,7 +49,7 @@ type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
  *  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
 const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component judge only: does the replacement read as grammatical natural English a person would publish in place of the current statement; is it consistent with the quoted source; does it contradict any OTHER component in this batch. Return ONLY {\"rulings\":[{\"index\",\"publish\",\"reason\"}]} with one ruling per component, reason one short sentence. When in doubt on a component, publish=false.";
 async function reviewComponents(tenantId: string, components: readonly BundleComponent[], now: Date,
-  wiring: { attempts?: { left: number }; complete?: unknown; bypassCache?: boolean }): Promise<Map<number, string> | null> {
+  wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<Map<number, string> | null> {
   const { callStructuredLLM } = await import("../llm/structured-drafter");
   const held = new Map<number, string>();
   for (let b = 0; b < components.length; b += BATCH) {
@@ -60,6 +60,7 @@ async function reviewComponents(tenantId: string, components: readonly BundleCom
     const r = await callStructuredLLM({ kind: "factual_review", tenantId, system: REVIEW_SYSTEM, user, grounded: user,
       projectedCostUsd: 0.01, maxTokens: 2500, timeoutMs: 95_000, now,
       ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
+    wiring.attempts?.record?.(r); // BEFORE the status branch: a paid failure is still paid, and the receipt says so
     if (r?.status !== "drafted") return null;
     const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string }[] }).rulings;
     // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass.
@@ -78,7 +79,7 @@ async function reviewComponents(tenantId: string, components: readonly BundleCom
  *  operator should see. Survivors stay and the card is promoted; a failed component is held WITH its reason on the receipt and never erases the valid ones; a review that holds EVERYTHING keeps every piece and promotes nothing (an
  *  empty bundle is a card the contract cannot read back); a review that could not run at all returns the card untouched, so the pass reports no promotion it did not earn. */
 async function reviewFactualBundle(card: ChangeProposal, wiring: { tenantId: string; now: Date;
-  attempts?: { left: number }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal> {
+  attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal> {
   const parts = card.bundle?.components ?? [];
   if (parts.length === 0) return card;
   const held = await reviewComponents(wiring.tenantId, parts, wiring.now, wiring).catch(() => null);

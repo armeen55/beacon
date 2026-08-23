@@ -46,7 +46,7 @@ export type ProposeOptions = {
   authoritativeSourceDomains?: readonly string[];
   /** THE PASS'S ONE ATTEMPT BUDGET, decremented BEFORE the charged call below so a refusal costs exactly what it
    *  cost. Absent means this call stands on its own, which is what a test and a single-shot caller want. */
-  attempts?: { left: number };
+  attempts?: { left: number; record?: (r: unknown) => void };
 };
 
 /** Build the immutable evidence snapshot carried on the proposal. */
@@ -148,6 +148,7 @@ export async function proposeExistingPageChange(
     },
   );
 
+  opts.attempts?.record?.(draft); // real requests and real dollars, onto this page's own allowance
   if (draft.status !== "drafted") {
     return { status: "no_draft", reason: draftReason(draft), drafterStatus: draft.status };
   }

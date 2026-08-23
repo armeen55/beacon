@@ -1,38 +1,6 @@
 import "server-only";
 
-/**
- * llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT Structured-Outputs transport over the canonical Responses API.
- *
- * `openAIStructuredResponse` is the one door every internal-reasoning call uses. It converts the caller's Zod schema to a strict JSON Schema, POSTs to
- * `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and returns a typed outcome (ok / blocked_budget / blocked_credit / refusal /
- * incomplete / invalid_response / http_error / error). The caller still Zod-validates the returned `value` against its ORIGINAL schema - the gateway only guarantees the
- * value parsed as JSON and had its provider-nulls normalized away.
- *
- * ONE policy in one place, in this ORDER (unchanged intent from R16):
- *   1. perfCountExternal - every reach to the LLM transport is tallied so a page
- *      GET can be proven to fire ZERO LLM calls.
- *   2. CREDIT STOP (account level), FAIL-FAST. When the provider has said this
- *      account's balance is empty, the door itself refuses with `blocked_credit`
- *      before any network, so no lane has to carry that logic of its own.
- *   3. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform
- *      read. A trip refuses the call outright; it never loosens the inner cap.
- *   4. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }`
- *      consults the dual-write ledger BEFORE the call; `{ mode: "caller", note }`
- *      is a greppable, explicit exemption for call sites that gate spend
- *      themselves and record via `recordGatewaySpend` post-parse.
- *   5. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response
- *      BEFORE any network call (strictness is never weakened to force it through).
- *   6. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the
- *      gpt-5-mini lesson: a sub-90s ceiling made every call silently fall back).
- *   7. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`.
- *   8. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and
- *      (outside tests) lands in the error ledger via `recordAppError`.
- *
- * VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject
- * `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` / `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers.
- *
- * Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that may reference api.openai.com).
- */
+/** llm/gateway (Slice 3, 2026-07-23) - THE single OpenAI egress, now a STRICT Structured-Outputs transport over the canonical Responses API. `openAIStructuredResponse` is the one door every internal-reasoning call uses. It converts the caller's Zod schema to a strict JSON Schema, POSTs to `POST /v1/responses` with `text.format.{type:"json_schema", strict:true}`, and returns a typed outcome (ok / blocked_budget / blocked_credit / refusal / incomplete / invalid_response / http_error / error). The caller still Zod-validates the returned `value` against its ORIGINAL schema - the gateway only guarantees the value parsed as JSON and had its provider-nulls normalized away. ONE policy in one place, in this ORDER (unchanged intent from R16): 1. perfCountExternal - every reach to the LLM transport is tallied so a page GET can be proven to fire ZERO LLM calls. 2. CREDIT STOP (account level), FAIL-FAST. When the provider has said this account's balance is empty, the door itself refuses with `blocked_credit` before any network, so no lane has to carry that logic of its own. 3. GLOBAL COST BREAKER (outer guard), FAIL-CLOSED, before any per-platform read. A trip refuses the call outright; it never loosens the inner cap. 4. MONTHLY CAP (per-platform), FAIL-CLOSED. `budget: { mode: "gateway_check" }` consults the dual-write ledger BEFORE the call; `{ mode: "caller", note }` is a greppable, explicit exemption for call sites that gate spend themselves and record via `recordGatewaySpend` post-parse. 5. SCHEMA CONVERSION - an unsupported schema fails closed as invalid_response BEFORE any network call (strictness is never weakened to force it through). 6. REASONING TIMEOUT FLOOR - reasoning models are floored to >= 90s (the gpt-5-mini lesson: a sub-90s ceiling made every call silently fall back). 7. REASONING EFFORT - reasoning models get `reasoning.effort: "low"`. 8. LOUD FALLBACK - every non-ok outcome logs an unmissable warn line and (outside tests) lands in the error ledger via `recordAppError`. VITEST HERMETICS: under vitest, budget/breaker checks default to "allowed" and spend/error-ledger writes no-op UNLESS an impl is injected. Tests inject `fetchImpl` (zero network), and pin the cap by injecting `budgetImpl` / `costBreakerImpl`; nothing touches the operator's real `.data/` ledgers. Pinned by tests/decision/gateway.test.ts (this file is the ONLY file that may reference api.openai.com). */
 
 import { log } from "@/lib/logger";
 import { recordAppError } from "@/lib/obs/error-ledger";
@@ -184,7 +152,14 @@ export type StructuredCallArgs = {
   creditBreakerImpl?: CreditBreakerImpl;
 };
 
-type StructuredCallOutcome =
+/** THE ONE HONEST TRANSPORT FACT, on every outcome: how many requests actually LEFT this process for the
+ *  provider. It is 0 for every refusal decided before the fetch (missing tenant, research paused, credit held,
+ *  breaker, budget, an unconvertible schema, a probe that could not be recorded) and 1 once the request is on
+ *  the wire, whatever comes back. Counting at the caller instead was how a pre-network refusal was reported to
+ *  the operator as a charged provider call (Codex, 2026-08-23); the only place that can answer this honestly is
+ *  the line either side of `fetch`, so the answer is stamped here and carried, never inferred. */
+type Attempted = { httpAttempts: 0 | 1 };
+type StructuredCallOutcome = Attempted & (
   | { kind: "ok"; value: unknown; provenance: LlmProvenance }
   | { kind: "blocked_budget"; reason: string }
   | { kind: "refusal"; provenance: LlmProvenance }
@@ -197,7 +172,7 @@ type StructuredCallOutcome =
   | { kind: "blocked_credit"; reason: string }
   // `timedOut` is my OWN deadline firing and nothing more: no response and no usage receipt came back, so it proves
   // neither that generation began nor that anything was charged. Only the error's own NAME may set it, never wording.
-  | { kind: "error"; reason: string; timedOut: boolean };
+  | { kind: "error"; reason: string; timedOut: boolean });
 
 /**
  * WHOSE FAILURE IT WAS, AS A TYPE. THE one name for a call that produced no usable value, decided HERE at the transport
@@ -345,12 +320,12 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // Account identity is required BEFORE any check: no spend, provenance, or ledger row may be unattributable. A caller that cannot name its account is a bug, not
   // a license for a global call - fail closed with no cost, no network.
   const tenantId = (args.tenantId ?? "").trim();
-  if (!tenantId) return { kind: "invalid_response", reason: "missing_tenant" };
+  if (!tenantId) return { httpAttempts: 0, kind: "invalid_response", reason: "missing_tenant" };
   // THE PAUSE IS ENFORCED HERE, NOT BY WHOEVER CALLED. A paused account still publishes its surface, and the
   // surface rebuild runs the producer, so the drafter kept buying while research was off (operator, 2026-08-19).
   // Refused BEFORE the model, the schema and the budget are touched: no client, no network, no ledger row, and
   // the outcome is the one every caller already treats as "did not buy", never as a failure.
-  if (await spendingClosed(tenantId)) return { kind: "blocked_budget", reason: "research is paused for this account, so nothing is bought on this pass" };
+  if (await spendingClosed(tenantId)) return { httpAttempts: 0, kind: "blocked_budget", reason: "research is paused for this account, so nothing is bought on this pass" };
   const id: GatewayIdentity = {
     promptId: args.promptId,
     promptVersion: args.promptVersion,
@@ -372,28 +347,28 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   const stop = await credit.peek(tenantId).catch(() => "clear" as const);
   if (stop === "held") {
     log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit`, { action: id.action, tenantId });
-    return { kind: "blocked_credit", reason: CREDIT_STOP_REASON };
+    return { httpAttempts: 0, kind: "blocked_credit", reason: CREDIT_STOP_REASON };
   }
 
   // 3. Global breaker (outer guard): refuse before the per-platform cap is read.
   const breaker = await checkGatewayCostBreaker(args.budget, args.costBreakerImpl);
   if (!breaker.allowed) {
     await reportGatewayFailure(id, "blocked_budget", breaker.reason);
-    return { kind: "blocked_budget", reason: breaker.reason };
+    return { httpAttempts: 0, kind: "blocked_budget", reason: breaker.reason };
   }
 
   // 4. Per-platform monthly cap, fail-closed (scoped to the explicit account).
   const budget = await checkGatewayBudget(args.budget, args.budgetImpl, tenantId);
   if (!budget.allowed) {
     await reportGatewayFailure(id, "blocked_budget", budget.reason);
-    return { kind: "blocked_budget", reason: budget.reason };
+    return { httpAttempts: 0, kind: "blocked_budget", reason: budget.reason };
   }
 
   // 5. Schema conversion - fail closed BEFORE any network call on an unsupported schema.
   const converted = strictJsonSchemaFor(args.zodSchema, args.schemaName);
   if ("unsupported" in converted) {
     await reportGatewayFailure(id, "invalid_response_unsupported_schema", converted.unsupported);
-    return { kind: "invalid_response", reason: `unsupported_schema: ${converted.unsupported}` };
+    return { httpAttempts: 0, kind: "invalid_response", reason: `unsupported_schema: ${converted.unsupported}` };
   }
 
   const requestBody: Record<string, unknown> = {
@@ -413,7 +388,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   // 8. THE PROBE IS CLAIMED HERE, past every gate that could still refuse. During a cooldown nothing reaches this line (step 2 already returned), so a held account makes zero network calls; when a probe is due, exactly this request receives it. A stamp that will not write keeps the hold.
   if (stop === "probe_due" && !(await credit.claimProbe(tenantId).catch(() => false))) {
     log.warn(`[llm-gateway] ${id.promptId} v${id.promptVersion} blocked_credit (the recovery attempt could not be recorded)`, { action: id.action, tenantId });
-    return { kind: "blocked_credit", reason: CREDIT_STOP_REASON };
+    return { httpAttempts: 0, kind: "blocked_credit", reason: CREDIT_STOP_REASON };
   }
   let response: Response;
   try {
@@ -426,7 +401,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   } catch (e) {
     const { reason, timedOut } = threwOnTheWire(e, "fetch_failed");
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "network_failed", reason);
-    return { kind: "error", reason, timedOut };
+    return { httpAttempts: 1, kind: "error", reason, timedOut };
   }
 
   if (!response.ok) {
@@ -436,7 +411,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     const retryMs = retryAfterMs(response.headers?.get?.("retry-after"));
     await reportGatewayFailure(id, `openai_http_${response.status}`, code);
     if (code === CREDIT_EXHAUSTED) await credit.trip(tenantId).catch(() => {});
-    return { kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
+    return { httpAttempts: 1, kind: "http_error", status: response.status, ...(code ? { code } : {}), ...(retryMs === undefined ? {} : { retryAfterMs: retryMs }) };
   }
   // The provider answered, so the balance is not empty: lift any stop on file before the envelope is even read.
   await credit.clear(tenantId).catch(() => {});
@@ -448,7 +423,7 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
     // AN ENVELOPE THAT STOPPED ARRIVING IS NOT A SHAPE I COULD NOT USE, and it was read as one, so a deadline or a socket reset mid body came back as schema_invalid and was stamped on somebody's answer as a permanent refusal. NOTHING THROWN HERE MAY SETTLE ANYTHING: no usage receipt was ever readable, and that covers a complete body that is not JSON too.
     const { reason, timedOut } = threwOnTheWire(e, "body_read_failed");
     await reportGatewayFailure(id, timedOut ? "client_timeout" : "body_read_failed", reason);
-    return { kind: "error", reason, timedOut };
+    return { httpAttempts: 1, kind: "error", reason, timedOut };
   }
 
   const fields = readProvenanceFields(json);
@@ -469,16 +444,16 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   const classified = classifyResponsesEnvelope(json);
   if (classified.kind === "refusal") {
     await reportGatewayFailure(id, "refusal");
-    return { kind: "refusal", provenance };
+    return { httpAttempts: 1, kind: "refusal", provenance };
   }
   if (classified.kind === "incomplete") {
     await reportGatewayFailure(id, "incomplete", classified.reason);
-    return { kind: "incomplete", reason: classified.reason, provenance };
+    return { httpAttempts: 1, kind: "incomplete", reason: classified.reason, provenance };
   }
   if (classified.kind === "invalid") {
     // POST-network: the envelope supplied real usage, so its cost is genuine spend. Return the provenance so the ledger counts it (it was under-counting before).
     await reportGatewayFailure(id, `invalid_response_${classified.reason}`);
-    return { kind: "invalid_response", reason: classified.reason, provenance };
+    return { httpAttempts: 1, kind: "invalid_response", reason: classified.reason, provenance };
   }
 
   // 8. Structured text present. With strict:true a JSON.parse failure signals a
@@ -489,9 +464,9 @@ export async function openAIStructuredResponse(args: StructuredCallArgs): Promis
   } catch {
     // Also POST-network: keep the provenance so the real cost is not discarded.
     await reportGatewayFailure(id, "invalid_response_structured_parse");
-    return { kind: "invalid_response", reason: "structured output was not valid JSON", provenance };
+    return { httpAttempts: 1, kind: "invalid_response", reason: "structured output was not valid JSON", provenance };
   }
 
   const value = normalizeStructuredValue(parsed, args.zodSchema);
-  return { kind: "ok", value, provenance };
+  return { httpAttempts: 1, kind: "ok", value, provenance };
 }

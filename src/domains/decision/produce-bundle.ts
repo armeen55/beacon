@@ -273,18 +273,18 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
     pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
     section: async (i) => {
       if (spent()) return null;
-      const r = await draftSectionStructured({ ...i, tenantId }, wire);
+      const r = await draftSectionStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r);
       return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
     },
     internalLink: async (i) => {
       if (spent()) return null;
-      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire);
+      const r = await draftInternalLinkStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r);
       return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
     },
     openingAnswer: async (i) => {
       if (spent()) return null;
       const r = await draftAtomicEditStructured({ query: i.query, pageLabel: i.pageLabel, field: "answer_block",
-        currentValue: i.currentValue, outline: i.outline, evidenceHints: i.evidenceHints, tenantId }, wire);
+        currentValue: i.currentValue, outline: i.outline, evidenceHints: i.evidenceHints, tenantId }, wire); opts.attempts?.record?.(r);
       return r.status === "drafted" ? r.value.after : null;
     },
   };
@@ -397,6 +397,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       { query: primary, pageLabel: content.h1 ?? content.title ?? page.url, field: "title", currentValue: before, outline: content.outline, evidenceHints: facts, tenantId },
       { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains },
     );
+    opts.attempts?.record?.(draft); // real requests and real dollars, onto this page's own allowance
     if (draft.status === "drafted") keep({ kind: "title", label: "Page title", before: before ?? null, after: draft.value.after, evidenceKeys: diagnosis.evidenceKeys, risk: "safe" },
       { kind: "existing_edit", field: "title", before: before ?? null, after: draft.value.after });
     if (components.length === 0) return { status: "none", reason: "No title for this page passed its own checks, so nothing is handed over rather than filler." };

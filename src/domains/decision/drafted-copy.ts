@@ -19,12 +19,10 @@ type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 const MAX_DRAFTS = 5;
 const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
 const ANSWER_MIN = 80, ANSWER_MAX = 150; // ONE length contract with the canon (Codex, 2026-08-23): the editor demanded 40 to 90 while the canon's quality band demands 80 to 150, so only an 80-to-90-word answer could ever survive both and everything else was written to be refused
-/** Headings this many read winners share before they are worth naming, and how many are named. */ const AGREEING_WINNERS = 2, MAX_HEADINGS = 5;
-const MAX_HEADING_WORDS = 8; // a heading past this is a wrapped paragraph, and site furniture is not a subject
+/** Headings this many read winners share before they are worth naming, and how many are named. */ const AGREEING_WINNERS = 2, MAX_HEADINGS = 5; const MAX_HEADING_WORDS = 8; // a heading past this is a wrapped paragraph, and site furniture is not a subject
 const FURNITURE = /^(home|menu|search|contact|about|share|follow|newsletter|comments?|related|categories|tags|advertisement|subscribe|navigation|footer|privacy|terms)\b/i;
 const UNSAFE = /[–—]|\[|\]|\{|\}/; // nothing an operator can paste: a dash Beacon never writes, a bracket somebody forgot to fill in
-
-/** The marker the ranking reads to hold a card behind finished work; "is still owed, and this card is what is owed" is the stable phrase and may not change wording. */
+/** The marker the ranking reads to hold a card behind finished work; "is still owed, and this card is what is owed" is the stable phrase and may not change wording (rank-proposals.ts greps it). */
 const owedNote = (what: string): string => `The exact ${what} lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does.`;
 
 const pathOf = (url: string): string => { try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
@@ -36,18 +34,7 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   bannedTerms?: readonly string[];
   /** The pass's ONE shared budget. Absent = this file owns one of its own for this run. */
   budget?: DraftBudget;
-  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: { left: number };
-  /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number;
-
-  /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>;
-  /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void;
-  /** REAL spend per page, off the gateway's receipts: the caller hands a map and every card's meter lands in it. */ meters?: Map<string, EditorMeter>;
-  /** One card's own meter, set by applyDraftedCopy for the draft it is running. */ meter?: EditorMeter;
-  /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> };
-
-const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted
-
-/** The page this card lands on, by either key. */
+  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: Allowance; /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number; /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>; /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void; /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> }; const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted /** The page this card lands on, by either key. */
 function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvidence | null {
   const url = (card.pageUrl ?? "").trim(), path = (card.pagePath ?? "").trim().toLowerCase();
   return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;
@@ -99,13 +86,23 @@ const QUALIFIER = /\b(international(?:ly)?|excluding|from|up to|per|depending)\b
 /** A SITE NAMED IN THIS CARD'S EVIDENCE. A rival the answers cite is WHY the card exists and is never copy for the operator's page. */
 const HOSTISH = /\b([a-z][a-z0-9-]{3,})\.(?:com|org|net|io|co|edu|info)\b/gi;
 /** WHAT ONE PAGE ACTUALLY COST, off the gateway's own receipts: real provider calls (a structured call retries once internally, so one logical operation can be two calls) and real dollars. Logical attempt units are budget bookkeeping and are never reported as either (Codex, 2026-08-23: the seven-unit price met a sixteen-call dispatch). */
-type EditorMeter = { ops: number; providerCalls: number; costUsd: number };
-const spendOf = (m: EditorMeter | undefined, r: unknown): void => { if (!m || !r) return; m.ops += 1;
-  const x = r as { status?: string; cached?: boolean; retried?: boolean; costUsd?: number; attempts?: number };
-  if (x.status === "off" || x.status === "blocked_budget" || x.cached === true) return;
-  // EXACT attempts when the gateway counted them; the retried-boolean inference remains ONLY for results predating the counter, and the receipt is what says which.
-  m.providerCalls += x.attempts ?? (1 + (x.retried ? 1 : 0)); m.costUsd += x.costUsd ?? 0; };
+/** ONE completed provider result, reported to the page's own allowance, which is the ONE thing every paid family
+ *  already holds (Codex, 2026-08-23). The editor used to keep a private meter the caller passed in, so the other
+ *  five families spent real money that no receipt could name; the money surface counts for all of them now. */
+type Allowance = { left: number; record?: (r: unknown) => void };
+const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); };
 const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
+/** THE STORED PAGE AS THE GATE READS IT: crawler markers out, then flattened. The gate matches against a body
+ *  that had CHROME replaced while the passages handed to the writer never did, so a passage carrying "top of
+ *  page" (which /funny-farsi-phrases does) could NEVER be found in it: production refused that rewrite with
+ *  "the words it says it replaces are not on the stored page" over copy taken from the page itself (Codex,
+ *  2026-08-23). One normalizer now answers for both sides, so a passage chosen to be replaced passes the
+ *  exists-on-page check by construction. */
+const storedFlat = (s: string): string => flat(s.replace(CHROME, " "));
+/** THE WHOLE STORED PAGE AS ONE STRING, built in ONE place: the failure this repair exists for was two sides of one comparison disagreeing, and two hand-built haystacks would only wait to disagree again. */
+const storedPage = (p: SourcePacket): string => storedFlat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? ""].join(" "));
+/** IS THIS TEXT ACTUALLY ON THE PAGE. Markers are ignored on BOTH sides, and text that is NOTHING BUT a marker is NOT on the page: `includes("")` is true for every string, so a needle that normalizes away used to pass the one gate written to catch it (Codex, 2026-08-23). */
+const onPage = (stored: string, needle: string): boolean => { const n = storedFlat(needle); return n.length > 0 && stored.includes(n); };
 const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
 const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
 
@@ -119,7 +116,7 @@ const EVALUATOR_SYSTEM = 'You are the FINAL EDITOR of one finished website edit,
   + '"implementableNow" (could an operator paste this today with no further decisions), '
   + '"improvesPage" (answer false when the copy merely restates what the stored page already says without adding mapping, structure, definitions or facts the page lacks, and false when an answer points at its own page instead of answering), '
   + '"wouldHandToCustomer" (would you personally hand this to a customer).';
-const evaluator = (tenantId: string, now: Date, meter?: EditorMeter): JudgeFn => async (d, p) => {
+const evaluator = (tenantId: string, now: Date, meter?: Allowance): JudgeFn => async (d, p) => {
   const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`, `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`,
     `Edit type: ${d.actionType}`, `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "", d.beforeText ? `It replaces: ${d.beforeText}` : "It replaces nothing.",
     `THE COPY: ${d.finalCopy}`, "Its claims and the evidence each one names:", ...d.claims.map((c) => `- "${c.text}" <- ${c.supportedBy.join(", ")}`),
@@ -184,7 +181,7 @@ function ungroundedClaimWords(claims: EditorDeliverable["claims"], evidence: Rea
 
 /** WHY THIS DELIVERABLE IS NOT FINISHED, or empty. PURE, and no line here is an opinion about whether the copy is any good. */
 export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): string[] {
-  const out: string[] = [], stored = flat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? ""].join(" ")), corpus = corpusOf(p);
+  const out: string[] = [], stored = storedPage(p), corpus = corpusOf(p);
   for (const [what, text] of [["copy", d.finalCopy], ["placement", d.placementAnchor], ["measurement target", d.measurementTarget]] as const) {
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
   if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about");
@@ -215,8 +212,8 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
       if (reps.length > 0) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(", ")} more than once, which is a keyword list rather than a line a person would write`);
     }
   } else {
-    if (d.beforeText != null && !stored.includes(flat(d.beforeText))) out.push("the words it says it replaces are not on the stored page");
-    if (!blankish(d.placementAnchor) && !stored.includes(flat(d.placementAnchor))) out.push("the place it says it lands is not on the stored page"); }
+    if (d.beforeText != null && !onPage(stored, d.beforeText)) out.push("the words it says it replaces are not on the stored page");
+    if (!blankish(d.placementAnchor) && !onPage(stored, d.placementAnchor)) out.push("the place it says it lands is not on the stored page"); }
   if (d.actionType === "answer_block") {
     if (blankish(d.naturalHeading)) out.push("it lands somewhere new and names no heading");
     // A TRACKED PROMPT PASTED ABOVE A BLOCK IS A SEARCH STRING ON A CUSTOMER'S PAGE, the one thing a reader can see was written by a machine.
@@ -311,9 +308,9 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
 }
 
 /** The wiring one editor run needs, and nothing about which card asked for it, so a card's own edit and a sibling page's edit are ONE editor rather than two that drift. */
-type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; refusals?: Map<string, string>; meter?: EditorMeter;
-  /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. Absent means one editor run standing on its own. */
-  attempts?: { left: number };
+type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; refusals?: Map<string, string>;
+  /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. It is also where this page's REAL spend is recorded. Absent means one editor run standing on its own. */
+  attempts?: Allowance;
   /** Pages nobody settled: the provider could not answer, or this pass ran out of its own allowance part-way through the deliverable. Neither is a verdict on the copy. */ unsettled?: Set<string> };
 /** The fields this editor writes: a line the page already has, or the copy an opening owes. */
 type EditorField = "title" | "h1" | "meta" | "answer_block" | "internal_link";
@@ -337,7 +334,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
       ...(packet.demand.vocabulary.length > 0 ? [`People actually search this as: ${packet.demand.vocabulary.slice(0, 8).map((v) => `"${v}"`).join(", ")}. Lead with the highest-demand phrasing the evidence supports.`] : []),
       ...(packet.demand.preserve.length > 0 ? [`This page already earns clicks on: ${packet.demand.preserve.slice(0, 6).map((v) => `"${v}"`).join(", ")}. Never drop those words from a line that carries them today.`] : [])], tenantId: opts.tenantId,
   }, { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache }).catch(() => null);
-  spendOf(opts.meter, drafted);
+  spendOf(opts.attempts, drafted);
   // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING: the budget line above pays before asking because a charged call that fails was still bought, but a cache hit never reached the provider, and letting it spend an attempt let twelve long-refused cached drafts starve the cards this pass actually exists for.
   if (opts.attempts && drafted && (drafted as { cached?: true }).cached) opts.attempts.left += 1;
   // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
@@ -388,7 +385,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
   if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
-  const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? evaluator(opts.tenantId, opts.now, opts.meter));
+  const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? evaluator(opts.tenantId, opts.now, opts.attempts));
   // A REFUSAL NAMES THE TWO STRINGS IT COMPARED. "not the line this page carries" was unactionable without them.
   if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120), copy: deliverable.finalCopy.slice(0, 200), claims: deliverable.claims.map((c) => `${c.text} <- ${c.supportedBy.join(",")}`).slice(0, 4) });
   return deliverable;
@@ -455,9 +452,12 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   let rewrite: { heading: string | null; replaces: string } | null = null;
   if (kind === "answer" && card.treatment === "rewrite_existing_section") {
     const q = new Set(topicTokens(card.primaryQuery));
+    // THE TARGET IS THE PAGE'S OWN WORDS, VERBATIM (Codex, 2026-08-23). Stripping markers out of the target made the operator instruction unfindable ("bottom of page 12" is ordinary English, and taking it out leaves words no Ctrl-F will match), so the marker is ignored by the COMPARISON instead, on both sides. And the strongest candidate is chosen FIRST and then proved present: filtering before ranking silently retargeted the rewrite at a weaker passage with nothing said.
+    const stored = storedPage(packet);
     const best = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-"))
       .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length })).sort((a, b) => b.n - a.n)[0];
     if (!best || best.n < 2) return refuse("the section this rewrite should replace cannot be identified in the stored page copy");
+    if (!onPage(stored, best.t)) return refuse("the section this rewrite should replace cannot be identified in the stored page copy"); // it is not a target if the page does not carry it
     const heading = packet.headings.find((h) => topicTokens(h).some((w) => q.has(w))) ?? null;
     rewrite = { heading, replaces: best.t };
   }
@@ -558,11 +558,10 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
     // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own. OUT OF TIME IS NOT OUT OF MONEY: a card the drive can no longer start is left exactly as its producer minted it, so it is owed rather than half-bought.
-    const meter: EditorMeter = { ops: 0, providerCalls: 0, costUsd: 0 };
-    if (opts.meters) opts.meters.set(DRAFT_BUDGET.keyOf(card), meter);
+
     const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
     if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
-    const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice, meter }, wants!) : null;
+    const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     // WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop).
     if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card)));
     const drafted = done?.d;

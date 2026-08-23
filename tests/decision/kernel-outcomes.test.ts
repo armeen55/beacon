@@ -168,11 +168,82 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => {
     reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
-    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), before.paid.receipts.filter((r) => r.outcome === "not_reached").every((r) => r.why === undefined)]).toEqual([true, true, true]); // produced and never-reached work carries no refusal text
+    // EVERY FUNDED KEY CARRIES A TRUTHFUL BLOCKER (Codex, 2026-08-23; reversed from "a not_reached row says nothing").
+    // Silence sent the operator looking for money that was never spent, so an unreached page now names why it was
+    // not reached; only work that PRODUCED says nothing, because there is nothing to explain.
+    const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
+    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]);
+    expect(unreached.every((r) => /time box|still stands|before this page was reached/.test(r.why ?? ""))).toBe(true); // and it is one of the three things that are actually true here
     reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
     reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
     expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
+  /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that
+   *  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one
+   *  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */
+  it("carries the transport's own request count and dollars onto the page that spent them", async () => {
+    reset(SEEN());
+    let n = 0;
+    // TWO real requests and a real charge per completion, exactly as the gateway reports them (cost rides provenance).
+    const paying: CompleteFn = async () => { n += 1; return { value: VALID_ATOMIC_EDIT, httpAttempts: 2, provenance: { costUsd: 0.0125 } } as never; };
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: paying, now: NOW, bypassCache: true });
+    const spent = out.paid.receipts.filter((r) => r.providerCalls > 0);
+    expect(n).toBeGreaterThan(0); expect(spent.length).toBeGreaterThan(0);
+    for (const r of spent) {
+      expect(r.providerCalls % 2).toBe(0);          // two requests per logical operation, exactly as the transport said
+      expect(r.costUsd).toBeCloseTo(0.0125 * (r.providerCalls / 2), 6); // and the dollars follow the same operations
+      expect(r.providerAttempted).toBe(true);        // "asked" now MEANS a request left the process
+      expect(r.ops).toBeGreaterThan(0);
+    }
+    // AND THE PASS'S OWN SUM IS THE SUM OF ITS PAGES, which is the number the runtime reconciles against the ledger.
+    const total = out.paid.receipts.reduce((a, r) => a + r.costUsd, 0);
+    expect(total).toBeCloseTo(spent.reduce((a, r) => a + r.costUsd, 0), 6); });
+
+  /** WHAT CANNOT BE DONE IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came
+   *  back `not_reached` while completable work below them went unfunded, because a page already carrying a change
+   *  under measurement was funded first and skipped later. The fact was on file the whole time. */
+  it("never funds a page already under measurement, and the slot goes to work that can actually finish", async () => {
+    reset(BOTH());
+    const measured = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide",
+      pageUrl: GAP_URL, basis: "basis_today", status: "implemented_pending_verification" });
+    env.store = new Map([[measured.id, measured]]);
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
+    const guide = "/nowruz-guide", food = "/nowruz-food";
+    expect(out.paid.funded).not.toContain(guide);                     // the answer was knowable before a cent moved
+    expect(out.paid.receipts.some((r) => r.key === guide)).toBe(false); // so it took no slot and owns no funded receipt
+    expect(out.paid.funded).toContain(food);                          // the one slot went to work that can finish
+    expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); });
+
+  /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a
+   *  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder
+   *  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.
+   *  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
+  it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => {
+    reset(SEEN()); const out = await run(counting().complete);
+    expect(out.paid.funded.length).toBeGreaterThan(0);
+    expect(out.paid.receipts.length).toBe(out.paid.funded.length); // one record per funded key, never fewer
+    for (const r of out.paid.receipts) {
+      expect(typeof r.key).toBe("string"); expect(r.funded).toBe(true);
+      expect(typeof r.family).toBe("string"); expect((r.family ?? "").length).toBeGreaterThan(0); // WHICH producer owns this money
+      expect(r).toHaveProperty("treatment"); // present on every row, null where the job declared none
+      expect(typeof r.impact).toBe("number"); expect(Number.isFinite(r.impact)).toBe(true);
+      expect(typeof r.allowance).toBe("number"); expect(r.allowance).toBeGreaterThan(0); // the whole price this page was funded at
+      expect(typeof r.ops).toBe("number"); expect(typeof r.providerCalls).toBe("number"); expect(typeof r.costUsd).toBe("number");
+      expect(r).toHaveProperty("persistence"); // the STORE'S OWN WORD, or null where nothing was written
+      expect(["produced", "evidence_banked", "deterministic_refusal", "retryable_blocked", "not_reached"]).toContain(r.outcome);
+    }
+    const worked = out.paid.receipts.filter((r) => r.outcome === "produced");
+    expect(worked.length).toBeGreaterThan(0);
+    expect(worked.every((r) => r.ops > 0 && ["saved", "unchanged", "not_persisted"].includes(r.persistence ?? ""))).toBe(true); // produced means the store took it
+    // AN INJECTED TRANSPORT THAT NEVER TOUCHED THE NETWORK REPORTS ZERO REQUESTS, and the money agrees.
+    expect(worked.every((r) => r.providerCalls === 0 && r.costUsd === 0 && r.providerAttempted === false)).toBe(true);
+    // AND THE WHOLE REASON, NEVER CUT: the producer keeps it entire, whatever a display later trims.
+    reset(SEEN()); const before2 = await run(counting().complete);
+    reset(SEEN()); env.refuseIds = new Set(before2.proposals.map((p) => p.id));
+    const refused = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
+    expect(refused.length).toBeGreaterThan(0);
+    expect(refused.every((r) => (r.why ?? "").endsWith("to be offered"))).toBe(true); // the sentence ENDS where it ends, not at 200 characters
+    expect(refused.every((r) => r.persistence === "refused")).toBe(true); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
     const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },

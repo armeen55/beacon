@@ -966,19 +966,16 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.ready = 0; M.declared = ["/g"]; M.out = [{ key: "/g", outcome: "produced" }];
       const reopened = await live.replenishReady(T, new Date(NOW), stale);
       expect([reopened!.ready, reopened!.reason]).toEqual([1, "made_progress"]); // /g was settled under the OLD policy and is funded again under the new one
-      // 8. THE COMPLETE PER-PAGE RECEIPT IS DURABLE AND THE LEDGER'S OWN ANSWER RIDES BESIDE IT (Codex, 2026-08-23):
-      // logs are not the receipt. Every funded page lands with its treatment, allowance, exact metered provider
-      // calls and exact cost, and the per-page sum is reconciled against the adjudicator ledger's before/after
-      // delta. A world that moved more than the receipts explain is REPORTED as unreconciled, never patched.
+      // 8. THE LEDGER'S OWN ANSWER RIDES BESIDE THE RECEIPTS, both directions. A world that moved more than the
+      // receipts explain is REPORTED as unreconciled, never patched. (The COMPLETENESS of a receipt is proved
+      // against the REAL producer in its own test below; a hand-built receipt here could only prove this file's
+      // own arithmetic, which is exactly the fiction Codex caught on 2026-08-23.)
       L.seq = [1.0, 1.02]; M.ready = 0; M.declared = ["/h"]; mem = { fingerprint: null, attempted: [] };
       M.out = [{ key: "/h", outcome: "produced", cost: 0.02 }];
-      const receipted = await live.replenishReady(T, new Date(NOW), mem);
-      expect(receipted!.outcomes!.receipts![0]).toMatchObject({ key: "/h", funded: true, treatment: "add_answer_section",
-        allowance: 6, ops: 2, providerCalls: 3, costUsd: 0.02, outcome: "produced" });
-      expect(receipted!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.02, delta: 0.02, metered: 0.02, reconciled: true });
+      expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.02, delta: 0.02, metered: 0.02, unexplained: 0, reconciled: true });
       L.seq = [1.0, 1.9]; M.ready = 0; M.declared = ["/i"]; mem = { fingerprint: null, attempted: [] };
       M.out = [{ key: "/i", outcome: "produced", cost: 0.02 }];
-      expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.9, delta: 0.9, metered: 0.02, reconciled: false });
+      expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.9, delta: 0.9, metered: 0.02, unexplained: 0.88, reconciled: true }); // the receipts never claimed more than the ledger saw; the 0.88 the drafting meter cannot explain is NAMED, not called a mismatch
     } finally {
       vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
   });
@@ -987,6 +984,23 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "target_reached"]);
   });
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */
+  /** THE DEFERRAL ROUND TRIP, THROUGH THE REAL DISPATCH (Codex, 2026-08-23). The rotation was written, persisted and
+   *  typed, and the one production caller never read it back, so the same funded-and-never-reached pages were ranked
+   *  first on every drive: the very failure it was written to end, with a receipt claiming it was fixed. This drives
+   *  the REAL on-visit dispatch twice and reads what the second one was told. */
+  it("hands the pages it funded and never reached to the next dispatch as deferred, and forgets them when the manifest changes", async () => {
+    const seen: Array<{ attempted: readonly string[]; deferred: readonly string[] }> = [];
+    const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
+    const drive = async (out: { fingerprint: string; attempted: string[]; deferred?: string[] }) => {
+      await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
+        replenishReady: async (_t, _n, was) => { seen.push({ attempted: was?.attempted ?? [], deferred: was?.deferred ?? [] });
+          return { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, ...out }; } });
+    };
+    await drive({ fingerprint: "m1", attempted: ["/settled"], deferred: ["/a", "/b"] });
+    expect(rows.at(-1)!.progress?.replenish?.deferred).toEqual(["/a", "/b"]); // persisted where the next dispatch can read it
+    await drive({ fingerprint: "m1", attempted: ["/settled"], deferred: ["/a", "/b"] });
+    expect(seen.at(-1)).toEqual({ attempted: ["/settled"], deferred: ["/a", "/b"] }); // AND READ BACK: the next drive knows what it never reached
+  });
   it("keeps the stock owed across scheduler dispatches until five exist, and closes the day only at the target or on a proven exhaustion", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work");
     const Q = { ready: 0, finishes: true }; // the queue as the store holds it, moved only by the drives below
