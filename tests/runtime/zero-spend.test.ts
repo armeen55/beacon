@@ -29,14 +29,12 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
   });
 
   it("is ambient, so a path nobody remembered to thread the flag through still refuses", async () => {
-    const deepInside = async () => ({ refused: spendingRefused() });
-    expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
+    const deepInside = async () => ({ refused: spendingRefused() }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
     expect(await deepInside()).toEqual({ refused: false }); // and it never leaks outside its own call stack
   });
 
   it("does not leak across a paid pass that runs after it", async () => {
-    await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); });
-    expect(spendingRefused()).toBe(false);
+    await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); }); expect(spendingRefused()).toBe(false);
   });
 });
 
@@ -65,8 +63,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     }));
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
     // The caller asks for five paid drafts. The pause outranks it.
-    await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null);
-    expect(seen).toHaveLength(1);
+    await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null); expect(seen).toHaveLength(1);
     expect(seen[0]!.refusedInside).toBe(true); // every paid door inside this pass is already closed
     expect(seen[0]!.opts).toMatchObject({ maxDrafts: 0 }); // and the pause outranked the caller's ask
     expect(calls.claims).toContain("surface-claims"); // the cross-instance hold was taken at the boundary
@@ -85,8 +82,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
       produceProposalsForTenant: async () => { built += 1; return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 }; },
       reconcileImplementedWithoutShipment: async () => undefined,
     }));
-    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-    const out = await refreshCustomerSurface("tenant-fx");
+    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release"); const out = await refreshCustomerSurface("tenant-fx");
     expect(built).toBe(0); // the other dispatcher owns the build
     expect(out).toBe(held[0]); // this one serves what is already published
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
@@ -98,8 +94,7 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
     setSpendPauseProbeForTests(async () => true);
-    const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
-    const { z } = await import("zod");
+    const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway"); const { z } = await import("zod");
     const outcome = await openAIStructuredResponse({
       promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
       model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
@@ -113,18 +108,15 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
   it("blocks the provider door the same way, leaving the work owed", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
     setSpendPauseProbeForTests(async () => true);
-    const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
-    const result = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
+    const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities"); const result = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
     setSpendPauseProbeForTests(null);
-    expect(result.state).toBe("capped");
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result.state).toBe("capped"); expect(fetchSpy).not.toHaveBeenCalled();
   });
   it("leaves the FREE collect of an already-purchased task untouched by the pause", async () => {
     // Collection is a task_get that costs nothing; the pause stops buying, never picking up what was bought.
     const { setSpendPauseProbeForTests, runWithoutSpending } = await import("@/lib/spend-scope");
     setSpendPauseProbeForTests(async () => true);
-    const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities");
-    let reached = false;
+    const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities"); let reached = false;
     const out = await runWithoutSpending(() => collectCapability("dfs2_missing", {
       claimEvidenceFetch: async () => { reached = true; return { outcome: "missing" }; },
     } as never)).catch(() => null);
@@ -190,8 +182,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     vi.resetModules();
     const rows = new Map<string, Hold>();
     vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
-    const { claimScope, releaseScope } = await import("@/lib/persistence/json-store");
-    const a = await claimScope("surface-claims", "tenant-fx", 300);
+    const { claimScope, releaseScope } = await import("@/lib/persistence/json-store"); const a = await claimScope("surface-claims", "tenant-fx", 300);
     expect(typeof a).toBe("string");
     rows.set("surface-claims::tenant-fx", { content: [{ ...rows.get("surface-claims::tenant-fx")!.content[0], until: "2000-01-01T00:00:00.000Z" }] }); // A's TTL passes
     const b = await claimScope("surface-claims", "tenant-fx", 300);
@@ -211,8 +202,7 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     const prior = { source: process.env.DATA_SOURCE, vercel: process.env.VERCEL };
     process.env.DATA_SOURCE = "supabase"; delete process.env.VERCEL;
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: impl }));
-    const { claimScope } = await import("@/lib/persistence/json-store");
-    const got = await claimScope("surface-claims", "tenant-fx", 300);
+    const { claimScope } = await import("@/lib/persistence/json-store"); const got = await claimScope("surface-claims", "tenant-fx", 300);
     process.env.DATA_SOURCE = prior.source ?? ""; if (prior.vercel != null) process.env.VERCEL = prior.vercel;
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
     return got;
@@ -241,8 +231,7 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     const prior = process.env.DATA_SOURCE;
     process.env.DATA_SOURCE = "file"; delete process.env.VERCEL;
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("no env"); } }));
-    const { claimScope } = await import("@/lib/persistence/json-store");
-    expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
+    const { claimScope } = await import("@/lib/persistence/json-store"); expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     process.env.DATA_SOURCE = prior ?? "";
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
@@ -295,16 +284,14 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
   it("refuses at BOTH paid doors immediately after the flip, with zero network", async () => {
     let paused = false;
     await withRealPausePath(async () => {
-      const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
-      const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
+      const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway"); const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
       paused = true; // Pause lands; the doors are asked next
       const model = await openAIStructuredResponse({
         promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
         model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
         maxOutputTokens: 16, tenantId: "tenant-fx",
       } as never);
-      expect(model.kind).toBe("blocked_budget");
-      const provider = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
+      expect(model.kind).toBe("blocked_budget"); const provider = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
       expect(provider.state).toBe("capped");
       expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
     }, { paused: () => paused });

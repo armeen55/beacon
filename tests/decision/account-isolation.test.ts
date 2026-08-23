@@ -46,8 +46,7 @@ describe("the call cache is per-account, keyed by account", () => {
     expect(classifyStore("llm-call-cache")).toBe("per-tenant"); // the store itself is per account, never global
     const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
       promptVersion: 1, value: VALID, primaryText: "A", createdAt: "t", lastUsedAt: "t" } as LlmCallCacheEntry;
-    await storeCacheImpl.write("tenant-a", entry);
-    expect(readStoreMock).toHaveBeenCalledWith("llm-call-cache", undefined, { tenantId: "tenant-a" });
+    await storeCacheImpl.write("tenant-a", entry); expect(readStoreMock).toHaveBeenCalledWith("llm-call-cache", undefined, { tenantId: "tenant-a" });
     const w = writeStoreMock.mock.calls.at(-1) as unknown as [string, LlmCallCacheEntry[], { tenantId: string }];
     expect(w[2]).toEqual({ tenantId: "tenant-a" }); // explicit routing, never the ambient fallback
     expect(w[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
@@ -57,37 +56,30 @@ describe("callStructuredLLM keeps accounts isolated end to end", () => {
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
     // Account A generates + caches (pays).
-    const a1 = seam([{ value: VALID, provenance: RECEIPT }]);
-    const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
+    const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
     expect([outA.status, a1.calls()]).toEqual(["drafted", 1]);
     // Account A repeats the SAME prompt: $0 cache hit, no call.
-    const a2 = seam([{ error: "must-not-run", retryable: false }]);
-    const outA2 = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a2.complete, cacheImpl: cache.impl });
+    const a2 = seam([{ error: "must-not-run", retryable: false }]); const outA2 = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a2.complete, cacheImpl: cache.impl });
     expect([outA2.status === "drafted" && outA2.cached, outA2.status === "drafted" && outA2.costUsd, a2.calls()]).toEqual([true, 0, 0]);
     // Account B, byte-identical prompt: MISS -> it generates its own (would pay).
-    const b1 = seam([{ value: VALID }]);
-    const outB = await callStructuredLLM({ ...REQ, tenantId: "tenant-b", complete: b1.complete, cacheImpl: cache.impl });
+    const b1 = seam([{ value: VALID }]); const outB = await callStructuredLLM({ ...REQ, tenantId: "tenant-b", complete: b1.complete, cacheImpl: cache.impl });
     expect([outB.status, outB.status === "drafted" && outB.cached, b1.calls()]).toEqual(["drafted", undefined, 1]);
     // The cache never crossed accounts: A's read keys are all tenant-a, B's tenant-b, and every stored entry records its own owner.
     expect(cache.reads.filter((r) => r.tenantId === "tenant-a").length).toBeGreaterThan(0);
     for (const e of cache.store.get("tenant-a") ?? []) expect(e.tenantId).toBe("tenant-a");
     for (const e of cache.store.get("tenant-b") ?? []) expect(e.tenantId).toBe("tenant-b");
     // Account A's key is absent from account B's partition.
-    const aKey = (cache.store.get("tenant-a") ?? [])[0]!.key;
-    expect((cache.store.get("tenant-b") ?? []).some((e: LlmCallCacheEntry) => e.key === aKey)).toBe(false);
+    const aKey = (cache.store.get("tenant-a") ?? [])[0]!.key; expect((cache.store.get("tenant-b") ?? []).some((e: LlmCallCacheEntry) => e.key === aKey)).toBe(false);
     // De-templating asked for the right account every time, and an account that generated nothing sees nothing.
     for (const r of cache.recents) expect(["tenant-a", "tenant-b"]).toContain(r.tenantId);
     expect([await cache.impl.recentTexts("tenant-c", "atomic_edit", 5), await cache.impl.recentTexts("tenant-a", "atomic_edit", 5)]).toEqual([[], [VALID.after]]);
     // And the money seams were told WHICH account, explicitly, never left to the ambient one.
     expect(checkBudget).toHaveBeenCalledWith(expect.objectContaining({ tenantId: "tenant-a" }));
     // A RECEIPT IS BILLED TO ITS OWN ACCOUNT, and account B's receipt-less attempt is billed to nobody at all: no estimate stands in for a purchase that never happened.
-    expect(recordSpend).toHaveBeenCalledWith(0.0031, expect.objectContaining({ tenantId: "tenant-a" }));
-    expect(recordSpend).toHaveBeenCalledTimes(1); });
+    expect(recordSpend).toHaveBeenCalledWith(0.0031, expect.objectContaining({ tenantId: "tenant-a" })); expect(recordSpend).toHaveBeenCalledTimes(1); });
   it("a MISSING account fails closed BEFORE cache, budget, or the completion fn", async () => {
-    const cache = partitionedCache();
-    const s = seam([{ value: VALID }]);
+    const cache = partitionedCache(); const s = seam([{ value: VALID }]);
     const out = await callStructuredLLM({ ...REQ, tenantId: "  ", complete: s.complete, cacheImpl: cache.impl });
     expect(out.status).toBe("validation_failed"); // zero calls on all three seams
-    expect(out.status === "validation_failed" && out.reason).toBe("missing_tenant");
-    expect([s.calls(), cache.reads.length]).toEqual([0, 0]);
+    expect(out.status === "validation_failed" && out.reason).toBe("missing_tenant"); expect([s.calls(), cache.reads.length]).toEqual([0, 0]);
     expect(checkBudget).not.toHaveBeenCalled(); expect(recordSpend).not.toHaveBeenCalled(); }); });

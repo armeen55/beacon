@@ -30,8 +30,7 @@ function seam(responses: Array<{ value: unknown } | { error: string; retryable: 
 }
 describe("structured-drafter strict transport", () => {
   it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
-    const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } });
-    const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
+    const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } }); const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
     const bad = await callStructuredLLM({ ...REQ, complete: seam([refs(clarity), refs(clarity)]).complete }); // both attempts, still nothing about a search
     expect([bad.status, bad.status === "validation_failed" && bad.reason.startsWith("evidenceRefs: analytics alone")]).toEqual(["validation_failed", true]);
     const good = await callStructuredLLM({ ...REQ, complete: seam([refs([...clarity, { source: "gsc", detail: "strong impressions with a low click rate" }])]).complete });
@@ -42,27 +41,21 @@ describe("structured-drafter strict transport", () => {
     expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); }); // the validator rejects the other answer
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
-    const first = await callStructuredLLM({ ...REQ, complete: one.complete });
-    expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
+    const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
     // A CALL THAT BOUGHT NOTHING IS BILLED NOTHING. Two attempts died with no usage receipt; the drafter used to substitute an ESTIMATE and record it against the cap, so a throttled minute read back as real money and could later block a working account on spend that never happened.
     BILLED.usd.length = 0;
-    const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete });
-    expect([boom.status === "validation_failed" && boom.costUsd, BILLED.usd]).toEqual([0, []]);
+    const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete }); expect([boom.status === "validation_failed" && boom.costUsd, BILLED.usd]).toEqual([0, []]);
     BILLED.usd.length = 0; // and a real receipt is billed exactly once, exactly as it was issued
-    const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete });
-    expect([paid.status === "validation_failed" && paid.costUsd, BILLED.usd]).toEqual([0.0042, [0.0042]]);
+    const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete }); expect([paid.status === "validation_failed" && paid.costUsd, BILLED.usd]).toEqual([0.0042, [0.0042]]);
     const again = seam([{ value: {} }, { value: VALID_ATOMIC_EDIT }]); // a rejection CAN recover
-    const out = await callStructuredLLM({ ...REQ, complete: again.complete });
-    expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);
+    const out = await callStructuredLLM({ ...REQ, complete: again.complete }); expect(out.status === "drafted" && [out.retried, again.calls()]).toEqual([true, 2]);
     const refused = await callStructuredLLM({ ...REQ, complete: seam([{ error: "refusal", retryable: false, costUsd: 0.0123 }]).complete });
     expect(refused.status === "validation_failed" && refused.costUsd).toBe(0.0123); // no retry on a refusal, its real cost
     const now = new Date("2026-07-23T00:00:00Z").toISOString();
     const entry = { key: "ignored-key-is-derived", tenantId: "tenant-fixture", kind: "atomic_edit", promptId: "draft.atomic_edit",
       promptVersion: 1, value: VALID_ATOMIC_EDIT, primaryText: VALID_ATOMIC_EDIT.after, createdAt: now, lastUsedAt: now } as LlmCallCacheEntry;
-    const cacheImpl: CacheImpl = { read: async () => entry, write: async () => {}, recentTexts: async () => [] };
-    const hit = seam([{ error: "should-never-run", retryable: false }]);
+    const cacheImpl: CacheImpl = { read: async () => entry, write: async () => {}, recentTexts: async () => [] }; const hit = seam([{ error: "should-never-run", retryable: false }]);
     const cached = await callStructuredLLM({ ...REQ, complete: hit.complete, cacheImpl }); // served before any call
-    expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]);
-    const blocked = seam([{ error: "blocked_budget", retryable: false }]);
+    expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]); const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
     expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); }); });

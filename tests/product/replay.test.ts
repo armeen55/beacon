@@ -76,8 +76,7 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     const ask = { pages: [`https://${GAP_URL}`, RIVAL_A], intersection_mode: "union" as const };
     const envelope = fx.pageIntersection([{ keyword: "kite festival food", slots: { 1: { url: `https://${GAP_URL}`, rank: 6 }, 2: { url: RIVAL_A, rank: 2 } } },
       { keyword: "lantern release", volume: 320, slots: { 2: { url: RIVAL_A, rank: 4 } } }]);
-    const withAsk = parsePageIntersection(envelope, ask);
-    expect(withAsk.pages).toEqual([{ page: 1, url: `https://${GAP_URL}` }, { page: 2, url: RIVAL_A }]);
+    const withAsk = parsePageIntersection(envelope, ask); expect(withAsk.pages).toEqual([{ page: 1, url: `https://${GAP_URL}` }, { page: 2, url: RIVAL_A }]);
     expect(withAsk.keywords.map((k) => [k.keyword, k.searchVolume, k.mainIntent, k.ranks.map((r) => r.page)])).toEqual([["kite festival food", 500, "informational", [1, 2]], ["lantern release", 320, "informational", [2]]]);
     expect(parsed("labs_page_intersection", envelope).pages).toEqual([]); // through the registry hook the ask is not carried, so the slots read EMPTY rather than guessed
   });
@@ -85,8 +84,7 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     const readable = parsed("onpage_content_parsing", fx.competitorPageBody());
     expect([readable.title, readable.h1, readable.hasTable, readable.wordCount > 40]).toEqual(["Kite Festival Traditions Explained", "Kite festival traditions", true, true]);
     expect(readable.headings).toEqual(["Kite festival traditions", "What families bring", "When the lanterns go up"]); expect(readable.openingSample).toContain("A kite festival is a spring gathering");
-    const dark = parsed("onpage_content_parsing", fx.unreadablePageBody());
-    expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);
+    const dark = parsed("onpage_content_parsing", fx.unreadablePageBody()); expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);
   });
 });
 
@@ -123,22 +121,19 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
 
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {
   it("lands every fixture shape in the research evidence with its provenance intact", async () => {
-    const { evidence, statuses } = await replayFunnel();
-    expect(statuses).toEqual(["done", "done", "done"]);
+    const { evidence, statuses } = await replayFunnel(); expect(statuses).toEqual(["done", "done", "done"]);
     const consumer = evidence.aiObservations.find((o) => o.observationMode === "consumer_search")!;
     expect([consumer.promptText, consumer.fanOutQueries]).toEqual([PROMPTS[0]!.text, ["what happens at a kite festival", "kite festival food traditions"]]); // the question I asked, and the queries the engine ran, never confused
     expect(consumer.citations!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]); expect(new Set(evidence.aiObservations.map((o) => o.engine))).toEqual(new Set(["chatgpt", "claude", "gemini", "perplexity"]));
     const gap = evidence.retainedKeywords.find((k) => k.query === GAP_QUERY)!;
     expect([gap.searchVolume, gap.intent, gap.difficulty, gap.competitionLevel]).toEqual([2400, "informational", 31, "low"]); // bought once, carried whole
     expect(Object.keys(gap)).not.toContain("monthlySearches"); // the paid twelve-month trend survives the parser and stops at the funnel row
-    const serp = evidence.serpEvidence.find((s) => s.query === GAP_QUERY)!;
-    expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
+    const serp = evidence.serpEvidence.find((s) => s.query === GAP_QUERY)!; expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
     expect(evidence.winningPages.map((w) => [w.extract !== null, w.readOutcome?.state ?? null])).toEqual([[true, null], [false, "robots_blocked"]]); // a body in hand, and one honestly refused
     expect(evidence.receipt.retained).toBeGreaterThan(0);
   });
   it("stores the consumer answer WHOLE: the full text, the journey, the receipt and the identity of what it was read from", async () => {
-    const { observed } = await replayFunnel();
-    const consumer = observed.find((o) => o.observation_mode === "consumer_search" && o.status === "observed")!;
+    const { observed } = await replayFunnel(); const consumer = observed.find((o) => o.observation_mode === "consumer_search" && o.status === "observed")!;
     expect([consumer.engine, consumer.site, consumer.reporting_day, consumer.sample_slot]).toEqual(["chatgpt", SITE, "2026-07-21", 0]);
     expect(consumer.answer_text).toBe(parsed("llm_scraper_chatgpt", fx.scraperAnswer()).answerText); // the ANSWER, not a hash of one
     expect(consumer.journey.cited_sources!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]);
@@ -172,16 +167,14 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(buildTopicInvestigations(snapshot).length).toBeGreaterThan(0);
   });
   it("judges the replayed gap, says what it is still missing, and drafts the change the evidence earned", async () => {
-    const { evidence } = await replayFunnel();
-    const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
+    const { evidence } = await replayFunnel(); const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const read = await readCoverage(snapshot, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
     expect([read.needs.map((n) => [n.query, n.requirement]), read.decided!.decision.verdict, read.waitingUntil]).toEqual([[["lantern festival guide", "exact_serp"]], "do_nothing", null]); // the researched subject reaches a final answer and buys nothing more, and the one search a page of theirs is still losing clicks on becomes a subject of its own
     const unlooked = fx.replaySnapshot({ gsc: [fx.gscCtrGap()], research: { ...evidence, serpEvidence: [] }, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const blind = await readCoverage(unlooked, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
     expect([blind.decided, blind.needs.map((n) => n.requirement)]).toEqual([null, ["exact_serp", "exact_serp"]]); // strip the looks and the same pass names the searches that would move it, instead of guessing
     env.snap = snapshot; env.saved = []; env.store = new Map();
-    const seam = drafter(); const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true });
-    const gap = res.candidates.find((c) => c.pageUrl === `https://${GAP_URL}`)!;
+    const seam = drafter(); const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true }); const gap = res.candidates.find((c) => c.pageUrl === `https://${GAP_URL}`)!;
     expect([gap.action, gap.query, gap.gap, gap.recoverableClicks]).toEqual(["act_existing_page", GAP_QUERY, "ctr_deficit", 300]);
     expect(gap.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 1, body: false }); // the replayed results page and the ONE readable winner are what make this judgeable
     expect(res.candidates.find((c) => c.pageUrl === `https://${WINNER_URL}`)?.action).toBe("watch"); // a page already beating the clicks its positions earn is watched, never worked

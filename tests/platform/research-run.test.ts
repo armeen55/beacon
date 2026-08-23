@@ -368,8 +368,7 @@ describe("research-run Today copy", () => {
     expect(done({ aiChecksDone: 96, aiChecksIntended: 140, aiChecksAnswered: 94 })) .toBe("Latest research pass finished today at 12:00 PM."); }); // the day is still open, so the running count carries it
   /** Today printed the COLLECTED count under the words "an answer I analyzed", so a day that bought 140 answers and had read 12 of them closely claimed 140 readings. */
   it("reports answers collected and answers read closely as two separate numbers, and withholds the reading count it does not hold", () => {
-    const row = { state: { checksDone: 140, checksTotal: 140, checksAnswers: 140 }, funnel: { answersAnalyzed: 12 } };
-    const c = RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: row }), NOW).counters;
+    const row = { state: { checksDone: 140, checksTotal: 140, checksAnswers: 140 }, funnel: { answersAnalyzed: 12 } }; const c = RR.projectStatusView(mk({ status: "running", current_phase: "serp_analysis", progress: row }), NOW).counters;
     expect([c.aiChecksAnswered, c.answersReadClosely]).toEqual([140, 12]); // the readback receipt is valid in every phase, and it is never the collected number
     expect(RR.projectStatusView(mk({ status: "running", progress: { state: row.state } }), NOW).counters.answersReadClosely).toBeUndefined(); }); // absent, never a zero I would print as a claim
   it("gives an open error-free run ONE in-progress sentence with the persisted AI-check counts, identical whether the lease is live or released", () => {
@@ -581,8 +580,7 @@ describe("what a stored observation says it cost", () => {
     expect([second.status, w.wrote.at(-1)!.status, w.wrote.at(-1)!.cost_usd]).toEqual(["done", "observed", 0.0075]); // THE pin: free collection never overwrites what placement paid
     expect([w.posts(), new Set(w.wrote.map((r) => r.id)).size, w.reads()]).toEqual([1, 1, 0]); }); // no second paid post, one identity upserted, and no read it did not need
   it("keeps the paid placement ALREADY ON FILE for an identity posted before the pair carried its own cost, instead of writing a paid receipt down to zero", async () => {
-    const w = world(0.0075, 0.0075); await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000); w.forget();
-    const second = await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000);
+    const w = world(0.0075, 0.0075); await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000); w.forget(); const second = await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000);
     expect([second.status, w.wrote.at(-1)!.cost_usd, w.reads()]).toEqual(["done", 0.0075, 1]); }); // the pending row's own receipt survives the free collect
 });
 describe("research-run fail-closed + render path", () => {
@@ -870,8 +868,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect(await due({ evidenceVersion: async () => 8 })).toEqual(["plan_cases", "decide_and_prepare"]);  // The notes moved past what the last decision consumed: new evidence, so a plan and a decision are owed.
     expect(await due({ debt: async () => ({ measurable: 3, unverified: 0 }) })).toEqual(["verify_and_measure"]);
     expect(await due({ debt: async () => ({ measurable: 0, unverified: 1 }) })).toEqual(["verify_and_measure"]);  // A change marked implemented but never checked live owes the same unit. ONE ledger read answers both.
-    expect(await due({ surfaceStale: async () => true })).toEqual(["publish_surfaces"]);
-    let win: string[] = []; expect(await due({ answersToAnalyze: async (_t, f, t2) => { win = [f, t2]; return true; } })).toEqual(["analyze_answers"]);
+    expect(await due({ surfaceStale: async () => true })).toEqual(["publish_surfaces"]); let win: string[] = []; expect(await due({ answersToAnalyze: async (_t, f, t2) => { win = [f, t2]; return true; } })).toEqual(["analyze_answers"]);
     expect(await due({ analysisFingerprint: async () => "fp2" })).toEqual(["consume_analyses"]); // a reading settled on an answer already on file: evidence nobody has spent yet
     expect(await due({ consumedAnalyses: async () => null })).toEqual(["consume_analyses"]); // never harvested under this basis at all is the same debt, not a quiet zero
     expect(await due({ analysisFingerprint: async () => null })).toEqual([]); // no canonical answer at all is nothing to consume, so it is never owed
@@ -925,8 +922,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   it("lets a proven exhaustion hold the day, and never lets a reached target outrank the live stock", async () => {
     const mem = (closed: "target_reached" | "candidates_exhausted") => ({ day: ckey(T, NOW).slice(-10), fingerprint: "b1::v1::x", attempted: [], closed }); let calls = 0;
     void withRun({ current_phase: "keyword_discovery", progress: { replenish: mem("candidates_exhausted") } });
-    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
-    expect(calls).toBe(0);
+    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) }); expect(calls).toBe(0);
     void withRun({ current_phase: "keyword_discovery", progress: { replenish: mem("target_reached") } });
     await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
     expect(calls).toBe(1); }); // it asks again, and asking is free when the stock really is still there
@@ -935,8 +931,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     // GROWTH THAT STOPS SHORT IS NOT A REPLENISHED DAY EITHER (Codex, 2026-08-22): a drive that added two of the five owed used to stamp the day and lock the other three out until tomorrow. AND A BOUNDED BATCH THAT CAME UP EMPTY IS NOT AN EXHAUSTED ONE (Codex, 2026-08-22): two candidates failing proves nothing about the third, so `retryable_blocked` leaves the day open exactly like a quota failure does.
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
-      const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer });
-      expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
+      const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
     }
   });
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */

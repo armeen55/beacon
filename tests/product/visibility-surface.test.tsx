@@ -73,23 +73,19 @@ describe("Visibility is a workspace, and every number on it names what it was co
       journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));
   });
   it("says what it cannot show without Search Console rather than drawing an empty workspace", () => {
-    const bare = google({ days: [] });
-    expect([bare.pages, bare.queries, bare.chart]).toEqual([null, null, null]);
+    const bare = google({ days: [] }); expect([bare.pages, bare.queries, bare.chart]).toEqual([null, null, null]);
     expect(bare.limitation).toContain("No Search Console numbers are on file for this account");
     // A SITE WITH CLICKS HAS PAGES: coming back with none of them is a read that did not land. THE FAILURE SPEAKS GOOGLE'S OWN VOCABULARY (operator, 2026-08-21): it names Google, says the totals above are current, and never mentions AI answers or "stored answers" inside the Google tab.
     const broken = google({ decay: [], pages: new Map() });
     for (const said of [broken.pages!.empty, broken.queries!.empty, broken.tiles[3]!.basis]) {
-      expect(said).toContain("could not be read in time just now");
-      expect(said).toContain("totals above are current");
+      expect(said).toContain("could not be read in time just now"); expect(said).toContain("totals above are current");
       expect(said).not.toMatch(/stored answers|AI/);
     }
   });
   // PIN: EVERY page that moved is on the page, not a top five, because a decline that is cut from the list is a decline nobody can act on.
   it("shows every page that moved with the window it was measured on, and marks the ones losing ground", () => {
-    const v = google();
-    expect(v.pages!.rows.map((r) => r.id)).toEqual(["/haft-seen", "/nowruz"]);
-    const losing = v.pages!.rows.find((r) => r.id === "/nowruz")!;
-    expect([losing.cells[2]!.text, losing.cells[2]!.tone, losing.cells[0]!.sub]).toEqual(["-40", "down", "losing ground"]);
+    const v = google(); expect(v.pages!.rows.map((r) => r.id)).toEqual(["/haft-seen", "/nowruz"]);
+    const losing = v.pages!.rows.find((r) => r.id === "/nowruz")!; expect([losing.cells[2]!.text, losing.cells[2]!.tone, losing.cells[0]!.sub]).toEqual(["-40", "down", "losing ground"]);
     expect(v.pages!.note).toContain("compares the 28 days ending Aug 1 with the 28 days before them"); expect(v.pages!.note).toContain("1 page is losing clicks");
     expect(v.pages!.columns.map((c) => c.label)).toContain("Strongest search, 90 days"); // a 90 day figure inside a 28 day comparison names its OWN window
     // The searches Google named, each on the page it lands on, with its own rate rather than the site's.
@@ -100,23 +96,18 @@ describe("Visibility is a workspace, and every number on it names what it was co
   });
   // PIN: NOTHING CHECKED IS NOT ZERO MENTIONS. A live account had answers on file and none of them read, and the old surface reported "0%" about every one of them: a customer-facing false negative built out of an empty denominator.
   it("refuses a rate over a denominator nobody has checked, and counts one citation vote per answer", () => {
-    const unread = SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, analyzed: 0, mentioning: 0, mentionRate: null })) }));
-    const blind = ai({ segments: unread });
-    expect([blind.tiles[0]!.value, blind.tiles[0]!.value.includes("0%")]).toEqual(["not checked yet", false]);
-    expect(blind.tiles[0]!.basis).toContain("answers are on file and none of them are checked yet");
-    const v = ai();
-    expect(v.tiles[0]!.basis).toBe("9 of the 20 answers finished checking over 3 days");
+    const unread = SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, analyzed: 0, mentioning: 0, mentionRate: null })) })); const blind = ai({ segments: unread });
+    expect([blind.tiles[0]!.value, blind.tiles[0]!.value.includes("0%")]).toEqual(["not checked yet", false]); expect(blind.tiles[0]!.basis).toContain("answers are on file and none of them are checked yet");
+    const v = ai(); expect(v.tiles[0]!.basis).toBe("9 of the 20 answers finished checking over 3 days");
     expect(v.tiles[0]!.delta).toBe("+18.3 points"); expect(v.tiles[3]!.basis).toContain("across the 1 answers over 3 days that reported where you sat"); // both windowed, both naming the window
     // 15 credited pages across 15 domains, ONE vote each: a chatty answer cannot outvote the rest of the window. ONE VOTE PER ANSWER, and this answer credits standards.example on TWO pages: counting links would make it 16 votes and two crediting answers. AND THE VOTES OBEY THE CHOSEN STRETCH: the older reading sits outside the 3 days these numbers name, so it is excluded here exactly as it is excluded from every rate above.
     expect([v.tiles[2]!.value, v.tiles[2]!.basis]).toEqual(["6.7%", "1 of the 15 times an answer credited any site over the last 3 days, counting one vote per answer"]); expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[2]!.text).toBe("1");
     // AND THE TABLE SAYS THE SAME WINDOW THE TILE DOES. It named the last day read while every table beside it aggregated the stretch, so the range picker above it changed nothing at all.
-    expect(v.citations!.note).toBe("Every site the assistants credited over the last 3 days, counting one vote per answer so a chatty answer cannot outvote the rest. 15 votes across 15 sites.");
-    expect(v.citations!.note).not.toContain("Aug 2");
+    expect(v.citations!.note).toBe("Every site the assistants credited over the last 3 days, counting one vote per answer so a chatty answer cannot outvote the rest. 15 votes across 15 sites."); expect(v.citations!.note).not.toContain("Aug 2");
     expect(v.tiles[4]!.basis).toContain("Every rate above divides by what was checked, never by what was collected");
     const busy = ai({ segments: SEGMENTS.map((s) => ({ ...s, days: s.days.map((d) => ({ ...d, ownedRetrieved: 4, retrievedNotCited: 3 })) })) }); // READ AND PASSED OVER, over a denominator that is never every answer
     expect([busy.retrieval!.value, busy.retrieval!.basis, ai().retrieval, v.byEngine!.rows[0]!.cells.map((c) => c.text)]).toEqual(["75%", "9 of the 12 answers that opened a page of yours over the last 3 days credited somebody else instead, or nobody at all", null, ["ChatGPT", "30%", "6", "30"]]);
-    expect(v.boundaries[0]).toContain("changed the version behind its answers on Jul 30");
-    expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
+    expect(v.boundaries[0]).toContain("changed the version behind its answers on Jul 30"); expect(v.coverage).toContain("42 of the 48 answer checks planned for today are settled");
     expect(v.coverage).toContain("Aug 1 came back with nothing, and a missed day is never filled in.");
     // A READ THAT DID NOT LAND IS NOT AN ACCOUNT WITH NO ANSWERS: the live account had 697 stored answers and one slow read told it I had never read one. And ONE READ THAT DID NOT LAND NEVER BLANKS THE OTHER TWO: the trend going missing costs the rates and the line and nothing else.
     expect(ai({ segments: null, dayRows: null, window: null, sources: null }).empty).toContain("That could not be read back in time just now");
@@ -127,50 +118,38 @@ describe("Visibility is a workspace, and every number on it names what it was co
   it("never lists a question of mine as a search an assistant thought of, and links every question to the runs behind it", () => {
     const v = ai();
     expect(v.searches!.rows.map((r) => r.cells[0]!.text)).not.toContain("Where to buy a haft seen set?"); // a capital letter and a question mark are the SAME question
-    expect(v.searches!.rows.map((r) => r.cells[0]!.text)).toContain("haft seen set delivery");
-    expect(v.searches!.note).toContain("A tracked question is never listed here as a search the assistant thought of.");
-    const q = v.prompts!.rows[0]!;
-    expect(q.href).toBe("?view=ai&prompt=p1");
+    expect(v.searches!.rows.map((r) => r.cells[0]!.text)).toContain("haft seen set delivery"); expect(v.searches!.note).toContain("A tracked question is never listed here as a search the assistant thought of.");
+    const q = v.prompts!.rows[0]!; expect(q.href).toBe("?view=ai&prompt=p1");
     expect(q.cells.map((c) => c.text)).toEqual(["where to buy a haft seen set", "1", "100%", "0 points", "1 of 1", "2.0", "Rival Bazaar", "14", "Aug 2"]);
     expect(q.cells[2]!.sub).toBe("1 of 1 checked"); expect(v.prompts!.note).toContain("except the two columns that name Aug 2");
     expect(v.prompts!.columns.map((c) => c.label)).toContain("Credited a page of yours, Aug 2"); // a one day column never borrows the table's window
     // Sites credited: what each one IS, its share, and the page it credited most.
-    const own = v.citations!.rows.find((r) => r.id === "own.example")!;
-    expect([own.cells[1]!.text, own.cells[0]!.tone]).toEqual(["Your own site", "own"]);
+    const own = v.citations!.rows.find((r) => r.id === "own.example")!; expect([own.cells[1]!.text, own.cells[0]!.tone]).toEqual(["Your own site", "own"]);
     expect(v.citations!.rows.find((r) => r.id === "standards.example")!.cells[1]!.text).toBe("A source");
     const d = ai({ focus: { promptId: "p1", rows: [ROW, { ...ROW, id: "obs_8", engine: "claude", answered: false, mentioned: null, cited: null, fanOuts: null, citations: null }] } }).detail!; // One question opened: every run, each one linkable on its own.
-    expect(d.headline).toBe("You are named in 1 of the 1 answers finished checking on this question, across 2 assistants.");
-    expect(d.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7");
-    const quiet = d.executions.rows.find((r) => r.id === "obs_8")!.cells.map((c) => c.text);
-    expect(quiet).toEqual(["Aug 2", "Claude", "nothing came back", "not checked", "never reported", "never reported", "never reported"]);
+    expect(d.headline).toBe("You are named in 1 of the 1 answers finished checking on this question, across 2 assistants."); expect(d.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7");
+    const quiet = d.executions.rows.find((r) => r.id === "obs_8")!.cells.map((c) => c.text); expect(quiet).toEqual(["Aug 2", "Claude", "nothing came back", "not checked", "never reported", "never reported", "never reported"]);
     expect(d.rivals[0]).toEqual({ text: "Rival Bazaar", count: 2 });
   });
   // PIN: A RECURRING SEARCH IS NOT A DEAD END. The fan-out table printed a number and nothing anybody could click, so the evidence under a search four assistants ran on six days stayed unreadable and unarguable.
   it("opens every search the assistants ran into the answers, questions and pages behind it", () => {
-    const v = ai();
-    const listed = v.searches!.rows.find((r) => r.id === FANOUT_KEY)!;
-    expect(listed.href).toBe(`?view=ai&sub=searches&fanout=${encodeURIComponent(FANOUT_KEY)}`);
-    const f = fanout();
+    const v = ai(); const listed = v.searches!.rows.find((r) => r.id === FANOUT_KEY)!;
+    expect(listed.href).toBe(`?view=ai&sub=searches&fanout=${encodeURIComponent(FANOUT_KEY)}`); const f = fanout();
     // The tracked question it came out of, and one exact run of it, each opening the drill-down that already exists.
     expect(f.parents.rows[0]!.href).toBe("?view=ai&prompt=p1");
     expect(f.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7"); // newest first
     expect(f.executions.rows[0]!.cells.map((c) => c.text)).toEqual(["Aug 2", "ChatGPT", "gpt-x", "asked directly", "where to buy a haft seen set", "credited a page of yours"]);
     // THE HONEST LIMIT, word for word off the one string Decision quotes too: co-occurrence is never cause.
-    expect(f.caveat).toBe(FANOUT_LINKAGE_CAVEAT);
-    expect(f.caveat).toContain("No assistant reports which of its searches produced which citation");
+    expect(f.caveat).toBe(FANOUT_LINKAGE_CAVEAT); expect(f.caveat).toContain("No assistant reports which of its searches produced which citation");
     // WHAT TO DO ABOUT IT is decided in the kernel and printed here, with somewhere to go.
-    expect([f.disposition.line, f.disposition.href]).toEqual([DISPOSITION.line, "/changes"]);
-    expect(f.query).toBe("haft seen set delivery");
-    expect(f.wordings.map((w) => `${w.text}, ${w.basis}`)).toEqual(["haft seen set delivery, run 2 times"]);
-    expect(f.headline).toBe("Ran 2 times over 2 days on 1 assistant, behind 1 tracked question: ChatGPT.");
-    expect(f.standing).toContain("A page here was credited on 2 of the 2 answers that said which pages they used.");
-    expect(f.ownPages.rows[0]!.cells.map((c) => c.text)).toEqual(["own.example/haft-seen", "2", "0", "0"]);
+    expect([f.disposition.line, f.disposition.href]).toEqual([DISPOSITION.line, "/changes"]); expect(f.query).toBe("haft seen set delivery");
+    expect(f.wordings.map((w) => `${w.text}, ${w.basis}`)).toEqual(["haft seen set delivery, run 2 times"]); expect(f.headline).toBe("Ran 2 times over 2 days on 1 assistant, behind 1 tracked question: ChatGPT.");
+    expect(f.standing).toContain("A page here was credited on 2 of the 2 answers that said which pages they used."); expect(f.ownPages.rows[0]!.cells.map((c) => c.text)).toEqual(["own.example/haft-seen", "2", "0", "0"]);
     expect(f.rivals.rows[0]!.cells[2]!.text).toBe("2"); expect(f.rivals.note).toContain("credited most often are listed");
     // A CUT LIST SAYS IT CUT: 61 runs print 60 and name the rest rather than quietly losing them.
     const many = fanoutDetail({ row: fanoutRow(), spanDays: 3, disposition: DISPOSITION,
       rows: Array.from({ length: 61 }, (_, i) => ({ ...ROW, id: `obs_r${i}` })) });
-    expect(many.executions.rows).toHaveLength(60);
-    expect(many.executions.note).toContain("Showing the 60 newest of 61 executions. The rest are on file, not gone.");
+    expect(many.executions.rows).toHaveLength(60); expect(many.executions.note).toContain("Showing the 60 newest of 61 executions. The rest are on file, not gone.");
     // AND IT REACHES THE PAGE: the panel renders, the caveat is printed word for word, and every run is a link.
     const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={f} />);
     for (const s of ["One search, and every answer that ran it", "Back to all searches", "What to do about it",
@@ -185,14 +164,12 @@ describe("Visibility is a workspace, and every number on it names what it was co
       "This reading counts for Aug 2. Asked Aug 2 at 4:02 PM UTC, answered Aug 2 at 4:02 PM UTC.", "Every word of this answer has been read closely.",
       "Stored answer receipt 9f3c1a2b. It cost $0.02 to buy once."]) expect(all, s).toContain(s);
     expect(answerDetail(ROW).filter((d) => d.startsWith("https://"))).toHaveLength(16); // every credited page, not a first ten
-    expect(all.toLowerCase()).not.toContain('searched for: "where to buy a haft seen set?"');
-    const quiet = answerDetail({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).join("\n");
+    expect(all.toLowerCase()).not.toContain('searched for: "where to buy a haft seen set?"'); const quiet = answerDetail({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).join("\n");
     for (const s of ["ChatGPT does not report the searches it ran on this path", "so there is no claim that it credited nobody.",
       "ChatGPT does not report the pages it read but did not credit on this path.", "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
     for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
     // A RECEIPT I CANNOT PROVE IS NOT ZERO DOLLARS, and a real charge under a cent is the same lie in miniature.
-    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("What it cost was never preserved");
-    expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).toContain("It cost under a cent to buy once.");
+    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("What it cost was never preserved"); expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).toContain("It cost under a cent to buy once.");
     expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");
   });
   /** THE REAL SURFACE: it draws off answers already bought, asks no provider anything, and loads a whole answer only for the ONE run a customer opens. */
@@ -202,12 +179,10 @@ describe("Visibility is a workspace, and every number on it names what it was co
       const body = (page.props.children[2]! as ReactElement<{ children: ReactElement }>).props.children as ReactElement<{ tenantId: string }>;
       return renderToStaticMarkup(await (body.type as (p: { tenantId: string }) => Promise<ReactElement>)(body.props));
     };
-    const listed = await draw({ view: "ai" });
-    expect(listed).toContain("Where AI answers have you");
+    const listed = await draw({ view: "ai" }); expect(listed).toContain("Where AI answers have you");
     expect(listed).toContain("question 0"); // the tracked questions themselves, not a count of them
     expect(store.reads.every((r) => !r.cols.includes("answer_text"))).toBe(true); // no screen ever pulls a day of whole answers
-    const opened = await draw({ view: "ai", prompt: "p0", reading: "obs_0" });
-    expect(opened).toContain("The whole of this one run");
+    const opened = await draw({ view: "ai", prompt: "p0", reading: "obs_0" }); expect(opened).toContain("The whole of this one run");
     expect(opened).toContain("x".repeat(200)); // and the whole answer arrives, only for the run that was asked for
     expect(store.fetched).toHaveLength(0); // nothing on this path ever asks an assistant anything
   });
@@ -219,8 +194,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
       ...f.wordings.flatMap((w) => [w.text, w.basis]),
       ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries, f.parents, f.executions, f.ownPages, f.rivals].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
     for (const s of said) {
-      expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/);
-      expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);
+      expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/); expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);
     }
   });
 });

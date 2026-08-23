@@ -37,8 +37,7 @@ describe("the four doors into the deep read", () => {
   it("keeps one slot per page: a page carrying AI evidence and a click gap drafts once, by the click door", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
       cause: cause("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "where to buy saffron" }) });
-    const picked = selectDeepCandidates({ candidates: [both], coverage: null, limit: 3 });
-    expect([picked.length, picked[0]!.door, picked[0]!.unit]).toEqual([1, "ctr_gap", "clicks"]); });
+    const picked = selectDeepCandidates({ candidates: [both], coverage: null, limit: 3 }); expect([picked.length, picked[0]!.door, picked[0]!.unit]).toEqual([1, "ctr_gap", "clicks"]); });
   it("holds the bound, strongest proof first, and every entry names its own door", () => {
     const picked = selectDeepCandidates({
       candidates: [
@@ -75,18 +74,15 @@ describe("the four doors into the deep read", () => {
     // THE DOOR CARRIES THE SPAN THE FALL WAS MEASURED OVER, or the producer refuses every page it picks and the door burns a slot on every pass producing nothing.
     expect([picked.map((p) => p.door), picked[0]!.evidence.window]).toEqual([["recent_decline"], "the four weeks to 2026-08-01, against the four weeks before"]);
     // Its sentence is the FALL, never a curve distance: this door is opened by what the page lost.
-    expect(picked[0]!.entry).toContain("about 191 fewer clicks than the four weeks before");
-    expect(picked[0]!.entry).not.toContain("under what its positions usually earn"); });
+    expect(picked[0]!.entry).toContain("about 191 fewer clicks than the four weeks before"); expect(picked[0]!.entry).not.toContain("under what its positions usually earn"); });
   it("never says leave it alone over a page that just shed 191 clicks", () => {
     const BEATS = "https://own.example/persian-male-names"; // a page beating its curve, so the wording is settled and the honest verdict was do_nothing
     const decline = new Map([[BEATS, { clicksNow: 763, clicksPrior: 954, positionNow: 7.5, positionPrior: 7.2, impressionsNow: 40_000, impressionsPrior: 41_000 }]]);
     const c = compileCandidates(pageSnap(BEATS), { decline, curve: { expectedCtrAt: () => 0.001 } })[0]!;
     expect([c.action, c.gap]).toEqual(["watch", "recent_decline"]); // a fall is never do_nothing
-    expect(c.reason).not.toContain("Leave it alone");
-    expect(c.reason).toContain("191 fewer clicks"); });
+    expect(c.reason).not.toContain("Leave it alone"); expect(c.reason).toContain("191 fewer clicks"); });
   it("never calls a small page's wobble a fall: the floors decide, not the direction", () => {
     const SMALL = "https://own.example/quiet";
     // Down 60 percent and off 30 clicks: real movement, and nothing an operator should be sent at.
-    const decline = new Map([[SMALL, { clicksNow: 12, clicksPrior: 30, positionNow: 9, positionPrior: 4, impressionsNow: 900, impressionsPrior: 2_000 }]]);
-    const c = compileCandidates(pageSnap(SMALL), { decline, curve: ownRate })[0]!;
+    const decline = new Map([[SMALL, { clicksNow: 12, clicksPrior: 30, positionNow: 9, positionPrior: 4, impressionsNow: 900, impressionsPrior: 2_000 }]]); const c = compileCandidates(pageSnap(SMALL), { decline, curve: ownRate })[0]!;
     expect([c.gap, selectDeepCandidates({ candidates: [c], coverage: null, limit: 3 })]).toEqual([undefined, []]); }); });

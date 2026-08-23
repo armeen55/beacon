@@ -170,8 +170,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
     expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), before.paid.receipts.filter((r) => r.outcome === "not_reached").every((r) => r.why === undefined)]).toEqual([true, true, true]); // produced and never-reached work carries no refusal text
     reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
-    const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
-    expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
+    const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
     reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
     expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
@@ -273,8 +272,7 @@ const briefSeam = (brief: unknown = BRIEF): { complete: CompleteFn; kinds: strin
   return { kinds, complete: async (r) => { kinds.push(r.kind); return inner(r); } }; };
 describe("a new page needs a positive yes, never just the absence of a no", () => {
   it("authorizes a topic the account's own confirmations or demand tie to, and refuses one nothing ties to", async () => {
-    const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage"); const world = snap([GAP], READY(), DEMAND);
-    const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
+    const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage"); const world = snap([GAP], READY(), DEMAND); const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
     expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
     const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
   });
@@ -292,8 +290,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const DARK_URL = "fixture-outdoors.example/nowruz-unreadable"; const HOLD = "2026-07-27T00:00:00.000Z";
     const dark: OwnedPageEvidence = { ...ownedPage(DARK_URL, "T", { impressions: 400, clicks: 4 }, [{ query: PARKED, impressions: 400, clicks: 4, position: 6 }]), content: null };
     const world = (ownedReads: FunnelResearchEvidence["ownedReads"] = []) => snap([GAP, UNREAD, dark], { ...withParked(READY({ topicKey: keyOf(READY()) })), ownedReads }, [...DEMAND, ...PARKED_DEMAND]);
-    const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 6, now: NOW });
-    const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
+    const read = (w: EvidenceSnapshot) => readCoverage(w, "fixture-tenant", { basis: "basis_today", maxQueries: 6, now: NOW }); const owed = (r: Awaited<ReturnType<typeof readCoverage>>) => r.needs.find((n) => n.requirement === "owned_content");
     const net: string[] = []; const realFetch = globalThis.fetch; // ANY website read, by any module, through the one socket a render could use
     globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a render may never reach a website"); }) as typeof fetch;
     try { const named = await read(world()); reset(world()); const produced = await produceProposalsForTenant("fixture-tenant", { now: NOW });
@@ -414,8 +411,7 @@ describe("what the winning pages share reaches the operator, and never one of th
     expect(shown).toContain(`SETTLED: ${res.coverage!.investigation.pageType}`); // the shape arrives decided, never as a second vote
     expect([d.pattern!.winners, d.pattern!.publishers]).toEqual([3, ["r1.example", "r2.example", "r3.example"]]); // the months-old fourth read is not one of the pages I read
     expect(d.pattern!.ownedGaps[0]!.gap).toContain("piece"); // and the gap stands only because the page it is about was supplied
-    expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do");
-    expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });
+    expect(d.evidence!.find((e) => e.id === "gap1")!.fact).toContain("Your own page does not do what 3 of them do"); expect(d.evidence!.find((e) => e.id === "pattern")!.fact).toContain("The 3 pages that win here were read side by side"); });
   it("puts what each winner contributed into the page it drafts, in the verdict's own words", async () => { reset(snap([GAP], READABLE({ topicKey: keyOf(READY()) }), DEMAND));
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async (r) => (r.kind === "winning_pattern" ? { value: PATTERN(r.user) as never } : pageSeam(BRIEF)(r)) });
     const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
@@ -442,8 +438,7 @@ const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN
 describe("a page earns the deep read through the door its own evidence opens", () => {
   it("acts on a page with ZERO recoverable clicks because my comparison named it, off the comparison's own search", async () => { const res = await doorRun(doorWorld());
     expect(res.candidates.every((c) => c.action !== "act_existing_page")).toBe(true); // no click gap anywhere: the old pass stopped here
-    expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
-    const deep = res.proposals.find((p) => p.bundle)!;
+    expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]); const deep = res.proposals.find((p) => p.bundle)!;
     expect(deep.primaryQuery).toBe(HAFT); // the door's own search, never a gap query that does not exist
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true);
     expect(deep.impactScore).toBeNull(); // no proven size, so it ranks as a direction and claims no clicks
@@ -511,8 +506,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
   it("names what the winning pages do that mine does not, citing the verdict's own receipt lines", async () => {
     const world = snap([GAP], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
     const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern: PATTERN_HELD } });
-    expect([read.decided!.decision.verdict, read.decided!.decision.ownedUrls]).toEqual(["improve_existing", [GAP_URL]]);
-    const c = compileCandidates(world, { coverage: read.decided })[0]!;
+    expect([read.decided!.decision.verdict, read.decided!.decision.ownedUrls]).toEqual(["improve_existing", [GAP_URL]]); const c = compileCandidates(world, { coverage: read.decided })[0]!;
     expect([c.action, c.cause.cause, c.cause.evidenceKeys]).toEqual(["watch", "competitor_content_gap", ["pattern", "gap1"]]); // the ids the verdict wrote its own receipt under
     expect(c.reason).toContain("walks through the pieces one by one"); expect(snapshotToEvidenceInputs(world)).toEqual([]); // a subject the page never covers is not a title rewrite
     const blind = compileCandidates(world)[0]!; // the same page with no verdict in hand
@@ -600,8 +594,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     env.store = new Map([["good", baseProposal({ id: "good", basis: "b" })], [bad("b").id, bad("b")]]);
     expect((await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked.map((p) => p.id)).toEqual(["good"]); // it never reaches the screen
     reset(snap([WINNER])); env.store = new Map([[bad("basis_test").id, bad("basis_test")]]); // and no door opens on that page at all
-    await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
-    expect(env.withdrawn).toEqual([bad("b").id]); });
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) }); expect(env.withdrawn).toEqual([bad("b").id]); });
   /** AND THE SAME NET CATCHES A ROW THAT WENT COLD. Refused at every door but never taken back, it sits in its own slot forever: an identical redraft answers "unchanged", so nothing fresh can replace it. */
   it("takes back a change whose readings went cold, so a redraft off fresh evidence can take its slot", async () => {
     const aged = (observedAt: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/aged::existing_edit::bundle", pagePath: "/aged", basis: "basis_test", status: "ready",
@@ -610,8 +603,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
         components: [{ kind: "title", label: "Title", before: "a", after: "b", evidenceKeys: ["k1"], risk: "safe" }] } });
     for (const [at, taken] of [[new Date(NOW.getTime() - 200 * 86_400_000).toISOString(), [aged("x").id]], [NOW.toISOString(), []]] as const) { // Cold goes back; a receipt whose readings still stand is left exactly where it is.
       reset(snap([WINNER])); env.store = new Map([[aged(at).id, aged(at)]]);
-      await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) });
-      expect(env.withdrawn, at).toEqual(taken);
+      await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async () => ({ value: VALID_ATOMIC_EDIT }) }); expect(env.withdrawn, at).toEqual(taken);
     } });
   it("never emits a diagnosis without a competing explanation, a falsifier, and every unheld cause named", () => {
     for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) { for (const c of compileCandidates(world)) {
@@ -641,8 +633,7 @@ describe("the click curve is fitted to the account it judges", () => {
   it("a search earning nothing at all still earns work, and the refusal names the floor that actually bound it", () => {
     const curve = fitTenantCtrCurve(Array.from({ length: 40 }, (_, i) => ({ query: `q${i}`, position: 1, impressions: 5_000, clicks: 45 })));
     expect(curve.expectedCtrAt(1)).toBeCloseTo(0.009, 4); // the whole account tops out under 1 percent
-    const page = (clicks: number) => ownedPage("own.example/flag", "Iran flag", { impressions: 60_000, clicks }, [{ query: "iran flag", impressions: 60_000, clicks, position: 3 }]);
-    const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
+    const page = (clicks: number) => ownedPage("own.example/flag", "Iran flag", { impressions: 60_000, clicks }, [{ query: "iran flag", impressions: 60_000, clicks, position: 3 }]); const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
     expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 212]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });

@@ -68,8 +68,7 @@ describe("a direct link renders only what the ranked list would, and always land
     const live = await link(bundled(NOW)); // the row IS the current bar's work
     expect([live.includes(EXACT), live.includes("Mark done"), live.includes("This idea was set aside")]).toEqual([true, true, false]);
     const stale = await link(bundled("basis_old::d2")); // no exact copy, no before/after, no way to record it
-    expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]);
-    expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
+    expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]); expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
   // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is refused here too, on the row's own evidence rather than on its basis stamp alone.
   it("refuses at the link what the list refuses: a receipt that does not resolve, a merge filed as ready, evidence gone cold", async () => {
     const b = bundled(NOW).bundle!, cold = new Date(Date.now() - 120 * 86_400_000).toISOString();
@@ -78,8 +77,7 @@ describe("a direct link renders only what the ranked list would, and always land
       { ...b, components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous" }] },
       { ...b, receipt: { items: [{ ...b.receipt.items[0]!, observedAt: cold }], missing: [], freshestObservedAt: cold } },
     ]) {
-      const html = await link({ ...bundled(NOW), bundle } as ChangeProposal);
-      expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
+      const html = await link({ ...bundled(NOW), bundle } as ChangeProposal); expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
     }
   });
   /** P1-2. The picker pre-ticked EVERY piece with no memory of what is already recorded, so the obvious next press offered to record a component I am already measuring. It now opens on what is genuinely still theirs to do. */
@@ -87,12 +85,10 @@ describe("a direct link renders only what the ranked list would, and always land
     const b = bundled(NOW).bundle!;
     shipped.held = [{ proposalId: ID, componentsApplied: [{ id: "0:title", kind: "title", label: "Title" }] }];
     const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal);
-    const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = [];
-    expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
+    const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
   /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. */
   it("expires the change whose own component cites only cold readings, keeps the one whose readings are current, and ages a change with no receipt on its drafted date", () => {
-    const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW };
-    const b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
+    const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }; const b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
     const mixed = { ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta" as const, label: "Description", after: "A description", evidenceKeys: ["k2"] }],
       receipt: { items: [item, { ...item, key: "k2", observedAt: cold }], missing: [], freshestObservedAt: SEEN } } } as ChangeProposal;
     const { bundle: _b, ...atomic } = bundled(NOW);
@@ -111,12 +107,10 @@ describe("a direct link renders only what the ranked list would, and always land
     const b = bundled(NOW).bundle!;
     // the same stored row this screen would be rendered from
     const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
-    const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal;
-    expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
+    const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
     const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
     // A PAGE-MOVER IS GRADED DANGEROUS AND A DANGEROUS PIECE CAN NEVER SIT IN READY, so the lane refuses it before the deliberate yes is ever reached, with or without one: nothing about a change in review is recordable, and no ticked box changes that.
-    const refused = await mark(merge);
-    expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
+    const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
     expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
     // STEP TWO, AND THE ONLY WAY OUT OF THE HOLD: Product Truth asks for two steps and only the first one existed, so a merge, a forward, a canonical or a de-index was held for a confirmation nobody could give. The confirmation lives on the change's own detail page, beside the pieces, the addresses, the destination and the risks, and it binds to ONE version: a version that has moved since the screen was drawn refuses, safe work sitting in review for a quality gate cannot reach this door at all, and the yes is written back onto the row so the queue and the mutation read it rather than trust a screen.
     const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, answerReviewedProposal: promote } = await import("@/domains/decision");
@@ -148,8 +142,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   beforeEach(() => vi.clearAllMocks());
   // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes.
   it("shows every open opportunity with zero ready, never calls a draft finished, and counts the same on both screens", async () => {
-    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
-    const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
+    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
     const missing = 'The results page for "iranian comedians" has not been read, and that read is what turns this into exact work.';
     const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
       operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
@@ -165,8 +158,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   it("shows all 12 preparing opportunities as compact rows with detail links, never as essays and never as Ready", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
-    const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } };
-    const html = await renderChanges(view);
+    const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
     expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is preparing 12 more"),
       html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
       .toEqual([12, 12, true, false, true, false]); });
@@ -175,8 +167,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
     const rows = [idea("t::/a::existing_edit::ownership"), idea("t::/b::existing_edit::missing_description"), idea("t::idea-typed")];
-    const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } };
-    const html = await renderChanges(view);
+    const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } }; const html = await renderChanges(view);
     expect([html.includes("Reading the competing pages before writing distinct titles and openings."),
       html.includes("Writing a page-specific description from the stored page."),
       html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")])
@@ -184,13 +175,11 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
-    const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); };
-    const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
+    const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
     const hard = { ...soft, limitations: ["1 of the 2 pages coming up for \"iranian comedians\" get no words from this change (/other), so the split it names is not settled and this is held for review rather than handed over as ready to paste."] } as ChangeProposal;
     await link(soft); const yes = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "approve" });
     await link(hard); const no = await reviewDraftAction({ proposalId: hard.id, version: confirmedVersion(hard), decision: "approve" });
-    await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" });
-    const { answerReviewedProposal: answer } = await import("@/domains/decision");
+    await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" }); const { answerReviewedProposal: answer } = await import("@/domains/decision");
     expect([yes.success, no.success, no.error?.includes("not settled"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)])
       .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
@@ -209,8 +198,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       countTrackedQuestions: async () => 30 }));
     const { loadTodayView } = await import("@/app/(shell)/today-view-data");
     const { today } = await loadTodayView(); // it really was rebuilt from what survived the bar
-    expect([today.headerSentence === "stale", today.headerSentence.includes("August 4")]).toEqual([false, true]);
-    expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
+    expect([today.headerSentence === "stale", today.headerSentence.includes("August 4")]).toEqual([false, true]); expect([today.waitingUntil, today.investigating, today.heldForMeasurement]).toEqual(["2026-08-04T18:00:00.000Z", 2, 3]);
     expect(today.declineNotes).toEqual(stored.today.today.declineNotes);
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/runtime"); vi.resetModules(); });
   it("checks a stored release against the bar I hold NOW, not against itself", async () => {
@@ -222,8 +210,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const uniformlyStale = { ...emptyView(0), proposals: [bundled("basis_old::d3", "t::old")], ready: [bundled("basis_old::d3", "t::old")],
       summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView;
     const stale = withCurrentBasisOnly(uniformlyStale, { tenantId: "t", currentBasis: NOW }); // ONE bar, and it is not mine: consistency is not currency
-    expect([stale.proposals.length, stale.ready.length, stale.summary.ready]).toEqual([0, 0, 0]);
-    expect(stale.readyZeroHint).toBe(setAsideHint());
+    expect([stale.proposals.length, stale.ready.length, stale.summary.ready]).toEqual([0, 0, 0]); expect(stale.readyZeroHint).toBe(setAsideHint());
     const current = { ...emptyView(0), proposals: [bundled(NOW)], ready: [bundled(NOW)] } as ChangesView;
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals).toHaveLength(0); }); // a bar I cannot read shows nothing

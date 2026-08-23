@@ -40,8 +40,7 @@ beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(
 
 describe("nothing is marked done that no record stands behind", () => {
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
-    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision");
-    expect(Object.keys(facade)).not.toContain("markProposalImplemented");
+    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");
     expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
   // AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it.
   it("refuses to record unfinished work as done, whatever a stale screen sends", async () => {
@@ -52,8 +51,7 @@ describe("nothing is marked done that no record stands behind", () => {
     expect([(await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal)).success, led.records.length]).toEqual([true, 1]); }); // that sentence on finished copy stops nothing
   it("a crash BEFORE the record lands flips nothing, so the change is still theirs to do", async () => {
     led.breakWrite = true;
-    const res = await press(change());
-    expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
+    const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);
     expect(res.error).not.toMatch(/relation|shipped_change_proof|supabase/i); }); // a table name is not an answer to a customer
   it("a crash AFTER the record lands heals on the next press: one record, and the change then closes", async () => {
     led.flip.mockRejectedValueOnce(new Error("relation change_proposals does not exist"));
@@ -64,8 +62,7 @@ describe("nothing is marked done that no record stands behind", () => {
   it("treats a re-press of the SAME version as nothing at all, a redrafted piece as new work, and an older era's name at its own precision", async () => {
     expect((await press(change())).success).toBe(true);
     const again = await press(change()); // the identical version, pressed again
-    expect([again.success, led.records.length, /already on file/.test(again.note ?? "")]).toEqual([true, 1, true]);
-    const REDRAFT = "Iranian comedians: who is actually funny in 2026";
+    expect([again.success, led.records.length, /already on file/.test(again.note ?? "")]).toEqual([true, 1, true]); const REDRAFT = "Iranian comedians: who is actually funny in 2026";
     expect((await press(change(REDRAFT))).success).toBe(true);
     expect(led.records).toHaveLength(2); // new wording is a new piece, measured on its own
     led.records[1]!.componentsApplied = [{ id: "0:title" }]; // as an older era wrote it, before the copy was part of the name

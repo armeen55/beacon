@@ -138,34 +138,29 @@ describe("a search read that did not answer", () => {
     await expect(loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"))).rejects.toThrow(/statement timeout/); });
   it("marks a read cut short after some rows INCOMPLETE, keeping what landed", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
-    const read = await readGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"));
-    expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]); });
+    const read = await readGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z")); expect([read.incomplete, read.signals.size]).toEqual([true, 1_000]); });
   it("asks the database ONE question per account per reporting day, however the caller spells now", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: [] }], gsc_page_totals_v1: [{ data: [] }] };
-    await loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z"));
-    await loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:14:37.412Z"));
+    await loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:00:00Z")); await loadGscPageSignalsForTenant(TENANT, new Date("2026-08-12T09:14:37.412Z"));
     const asked = env.calls.filter((c) => c.name === "gsc_page_signals_v1").map((c) => JSON.stringify(c.args));
     expect(new Set(asked).size).toBe(1); // one memo slot, not one per caller's clock
   });
 
   it("travels to the snapshot as a FAILED source, never as an empty one", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
-    const snapshot = await loadEvidenceSnapshot(TENANT, { now: new Date("2026-08-12T09:00:00Z") });
-    expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed"); }); });
+    const snapshot = await loadEvidenceSnapshot(TENANT, { now: new Date("2026-08-12T09:00:00Z") }); expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed"); }); });
 
 describe("the sweep only retires what a producer that FINISHED rewrote", () => {
   it("changes nothing at all when the search source failed, so open cards survive", async () => {
     env.snapshot = snapshotWith("failed");
     env.store = new Map([["a", openCard("answer_block")], ["t", openCard("title")]].map(([, p]) => [(p as ChangeProposal).id, p]));
-    const out = await produceProposalsForTenant(TENANT);
-    expect(out.outcome).toBe("evidence_unreadable");
+    const out = await produceProposalsForTenant(TENANT); expect(out.outcome).toBe("evidence_unreadable");
     expect(env.withdrawn).toEqual([]); });
 
   it("withdraws nothing when the search source is merely EMPTY: unread is not rewritten", async () => {
     env.snapshot = snapshotWith("empty");
     env.store = new Map([[openCard("title").id, openCard("title")]]);
-    await produceProposalsForTenant(TENANT);
-    expect(env.withdrawn).toEqual([]); });
+    await produceProposalsForTenant(TENANT); expect(env.withdrawn).toEqual([]); });
 
   it("withdraws a stale card in its own family once the producer that owns it finished, and never an AI card on a pass whose AI read failed", async () => {
     env.snapshot = snapshotWith("fresh");
@@ -224,8 +219,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
 
   it("holds the AI families out of the sweep and files no verdict when the window read fails, while its finished families still answer", async () => {
     env.aiWindow = "fail";
-    const run = await runExtras(aiSnapshot());
-    expect(run.families).not.toContain("ai_answer_gap");
+    const run = await runExtras(aiSnapshot()); expect(run.families).not.toContain("ai_answer_gap");
     expect(run.families).not.toContain("engine_followup");
     expect(run.families).toContain("missing_description"); // the pass genuinely ran its $0 work
     expect([env.upserts, env.dispositions.size]).toEqual([0, 0]); // a blind pass writes no verdict
@@ -235,27 +229,20 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     env.aiWindow = "fail"; // cold instance one goes blind and files nothing; instance two sees the window
     await runExtras(aiSnapshot());
     env.aiWindow = [];
-    const run = await runExtras(aiSnapshot());
-    expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
-    expect(env.upserts).toBeGreaterThan(0);
-    const unreported = env.dispositions.get(`${TENANT}|prompt:pB`);
+    const run = await runExtras(aiSnapshot()); expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
+    expect(env.upserts).toBeGreaterThan(0); const unreported = env.dispositions.get(`${TENANT}|prompt:pB`);
     expect(unreported?.state).toBe("unreported");
     // BOTH SURFACES print the same sentence from the same row, read back through the store.
-    const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store");
-    const file = await readAiCaseDispositions(TENANT);
-    expect(file.state).toBe("read");
-    const onVisibility = dispositionOf({ caseKey: "prompt:pB", state: "actionable", reason: "the evidence-only view" }, file);
-    const onChanges = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pB")?.reason ?? null : null;
-    expect(onVisibility.state).toBe("unreported");
-    expect(onVisibility.href).toBeNull();
-    expect(onChanges).toBe(onVisibility.line);
+    const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store"); const file = await readAiCaseDispositions(TENANT);
+    expect(file.state).toBe("read"); const onVisibility = dispositionOf({ caseKey: "prompt:pB", state: "actionable", reason: "the evidence-only view" }, file);
+    const onChanges = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pB")?.reason ?? null : null; expect(onVisibility.state).toBe("unreported");
+    expect(onVisibility.href).toBeNull(); expect(onChanges).toBe(onVisibility.line);
   });
 
   it("judges and files the AI cases on a QUIET day, through the whole produce pass", async () => {
     env.snapshot = aiSnapshot();
     env.aiWindow = [];
-    const out = await produceProposalsForTenant(TENANT, { zeroSpend: true });
-    expect(out.outcome).not.toBe("persistence_failed");
+    const out = await produceProposalsForTenant(TENANT, { zeroSpend: true }); expect(out.outcome).not.toBe("persistence_failed");
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported");
   });
@@ -263,8 +250,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {
     env.aiWindow = [];
     await runExtras(aiSnapshot()); // the NEWER pass files (decidedAt = 2026-08-20T09:00Z)
-    const standing = new Map(env.dispositions);
-    const m = await coldExtras();
+    const standing = new Map(env.dispositions); const m = await coldExtras();
     const stale = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never, now: new Date("2026-08-19T09:00:00Z"), reads: { left: 0 } });
     expect(stale.families).not.toContain("ai_answer_gap"); // no license to sweep
     expect(stale.families).not.toContain("engine_followup");
@@ -281,10 +267,8 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
         fan_outs: fanOuts, retrieved_results: null, brand_mentions: null, web_search_reported: true } });
     env.aiWindow = [windowRow("row1", "pA", "things to do in shiraz", ["best time to visit shiraz"]),
       windowRow("row2", "pB", "best time to visit shiraz", null)];
-    await runExtras(aiSnapshot());
-    const { canonicalQueryKey } = await import("@/domains/evidence/relevance-gate");
-    const filedRow = env.dispositions.get(`${TENANT}|fanout:${canonicalQueryKey("best time to visit shiraz")}`);
-    expect(filedRow?.state).toBe("covered");
+    await runExtras(aiSnapshot()); const { canonicalQueryKey } = await import("@/domains/evidence/relevance-gate");
+    const filedRow = env.dispositions.get(`${TENANT}|fanout:${canonicalQueryKey("best time to visit shiraz")}`); expect(filedRow?.state).toBe("covered");
     expect(String(filedRow?.reason)).toContain("already tracks");
   });
 });

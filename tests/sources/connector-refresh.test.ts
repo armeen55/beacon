@@ -32,8 +32,7 @@ describe("what a stale source is allowed to open on its own", () => {
 // ───────── syncSucceeded, the positive freshness gate (audit-3 #5) ─────────
 describe("syncSucceeded (audit-3 #5)", () => {
   it("treats { synced: true } as success and { synced: false } as failure with reason", () => {
-    expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true }); const v = syncSucceeded({ synced: false, reason: "no_token" });
-    expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]); });
+    expect(syncSucceeded({ synced: true, rows_upserted: 12 })).toEqual({ ok: true }); const v = syncSucceeded({ synced: false, reason: "no_token" }); expect([v.ok, v.ok ? null : v.reason]).toEqual([false, "no_token"]); });
   it("regression: the old { ok: false } shape and unrecognized shapes are NOT success", () => {
     expect([syncSucceeded({ ok: false }).ok, syncSucceeded({}).ok, syncSucceeded(null).ok, syncSucceeded("synced").ok]).toEqual([false, false, false, false]); });
 });
@@ -53,12 +52,10 @@ describe("fetchClarityUrlMetrics", () => {
 // A CONNECTIONS FAILURE IS THE OPERATOR'S OWN SENTENCE, never the exception's: raw store and network messages used to reach the screen as if they were advice.
 describe("what Connections says when something goes wrong", () => {
   it("hands back plain language instead of the raw error", async () => {
-    const { getGoogleAuthUrl } = await import("@/app/(shell)/settings/connectors/actions");
-    expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." }); });
+    const { getGoogleAuthUrl } = await import("@/app/(shell)/settings/connectors/actions"); expect(await getGoogleAuthUrl("gsc")).toEqual({ url: null, error: "The Google sign in could not start just now. Try again in a moment." }); });
   // A CHECK THAT FAILED IS NOT A DISCONNECTION: an unreadable store used to render "Not connected" plus a Connect button at a customer whose grant never moved.
   it("an unreadable token store is the could-not-check state, never not_connected", async () => {
     vi.resetModules(); vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("supabase unreachable"); } }));
-    const store = await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store");
-    const h = await store.getConnectorHealth("google_gsc", "t1"); vi.doUnmock("@/lib/persistence/supabase");
+    const store = await vi.importActual<typeof import("@/lib/connector-store")>("@/lib/connector-store"); const h = await store.getConnectorHealth("google_gsc", "t1"); vi.doUnmock("@/lib/persistence/supabase");
     expect([h.status, h.health, h.healthReason, h.countsAsConnected]).toEqual(["unknown", "unknown", "Could not check just now. The connection is unchanged. Reload to check again.", false]); });
 });

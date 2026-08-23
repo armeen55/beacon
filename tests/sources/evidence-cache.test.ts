@@ -55,14 +55,12 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     expect([(await runResolvedCall(resolved(), deps)).state, calls.fetch.length, calls.reserve.length]).toEqual(["hit", 0, 0]); // a hit is typed costUsd: 0
   });
   it("concurrent identical misses (second claim is pending) pay at most once", async () => {
-    let n = 0; const { deps, calls } = makeDeps({ claimEvidenceFetch: async () => claim(n++ === 0 ? "claimed" : "pending")() });
-    const [r1, r2] = await Promise.all([runResolvedCall(resolved(), deps), runResolvedCall(resolved(), deps)]);
+    let n = 0; const { deps, calls } = makeDeps({ claimEvidenceFetch: async () => claim(n++ === 0 ? "claimed" : "pending")() }); const [r1, r2] = await Promise.all([runResolvedCall(resolved(), deps), runResolvedCall(resolved(), deps)]);
     const pending = [r1, r2].find((r) => r.state === "waiting");
     expect([[r1.state, r2.state].sort(), calls.fetch.length, pending?.state === "waiting" && pending.costUsd]).toEqual([["ok", "waiting"], 1, 0]); // a bare pending claim charges nothing
   });
   it("no un-paid path (cap / reserve-throw / breaker / not_configured) ever touches the network", async () => {
-    const spy = vi.fn(), states = [];
-    const cap = makeDeps({ reserveProviderSpend: async () => false }), rerr = makeDeps({ reserveProviderSpend: async () => { throw new Error("db down"); } });
+    const spy = vi.fn(), states = []; const cap = makeDeps({ reserveProviderSpend: async () => false }), rerr = makeDeps({ reserveProviderSpend: async () => { throw new Error("db down"); } });
     const brk = makeDeps({ breaker: async () => ({ tripped: true, reason: "ceiling reached" }) }), nc = makeDeps({ env: {} as NodeJS.ProcessEnv, claimEvidenceFetch: spy as never });
     for (const g of [cap, rerr, brk, nc]) { states.push((await runResolvedCall(resolved(), g.deps)).state); expect(g.calls.fetch).toHaveLength(0); }
     expect(states).toEqual(["capped", "error", "capped", "not_configured"]);
@@ -79,8 +77,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
       [50100, 0, "blocked"], [50401, 0, "blocked"], [50402, 0, "blocked"], [61234, 0, "blocked"], [40401, 0, "blocked"],
       [50301, 0, "none"], [50000, 0, "none"], [50100, undefined, "quarantined"], [50301, undefined, "quarantined"]]; // no cost field = it may have been charged
     for (const [code, cost, want] of cases) for (const call of [resolved(), taskCall()]) {
-      const g = makeDeps(); g.deps.fetchImpl = fetcher(g.calls, () => inBody(code, cost));
-      const res = await runResolvedCall(call, g.deps);
+      const g = makeDeps(); g.deps.fetchImpl = fetcher(g.calls, () => inBody(code, cost)); const res = await runResolvedCall(call, g.deps);
       expect([res.state === "error" && res.disposition, g.calls.adjust, g.calls.fetch.length]).toEqual([want, want === "quarantined" ? [] : [-0.01], 1]); // refunded unless it may have been charged
       expect([blockedHold(g.calls.writes), released(g.calls.writes), cleared(g.calls.writes), quarantined(g.calls.writes)]).toEqual([want === "blocked", want === "none", false, want !== "none"]); // never repost_once, never a dead-identity clear
       if (want === "none") expect(g.calls.writes.some((w) => w.status === "error" && w.posted_attempt_at === null)).toBe(true); // the release also clears the anti-repost receipt
@@ -102,8 +99,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
 });
 describe("Standard tasks - free resumption and the STRUCTURED dispositions", () => {
   it("posts once, persists the task id, and returns durable waiting with the provider cost exactly once", async () => {
-    const { deps, calls } = makeDeps(); deps.fetchImpl = postAccepted(calls);
-    const res = await runResolvedCall(taskCall(), deps);
+    const { deps, calls } = makeDeps(); deps.fetchImpl = postAccepted(calls); const res = await runResolvedCall(taskCall(), deps);
     expect([res.state, res.state === "waiting" && res.providerTaskId, res.state === "waiting" && res.costUsd, calls.fetch.length, calls.writes.some((w) => w.provider_task_id === "task-123")]).toEqual(["waiting", "task-123", 0.006, 1, true]); // the actual cost, once, with the id persisted
   });
   it("after process death, a pending claim GETs the task free (adds 0) and never reposts", async () => {
@@ -118,8 +114,7 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
       [40601, "waiting", false], [40602, "waiting", false], [50000, "retry_free", false], [50301, "retry_free", false], // genuine queue: free GET, zero reposts. transient: the SAME id is kept
       [40100, "blocked", false], [40200, "blocked", false], [40501, "blocked", false], [40401, "repost_once", true], [40403, "repost_once", true]]; // account/contract: pause and keep the id. proven gone: clear, then ONE clean repost
     for (const [code, want, clears] of cases) {
-      const { deps, calls } = makeDeps({ cacheRead: row() }); deps.fetchImpl = fetcher(calls, () => inBody(code));
-      const res = await collectResolvedTask("k", PATHS, deps);
+      const { deps, calls } = makeDeps({ cacheRead: row() }); deps.fetchImpl = fetcher(calls, () => inBody(code)); const res = await collectResolvedTask("k", PATHS, deps);
       expect(res.state === "error" ? res.disposition : res.state).toBe(want);
       if (res.state === "error") expect(res.detail).toContain(String(code));
       expect([cleared(calls.writes), calls.fetch.every((u) => u.includes("task_get"))]).toEqual([clears, true]); // never a repost
@@ -155,8 +150,7 @@ describe("quarantine - indefinite, both modes, zero automatic paid retries", () 
     const g = makeDeps({ cacheRead: uncertainRow() });
     g.deps.fetchImpl = fetcher(g.calls, (u) => (u.includes("tasks_ready") ? listing([{ id: "someone-else", tag: "other-key" }, { id: "task-77", tag: "k" }]) : liveOk(0)));
     const paths = { ...PATHS, tasksReadyPath: () => "ai_optimization/claude/llm_responses/tasks_ready" }; // a family no other test's bucket touches
-    const res = await collectResolvedTask("k", paths, g.deps);
-    expect([res.state, res.state === "ok" && res.costUsd]).toEqual(["ok", 0]);
+    const res = await collectResolvedTask("k", paths, g.deps); expect([res.state, res.state === "ok" && res.costUsd]).toEqual(["ok", 0]);
     expect(g.calls.writes.some((w) => w.provider_task_id === "task-77" && w.quarantined_at === null)).toBe(true);
     expect(g.calls.fetch).toEqual([expect.stringContaining("/llm_responses/tasks_ready"), expect.stringContaining("/task_get/advanced/task-77")]); // free listing, free collect, never a post
   });

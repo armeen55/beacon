@@ -86,20 +86,16 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
   it("keys an AI reading on the day it belongs to and the sample slot it is, and sends NEITHER to the provider", async () => {
     const day = "2026-07-25", next = "2026-07-26";
     const post = async (over: Record<string, unknown>) => {
-      const h = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("gpt-4o", true) });
-      const r = await providerCall("llm_gemini", { user_prompt: "q", web_search: true, ...over }, IDS, h.deps);
+      const h = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("gpt-4o", true) }); const r = await providerCall("llm_gemini", { user_prompt: "q", web_search: true, ...over }, IDS, h.deps);
       return { key: "cacheKey" in r ? r.cacheKey : null, body: h.calls.bodies[0]![0]! };
     };
-    const slot0 = await post({ observation_day: day, sample_slot: 0 });
-    const slot1 = await post({ observation_day: day, sample_slot: 1 });
-    const tomorrow = await post({ observation_day: next, sample_slot: 0 });
-    const retry = await post({ observation_day: day, sample_slot: 0 });
+    const slot0 = await post({ observation_day: day, sample_slot: 0 }); const slot1 = await post({ observation_day: day, sample_slot: 1 });
+    const tomorrow = await post({ observation_day: next, sample_slot: 0 }); const retry = await post({ observation_day: day, sample_slot: 0 });
     expect(slot0.key).toBe(retry.key);           // the same reading retried the same day is ONE ask and stays $0
     expect(slot0.key).not.toBe(slot1.key);       // a second sample is a SECOND question, never a free replay of the first
     expect(slot0.key).not.toBe(tomorrow.key);    // and tomorrow is a new question, so a 23:00 answer is never served as tomorrow's
     // Neither field is a provider field: the request body is identical to one asked without them (the only difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
-    expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]);
-    const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
+    expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]); const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
     expect(plain(slot1.body)).toEqual(plain((await post({})).body));
     // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
     expect(slot0.key).toBe((await post({ observation_day: day })).key);
@@ -118,8 +114,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     // @ts-expect-error a scraper is keyword-based; user_prompt is not its field
     const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS);
     // @ts-expect-error the model is resolved, never caller-supplied
-    const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS);
-    expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });
+    const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS); expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });
 });
 describe("keyword ideas: one request per 200 seeds, and nothing missing turned into a zero", () => {
   const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } }, ranked = { ranked_serp_element: { serp_item: { rank_group: 4, rank_absolute: 7, url: "https://mysite.example/saffron-price" } } };

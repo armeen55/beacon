@@ -111,11 +111,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
     expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]); });
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
-    const out = await produceInternalLinks(ctxOf());
-    expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
+    const out = await produceInternalLinks(ctxOf()); expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
     // deterministic, and FROM THE INVENTORY: pages already linked never return, this page and other sites never appear, and ties break on the page's own name.
-    expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]);
-    expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
+    expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]); expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
     expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
     // THE COPY ITSELF SURVIVES, not only the gate: it names this page's search and opens on no word the firewall cannot place.
     const c = out.components[0]!;
@@ -126,15 +124,13 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, true]); });
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
-    const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] }));
-    expect(nowhere.components).toHaveLength(0);
+    const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] })); expect(nowhere.components).toHaveLength(0);
     expect(nowhere.refusal).toContain("so none is invented");
     // An inventory whose pages share no word with this page's subject is the same honest answer.
     const offTopic = await produceInternalLinks(ctxOf({ ownedPages: [{ url: "https://fixture-content.example/careers", title: "Careers", h1: "Careers" }] }));
     expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("so none is invented")]);
     // No body means I cannot see what this page already links to, so a link is a coin flip: none.
-    const blind = await produceInternalLinks(ctxOf({ body: null }));
-    expect([blind.components.length, blind.refusal!.includes("Name the page it should lead to")]).toEqual([0, true]); });
+    const blind = await produceInternalLinks(ctxOf({ body: null })); expect([blind.components.length, blind.refusal!.includes("Name the page it should lead to")]).toEqual([0, true]); });
   it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
     const section = async (i: { heading: string | null }) => ({
       heading: i.heading ?? "Where these claims come from",
@@ -152,10 +148,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // NO SOURCE HOMEWORK (2026-08-19): a claim either stands on a verified fact by url, or the requirement names the acquisition the fact pass owes. The operator is never told to pick a source.
     expect(c.sourcePack!.sourceRequirements).toEqual(['Downspout diverter has no verified source on file yet, so the fact pass acquires one of the kind the pages cited for "rain barrel sizing" point at (a.example, b.example, c.example) before this line ships. Nothing here asks anybody to pick a source.']);
     for (const beaconFact of FACTS) expect(JSON.stringify(c)).not.toContain(beaconFact);
-    expect(JSON.stringify(c)).not.toContain("6,000");
-    expect(JSON.stringify(c)).not.toContain(INVENTED);
-    expect(c.after).toBe("Downspout diverter\n\nA downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed.");
-    expect(componentRefusals(validate(gap.components))).toEqual([]);
+    expect(JSON.stringify(c)).not.toContain("6,000"); expect(JSON.stringify(c)).not.toContain(INVENTED);
+    expect(c.after).toBe("Downspout diverter\n\nA downspout diverter splits roof water between the drain and the barrel, and the pages being cited explain when one is needed."); expect(componentRefusals(validate(gap.components))).toEqual([]);
     expect(validate(gap.components).verdict).toBe("ready");
     // an engine that READ the page and named somebody else is a credibility problem, so it sources what the page already claims
     const read = await produceSourceExpansion(ctxOf({
@@ -167,8 +161,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
     // a refused draft is a refusal, never filler
     const dry = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }) }));
-    expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing is handed over rather than filler")]);
-    expect(validate(read.components).verdict).toBe("ready");
+    expect([dry.components.length, dry.refusal ?? ""]).toEqual([0, expect.stringContaining("nothing is handed over rather than filler")]); expect(validate(read.components).verdict).toBe("ready");
     // no reading of the cited pages = no way to say what kind of source stands up: a refusal, never invention
     const unread = await produceSourceExpansion(ctxOf({ pattern: null,
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }) }));
@@ -183,15 +176,13 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const split = (over: Record<string, unknown> = {}) => finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: [], survivor: null, ...over });
     const merge = (over: Record<string, unknown> = {}, bodies?: typeof BODIES) => produceConsolidation(ctxOf({ finding: split(over), ...(bodies ? { heldBodies: bodies } : {}) }));
     const unproven = await merge(); // no comparison and no survivor: an investigation, not a change, and never a question handed back
-    expect([unproven.components.length, unproven.refusal!.includes("nothing here says combine anything")]).toEqual([0, true]);
-    expect(unproven.refusal).not.toMatch(/you pick|choosing for you|stronger position/i);
+    expect([unproven.components.length, unproven.refusal!.includes("nothing here says combine anything")]).toEqual([0, true]); expect(unproven.refusal).not.toMatch(/you pick|choosing for you|stronger position/i);
     expect((await merge({ comparison: CMP })).components).toHaveLength(0); // both pages' numbers, still no proven survivor
     expect((await merge({ comparison: CMP, survivor: PAGE_URL })).components).toHaveLength(0); // a survivor whose losing page I never read claims nothing about what moves
     const proven = await merge({ comparison: CMP, survivor: PAGE_URL }, BODIES); const c = proven.components[0]!; const steps = proven.operatorSteps ?? []; // PROVEN: both pages' numbers, both pages' words, one ahead on both
     expect([c.kind, c.risk, c.before, c.redirectTo, answered(c)]).toEqual(["consolidation", "dangerous", null, "/rain-barrels", true]);
     // the operator reads their own pages as paths, the comparison that proves it is in the copy, and so is what moves
-    expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes');
-    expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
+    expect(c.after).toContain('2 of your own pages come up for "rain barrel sizing": /rain-barrels, /barrel-sizes'); expect(c.after).toContain("/rain-barrels earns 90 clicks from that search against 20 on /barrel-sizes");
     expect([steps[0]!.startsWith("Check /rain-barrels already says everything"), c.after.includes("https://"), c.after.endsWith("The risk is high, because a web address changes.")]).toEqual([true, false, true]);
     // A WINNER OF ONE SEARCH IS NOT A HOME FOR A WHOLE PAGE: the same proven numbers, plus one section the survivor does not carry, is a page told apart and never an address moved.
     const hub = await merge({ comparison: CMP, survivor: PAGE_URL }, new Map([...BODIES, [OTHER_KEY, { ...BODIES.get(OTHER_KEY)!, headings: ["Barrel sizes", "Gallons per storm"] }]]));
@@ -227,45 +218,33 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       { limitations: ["I do not hold this page's full body text, so I checked every draft against its title."] }).verdict).toBe("rejected"); });
   /** READY MEANS WHOLE: a rebuild shipping planning sentences under half its copy promised what it did not hold. */
   it("rebuilds a page only when the causes agree, and ships every finished section when the whole page is not written", async () => {
-    const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]);
-    expect([one.components.length, one.refusal!.includes("bigger swing than the evidence pays for")]).toEqual([0, true]);
-    const causes = ["weak_opening", "incomplete_coverage", "weak_opening"] as const;
-    const many = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), causes);
-    const c = many.components[0]!;
-    expect([c.kind, c.risk, answered(c)]).toEqual(["full_rewrite", "review", true]);
+    const one = await produceFullRewriteRecommendation(ctxOf(), ["weak_opening"]); expect([one.components.length, one.refusal!.includes("bigger swing than the evidence pays for")]).toEqual([0, true]);
+    const causes = ["weak_opening", "incomplete_coverage", "weak_opening"] as const; const many = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), causes);
+    const c = many.components[0]!; expect([c.kind, c.risk, answered(c)]).toEqual(["full_rewrite", "review", true]);
     // THE COPY IS THE CHANGE: the opening first, then every section the winners agree on, and not one planning sentence.
     expect([c.after.startsWith(OPENING), c.after.includes("How much water a roof collects"), c.after.includes("Choosing a barrel size"), c.after.includes("still owed")]).toEqual([true, true, true, false]);
     expect([c.objective!.includes("a guide that answers the question from end to end"), c.mechanism!.includes("2 things are wrong at once")]).toEqual([true, true]);
     expect([componentRefusals(validate(many.components)), validate(many.components).verdict]).toEqual([[], "ready"]);
     // THE PRESERVATION MAP: what survives the rebuild in its own words, and every held thing it drops named with the reason
-    expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]);
-    expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
+    expect(c.preserves!.keeps).toEqual(["Roof area", "Storm"]); expect(c.preserves!.losses.map((l) => l.what)).toEqual(["Rain Barrels", "How much rain a roof collects", "Barrel sizes"]);
     expect(c.preserves!.losses.every((l) => l.why.includes(`Not one of the 3 pages that win "${QUERY}" carries it`))).toBe(true);
     // A SECTION IS NEVER DROPPED IN SILENCE: unnamed is refused, and naming it is what makes the same copy shippable
     const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
-    const narrow = validate(many.components, RECEIPT_ONLY);
-    expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
+    const narrow = validate(many.components, RECEIPT_ONLY); expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
     // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
-    const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } };
-    const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
-    expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]);
-    expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);
+    const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
+    expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]); expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);
     // and a page whose sections all landed with no opening to lead them is still not a page
-    const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes);
-    expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
+    const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes); expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
     // no reading of the pages that win means no rebuild, however many causes fired
-    const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes);
-    expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); });
+    const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes); expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); });
   it("refuses on every producer when the finding carries no structured payload", async () => {
-    const bare = { finding: finding("internal_link_weakness") };
-    const links = await produceInternalLinks(ctxOf(bare));
-    const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") }));
-    const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
+    const bare = { finding: finding("internal_link_weakness") }; const links = await produceInternalLinks(ctxOf(bare));
+    const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
     for (const out of [links, sources, merge]) {
-      expect(out.components).toHaveLength(0);
-      expect(out.refusal!.length).toBeGreaterThan(20);
+      expect(out.components).toHaveLength(0); expect(out.refusal!.length).toBeGreaterThan(20);
       expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);
     }
     // a finding with nothing on file behind it never becomes a component, whatever the payload says
@@ -277,8 +256,7 @@ describe("what a change actually costs the operator", () => {
     const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
     expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);
     const merge = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL }) }));
-    const rebuild = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), ["weak_opening", "incomplete_coverage"]);
-    expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
+    const rebuild = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), ["weak_opening", "incomplete_coverage"]); expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
     expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]); });
   // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
   it("pins measurement's private dangerous-kind list against the decision contract", () => {

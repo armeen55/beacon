@@ -42,8 +42,7 @@ const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => 
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
 describe("the facts I read off the winning pages myself", () => {
   it("carries what the read captured and fills in nothing it did not", () => {
-    const [first] = facts();
-    expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities]).toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
+    const [first] = facts(); expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities]).toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
     expect([first!.wordCount, first!.faqCount, first!.hasList, first!.hasTable, first!.hasSchema]).toEqual([1400, 3, true, false, true]);
     // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing downstream can read "no sections, no words, no structured data" off a page nobody ever fetched.
     const unread = extractPageFacts([{ url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }])[0]!;
@@ -53,19 +52,16 @@ describe("the facts I read off the winning pages myself", () => {
     const legacy = extractPageFacts([{ url: "https://old.example/rugs", extract: { title: "Persian rugs", h1: null, wordCount: 900, headings: ["Where they come from"], faqCount: 0 } }])[0]!;
     expect([legacy!.hasList, legacy!.hasTable, legacy!.hasSchema, legacy!.opening, legacy!.faqCount, legacy!.domain]).toEqual([null, null, null, null, 0, "old.example"]);
     // A read that banked cards but no list flag still knows it saw a list; one that banked no structured data says so.
-    const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!;
-    expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); });
+    const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!; expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); });
 describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
-    const s = seam(reading());
-    const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
+    const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
     expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);
   });
   // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
   it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => {
-    const pool = { left: 1 }, s = seam(reading());
-    const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool });
+    const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool });
     const second = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool, cacheImpl: memoryCache() });
     expect([first?.winners, Math.max(0, pool.left), second, s.calls()]).toEqual([4, 0, null, 1]); });
   it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
@@ -89,25 +85,19 @@ describe("the one reading a case may buy", () => {
     ];
     for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
     // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
-    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete });
-    expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); });
+    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete }); expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); });
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
     // The reading says informational_guide; the results counted a list, and the deterministic count wins.
     expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull();
-    const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" });
-    expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
+    const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" }); expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
     // With no page of my own supplied, "your page has no care section" is about a page it never saw.
-    expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull();
-    const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete });
+    expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete });
     expect([quiet?.ownedGaps, quiet?.winners]).toEqual([[], 4]); });
   it("asks the same question once: winners that did not move buy no second reading", async () => {
-    const s = seam(reading()); const cacheImpl = memoryCache();
-    const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
-    const again = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
-    expect([first?.fingerprint, again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, first?.fingerprint, 1]); });
+    const s = seam(reading()); const cacheImpl = memoryCache(); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
+    const again = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl }); expect([first?.fingerprint, again?.fingerprint, s.calls()]).toEqual([first?.fingerprint, first?.fingerprint, 1]); });
   it("asks nothing at all under three publishers I could actually read", async () => {
-    const s = seam(reading());
-    const twoRead = [...WINNERS.slice(0, 2), { url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }];
+    const s = seam(reading()); const twoRead = [...WINNERS.slice(0, 2), { url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }];
     expect(await readWinningPattern(extractPageFacts(twoRead), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
     // Four pages from two sites are two sites' house style, and this file never calls that a pattern.
     const twoSites = [WINNERS[0]!, page("guide.example", ["What a Persian rug is"]), WINNERS[1]!, page("museum.example", [CARE])];

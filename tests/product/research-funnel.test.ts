@@ -334,13 +334,11 @@ describe("research funnel - the CASE-SCOPED keyword universe", () => {
     expect(store.peek("tc", BASIS)!.discovery.retained.filter((k) => k.keyword === "where to buy saffron").map((k) => k.discoveredVia)).toEqual(["prompt"]); // A TRACKED QUESTION IS NEVER ITS OWN FAN-OUT: the answer echoed my words back and the receipt called it a search the engine ran itself
     expect(batch.filter((k) => k === "price saffron" || k === "saffron price").length).toBe(1); }); // deduped BEFORE the purchase, so a reordered variant is never priced twice
   it("files a keyword under the case that answers for it now, even when the plan named an id a merge absorbed", async () => {
-    const store = memStore(observed()); await disc(store);
-    const rows = new Map(store.peek("tc", BASIS)!.discovery.retained.map((k) => [k.keyword, k.caseId ?? null]));
+    const store = memStore(observed()); await disc(store); const rows = new Map(store.peek("tc", BASIS)!.discovery.retained.map((k) => [k.keyword, k.caseId ?? null]));
     expect([rows.get("price saffron"), rows.get("where to buy saffron"), rows.get("saffron benefits")]).toEqual([CASE, CASE, null]); // the anchor on file and the plan's own search both land on the canonical case; an unrelated keyword claims none
   });
   it("says what acting on a keyword would mean from my OWN rankings, and says nothing at all when it never checked them", async () => {
-    const store = memStore(observed()); await disc(store);
-    const rows = new Map(store.peek("tc", BASIS)!.discovery.retained.map((k) => [k.keyword, [k.supports, k.ownedRankingUrl, k.ownedPosition]]));
+    const store = memStore(observed()); await disc(store); const rows = new Map(store.peek("tc", BASIS)!.discovery.retained.map((k) => [k.keyword, [k.supports, k.ownedRankingUrl, k.ownedPosition]]));
     expect(rows.get("price saffron")).toEqual(["consolidation", "https://own.com/a", 4]); // two of my pages rank for one search, and the BEST position is the one named
     expect(rows.get("saffron threads")).toEqual(["existing_page", "https://own.com/t", 2]); // ONE page reported twice is one page, never two of mine competing, and its BEST position is the one named
     expect(rows.get("saffron benefits")).toEqual(["new_page", null, null]);
@@ -413,8 +411,7 @@ describe("research funnel - the journey behind a keyword", () => {
     const said: string[] = []; const spy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => void said.push(String(a[0])));
     const three = (day: string, ids = ["q0", "q1", "q2"]) => ids.map((id) => ask({ observationId: `obs_${id}`, promptId: id, promptText: `saffron question ${id}`, reportingDay: day,
       fanOutQueries: Array.from({ length: 200 }, (_, j) => `saffron f${id}n${j}`), analysis: { topicEntities: Array.from({ length: 200 }, (_, j) => `saffron e${id}n${j}`) } }));
-    const store = memStore(seeded()); await run(store, three(DAY_A)); spy.mockRestore();
-    const kept = (via: string) => [...rowsOf(store).values()].filter((k) => k.discoveredVia === via).map((k) => k.keyword);
+    const store = memStore(seeded()); await run(store, three(DAY_A)); spy.mockRestore(); const kept = (via: string) => [...rowsOf(store).values()].filter((k) => k.discoveredVia === via).map((k) => k.keyword);
     expect([kept("fanout").length, kept("answer_entity").length]).toEqual([300, 300]); // each route at its ceiling exactly, never 301 and never a quiet 299
     expect(said.some((l) => l.includes("I reached my limit of 300 candidates and set 600 more aside this pass (answer_entity 300, fanout 300).") && l.includes("get their turn on a later day"))).toBe(true); // a cap reported for the follow-ups alone hid three hundred entities losing their slot
     await run(store, three(DAY_B)); // a later day starts from a different answer, so the tail gets its turn
@@ -462,8 +459,7 @@ describe("research funnel - the journey behind a keyword", () => {
     const stored = { schemaVersion: 3, tenantId: "tj", basisTag: BASIS, discovery: { seeds: [], rejected: [], counts: { raw: 1, normalized: 1, retained: 1, rejected: 0 }, caseCompetitors: [],
       retained: [{ keyword: "saffron price", searchVolume: 500, competition: null, difficulty: null, intent: null, discoveredVia: "site", rankedUrl: "https://own.com/s", rankedRank: 4 }] } } as unknown as FunnelState;
     const table = { select: () => table, eq: () => table, maybeSingle: async () => ({ data: { schema_version: 3, state: stored, row_version: 1 }, error: null }) };
-    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) });
-    const k = loaded.state.discovery.retained[0]!;
+    const loaded = await loadFunnelState("tj", BASIS, { configured: () => true, admin: () => ({ from: () => table }) }); const k = loaded.state.discovery.retained[0]!;
     expect([k.origins, k.moreOrigins, k.ownedRankingUrl, k.ownedPosition]).toEqual([undefined, undefined, "https://own.com/s", 4]); }); // nothing crashes, nothing is fabricated, the legacy ranking still lands
 });
 describe("evidence - the per-case research receipt", () => {
@@ -486,8 +482,7 @@ describe("evidence - the per-case research receipt", () => {
     expect(r.keywords).toEqual([{ query: "saffron price", discoveredVia: "paa", metricsHeld: true, searchVolume: 500, difficulty: 12, intent: "commercial", ownedRankingUrl: "https://own.com/s", ownedPosition: 4, supports: "existing_page", origins: null, moreOrigins: null }]); // only this case's keywords, each with how I found it, its recorded journey, and what acting on it would mean
     expect(r.calls.map((c) => [c.kind, c.identity, c.served, c.subject]).sort()).toEqual([["ai_answer", "ck-ans", "unknown", "saffron price (gemini, gemini-2.5-flash)"], ["competitor_domains", "ck-comp", "cache", "2 keywords, 1 domains"], ["page_comparison", "ck-pi", "unknown", "https://a.com/x vs https://b.com/y"], ["search_results", null, "unknown", "saffron price"]].sort()); // the answer names the receipt that bought it and the model that served it; the ONE call that recorded HOW it was served says so and the rest say unknown instead of guessing
     expect(r.spend).toEqual({ spentUsd: 0.05, cachedCalls: 1 }); // THIS run's money, never a lifetime total
-    expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]);
-    expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("all 1 of this case's searches");
+    expect(r.notBought.map((n) => n.reason)).toEqual(["capped", "fresh"]); expect(r.notBought[0]!.detail).toContain("spending ceiling"); expect(r.notBought[1]!.detail).toContain("all 1 of this case's searches");
     expect(caseResearchReceipt(snapshot, "inv_nobody")).toBeNull(); }); // a case I do not hold gets no receipt, never an empty one that reads as researched
   it("answers for a TWO-HOP chain, so nothing a merge absorbed twice falls out of the receipt", async () => {
     const DEEP = "inv_older", s = seeded(); // A absorbed B, and B had already absorbed C

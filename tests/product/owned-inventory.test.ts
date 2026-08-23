@@ -41,12 +41,10 @@ describe("the owned-page inventory: what the site says it has, and what my read 
   it("preserves first_seen across rediscovery and never undoes what the crawl learned", async () => {
     await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]); const firstSeen = (await readInventory(T))[0]!.first_seen;
     await markCrawled(T, "https://own.com/a", { httpStatus: 200, contentHash: "h1", completeness: "complete" }, NOW);
-    await new Promise((r) => setTimeout(r, 2)); expect(await upsertDiscovery(T, [{ url: "https://own.com/a", via: "nav" }])).toBe(1);
-    const row = (await readInventory(T))[0]!;
+    await new Promise((r) => setTimeout(r, 2)); expect(await upsertDiscovery(T, [{ url: "https://own.com/a", via: "nav" }])).toBe(1); const row = (await readInventory(T))[0]!;
     expect([row.first_seen, row.crawl_state, row.content_hash, row.last_seen_in_discovery > firstSeen]).toEqual([firstSeen, "crawled", "h1", true]); });
   it("gives a refusal a bounded retry date, holds the page back until it passes, and backs off further each time", async () => {
-    await upsertDiscovery(T, [{ url: "https://own.com/locked", via: "sitemap" }, { url: "https://own.com/gone", via: "sitemap" }]);
-    await markBlocked(T, "https://own.com/locked", 403, NOW); await markBlocked(T, "https://own.com/gone", 404, NOW);
+    await upsertDiscovery(T, [{ url: "https://own.com/locked", via: "sitemap" }, { url: "https://own.com/gone", via: "sitemap" }]); await markBlocked(T, "https://own.com/locked", 403, NOW); await markBlocked(T, "https://own.com/gone", 404, NOW);
     const locked = () => readInventory(T).then((rs) => rs.find((r) => r.url.endsWith("/locked"))!); expect([(await locked()).crawl_state, (await locked()).completeness, (await locked()).blocked_until]).toEqual(["blocked", "blocked", at(1).toISOString()]);
     expect(await nextCrawlCandidates(T, 10, at(0.5))).toEqual([]); // inside the wait: not a candidate
     expect(await nextCrawlCandidates(T, 10, at(2))).toEqual(["https://own.com/locked"]); // due again, and a 404 never is
@@ -55,8 +53,7 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW); // a server error is a failure, never a read
     const flaky = (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; expect([flaky.crawl_state, flaky.last_crawled_at, flaky.blocked_until, await nextCrawlCandidates(T, 10, at(0.5))]).toEqual(["uncrawled", null, at(1).toISOString(), []]); }); // unread, unstamped, waiting
   it("calls a server error a fault only after the same answer comes back on a SECOND Pacific day, and drops it the moment the page answers", async () => {
-    const flaky = async () => (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!;
-    await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW);
+    const flaky = async () => (await readInventory(T)).find((r) => r.url.endsWith("/flaky"))!; await upsertDiscovery(T, [{ url: "https://own.com/flaky", via: "sitemap" }]); await markBlocked(T, "https://own.com/flaky", 500, NOW);
     expect((await flaky()).status_reconfirmed_at).toBe(null); // one 500 is a bad minute and says nothing at all
     await markBlocked(T, "https://own.com/flaky", 503, new Date(NOW.getTime() + 7_200_000)); // same class, and 2 AM UTC is still the SAME Pacific evening
     expect((await flaky()).status_reconfirmed_at).toBe(null); // a UTC day would have called this two days and confirmed it
@@ -84,17 +81,14 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     const snap = extractPageSnapshot(html, "https://own.com/deep", "page-1", T, 200, null);
     expect([snap.body_text!.includes("Zephyr Archive"), snap.body_text!.includes("Menu Home About"), completenessOf(snap)]).toEqual([true, false, "complete"]);
     expect(extractPageSnapshot("<html><body><nav>Menu</nav></body></html>", "https://own.com/empty", "page-2", T, 200, null).body_text).toBe(""); // a page with nothing to say holds the empty string, never nothing at all
-    expect(snap.content_hash).toBe(createHash("sha256").update(snap.body_text!).digest("hex").slice(0, 16));
-    await upsertDiscovery(T, [{ url: "https://own.com/deep", via: "sitemap" }]);
+    expect(snap.content_hash).toBe(createHash("sha256").update(snap.body_text!).digest("hex").slice(0, 16)); await upsertDiscovery(T, [{ url: "https://own.com/deep", via: "sitemap" }]);
     await markCrawled(T, "https://own.com/deep", { httpStatus: 200, contentHash: snap.content_hash, completeness: completenessOf(snap) }, NOW);
     const row = (await readInventory(T))[0]!; expect([row.crawl_state, row.completeness, row.content_hash]).toEqual(["crawled", "complete", snap.content_hash]);
     db.snaps = [snapRow({ url: "https://own.com/deep", word_count: snap.word_count, body_text: snap.body_text })]; const body = await read("https://own.com/deep");
-    expect([body.completeness, pageContains(body, "Zephyr Archive"), pageContains(body, "a fact this page never states")]).toEqual(["complete", "yes", "no"]);
-    expect(body.heldNote).not.toMatch(/[—–]/); });
+    expect([body.completeness, pageContains(body, "Zephyr Archive"), pageContains(body, "a fact this page never states")]).toEqual(["complete", "yes", "no"]); expect(body.heldNote).not.toMatch(/[—–]/); });
   it("still reads a sample-era row as a sample, so absence stays unknown on it, and records what a ceiling cut", async () => {
     db.snaps = [snapRow({ body_paragraph_sample: ["x".repeat(300), "The kite festival opens at dawn."], word_count: 4_000 })]; // a paragraph at the crawler's 300-char limit was cut mid sentence
-    expect([(await read()).completeness, pageContains(await read(), "kite festival"), pageContains(await read(), "opening hours")]).toEqual(["sample_only", "yes", "unknown"]);
-    expect((await read()).heldNote).toContain("unknown, not missing");
+    expect([(await read()).completeness, pageContains(await read(), "kite festival"), pageContains(await read(), "opening hours")]).toEqual(["sample_only", "yes", "unknown"]); expect((await read()).heldNote).toContain("unknown, not missing");
     db.snaps = [snapRow({ body_paragraph_sample: ["The kite festival opens at dawn."], word_count: undefined })]; // no word count is the same unprovable claim
     expect((await read()).completeness).toBe("sample_only");
     db.snaps = [snapRow({ body_paragraph_sample: undefined, body_text: "" })]; expect([(await read()).completeness, pageContains(await read(), "anything at all")]).toEqual(["complete", "no"]); // held whole and genuinely empty, so absence is provable
@@ -119,8 +113,7 @@ describe("a crawl is finished only when the inventory is", () => {
     const hold = { s: state({ frontier: ["https://own.com/a"] }) }, { out } = await batch(hold, { "https://own.com/a": html("Page a says this.") });
     expect([out.complete, hold.s.status, hold.s.frontier]).toEqual([false, "in_progress", ["https://own.com/b"]]); }); // /b was never in the blob: only the inventory knew it existed
   it("reads a page it has not read on every pass until there are none left, and never the same page twice", async () => {
-    const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")]));
-    await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
+    const urls = ["a", "b", "c", "d", "e"].map((p) => `https://own.com/${p}`), pages = Object.fromEntries(urls.map((u) => [u, html("Ordinary prose.")])); await upsertDiscovery(T, urls.map((url) => ({ url, via: "sitemap" as const })));
     const hold = { s: state({ page_cap: 2 }) }; // two pages a pass, so three passes is the whole five-page site
     const p1 = await batch(hold, pages), p2 = await batch(hold, pages), p3 = await batch(hold, pages);
     expect([p1.read.length, p2.read.length, p3.read.length, new Set([...p1.read, ...p2.read, ...p3.read]).size]).toEqual([2, 2, 1, 5]); // every pass advances, and the batches are disjoint
@@ -143,10 +136,8 @@ describe("a crawl is finished only when the inventory is", () => {
     const due = await batch(hold, page, at(2));
     expect([due.read.length, due.out.crawled, hold.s.status]).toEqual([1, 1, "complete"]); }); // the promise is kept on a later pass, and only then is the site done
   it("reopens a finished crawl for a page shipped afterwards and for a read gone stale, and stays finished when the inventory owes nothing", async () => {
-    const pages = { "https://own.com/a": html("Ordinary prose."), "https://own.com/new": html("Shipped later.") };
-    await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]);
-    const hold = { s: state({ frontier: ["https://own.com/a"] }) }, first = await batch(hold, pages);
-    expect([first.out.complete, hold.s.status]).toEqual([true, "complete"]);
+    const pages = { "https://own.com/a": html("Ordinary prose."), "https://own.com/new": html("Shipped later.") }; await upsertDiscovery(T, [{ url: "https://own.com/a", via: "sitemap" }]);
+    const hold = { s: state({ frontier: ["https://own.com/a"] }) }, first = await batch(hold, pages); expect([first.out.complete, hold.s.status]).toEqual([true, "complete"]);
     const idle = await batch(hold, pages); // nothing owed: finished stands, and the site is not asked for anything
     expect([idle.read, idle.out.status, idle.out.detail, hold.s.status]).toEqual([[], "complete", "already_complete", "complete"]);
     await upsertDiscovery(T, [{ url: "https://own.com/new", via: "implementation" }]); // the operator ships a page AFTER I called it finished

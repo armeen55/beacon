@@ -39,19 +39,14 @@ describe("GSC searchanalytics.query contract", () => {
       },
       { fetchImpl },
     );
-    expect(rows).not.toBeNull();
-    expect(rows).toHaveLength(3);
+    expect(rows).not.toBeNull(); expect(rows).toHaveLength(3);
     for (const row of rows!) {
       // keys arrive in REQUEST dimension order: [page, query].
-      expect(Array.isArray(row.keys)).toBe(true);
-      expect(row.keys).toHaveLength(2);
-      expect(row.keys[0]).toMatch(/^https:\/\//);
-      expect(typeof row.keys[1]).toBe("string");
-      expect(typeof row.clicks).toBe("number");
-      expect(typeof row.impressions).toBe("number");
+      expect(Array.isArray(row.keys)).toBe(true); expect(row.keys).toHaveLength(2);
+      expect(row.keys[0]).toMatch(/^https:\/\//); expect(typeof row.keys[1]).toBe("string");
+      expect(typeof row.clicks).toBe("number"); expect(typeof row.impressions).toBe("number");
       // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
-      expect(row.ctr).toBeGreaterThanOrEqual(0);
-      expect(row.ctr).toBeLessThanOrEqual(1);
+      expect(row.ctr).toBeGreaterThanOrEqual(0); expect(row.ctr).toBeLessThanOrEqual(1);
       // position is a 1-based average.
       expect(row.position).toBeGreaterThanOrEqual(1);
     }
@@ -85,13 +80,11 @@ describe("GSC searchanalytics.query contract", () => {
 
 describe("GSC sites.list contract", () => {
   it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
-    const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch;
-    const sites = await gscListSites("test-token", { fetchImpl });
+    const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch; const sites = await gscListSites("test-token", { fetchImpl });
     // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
     expect(sites).toHaveLength(3);
     for (const s of sites) {
-      expect(typeof s.siteUrl).toBe("string");
-      expect(typeof s.permissionLevel).toBe("string");
+      expect(typeof s.siteUrl).toBe("string"); expect(typeof s.permissionLevel).toBe("string");
     }
     expect(pickGscPropertyForDomain(sites, "fixture-content.example")).toBe("sc-domain:fixture-content.example");
     // Unverified-only domains resolve to null (we cannot read their analytics).

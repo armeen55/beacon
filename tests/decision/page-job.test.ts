@@ -37,8 +37,7 @@ describe("what one page is for, held durably", () => {
   });
   it("says WHY a page has no job instead of answering null five different ways", async () => {
     budget.allowed = true; const db = store();
-    expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable");
-    expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
+    expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable"); expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
     // Two subject words is below the schema's floor of three, so the whole reading is refused rather than half kept.
     expect((await pageJobFor("t_fixture", extract("/b"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete, store: db })).reason).toBe("refused");
     budget.allowed = false; expect((await pageJobFor("t_fixture", extract("/c"), { complete: seam(READING).complete, store: db })).reason).toBe("unaffordable"); budget.allowed = true;
@@ -84,7 +83,6 @@ describe("what a job changes, and what a missing one may never change", () => {
     // THE CASPIAN HORSE CLASS: the horse page covers the anchor perfectly, and the names page sharing not one of its subjects still may not link to it. A link is a claim two pages share a subject, read BOTH ways.
     const horse = job({ url: "https://mysite.example/caspian-horse", topics: ["caspian horse", "horse breed"], job: "Describes the Caspian horse breed of Iran.", audience: "horse lovers" });
     const names = job({ url: "https://mysite.example/persian-male-names", topics: ["persian male names", "baby names"], job: "Lists Persian male first names with meanings.", audience: "parents" });
-    expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic");
-    expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);
+    expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic"); expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);
   });
 });

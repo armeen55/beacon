@@ -369,11 +369,16 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   if (trimmed == null) return redrafted ? refuse("its closing line asks the reader to read the page and too little is left without it")
     : runEditor(packet, field, pageLabel, [...hints, NO_CTA], minutes, opts, refuse, true, link);
   deliverable.finalCopy = trimmed;
+  // PLACEMENT IS MECHANICAL, NOT GENERATIVE (Codex, 2026-08-23). The model invented anchors and the live gate refused them ("the place it says it lands is not on the stored page", /iran-flags/achaemenid-empire-flag, 01:30Z). For an answer block CODE chooses the place: the page's own stored H1, else its title, else its first clean stored heading, which is exactly where a summary answer belongs. Whatever the model wrote in the anchor slot is bookkeeping. No trustworthy stored anchor means the candidate stays OWED with that exact reason, never an invented place.
+  if (field === "answer_block") {
+    const spot = [packet.h1, packet.title, ...packet.headings].find((x): x is string => !!x && !blankish(x) && x.trim().length <= ANCHOR_MAX && !CHROME_AT.test(x) && !/[a-z][A-Z]/.test(x));
+    if (!spot) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("the page's stored copy carries no clean heading to place this answer under"); }
+    deliverable.placementAnchor = spot.trim(); }
   const anchor = deliverable.placementAnchor.trim();
   // THE MAIN HEADING IS ALWAYS A FINDABLE PLACE: an anchor that IS the page's clean stored H1 (or title) stands as given, and the glued-sentence remap below never runs on it.
   const cleanTop = [packet.h1, packet.title].find((x) => x && flat(x) === flat(anchor));
   if (cleanTop) deliverable.placementAnchor = cleanTop;
-  else if (anchor) {
+  else if (anchor && field !== "answer_block") {
     // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
     const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
       .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
@@ -449,12 +454,13 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
   const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, id.startsWith("page-copy") ? 700 : 400)}`),
     ...(spec ? [card.researchOnly === true
-      ? `The brief for this edit: "${spec.slice(0, 600)}". Write the finished copy that fulfils it; the brief itself is never the copy.`
+      ? `The brief for this edit: "${spec.slice(0, 600)}". It describes the ASSIGNMENT: it is never the copy and never source material, no word of it may be cited as evidence, and its direction words (place, answer, add, write, section, block, directly, liftable) are workflow language that must not appear in the finished copy.`
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
       // THE ANCHOR IS THE PAGE'S OWN MAIN HEADING (2026-08-22): stored body text is often crawler-glued, so an anchor lifted from it fails the findability gate on every retry; the H1 is stored clean and is exactly where a summary answer goes.
-      "For the placement anchor, use the page's own main heading EXACTLY as page-h1 gives it above; a summary answer belongs at the TOP of the page, directly under that heading.",
+      "The PLACEMENT is chosen by the system (the page's own main heading), never by you: whatever you put in the anchor slot is discarded, so spend nothing on it and write only the copy, its claims and their evidence.",
+      "Evidence FIRST, sentence second: pick the stored passage that proves the point, write the sentence FROM it, and cite that passage on the claim. Category words are claims too: call something an idiom, a proverb or a tradition ONLY if a cited passage uses that word; otherwise use the word the evidence uses (phrase, expression, saying) or drop the label.",
       `The section heading must NOT repeat "${card.primaryQuery}" or the page's own H1 back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
@@ -477,12 +483,13 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
   let deliverable = await runEditor(packet, field, card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
-  // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free.
-  for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1) {
-    deliverable = await runEditor(packet, field, card.pageLabel,
-      [...hints, `${lessons.length} previous ${lessons.length === 1 ? "attempt" : "attempts"} at this exact deliverable ${lessons.length === 1 ? "was" : "were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`],
+  // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free. A RETRY IS CORRECTIVE, NEVER "TRY AGAIN" (Codex, 2026-08-23): the exact words a gate called unsupported are named back as removals, so the next attempt fixes the named defect instead of rediscovering it. The full reasons still follow, oldest first, so fixing one cannot quietly reintroduce another.
+  const corrective = (): string => { const bad = [...new Set(lessons.filter((l) => /copy says|drops/.test(l)).flatMap((l) => [...l.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]!)))];
+    return [bad.length > 0 ? `REMOVE these exact words from your copy, or reword the sentence so a claim you declare carries them and cites the stored passage proving them: ${bad.map((w) => `"${w}"`).join(", ")}. Use the evidence's own word for any category (phrase, not idiom, unless a cited passage says idiom).` : "",
+      `${lessons.length} previous ${lessons.length === 1 ? "attempt was" : "attempts were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`].filter(Boolean).join(" "); };
+  for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1)
+    deliverable = await runEditor(packet, field, card.pageLabel, [...hints, corrective()],
       card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
-  }
   if (!deliverable) return null;
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
@@ -492,12 +499,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   // THE PROMOTION IS THE VERDICT, NOT A HABIT, AND THE FINAL ADVERSARIAL REVIEWER IS PART OF IT (operator, 2026-08-17): copy that cleared the drafter, the deterministic contract, the sense judge and the canon validator STILL faces one hostile reading before it may wear Ready. Any false field is a blocking finding; the row stays at needs_review and the reviewer's sentence lands on the card as the reason. Unaffordable or unreadable means NOT promoted, never promoted unreviewed.
   let ready = verdict.verdict === "ready";
-  // THE CANON HOLDING A DRAFT IS A VERDICT ON THE COPY, and it was the last one that said nothing. `needs_review`
-  // is not `rejected`: the words were read against today's evidence and held, so the page is SETTLED for this
-  // evidence and the final reviewer is never asked about copy the canon already stopped. It used to fall through
-  // with no note at all, `applyDraftedCopy` saw a non-null deliverable and stayed quiet too, and the receipt ended
-  // as a reasonless `retryable_blocked`: /funny-farsi-phrases, live, 2026-08-23 01:00Z. The canon's own status and
-  // its own first sentence go on the receipt; no second vocabulary is invented for something it already names.
+  // THE CANON HOLDING A DRAFT IS A VERDICT ON THE COPY, and it was the last one that said nothing. `needs_review` is not `rejected`: the words were read against today's evidence and held, so the page is SETTLED for this evidence and the final reviewer is never asked about copy the canon already stopped. It used to fall through with no note at all, `applyDraftedCopy` saw a non-null deliverable and stayed quiet too, and the receipt ended as a reasonless `retryable_blocked`: /funny-farsi-phrases, live, 2026-08-23 01:00Z. The canon's own status and its own first sentence go on the receipt; no second vocabulary is invented for something it already names.
   if (!ready) opts.note?.(DRAFT_BUDGET.keyOf(card), "deterministic_refusal",
     `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
   if (ready) {

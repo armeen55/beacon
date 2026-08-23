@@ -31,19 +31,16 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
 describe("Today renders, and tells the truth about its own queue", () => {
   it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes first"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
-    const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> };
-    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+    const { default: Page } = await import(mod) as { default: (a?: unknown) => Promise<ReactElement> }; const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
     for (const claim of claims) expect(html).toContain(claim);
   }, 15_000);
   it("says it could not read the measured changes, and never that there are none, when THE STORE itself errors", async () => {
     const { default: Page } = await import("@/app/(shell)/results/page") as { default: (a?: unknown) => Promise<ReactElement> };
     DB.ledgerError = { code: "PGRST301", message: "JWT expired" }; // The failure enters where it really enters: Supabase hands the ledger table back an error, three layers under the page.
-    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-    expect(html).toContain("Your measured changes could not be read just now, so none is not the answer.");
+    const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(html).toContain("Your measured changes could not be read just now, so none is not the answer.");
     expect(html).not.toContain("No changes are being measured yet");
     DB.ledgerError = { code: "PGRST205", message: "Could not find the table in the schema cache" }; // AND THE MISSING-TABLE CASE IS STILL A VALID EMPTY: the file fallback is how a pre-migration deploy reads, not an outage.
-    const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-    expect(fallback).not.toContain("could not be read just now");
+    const fallback = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) })); expect(fallback).not.toContain("could not be read just now");
     DB.ledgerError = null; }, 15_000);
   const readyView = (n: number, measuring: number) => ({
     ready: Array.from({ length: n }, (_, i) => ({ id: `t::/p${i}::existing_edit::title`, pagePath: `/p${i}`, pageUrl: null, pageLabel: `P${i}`, primaryQuery: "q",
@@ -53,8 +50,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
   const NO_WORK = "No finished change is ready today. The next one lands here the moment the exact work is written.";
   // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
   it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => {
-    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data");
-    const view = buildTodayViewFromChanges(readyView(12, 3));
+    const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const view = buildTodayViewFromChanges(readyView(12, 3));
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
     // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
     const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView;
@@ -78,8 +74,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
 
 describe("Connectors settings route smoke", () => {
   it("renders the connector page with the shipped cards + the one summary strip", async () => {
-    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
-    const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
+    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
     for (const claim of ["Connect your tools", "Connect Google Search Console", 'data-connector-card="google-ga4"',
       'data-connector-card="clarity"', 'data-connectors-summary-strip="true"', "Your live site is never touched"]) expect(html).toContain(claim);
     expect(html).not.toContain("Enter Yelp API Key"); expect(html).not.toContain("Wix"); // Wix left the customer product
@@ -91,7 +86,6 @@ describe("Connectors settings route smoke", () => {
       return { status: on ? "connected" : "disconnected", connected_at: on ? "2026-06-01T00:00:00.000Z" : null,
         expires_at: null, last_synced_at: on ? "2026-07-01T09:00:00.000Z" : null };
     });
-    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page");
-    expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 3 connected");
+    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 3 connected");
   });
 });

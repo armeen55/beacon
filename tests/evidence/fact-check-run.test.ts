@@ -49,11 +49,9 @@ describe("the search is the proposition", () => {
     const q = sourceQueryFor(claimTypeOf(subject, current), subject, current);
     for (const must of ["Ahvaz", "54", "°C", "Asia", "hottest", "record"]) expect(q).toContain(must);
     expect(q).not.toContain("definition reference"); // the query the live run actually sent
-    expect(claimTypeOf("Tehran", "was founded in 1796")).toBe("date_or_event");
-    const meaning = sourceQueryFor("word_meaning", "Afsaneh", "means Goddess");
+    expect(claimTypeOf("Tehran", "was founded in 1796")).toBe("date_or_event"); const meaning = sourceQueryFor("word_meaning", "Afsaneh", "means Goddess");
     expect([meaning.includes("etymology"), meaning.includes("Goddess")]).toEqual([true, true]); // the proposition survives the hint
-    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89");
-    expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));
+    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));
   });
 });
 
@@ -74,8 +72,7 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     const bad = await unit({ held, searchSources: async () => ({ organic: [{ domain: "babynames.example", url: "https://babynames.example/x", title: "x" }] }) });
     expect([bad.status, bad.failure, db.rows.length]).toEqual(["failed", "source_quality_unresolved", 0]);
     expect((await unit({ held, searchSources: async () => ({ organic: [] }) })).status).toBe("advanced"); // truly empty
-    const r = db.rows[0] as FactCheck;
-    expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
+    const r = db.rows[0] as FactCheck; expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
     db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");
   });
 });
@@ -116,8 +113,7 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
 
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
-    let units = 0;
-    const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
+    let units = 0; const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
     const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages, held: [],
       refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
       read: async (i: { kind: string }) => ({ value: (i.kind === "fact_claim_extraction"
@@ -147,23 +143,20 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     // The model says the dictionary supports it, quoting a sentence only the weaker page carries.
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://en.wiktionary.org/x", quote: weak }] } }) });
-    const bad = db.rows[0] as FactCheck;
-    expect([bad.agreement, bad.confidence === "confirmed", bad.sources.find((x) => x.url.includes("wiktionary"))!.says]).toEqual(["none_found", false, ""]);
+    const bad = db.rows[0] as FactCheck; expect([bad.agreement, bad.confidence === "confirmed", bad.sources.find((x) => x.url.includes("wiktionary"))!.says]).toEqual(["none_found", false, ""]);
     db.rows = []; // attributed honestly, the weaker page supports it alone and still cannot confirm it
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://behindthename.com/x", quote: weak }] } }) });
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]);
     db.rows = [];
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
-    const ok = db.rows[0] as FactCheck;
-    expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
+    const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
     expect(ok.sourceReadAt).not.toBeNull(); });
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",
       sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "new" }] });
-    expect(authorizedCorrections([{ ...c, sourceReadAt: null }])).toHaveLength(0);
-    const read = { ...c, sourceReadAt: NOW.toISOString() };
+    expect(authorizedCorrections([{ ...c, sourceReadAt: null }])).toHaveLength(0); const read = { ...c, sourceReadAt: NOW.toISOString() };
     expect(authorizedCorrections([read], { pageContentHash: "h2" })).toHaveLength(0); // stale page version
     expect(authorizedCorrections([{ ...read, state: "owed" }])).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }])).toHaveLength(0); // verdict from replaced rules
@@ -171,8 +164,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" })).toHaveLength(1);
   });
   it("the real schema registry can express a claim list and a claim judgement", async () => {
-    const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
-    expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
+    const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "" }).success).toBe(true);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);
@@ -180,10 +172,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
   it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
     const { parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
     const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
-    const p = parseCapability("onpage_content_parsing", envelope as never) as { bodyText: string | null; openingSample: string | null; headings: string[] };
-    const text = [p.bodyText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
-    await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) });
-    expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
+    const p = parseCapability("onpage_content_parsing", envelope as never) as { bodyText: string | null; openingSample: string | null; headings: string[] }; const text = [p.bodyText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
+    await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) }); expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
 
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
@@ -192,8 +182,7 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
     // The real live row: checked/undecidable, produced by "Ahvaz, Iran definition reference" under rules 1.
     const old = row({ page: "/ahvaz", statementKey: "ahvaz, iran#fdbdbbc407", subject: "Ahvaz, Iran", current: AHVAZ,
       pageContentHash: pageHashOf(page.body), state: "checked", rulesVersion: 1, sourceReadAt: NOW.toISOString() });
-    let asked = "";
-    const out = await unit({ page, held: [old], searchSources: async (q: string) => { asked = q; return SOURCE; } });
+    let asked = ""; const out = await unit({ page, held: [old], searchSources: async (q: string) => { asked = q; return SOURCE; } });
     expect([db.reopened, out.status]).toEqual([["ahvaz, iran#fdbdbbc407"], "advanced"]); // archived, owed, researched
     for (const must of ["Ahvaz", "54", "°C", "Asia", "hottest"]) expect(asked).toContain(must);
     expect([asked.includes("definition reference"), (db.rows[0] as FactCheck).rulesVersion]).toEqual([false, VERIFICATION_RULES_VERSION]);
@@ -220,6 +209,5 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
   it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }] } }) });
-    const r = db.rows[0] as FactCheck;
-    expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
+    const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence

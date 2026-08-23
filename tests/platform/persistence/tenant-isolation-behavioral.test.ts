@@ -39,15 +39,12 @@ describe("buildTenantRepo behavioral isolation", () => {
     return fake;
   }
   it("a populated tenant gets ONLY its own tracked prompts + entities", async () => {
-    const repoA = buildTenantRepo(fakeBase(), "tenant-a");
-    const prompts = await repoA.getTrackedPrompts();
-    const entities = await repoA.getTrackedEntities();
-    expect(prompts.map((p) => p.id).sort()).toEqual(["p-a-1", "p-a-2"]);
+    const repoA = buildTenantRepo(fakeBase(), "tenant-a"); const prompts = await repoA.getTrackedPrompts();
+    const entities = await repoA.getTrackedEntities(); expect(prompts.map((p) => p.id).sort()).toEqual(["p-a-1", "p-a-2"]);
     expect(entities.map((e) => e.id)).toEqual(["e-a-1"]);
   });
   it("an empty tenant gets [] even though the base holds other tenants' rows", async () => {
-    const repoB = buildTenantRepo(fakeBase(), "tenant-b-empty");
-    expect(await repoB.getTrackedPrompts()).toEqual([]);
+    const repoB = buildTenantRepo(fakeBase(), "tenant-b-empty"); expect(await repoB.getTrackedPrompts()).toEqual([]);
     expect(await repoB.getTrackedEntities()).toEqual([]);
   });
   it("two populated tenants are mutually isolated (disjoint id sets)", async () => {
@@ -58,8 +55,7 @@ describe("buildTenantRepo behavioral isolation", () => {
     ]);
     const aIds = new Set(promptsA.map((p) => p.id));
     for (const p of promptsC) expect(aIds.has(p.id)).toBe(false);
-    expect(promptsA.length).toBe(2);
-    expect(promptsC.length).toBe(1);
+    expect(promptsA.length).toBe(2); expect(promptsC.length).toBe(1);
   });
 });
 // ── B. dual-write validation layer ──────────────────────────────────────────
@@ -77,22 +73,17 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);
   });
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
-    expect(GLOBAL_TABLES.has("tenants")).toBe(true);
-    expect(GLOBAL_TABLES.has("business_config")).toBe(true);
+    expect(GLOBAL_TABLES.has("tenants")).toBe(true); expect(GLOBAL_TABLES.has("business_config")).toBe(true);
     for (const t of ["results", "page_snapshots", "recommended_edits", "observation_runs", "pages"]) {
       expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);
     }
     // Night-shift 2026-06-11: the two index tables LEFT the global set.
-    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false);
-    expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);
+    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);
   });
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
-    const original = { id: "r1", tenant_id: "" };
-    const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
-    expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]);
-    expect(original.tenant_id).toBe("");
-    expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
-    expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
+    const original = { id: "r1", tenant_id: "" }; const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
+    expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]); expect(original.tenant_id).toBe("");
+    expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/); expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
   });
 });
 describe("a canonical write that did not land never reads as done", () => {
@@ -114,8 +105,7 @@ describe("a canonical write that did not land never reads as done", () => {
     } finally { mem.upsert = null; }
     expect(seen).toEqual(["results"]); });
   it("a crawled page whose snapshot write failed stays unvisited, so the next batch reads it again", async () => {
-    const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier");
-    const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
+    const { runCrawlBatch } = await import("@/domains/evidence/scanning/crawl-frontier"); const html = "<html><head><title>A page</title></head><body><h1>A page</h1><p>Some words on the page.</p></body></html>";
     const fetchImpl = (async (u: string) => (String(u).endsWith("/robots.txt") ? { ok: false, status: 404, text: async () => "" }
       : { ok: true, status: 200, url: String(u), text: async () => html })) as unknown as typeof fetch;
     const ISO = "2026-07-31T00:00:00.000Z";
@@ -126,14 +116,12 @@ describe("a canonical write that did not land never reads as done", () => {
       loadState: async () => ({ ...state }), saveState: async (s) => { saved.push(s); },
       syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => { throw new Error("the snapshot rows were rejected"); } } });
     // The cursor never advanced: no saved state, nothing counted as crawled.
-    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]);
-    expect(out.detail).toMatch(/^snapshot_write_failed:/); });
+    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]); expect(out.detail).toMatch(/^snapshot_write_failed:/); });
 });
 // ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk one wins silently in production. Supabase unless the operator asks for files out loud.
 describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
   it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
-    const { usesSupabase } = await import("@/lib/persistence/repositories");
-    const held = process.env.DATA_SOURCE;
+    const { usesSupabase } = await import("@/lib/persistence/repositories"); const held = process.env.DATA_SOURCE;
     try {
       delete process.env.DATA_SOURCE;
       expect(usesSupabase()).toBe(true);
@@ -142,8 +130,7 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
       vi.doMock("@/lib/persistence/repositories", () => ({
         usesSupabase, getRepository: () => ({ forTenant: () => ({ getRecommendationResponses: async () => { asked = true; return []; } }) }) }));
       vi.resetModules();
-      const store = await import("@/domains/evidence/product/recommendation-response-store");
-      await store.getRecommendationResponses().catch(() => []);
+      const store = await import("@/domains/evidence/product/recommendation-response-store"); await store.getRecommendationResponses().catch(() => []);
       expect(asked).toBe(true);
       process.env.DATA_SOURCE = "file";
       expect(usesSupabase()).toBe(false);
@@ -169,10 +156,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     }) }) as never;
   const NEW_USER = { userId: "12345678-abcd-abcd-abcd-1234567890ab", email: "owner@gmail.com" };
   it("the provisioned tenants row names EXACTLY the physical columns, and never adopts another user's tenant", async () => {
-    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant");
-    expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
-    const inserted: Record<string, unknown>[] = [];
-    expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
+    const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant"); expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
+    const inserted: Record<string, unknown>[] = []; expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
     const { __table: _t, ...row } = inserted.find((r) => r.__table === "tenants")!;
     // Any key that is not a real column takes EVERY signup down with PGRST204; the physical set also proves no vertical vocabulary is written.
     expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]);
@@ -183,8 +168,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
-    const row = { schemaVersion: 2, name: { value: "Real Cold Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } };
-    let loads = 0;
+    const row = { schemaVersion: 2, name: { value: "Real Cold Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } }; let loads = 0;
     bp.setBusinessProfileRepositoryForTests({
       load: async () => {
         loads++;
@@ -199,11 +183,9 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       const first = await bp.loadBusinessProfile("tenant-cold");
       expect(first.name.value).toBe(""); // honest empty, not another business
       // The miss must NOT have been memoized: the next read sees the real row.
-      const second = await bp.loadBusinessProfile("tenant-cold");
-      expect(second.name.value).toBe("Real Cold Co");
+      const second = await bp.loadBusinessProfile("tenant-cold"); expect(second.name.value).toBe("Real Cold Co");
       // And the REAL profile is now cached (no further repo hits).
-      const before = loads;
-      await bp.loadBusinessProfile("tenant-cold");
+      const before = loads; await bp.loadBusinessProfile("tenant-cold");
       expect(loads).toBe(before);
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
@@ -243,10 +225,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       save: async () => ({ ok: true }),
     });
     try {
-      const a = await bp.loadBusinessProfile("tenant-a");
-      expect(a.name.value).toBe("Account A");
-      const b = await bp.loadBusinessProfile("tenant-b");
-      expect(b.name.value).toBe("");
+      const a = await bp.loadBusinessProfile("tenant-a"); expect(a.name.value).toBe("Account A");
+      const b = await bp.loadBusinessProfile("tenant-b"); expect(b.name.value).toBe("");
       expect(b.accountId).toBe("tenant-b");
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
@@ -261,31 +241,23 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       flaggedTerms: ["cheap"], authoritativeSourceDomains: ["wikipedia.org"], primaryCompetitors: ["rival.example"],
       yelpBusinessId: "legacy-yelp", revenueModel: { kind: "rpm", rpmUsd: 5 },
     };
-    const profile = bp.profileFromRow("tenant-hist", legacyRow as never);
-    expect(profile.schemaVersion).toBe(2);
-    expect(profile.name.value).toBe("Historic Publisher");
-    expect(profile.name.origin).toBe("legacy");
-    expect(profile.businessType.value).toBe("content_publisher");
-    expect(profile.siteArchetype.value).toBe("content_site");
-    expect(profile.offerings.value.sort()).toEqual(["guides", "reference articles"].sort());
-    expect(profile.geographicScope.value).toEqual(["US"]);
-    expect(profile.importantPages.value).toEqual(["/about"]);
-    expect(profile.constraints.value.editorial).toEqual(["Use plain English."]);
-    expect(profile.constraints.value.bannedTerms).toEqual(["cheap"]);
-    expect(profile.trustedSourceDomains.value).toEqual(["wikipedia.org"]);
+    const profile = bp.profileFromRow("tenant-hist", legacyRow as never); expect(profile.schemaVersion).toBe(2);
+    expect(profile.name.value).toBe("Historic Publisher"); expect(profile.name.origin).toBe("legacy");
+    expect(profile.businessType.value).toBe("content_publisher"); expect(profile.siteArchetype.value).toBe("content_site");
+    expect(profile.offerings.value.sort()).toEqual(["guides", "reference articles"].sort()); expect(profile.geographicScope.value).toEqual(["US"]);
+    expect(profile.importantPages.value).toEqual(["/about"]); expect(profile.constraints.value.editorial).toEqual(["Use plain English."]);
+    expect(profile.constraints.value.bannedTerms).toEqual(["cheap"]); expect(profile.trustedSourceDomains.value).toEqual(["wikipedia.org"]);
     expect(profile.competitors.value).toEqual([{ name: "rival.example", evidenceUrls: [] }]);
     // Raw legacy JSON preserved verbatim and inert.
     expect(profile.legacy).toEqual(legacyRow);
     // Removed contract fields do not surface as active truth.
-    expect("yelpBusinessId" in profile).toBe(false);
-    expect("revenueModel" in profile).toBe(false);
+    expect("yelpBusinessId" in profile).toBe(false); expect("revenueModel" in profile).toBe(false);
     expect("domain" in profile).toBe(false);
   });
   it("active customer copy uses the BusinessProfile name, never the provisional signup seed", async () => {
     vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-copy" }));
     vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
-    const store = await import("@/domains/account/tenants/store");
-    const bp = await import("@/domains/account/business-profile");
+    const store = await import("@/domains/account/tenants/store"); const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
     const account = {
       id: "tenant-copy", slug: "copy", provisional_name: "seed-name-visible-nowhere", domain: "copy-co.example", status: "active" as const,
@@ -298,10 +270,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       name: { value: "Confirmed Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },
     });
     try {
-      const { loadSetup } = await import("@/app/(shell)/settings/config/actions");
-      const view = await loadSetup();
-      expect(view.name).toBe("Confirmed Co");
-      expect(view.name).not.toContain("seed-name");
+      const { loadSetup } = await import("@/app/(shell)/settings/config/actions"); const view = await loadSetup();
+      expect(view.name).toBe("Confirmed Co"); expect(view.name).not.toContain("seed-name");
       expect(view.websiteDomain).toBe("copy-co.example");
     } finally {
       store.setAccountRepositoryForTests(null);
@@ -321,25 +291,21 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),
     });
     try {
-      expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a");
-      expect(await store.getTenant("tenant-absent")).toBeNull();
+      expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a"); expect(await store.getTenant("tenant-absent")).toBeNull();
       await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
       // Website is the canonical projection of the account's one domain.
-      const { websiteOf } = await import("@/domains/account/tenants/types");
-      expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
+      const { websiteOf } = await import("@/domains/account/tenants/types"); expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
     } finally {
       store.setAccountRepositoryForTests(null);
     }
   });
   it("lifecycle: a failed or anomalous account read resolves unavailable, never a redirect or a paused lockout", async () => {
-    const store = await import("@/domains/account/tenants/store");
-    const { resolveAccountAccess, requireReadyAccount, AccountUnavailableError } = await import("@/domains/account/lifecycle");
+    const store = await import("@/domains/account/tenants/store"); const { resolveAccountAccess, requireReadyAccount, AccountUnavailableError } = await import("@/domains/account/lifecycle");
     const base = { id: "tenant-lc", slug: "lc", provisional_name: "", domain: "lc.example", signup_date: "2026-01-01",
       tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     const withStatus = (row: Record<string, unknown>) => store.mapRowToAccount({ ...base, business_name: "", ...row });
     // An unrecognized physical status is flagged by the mapper and resolved as unavailable, not paused.
-    expect(withStatus({ status: "trialing" }).status_unrecognized).toBe(true);
-    expect(withStatus({ status: "active" }).status_unrecognized).toBeUndefined();
+    expect(withStatus({ status: "trialing" }).status_unrecognized).toBe(true); expect(withStatus({ status: "active" }).status_unrecognized).toBeUndefined();
     const repo = (acct: unknown) => store.setAccountRepositoryForTests({
       getAccountById: async () => { if (acct instanceof Error) throw acct; return acct as never; }, getAccountBySlug: async () => null });
     try {

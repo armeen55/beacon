@@ -44,20 +44,16 @@ describe("per-account LLM budget isolation", () => {
     readCalls.length = 0;
   });
   it("account A's file-layer spend never changes account B's remaining budget", async () => {
-    await recordSpend(29.99, { tenantId: A });
-    const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
+    await recordSpend(29.99, { tenantId: A }); const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
     const b = await checkBudget({ tenantId: B, projectedCostUsd: 0.02 });
     expect(a.allowed).toBe(false); // A is at its own cap (30 default)
     expect(b).toEqual({ allowed: true, remaining: 30 }); // B untouched
   });
   it("recording spend for A writes A's ledgers only, and B stays uncapped on the durable layer too", async () => {
     DURABLE.set(A, 30); // A's durable monthly spend at cap
-    const a = await checkBudget({ tenantId: A });
-    const b = await checkBudget({ tenantId: B });
-    expect(a.allowed).toBe(false);
-    expect(b.allowed).toBe(true);
-    await recordSpend(0.5, { tenantId: B });
-    expect(durableWrites).toEqual([{ tenantId: B, costUsd: 0.5 }]);
+    const a = await checkBudget({ tenantId: A }); const b = await checkBudget({ tenantId: B });
+    expect(a.allowed).toBe(false); expect(b.allowed).toBe(true);
+    await recordSpend(0.5, { tenantId: B }); expect(durableWrites).toEqual([{ tenantId: B, costUsd: 0.5 }]);
     expect(FILE_ROWS.has(A)).toBe(false); // A's file ledger untouched by B's spend
   });
   it("same-account max(file, durable) and the exact-cap boundary are unchanged", async () => {
@@ -68,11 +64,9 @@ describe("per-account LLM budget isolation", () => {
     expect(at.allowed).toBe(false); // spend == cap fails closed at the boundary
   });
   it("a missing account fails before any ledger I/O; every read carried the explicit account", async () => {
-    await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/);
-    await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
+    await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/); await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
     // And the successful paths above always routed with the explicit account.
-    await checkBudget({ tenantId: A });
-    expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);
+    await checkBudget({ tenantId: A }); expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);
   });
 });

@@ -135,8 +135,7 @@ describe("onboarding contract (Slice 5)", () => {
   it("2. inferProfile keeps model provenance + rejects any sourceUrl outside the crawl, and a refused model falls back to a deterministic profile that still advances", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.test" }); seedCrawl(w, A);
-    const r = await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/", "https://evil.test/steal"]) });
-    const p = w.profiles.get(A)!;
+    const r = await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/", "https://evil.test/steal"]) }); const p = w.profiles.get(A)!;
     expect([r.status, p.name.origin, p.offerings.value.includes("rug cleaning"), p.name.sourceUrls]).toEqual(["inferred", "inferred", true, ["https://acme.test/"]]); // the outside URL is stripped
     // ONE SLOW CALL IS NOT A DOWNGRADE, TWO IS. The deterministic profile makes this whole step read as already inferred forever, so a single call abandoned at my own deadline used to cost this account its model read permanently with no way back. That call bought no answer and left no receipt, so it is asked once more, and only a second deadline settles for the profile I can read off the crawl myself.
     const ladder = async (slow: number, failure: "client_timeout" | "provider_refused" = "client_timeout") => { let asks = 0; const w2 = makeWorld();
@@ -167,8 +166,7 @@ describe("onboarding contract (Slice 5)", () => {
   it("5. candidate generation yields ~100 unique prompts in 5-10 groups covering all seven intents with exactly 50 recommended, inactive, canonical-id, current-basis, four-engine, and a retry never duplicates", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    const r = await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    expect(r.ok && r.candidateCount).toBeGreaterThanOrEqual(60); expect(r.ok && r.recommendedCount).toBe(50);
+    const r = await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); expect(r.ok && r.candidateCount).toBeGreaterThanOrEqual(60); expect(r.ok && r.recommendedCount).toBe(50);
     const rows = w.prompts.filter((p) => p.tenant_id === A);
     expect(new Set(rows.map((p) => p.intent_type)).size).toBe(7); // all seven intent families
     expect(rows.every((p) => !p.is_active && p.tenant_id === A && p.account_id === A)).toBe(true); // inactive, canonical id (never the slug)
@@ -180,8 +178,7 @@ describe("onboarding contract (Slice 5)", () => {
   it("6. approval is declarative over the current-basis candidates: default 50, include/edit/add/remove work, foreign ids are rejected, the 20..50 setup window holds server side, and it never accumulates", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    expect((await approvePrompts(A, { useRecommendedDefault: true }, w.deps)).ok && activeCore(w, A).length).toBe(50);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); expect((await approvePrompts(A, { useRecommendedDefault: true }, w.deps)).ok && activeCore(w, A).length).toBe(50);
     expect((await approvePrompts(A, { approvedIds: ["prompt-deadbeefdeadbeef"] }, w.deps)).ok).toBe(false); // foreign id rejected, never kept
     const src = w.prompts.find((p) => p.tenant_id === A)!;
     expect((await approvePrompts(A, { approvedIds: [src.id] }, w.deps)).ok).toBe(false); // 1 row is below the floor of 10
@@ -198,8 +195,7 @@ describe("onboarding contract (Slice 5)", () => {
   it("6b. a thin candidate pool bends the setup floor server side: sixteen questions approve sixteen, eleven do not", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    const cands = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("candidate_v1"));
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); const cands = w.prompts.filter((p) => p.tenant_id === A && p.tags.includes("candidate_v1"));
     for (const p of cands.slice(16)) w.prompts.splice(w.prompts.indexOf(p), 1);
     const ids = cands.slice(0, 16).map((p) => p.id);
     expect((await approvePrompts(A, { approvedIds: ids.slice(0, 11) }, w.deps)).ok).toBe(false); // under the bent floor of sixteen
@@ -211,11 +207,9 @@ describe("onboarding contract (Slice 5)", () => {
     expect((await activateAccount(A, true, w.deps)).ok).toBe(false);
     expect(w.scheduled).toEqual([]); // a blocked activation does no work
     seedConfirmedProfile(w, A); w.tenants.get(A)!.growth_goal = "balanced";
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
     expect((await activateAccount(A, false, w.deps)).ok).toBe(false); // TOS still required
-    expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
-    expect(w.tenants.get(A)!.status).toBe("active");
+    expect((await activateAccount(A, true, w.deps)).ok).toBe(true); expect(w.tenants.get(A)!.status).toBe("active");
     expect(w.scheduled).toEqual([A]);
     expect((await activateAccount(A, true, w.deps)).ok).toBe(true); // double click
     expect(w.scheduled).toEqual([A]); // idempotent: no second schedule
@@ -223,12 +217,9 @@ describe("onboarding contract (Slice 5)", () => {
   it("8. changing to a NEW website clears the goal, deactivates the old prompts, resets the profile, force-restarts the crawl, and drops readiness back to step 2", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
-    expect(activeCore(w, A).length).toBe(50);
-    let forced = false;
-    const deps = { ...w.deps, startCrawl: (async (a: any) => { forced = a.force === true; return { status: "in_progress", discovered: 3 }; }) as any };
-    expect((await submitWebsite(A, "newsite.com", deps)).ok).toBe(true);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
+    expect(activeCore(w, A).length).toBe(50); let forced = false;
+    const deps = { ...w.deps, startCrawl: (async (a: any) => { forced = a.force === true; return { status: "in_progress", discovered: 3 }; }) as any }; expect((await submitWebsite(A, "newsite.com", deps)).ok).toBe(true);
     expect(forced).toBe(true); // crawl force-restarted for the new site
     const t = w.tenants.get(A)!;
     expect(t.domain).toBe("newsite.com"); expect(t.growth_goal).toBeNull(); // domain replaced, goal cleared
@@ -239,15 +230,13 @@ describe("onboarding contract (Slice 5)", () => {
   it("9. a research-affecting change strands the approved set on the old basis: it vanishes from the projection, a stale-basis core row never activates, and only a regenerated new-basis set activates", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
+    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
     const basisXids = activeCore(w, A).map((p) => p.id); expect(basisXids.length).toBe(50);
     await saveGoal(A, "balanced", w.deps); // the goal is a basis input
     expect((await loadOnboardingState(A, w.deps)).prompts.candidateCount).toBe(0); // old basis vanishes from the projection
     expect((await activateAccount(A, true, w.deps)).ok).toBe(false); // a stale-basis core row never activates
     await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); // mints basis Y, deactivates X in one write
-    await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
-    const now = activeCore(w, A);
+    await approvePrompts(A, { useRecommendedDefault: true }, w.deps); const now = activeCore(w, A);
     expect(now.length).toBe(50); expect(now.every((p) => !basisXids.includes(p.id))).toBe(true); // only the new basis is active
     await saveGoal(A, "grow", w.deps); await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates }); // toggle BACK to basis X: reuse skips the mint sweep
     await approvePrompts(A, { useRecommendedDefault: true }, w.deps);
@@ -256,16 +245,14 @@ describe("onboarding contract (Slice 5)", () => {
   it("10. the deterministic fallback yields honest per-family prompts with NO numbered filler, and a thin profile yields fewer without junk", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    expect((await generatePromptCandidates(A, { ...w.deps, complete: completeRefuse })).ok).toBe(true);
-    const rows = w.prompts.filter((p) => p.tenant_id === A);
+    expect((await generatePromptCandidates(A, { ...w.deps, complete: completeRefuse })).ok).toBe(true); const rows = w.prompts.filter((p) => p.tenant_id === A);
     expect(rows.length).toBeGreaterThanOrEqual(10);
     expect(new Set(rows.map((p) => p.intent_type)).size).toBeGreaterThanOrEqual(5); // several real families from real facts
     expect(rows.some((p) => /\s\d+$/.test(p.text))).toBe(false); // never padded with a trailing number
     const w2 = makeWorld();
     seedPending(w2, B, { domain: "thin.com", growth_goal: "balanced" });
     w2.profiles.set(B, confirmedProfile(B, { name: "Thin", offerings: ["one thing"], audiences: [], customerProblems: [], geographicScope: [], differentiators: [], trustClaims: [], topicsToOwn: [] }));
-    expect((await generatePromptCandidates(B, { ...w2.deps, complete: completeRefuse })).ok).toBe(true);
-    const thinRows = w2.prompts.filter((p) => p.tenant_id === B);
+    expect((await generatePromptCandidates(B, { ...w2.deps, complete: completeRefuse })).ok).toBe(true); const thinRows = w2.prompts.filter((p) => p.tenant_id === B);
     expect(thinRows.length).toBeLessThan(rows.length); expect(thinRows.some((p) => /\s\d+$/.test(p.text))).toBe(false); // fewer, still no filler
   });
   it("11. the $2 pre-activation cap: at/over the cap and an unreadable ledger both refuse the model and continue deterministically, and reserve-then-reconcile is conservative under failure + concurrency", async () => {
@@ -288,24 +275,19 @@ describe("onboarding contract (Slice 5)", () => {
     expect(await getTenantLifetimeSpendUsd(A, "onboarding-openai")).toBeCloseTo(0.02, 6); // not reduced to the real 0.005
     // Reserve writes BEFORE it reads, so the later reader sees both reservations: only one clears the $2 boundary.
     ledger = { usd: 1.98, has: true };
-    const r1 = await reserveOnboardingSpend(0.02, { tenantId: A });
-    const r2 = await reserveOnboardingSpend(0.02, { tenantId: A });
+    const r1 = await reserveOnboardingSpend(0.02, { tenantId: A }); const r2 = await reserveOnboardingSpend(0.02, { tenantId: A });
     expect([r1.allowed, r2.allowed].filter(Boolean).length).toBe(1);
   });
   it("12. an already-active account is never mutated by onboarding commands", async () => {
     const w = makeWorld();
     seedPending(w, A, { status: "active", domain: "live.com", growth_goal: "grow" });
     seedConfirmedProfile(w, A);
-    expect((await submitWebsite(A, "changed.com", w.deps)).ok).toBe(false);
-    expect((await saveGoal(A, "recover", w.deps)).ok).toBe(false);
-    const t = w.tenants.get(A)!;
-    expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");
+    expect((await submitWebsite(A, "changed.com", w.deps)).ok).toBe(false); expect((await saveGoal(A, "recover", w.deps)).ok).toBe(false);
+    const t = w.tenants.get(A)!; expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");
   });
   it("13. a live account is never stranded: approval cannot sweep it, kept wording keeps its id, a rewording versions itself, legacy rows are untouched, bounds hold, and both projections agree", async () => {
-    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
-    await approvePrompts(A, { useRecommendedDefault: true }, w.deps); w.tenants.get(A)!.status = "active";
-    const live = activeCore(w, A); const keep = live.slice(0, 12).map((p) => p.id);
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
+    await approvePrompts(A, { useRecommendedDefault: true }, w.deps); w.tenants.get(A)!.status = "active"; const live = activeCore(w, A); const keep = live.slice(0, 12).map((p) => p.id);
     // THE RAIL: a running account's questions can never be swept by any caller of approval.
     expect([(await approvePrompts(A, { approvedIds: keep }, w.deps)).ok, activeCore(w, A).length]).toEqual([false, 50]);
     const rows = [...w.prompts.filter((p) => p.tenant_id === A), { ...live[0]!, id: "prompt-seedprofound01", tags: ["seed_profound"], text: "legacy seed row" }];
@@ -316,8 +298,7 @@ describe("onboarding contract (Slice 5)", () => {
     // The replaced wording retires as history, and its successor names the row it replaced.
     expect([writes.some((x) => x.id === keep[0] && !x.is_active), writes.some((x) => x.is_active && x.tags.includes("core_v1") && x.tags.includes(`superseded:${keep[0]}`))]).toEqual([true, true]);
     expect(writes.some((x) => x.id === keep[1] || x.id === "prompt-seedprofound01")).toBe(false); // kept ids are untouched (continuity); a non-core seed row is NEVER written
-    const n = (k: number) => applyTrackedSelection(rows, { keepIds: [], edits: [], additions: Array.from({ length: k }, (_, i) => `question number ${i}`) }, ctx).ok;
-    expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
+    const n = (k: number) => applyTrackedSelection(rows, { keepIds: [], edits: [], additions: Array.from({ length: k }, (_, i) => `question number ${i}`) }, ctx).ok; expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
     const funnelWay = rows.filter((p) => p.is_active && p.tags.includes("core_v1")).sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : a.created_at.localeCompare(b.created_at))).map((p) => p.id).slice(0, 100);
     expect(projectTrackedQuestions(rows).active.map((q) => q.id)).toEqual(funnelWay); // what the operator reads is exactly what I check
   });
@@ -336,12 +317,10 @@ const FIRST_SEVEN_TOPICS = TOPICS.slice(0, 7).map((t) => t.slug);
 
 describe("setup and settings surfaces (Phase 8)", () => {
   it("approves 35 grouped questions in ONE action, without the operator reading a single row", async () => {
-    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
-    const built = await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); const built = await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
     expect(built.ok && built.candidateCount).toBe(70);
     // ONE call, seven topic slugs, no individual ids: the group IS the unit of approval.
-    const r = await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
-    expect(r.ok && r.approvedCount).toBe(35);
+    const r = await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps); expect(r.ok && r.approvedCount).toBe(35);
     expect(activeCore(w, A)).toHaveLength(35); // exactly 35, which is itself inside the 20 to 50 core set an account starts on
   });
   it("brings an account that stopped halfway back to the step it actually reached, not to the start", async () => {
@@ -358,12 +337,10 @@ describe("setup and settings surfaces (Phase 8)", () => {
   });
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
-    const w = makeWorld();
-    const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
+    const w = makeWorld(); const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
     const live = async (over: Record<string, unknown> = {}) => setupGap(A, acct(over) as any, w.deps);
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
-    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     w.tenants.get(A)!.status = "active"; w.tenants.get(A)!.tos = "2026-07-24T00:00:00.000Z"; // setup finished, the account is live
     expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
     // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are the real floor.
@@ -393,32 +370,27 @@ describe("setup and settings surfaces (Phase 8)", () => {
   it("lets an ACTIVE account finish the step it is actually missing, and never activates it a second time", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "grow" }); seedConfirmedProfile(w, A);
-    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
-    await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
+    await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     const gap = async () => { const t = w.tenants.get(A)!; return setupGap(A, { status: t.status, domain: t.domain, growth_goal: t.growth_goal, tos_accepted_at: t.tos } as any, w.deps); };
     expect([(await activateAccount(A, true, w.deps)).ok, w.tenants.get(A)!.status, w.scheduled.length]).toEqual([true, "active", 1]);
     for (const r of w.prompts) r.is_active = false; // the account is live with nothing to ask: a genuine gap
     seedCore(w, A, 5); // five strays under a basis nobody holds: enough to be swept, not enough to answer anything
-    expect(await gap()).toEqual({ step: 5 });
-    expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(true);
+    expect(await gap()).toEqual({ step: 5 }); expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(true);
     // THE SWEEP RUNS FOR A RUNNING ACCOUNT TOO. Skipping it stacked the strays under the new set, and the funnel counts basis-agnostically, so 5 + 35 would have become 40 questions I pay for every day and nobody chose. The gap then closes, and nothing started a second research run.
     expect([activeCore(w, A).length, await gap(), w.scheduled.length]).toEqual([35, null, 1]);
     // A running account with nothing missing is still locked out of setup.
     expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(false);
     // Terms nobody ever accepted are the one thing the launch step still owes, and accepting them starts nothing.
     w.tenants.get(A)!.tos = null;
-    expect(await gap()).toEqual({ step: 7 });
-    expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
+    expect(await gap()).toEqual({ step: 7 }); expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
     expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);
   });
   /** PHASE 6E.3, corrected. Confirm once stamped ALL eleven sections including eight never rendered; the repair then swung too far and stamped THREE while six more facts that decide what gets researched sat on screen still labelled as my guess. A confirmation now speaks for exactly what the step renders. */
   it("confirms every research-driving field it puts on screen, claims nothing it holds nothing for, and never locks out the account that confirmed three", async () => {
-    const w = makeWorld(); seedPending(w, A, { domain: "acme.com" });
-    const inferred = emptyBusinessProfile(A);
+    const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); const inferred = emptyBusinessProfile(A);
     for (const k of CONFIRMABLE) (inferred as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: ["https://acme.com/"] };
     w.profiles.set(A, inferred);
-    await confirmProfile(A, w.deps);
-    const after = w.profiles.get(A)! as any;
+    await confirmProfile(A, w.deps); const after = w.profiles.get(A)! as any;
     // THE LITERAL NINE, never SHOWN_FIELDS itself: iterating the module's own list passed just as happily when that list held three, so it falsified nothing.
     expect([...SHOWN_FIELDS].sort()).toEqual(["audiences", "businessType", "customerProblems", "geographicScope", "name", "offerings", "siteArchetype", "topicsToExclude", "topicsToOwn"]);
     for (const k of ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "topicsToOwn"]) expect(after[k].origin, `${k} steers research and was on screen`).toBe("operator_confirmed");
@@ -432,40 +404,32 @@ describe("setup and settings surfaces (Phase 8)", () => {
     // AN ARRAY OF BLANKS IS NOT A FACT. The step joins a list and drops it when the join is blank, so [""] never reaches the screen and may not be stamped either.
     const blanks = emptyBusinessProfile(A);
     for (const k of CONFIRMABLE) (blanks as any)[k] = { value: k === "offerings" ? ["", "  "] : (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: [] };
-    const w2 = makeWorld(); seedPending(w2, A, { domain: "acme.com" }); w2.profiles.set(A, blanks);
-    await confirmProfile(A, w2.deps);
+    const w2 = makeWorld(); seedPending(w2, A, { domain: "acme.com" }); w2.profiles.set(A, blanks); await confirmProfile(A, w2.deps);
     expect((w2.profiles.get(A)! as any).offerings.origin).toBe("inferred"); });
   /** PHASE 6E.4. The first finding is read off a CRAWL. It has no Google evidence at all, so it may not speak for Google. */
   it("names the first finding's real address and never claims what Google does or does not have without Google evidence", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedCrawl(w, A);
     Object.assign(w.crawls.get(A)!.page_facts[0], { url: "https://acme.com/rug-cleaning", path: "/rug-cleaning", title: "", word_count: 220 });
-    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!;
-    expect(win.url).toBe("https://acme.com/rug-cleaning");
+    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.url).toBe("https://acme.com/rug-cleaning");
     expect(win.plainWhy).toContain("https://acme.com/rug-cleaning"); // the real address, not a bare path the operator has to reassemble
-    const copy = [win.action, win.plainWhy, win.exactFix].join(" ");
-    expect(copy.toLowerCase()).not.toMatch(/google has nothing|nothing to show|stay signed in|keep this tab|each time you visit/);
+    const copy = [win.action, win.plainWhy, win.exactFix].join(" "); expect(copy.toLowerCase()).not.toMatch(/google has nothing|nothing to show|stay signed in|keep this tab|each time you visit/);
     expect(copy).not.toMatch(/[–—]/); });
   it("never locks a thin business out of its own setup: it approves what it found and says why that is fewer", async () => {
-    const { renderToStaticMarkup } = await import("react-dom/server");
-    const { createElement } = await import("react");
+    const { renderToStaticMarkup } = await import("react-dom/server"); const { createElement } = await import("react");
     const { PromptsEditor } = await import("@/components/prompts-editor");
     const editor = (n: number) => renderToStaticMarkup(createElement(PromptsEditor, {
       groups: [{ slug: "g", name: "Choosing", prompts: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `question ${i}`, recommended: true, approved: false })) }],
       mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},
     }));
-    const thin = editor(16);
-    expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
+    const thin = editor(16); expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
     expect(thin).toContain("Approve my selection");
     expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
     // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
-    const full = editor(24);
-    expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");
+    const full = editor(24); expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");
   });
   it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
-    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]);
-    const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
-    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/);
-    expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");
+    expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]); const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
+    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/); expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");
   });
   it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
     expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
@@ -473,8 +437,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(historyNote({ version: 3, createdAt: "2026-05-10T00:00:00Z" }))
       .toBe("This is version 3 of this question. It changed 2 times, and each change restarts its trend, so it is only compared against readings of the wording it has now.");
     for (const note of [historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }), historyNote({ version: 2, createdAt: "2026-05-10T00:00:00Z" })]) {
-      expect(note!).not.toMatch(/[–—]/);
-      expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+      expect(note!).not.toMatch(/[–—]/); expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     }
   });
 });

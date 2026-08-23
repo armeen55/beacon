@@ -73,14 +73,12 @@ describe("Today and Changes answer one question once", () => {
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
-    const after = await loadTodayView(), changes = await loadChangesView();
-    expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
+    const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
     expect(changes.summary.ready).toBe(N - 1); });
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit: the number the operator reads may only FALL as I learn, never climb back.
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
-    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view);
-    expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
+    const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
     expect(renderToStaticMarkup(createElement(ChangesListClient, { view })))
@@ -108,8 +106,7 @@ describe("one release identity, or no release at all", () => {
   it("stamps the ranking with the id it publishes under, never publishes one it could not stamp, and pages no change whose receipt stopped resolving", async () => {
     const view = await buildChangesViewUncached(T, "rel-9");
     // ONE id and ONE ready count reach both surfaces: a navigation can never answer this twice.
-    expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
-    expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9");
+    expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]); expect((await readQueuePage(T, "ready", "b1", 0, 1)).release).toBe("rel-9");
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
       confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null },
       components: [{ kind: "title", label: "Title", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }] } } as Partial<ChangeProposal>);
@@ -122,18 +119,15 @@ describe("one release identity, or no release at all", () => {
 
 describe("one global rank across every lane", () => {
   it("interleaves research and drafts with ready work by worth, and the stamped lane rides each row", async () => {
-    await stampQueueRanking(T, "rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]);
-    const page = await readQueuePage(T, "all", "b1", 0, 10);
-    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]);
-    expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
+    await stampQueueRanking(T, "rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
+    expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
     await stamp("rel-1"); // restore the fixture ranking for the suites below
   });
 });
 
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {
-    const view = await loadChangesView();
-    const seen = view.ready.map((p) => p.id);
+    const view = await loadChangesView(); const seen = view.ready.map((p) => p.id);
     let cursor = view.queueCursor!.all; // the RANK the screen reached, in the ONE global order
     for (let guard = 0; guard < 40 && seen.length < N; guard += 1) {
       const page = await readChangesPage(T, "ready", cursor, "rel-1");
@@ -145,10 +139,8 @@ describe("the ranked queue pages in the database", () => {
     expect(Math.max(...db.reads)).toBeLessThanOrEqual(CHANGES_PAGE_SIZE); // never an unbounded read
   });
   it("restarts honestly when the ranking moved, and never serves a retired or implemented row", async () => {
-    await stamp("rel-2");
-    const page = await readChangesPage(T, "ready", 100, "rel-1");
-    expect(page.releaseId).toBe("rel-2");
-    expect(page.rows.map((p) => p.id)).toEqual(ALL.slice(0, CHANGES_PAGE_SIZE).map((p) => p.id));
+    await stamp("rel-2"); const page = await readChangesPage(T, "ready", 100, "rel-1");
+    expect(page.releaseId).toBe("rel-2"); expect(page.rows.map((p) => p.id)).toEqual(ALL.slice(0, CHANGES_PAGE_SIZE).map((p) => p.id));
     expect(page.refreshed).toBe("The list moved under you while you were reading it, so here is the fresh first page.");
     db.rows[1]!.terminal_disposition = "dismissed";              // put aside after the ranking was stamped
     db.rows[2]!.terminal_disposition = "withdrawn";
@@ -169,12 +161,10 @@ describe("the ranked queue pages in the database", () => {
 /** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
 describe("a publish that half landed", () => {
   it("rolls the order back onto the release still serving when the blob does not land", async () => {
-    const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release");
-    await stamp("rel-prev", ALL.slice(0, 3));
+    const real = await vi.importActual<typeof import("@/app/(shell)/surface-release")>("@/app/(shell)/surface-release"); await stamp("rel-prev", ALL.slice(0, 3));
     blob.stored = { schemaVersion: 2, releaseId: "rel-prev", computedAt: "2026-08-03T00:00:00.000Z", tenantId: T,
       changes: { surfaceVersion: "rel-prev", ready: ALL.slice(0, 3), toDo: [] }, today: {} };
     blob.writeFails = true;
-    await expect(real.refreshCustomerSurface(T)).rejects.toThrow();
-    const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
+    await expect(real.refreshCustomerSurface(T)).rejects.toThrow(); const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
     expect([page.release, page.rows.map((p) => p.id)]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id)]); });
 });

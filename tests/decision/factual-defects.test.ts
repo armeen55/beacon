@@ -35,8 +35,7 @@ describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; });
   it("mints the same card twice from the same banked checks, so a pass never overwrites the last one", async () => {
     checks.rows = [check()];
-    const a = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    const b = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    const a = await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); const b = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(a.cards).toHaveLength(1);
     expect(JSON.stringify(a.cards)).toBe(JSON.stringify(b.cards)); // deterministic: the store is the author
     expect(a.cards[0]!.id).toBe("t::/persian-female-first-names::existing_edit::factual_correction");
@@ -58,19 +57,15 @@ describe("a page's own statements against their sources", () => {
   it("says what it is holding back and never claims the loss belongs to it", async () => {
     checks.rows = [check(), check({ subject: "Ava", confidence: "disputed", proposed: "Voice, sound" }),
       check({ subject: "Sholeen", confidence: "unsupported", proposed: null })];
-    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
-    expect(card.diagnosisCause).toBe("factual_error");
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!; expect(card.diagnosisCause).toBe("factual_error");
     expect(card.impactScore).toBeNull(); // an accuracy defect claims no clicks
-    expect(card.causeFinding!.notConsidered.map((x) => x.cause)).toContain("ranking_loss");
-    expect(card.bundle!.risks.join(" ")).toContain("1 more entries are contested");
+    expect(card.causeFinding!.notConsidered.map((x) => x.cause)).toContain("ranking_loss"); expect(card.bundle!.risks.join(" ")).toContain("1 more entries are contested");
     expect(card.bundle!.receipt.missing.join(" ")).toContain("Sholeen");
   });
   it("says how many corrections are waiting behind the batch instead of dropping them", async () => {
     checks.rows = Array.from({ length: 55 }, (_, i) => check({ subject: `Name${String(i).padStart(2, "0")}` }));
-    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
-    expect(card.bundle!.components).toHaveLength(40);
-    expect(card.opportunityType).toContain("15 more confirmed after this");
-    expect((card.operatorSteps ?? []).join(" ")).toContain("15 more confirmed corrections are waiting");
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!; expect(card.bundle!.components).toHaveLength(40);
+    expect(card.opportunityType).toContain("15 more confirmed after this"); expect((card.operatorSteps ?? []).join(" ")).toContain("15 more confirmed corrections are waiting");
     expect(card.limitations.join(" ")).toContain("are not lost and are not silently dropped");
   });
   it("shows the worst first, never the alphabet", async () => {
@@ -79,8 +74,7 @@ describe("a page's own statements against their sources", () => {
       check({ subject: "Alpha", verdict: "page_imprecise", agreement: "single_source",
         sources: [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says: "x" }] }),
     ];
-    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
-    expect(card.bundle!.components.map((c) => c.label)).toEqual(["Zulu", "Alpha"]);
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!; expect(card.bundle!.components.map((c) => c.label)).toEqual(["Zulu", "Alpha"]);
   });
   it("mints nothing for a page this account does not own", async () => {
     checks.rows = [check({ page: "/not-mine" })];
@@ -92,10 +86,8 @@ describe("a correction bundle survives the round trip", () => {
   it("decodes back out of the store, so a new receipt kind can never make a ghost row", async () => {
     const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
     checks.rows = [check()];
-    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
-    expect(card.bundle!.receipt.items[0]!.kind).toBe("independent_source");
-    const back = deserializeChangeProposal(serializeChangeProposal(card));
-    expect(back?.bundle?.receipt.items[0]!.kind).toBe("independent_source");
+    const card = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!; expect(card.bundle!.receipt.items[0]!.kind).toBe("independent_source");
+    const back = deserializeChangeProposal(serializeChangeProposal(card)); expect(back?.bundle?.receipt.items[0]!.kind).toBe("independent_source");
   });
 });
 
@@ -107,31 +99,24 @@ describe("the correction bundle is reviewed by Beacon itself", () => {
   const mint = async () => { three(); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!; };
   const review = (ok: boolean[]) => async () => reviewFactualBundle(await mint(), { tenantId: "t", now: NOW, complete: complete(ok) });
   it("mints at $0 and never promotes on its own: the review is a separate ranked candidate", async () => {
-    const card = await mint();
-    expect([card.status, card.bundle!.components.length]).toEqual(["needs_review", 3]);
+    const card = await mint(); expect([card.status, card.bundle!.components.length]).toEqual(["needs_review", 3]);
     expect(card.limitations[0]).toContain("never for the operator to do Beacon's checking");
   });
   it("promotes a clean reviewed bundle to ready, and holds a failed component with its reason", async () => {
-    const clean = await review([true, true, true])();
-    expect([clean.status, clean.bundle!.components.length]).toEqual(["ready", 3]);
-    expect(clean.limitations[0]).toContain("Beacon's own reviewer");
-    const mixed = await review([true, true, false])();
-    expect([mixed.status, mixed.bundle!.components.length]).toEqual(["ready", 2]);
-    expect(mixed.bundle!.receipt.missing.join(" ")).toContain("Held by Beacon's own review, Ciara: the replacement is ungrammatical");
+    const clean = await review([true, true, true])(); expect([clean.status, clean.bundle!.components.length]).toEqual(["ready", 3]);
+    expect(clean.limitations[0]).toContain("Beacon's own reviewer"); const mixed = await review([true, true, false])();
+    expect([mixed.status, mixed.bundle!.components.length]).toEqual(["ready", 2]); expect(mixed.bundle!.receipt.missing.join(" ")).toContain("Held by Beacon's own review, Ciara: the replacement is ungrammatical");
     // EVERY COUNT SPEAKS FOR THE SURVIVORS: a ready card never announces corrections its bundle does not render.
     expect([mixed.opportunityType, mixed.bundle!.objective]).toEqual(["2 sourced corrections on /persian-female-first-names", "2 statements on /persian-female-first-names stop contradicting their own sources."]);
     expect(mixed.operatorSteps!.join(" ")).toContain("Work through the 2 corrections");
   });
   // A REVIEW THAT HOLDS EVERYTHING HOLDS THE BUNDLE WHOLE: zero-piece bundles fail the contract schema on read back, a vanished card over an unreadable row. The pieces stay, unpromoted, each reason on file.
   it("keeps every piece and stays unpromoted when the review holds all of them", async () => {
-    const all = await review([false, false, false])();
-    expect([all.status, all.bundle!.components.length]).toEqual(["needs_review", 3]);
-    expect(all.limitations[0]).toContain("held all of them");
-    expect(all.bundle!.receipt.missing.filter((m) => m.startsWith("Held by Beacon's own review"))).toHaveLength(3);
+    const all = await review([false, false, false])(); expect([all.status, all.bundle!.components.length]).toEqual(["needs_review", 3]);
+    expect(all.limitations[0]).toContain("held all of them"); expect(all.bundle!.receipt.missing.filter((m) => m.startsWith("Held by Beacon's own review"))).toHaveLength(3);
   });
   it("promotes nothing when the review cannot be read, and never charges the operator with the checking", async () => {
-    const dark = await reviewFactualBundle(await mint(), { tenantId: "t", now: NOW, complete: async () => ({ error: "refused", retryable: false }) });
-    expect([dark.status, dark.bundle!.components.length]).toEqual(["needs_review", 3]);
+    const dark = await reviewFactualBundle(await mint(), { tenantId: "t", now: NOW, complete: async () => ({ error: "refused", retryable: false }) }); expect([dark.status, dark.bundle!.components.length]).toEqual(["needs_review", 3]);
     expect(dark.limitations[0]).toContain("never for the operator to do Beacon's checking");
   });
 });

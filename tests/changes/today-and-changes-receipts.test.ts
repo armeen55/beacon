@@ -122,8 +122,7 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
     // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
-    const review = await renderDetail(proposal());
-    expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); });
+    const review = await renderDetail(proposal()); expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); });
   // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
     const b = proposal().bundle!;

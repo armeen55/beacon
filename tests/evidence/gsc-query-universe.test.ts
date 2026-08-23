@@ -21,8 +21,7 @@ beforeEach(() => { vi.resetModules(); env.pages = []; env.fail = false; env.call
 describe("the complete query universe for Decision", () => {
   it("pages through every pair and canonicalizes the keys the corroboration ask joins on", async () => {
     env.pages = [Array.from({ length: 1000 }, (_v, i) => ({ query: `search number ${i}` })), [{ query: "Haft Seen Table?" }]];
-    const u = await loadGscQueryUniverse("t-universe-a", NOW());
-    expect(u?.pairs).toBe(1001);
+    const u = await loadGscQueryUniverse("t-universe-a", NOW()); expect(u?.pairs).toBe(1001);
     expect(u?.incomplete).toBe(false);
     expect(env.calls).toBe(2); // it kept reading past the first page
     const { canonicalQueryKey } = await import("@/domains/evidence/relevance-gate");
@@ -34,8 +33,7 @@ describe("the complete query universe for Decision", () => {
   });
   it("reads once per tenant per reporting day, because the universe changes when the sync lands", async () => {
     env.pages = [[{ query: "one" }]];
-    await loadGscQueryUniverse("t-universe-c", NOW());
-    await loadGscQueryUniverse("t-universe-c", NOW());
+    await loadGscQueryUniverse("t-universe-c", NOW()); await loadGscQueryUniverse("t-universe-c", NOW());
     expect(env.calls).toBe(1);
   });
 });

@@ -63,8 +63,7 @@ describe("daily observation plan", () => {
     expect(planObservations("2026-07-30", { prompts: PROMPTS, observed: fullDay("2026-07-30"), maxBatch: 99 })).toEqual([]); // A missed day is never asked about again: yesterday plans nothing new for a today-only reader.
   });
   it("puts core questions first and caps the plan to one bounded batch", () => {
-    const mixed = [q("z-legacy", "2020-01-01", false), ...PROMPTS];
-    const plan = planObservations(DAY, { prompts: mixed, observed: [], maxBatch: 99 });
+    const mixed = [q("z-legacy", "2020-01-01", false), ...PROMPTS]; const plan = planObservations(DAY, { prompts: mixed, observed: [], maxBatch: 99 });
     expect(plan[0]).toMatchObject({ promptId: "p1", engine: "chatgpt" }); // core beats the older non-core row
     expect(plan.slice(0, 12).every((d) => d.promptId !== "z-legacy")).toBe(true);
     const wide = [...mixed, q("p4", "2026-04-01"), q("p5", "2026-05-01")]; // 6 questions x 4 engines is more than one pass may plan
@@ -77,8 +76,7 @@ describe("daily observation plan", () => {
   });
   it("treats a version bump as a NEW measurement identity, and prompt-set bumps it on a rewording and on a revival", () => {
     const bumped = [{ ...PROMPTS[0]!, version: 2 }, PROMPTS[1]!, PROMPTS[2]!]; // Series 1 was fully read today. Bump the question to series 2 and it is owed again, under the new identity.
-    const plan = planObservations(DAY, { prompts: bumped, observed: fullDay(), maxBatch: 99 });
-    expect([plan.length, plan.every((d) => d.promptId === "p1" && d.version === 2)]).toEqual([4, true]);
+    const plan = planObservations(DAY, { prompts: bumped, observed: fullDay(), maxBatch: 99 }); expect([plan.length, plan.every((d) => d.promptId === "p1" && d.version === 2)]).toEqual([4, true]);
     // And the writer is what bumps it. A rewording retires the old row untouched and mints a fresh series; dropping a question then bringing it back is a real gap, so the revival starts series 2 on the SAME id.
     const row = (id: string, text: string, is_active: boolean, version: number): TrackedPromptRow => ({ id, tenant_id: T, account_id: T, text, topic_id: null, location_scope: null, service_scope: null,
       intent_type: "category", platforms: ["chatgpt", "claude", "gemini", "perplexity"], tags: ["core_v1"], is_active, version, core: true, created_at: "2026-01-01T00:00:00.000Z", updated_at: "2026-01-01T00:00:00.000Z" });
@@ -96,26 +94,21 @@ describe("extra readings", () => {
   it("refuses an extra reading before today's canonical round is done, grants one after it, and refuses at three", () => {
     const early = extraSampleVerdict(DAY, { ...base, observed: [seen({ promptId: "p1", engine: "chatgpt" })] });
     expect([early.granted, early.due, early.reason.match(/[\u2014\u2013]/)]).toEqual([false, [], null]); // Beacon voice: no em or en dash, ever
-    expect(early.reason).toContain("11 question and engine pairs");
-    const after = extraSampleVerdict(DAY, { ...base, observed: fullDay() });
+    expect(early.reason).toContain("11 question and engine pairs"); const after = extraSampleVerdict(DAY, { ...base, observed: fullDay() });
     expect([after.granted, after.due.length, after.due.every((d) => d.slot === 1)]).toEqual([true, 12, true]);
     const twice = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1 }); // one already granted; this is the second press
     const full = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2 });
-    expect([twice.granted && twice.due.every((d) => d.slot === 2), full.granted, full.due]).toEqual([true, false, []]);
-    expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`);
+    expect([twice.granted && twice.due.every((d) => d.slot === 2), full.granted, full.due]).toEqual([true, false, []]); expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`);
   });
   it("never plans slot 1 or 2 without an explicit ask, and stops at three even when asked", () => {
     expect(planObservations(DAY, { ...base, observed: fullDay(), maxBatch: 99 })).toEqual([]); // complete day, no ask, no work
-    const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 });
-    expect(capped).toEqual([]);
-    const one = planObservations(DAY, { ...base, observed: fullDay(), extraSamples: 1, maxBatch: 99 });
-    expect(new Set(one.map(key)).size).toBe(12);
+    const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 }); expect(capped).toEqual([]);
+    const one = planObservations(DAY, { ...base, observed: fullDay(), extraSamples: 1, maxBatch: 99 }); expect(new Set(one.map(key)).size).toBe(12);
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1, maxBatch: 99 })).toEqual([]); // ONE grant buys ONE extra round: with slot 1 in, a second slot needs a second ask.
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);
   });
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
-    const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } });
-    expect([out.granted, out.due]).toEqual([false, []]);
+    const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not be read");
   });
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
@@ -123,17 +116,14 @@ describe("extra readings", () => {
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
       readMarkers: async () => (stored ? { extraSamples: stored } : {}),
       writeMarkers: async (_t: string, p: { extraSamples?: ExtraSampleGrant }) => { if (p.extraSamples) stored = p.extraSamples; return true; } };
-    const first = await requestExtraSample(T, DAY, world);
-    expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);
+    const first = await requestExtraSample(T, DAY, world); expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);
     const plan = await dueObservations(T, DAY, world); // THE POINT: a NEW request cycle, nothing in memory, and the planner still knows a second reading is owed. And yesterday's grant never spends today's money.
     expect([plan!.length, plan!.every((d) => d.slot === 1 && d.day === DAY), await dueObservations(T, "2026-08-01", { ...world, readObservations: async () => fullDay("2026-08-01") })]).toEqual([12, true, []]);
     const lost = await requestExtraSample(T, DAY, { ...world, writeMarkers: async () => false }); // A grant I could not record is a refusal, never a promise.
-    expect([lost.granted, lost.due]).toEqual([false, []]);
-    expect(lost.reason).toContain("could not be saved");
+    expect([lost.granted, lost.due]).toEqual([false, []]); expect(lost.reason).toContain("could not be saved");
   });
   it("reports today's standing with the plan, so the progress number a surface shows is the planner's own arithmetic", async () => {
-    const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null };
-    const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
+    const world = { readPrompts: async () => PROMPTS, readMarkers: async () => null }; const cold = await dailyChecks(T, DAY, { ...world, readObservations: async () => [] });
     expect([cold!.done, cold!.total, cold!.due.length]).toEqual([0, 12, 12]); // nothing landed yet, twelve pairs owed
     const partial = await dailyChecks(T, DAY, { ...world, readObservations: async () => ENGINES.map((e) => seen({ promptId: "p1", engine: e })) });
     expect([partial!.done, partial!.total, partial!.due.length]).toEqual([4, 12, 8]); // done plus due always accounts for the whole round
@@ -143,8 +133,7 @@ describe("extra readings", () => {
       await dailyChecks(T, DAY, { ...world, readObservations: async () => { throw new Error("store down"); } })]).toEqual([12, 12, 0, 0, null]);
   });
   it("plans NOTHING and says so when it cannot read the questions or the answers already on file", async () => {
-    const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null;
-    expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers })).toBeNull();
+    const prompts = async () => PROMPTS, observed = async () => [], readMarkers = async () => null; expect(await dueObservations(T, DAY, { readPrompts: async () => null, readObservations: observed, readMarkers })).toBeNull();
     expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: async () => { throw new Error("store down"); }, readMarkers })).toBeNull();
     expect(await dueObservations(T, DAY, { readPrompts: async () => [], readObservations: observed, readMarkers })).toEqual([]); // no questions is a real, empty answer
     expect(await dueObservations(T, DAY, { readPrompts: prompts, readObservations: observed, readMarkers })).toHaveLength(12);
@@ -155,8 +144,7 @@ describe("reading the approved questions", () => {
   const missingColumn = { data: null, error: { code: "42703", message: 'column tracked_prompts.version does not exist' } }, rows = [{ id: "p1", text: "question p1", tags: ["core_v1"], is_active: true, created_at: "2026-01-01" }];
   it("retries without the version columns ONLY when they are genuinely missing, and never reads a live row as series 1 on a transient failure", async () => {
     pg.queued = [missingColumn, { data: rows, error: null }]; // The deploy-before-migration window: the columns really are absent, so the retry is the honest read.
-    const migrating = await readActiveTrackedPrompts(T);
-    expect(migrating).toEqual([{ id: "p1", text: "question p1", version: 1, core: true, createdAt: "2026-01-01" }]);
+    const migrating = await readActiveTrackedPrompts(T); expect(migrating).toEqual([{ id: "p1", text: "question p1", version: 1, core: true, createdAt: "2026-01-01" }]);
     expect([pg.queries, pg.cols[1]]).toEqual([2, "id,text,tags,is_active,created_at"]);
     // Any OTHER error is a FAILED READ. Retrying it once read live rows as series 1 and minted a duplicate same-day identity under a version the question had already moved past.
     pg.queued = [{ data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } }, { data: rows, error: null }];
@@ -181,21 +169,18 @@ describe("reading the answers back", () => {
     new Map(targets.map((t) => [t.row.id, analysis]));
   it("analyses only what is new: ONE call for a batch of fresh answers, none for an answer already read, and nothing at all on a re-run", async () => {
     const fresh = row("a", "h1", null, false), stale = row("b", "h2-new", "h2-old", true), done = row("c", "h3", "h3", true); // never analysed; the answer changed under an old analysis; already read at this exact hash
-    expect(selectAnalysisTargets([fresh, stale, done]).map((r) => r.id)).toEqual(["a", "b"]);
-    const groups: number[] = [], saved: Array<[string, string]> = [];
+    expect(selectAnalysisTargets([fresh, stale, done]).map((r) => r.id)).toEqual(["a", "b"]); const groups: number[] = [], saved: Array<[string, string]> = [];
     const deps = { readObservations: async () => [fresh, stale, done], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { groups.push(i.targets.length); return readsAll(i); },
       persist: async (_t: string, id: string, _a: Record<string, unknown>, hash: string) => void saved.push([id, hash]) };
     expect(await runAnswerAnalyses(T, DAY, deps)).toEqual({ attempted: 2, settled: 2, refused: 0, read: 2, outcomes: { settled: 2 } }); // and the pass says what it did AND accounts for every answer it took on, so a run receipt shows the yield with its explanation rather than a number nobody can check
     expect([groups, saved]).toEqual([[2], [["a", "h1"], ["b", "h2-new"]]]); // TWO answers, ONE call: this is the whole point
     groups.length = 0; // the same pass again, with the analyses now on file: zero calls, zero cents
-    const settled = [row("a", "h1", "h1", true), row("b", "h2-new", "h2-new", true), done];
-    expect([(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).read, groups]).toEqual([0, []]);
+    const settled = [row("a", "h1", "h1", true), row("b", "h2-new", "h2-new", true), done]; expect([(await runAnswerAnalyses(T, DAY, { ...deps, readObservations: async () => settled })).read, groups]).toEqual([0, []]);
   });
   it("reads a WHOLE day of 140 answers back in four passes, three calls at a time, which is what makes a backlog fall instead of grow", async () => {
     // 35 questions on 4 engines is 140 answers a day, and this account was 687 behind on 7 August because 20 a pass could not keep up with its own intake. Forty a pass, across the 48 passes a day the schedule already runs, is capacity of 1,920 a day against an intake of 140: the debt falls even if most passes never run.
-    const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)]));
-    let calls = 0, passes = 0, live = 0, peak = 0;
+    const store = new Map(Array.from({ length: 140 }, (_, i) => [`o${i}`, row(`o${i}`, `hash${i}`, null, false)])); let calls = 0, passes = 0, live = 0, peak = 0;
     const deps = { readObservations: async () => [...store.values()], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async (i: { targets: readonly { row: { id: string } }[] }) => { calls += 1; peak = Math.max(peak, live += 1);
         await new Promise((r) => setTimeout(r, 1)); live -= 1; return readsAll(i); },
@@ -215,8 +200,7 @@ describe("reading the answers back", () => {
   });
   it("degrades a REFUSED batch to one answer at a time, settles every answer it was carrying, and never lets it starve the batches after it", async () => {
     // Four batches of five, which is one pass's whole reach. The gateway already retried batch one's shape once on its own, so a second identical batch buys the same refusal and the ladder drops a rung. The fallback allowance used to be FIVE FOR THE WHOLE PASS, so batch one's failure ate all of it and batches two, three and four settled nothing.
-    const rows = Array.from({ length: 20 }, (_, i) => row(`b${String(i).padStart(2, "0")}`, `hb${i}`, null, false)), saved = new Map<string, Record<string, unknown>>();
-    let batches = 0, singles = 0;
+    const rows = Array.from({ length: 20 }, (_, i) => row(`b${String(i).padStart(2, "0")}`, `hb${i}`, null, false)), saved = new Map<string, Record<string, unknown>>(); let batches = 0, singles = 0;
     const { read: written } = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async ({ targets }) => { batches += 1; return batches === 1 ? null : readsAll({ targets }); },
       analyze: async () => { singles += 1; return singles === 1 ? null : analysis; }, // the poisoned answer is the first one
@@ -228,8 +212,7 @@ describe("reading the answers back", () => {
   });
   it("settles the batches of one wave independently, so a throttled call costs its neighbours nothing", async () => {
     // A pass sends three calls at once now. The one that came back with no body and no receipt is re-read one answer at a time; the two that ANSWERED are stored whatever it did, because their calls already returned and were already paid for, and throwing those readings away is the exact leak this file exists to close.
-    const rows = Array.from({ length: 15 }, (_, i) => row(`w${String(i).padStart(2, "0")}`, `hw${i}`, null, false)), saved = new Map<string, Record<string, unknown>>();
-    let live = 0, peak = 0, batches = 0, singles = 0;
+    const rows = Array.from({ length: 15 }, (_, i) => row(`w${String(i).padStart(2, "0")}`, `hw${i}`, null, false)), saved = new Map<string, Record<string, unknown>>(); let live = 0, peak = 0, batches = 0, singles = 0;
     const { read } = await runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, max: 15,
       analyzeBatch: async ({ targets }) => { const mine = (batches += 1); peak = Math.max(peak, live += 1); await new Promise((r) => setTimeout(r, 1)); live -= 1;
         return mine === 2 ? "transient" : readsAll({ targets }); },
@@ -240,8 +223,7 @@ describe("reading the answers back", () => {
   });
   // Selection counted ANSWERS while the budget is spent in PIECES, so the calls ran out part way down the list and the remainder was dropped where nothing said so. Overflow is deferred now, never abandoned.
   it("defers whole answers it cannot finish this pass, and abandons no piece of the ones it takes", async () => {
-    const long = (id: string) => ({ ...row(id, `h-${id}`, null, false), answerText: "Acme is open on Sundays. ".repeat(1_400) });
-    const rows = Array.from({ length: 20 }, (_, i) => long(`L${String(i).padStart(2, "0")}`));
+    const long = (id: string) => ({ ...row(id, `h-${id}`, null, false), answerText: "Acme is open on Sundays. ".repeat(1_400) }); const rows = Array.from({ length: 20 }, (_, i) => long(`L${String(i).padStart(2, "0")}`));
     const taken = selectAnalysisTargets(rows);
     expect(taken.length).toBeLessThan(rows.length);      // twenty multi-piece answers do not fit four calls
     const pieces: string[] = [], saved = new Set<string>();
@@ -291,8 +273,7 @@ describe("reading the answers back", () => {
   /** A CALL WITH NO USAGE RECEIPT SETTLES NOTHING, and two arrive at the batch door: a throttle that returned no body (PROVEN LIVE, the 75,000 token batch tripped the per minute ceiling by itself and stopped the pass having tried nothing at all), and MY OWN DEADLINE, which returns no body either and proves neither that the model began writing nor that a cent was charged. 638 calls and $0.80 once bought ZERO rows because a throttle was thrown away; the repair for that settled every timed out answer as refused, the same lie inverted. Both drop to ONE CALL PER ANSWER on THIS pass, the ~1,500 token path that read 274 answers a day all July, and a single failing the same way stops the pass with nothing stored against what is left. Every unbilled answer here stays owed and self heals on any later reading, bounded at two unbilled calls a pass. */
   it.each([["transient", 4], ["client_timeout", 2]] as const)("stores nothing against a %s batch, re-reads its answers one at a time, and stops the pass when a single fails the same way", async (why, tries) => {
     const rows = Array.from({ length: 3 }, (_, i) => row(`z${i}`, `hz${i}`, null, false)), failed = { error: `the call ended as ${why}`, retryable: why === "transient", failure: why };
-    const saved: Array<[string, Record<string, unknown>]> = []; let calls = 0; pg.inserted.length = 0;
-    const pass = (single: () => Promise<{ value: unknown } | typeof failed>) => { saved.length = 0; calls = 0;
+    const saved: Array<[string, Record<string, unknown>]> = []; let calls = 0; pg.inserted.length = 0; const pass = (single: () => Promise<{ value: unknown } | typeof failed>) => { saved.length = 0; calls = 0;
       return runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, persist: async (_t, id, a) => void saved.push([id, a]),
         complete: async ({ kind }) => { calls += 1; return kind === "answer_analysis_batch" ? failed : single(); } }); };
     // Nothing written, nothing ledgered, every answer still owed, and the ladder spent exactly one batch and one single: a throttle is worth one retry, my own deadline is worth none at all.
@@ -303,8 +284,7 @@ describe("reading the answers back", () => {
   it("reads TODAY before older debt in the same window, and still reaches days the seven day window abandoned forever", async () => {
     // Seven days ending today is never quiet, because today keeps producing fresh debt, so an answer bought eight days ago could never be reached again however many passes ran and everything older than a week was abandoned permanently. The window ROTATES now, an hour at a time, so the old days come round.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
-    const unread = new Set([DAY, back(2), back(8), back(30)]); const asked: string[][] = []; const days: string[] = []; let read = "", passes = 0, widest = 0;
-    const pass = async (now: number) => { const before = asked.length; passes += 1;
+    const unread = new Set([DAY, back(2), back(8), back(30)]); const asked: string[][] = []; const days: string[] = []; let read = "", passes = 0, widest = 0; const pass = async (now: number) => { const before = asked.length; passes += 1;
       await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now,
         unreadDays: async (_t, from, to) => { asked.push([from, to]); return [...unread].filter((d) => d >= from && d <= to).sort(); },
         readObservations: async (_t, o) => { read = String(o.day); days.push(read); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
@@ -315,8 +295,7 @@ describe("reading the answers back", () => {
   });
   it("drains old debt at EVERY age while today keeps taking new answers in, so no age band is unreachable and a day that is never quiet starves nothing behind it", async () => {
     // Newest-owed-wins meant a day still collecting outranked every older debt forever: 140 answers arrive daily and one pass reads at most 40, so today was never quiet and 12 August's 140 answers stayed unreachable. AND THE TURN MUST NOT SHARE THE WINDOW'S CLOCK: 26 windows is an EVEN count, so an hourly parity carried the window index's parity and only odd multiples of seven ever took an oldest turn. Age 15 sits in the 14-20 band, one of the twelve bands (84 of 182 days) that were then unreachable at any number of passes. Half-hour parity is independent, so every window gets an oldest turn while it is the one open.
-    const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
-    const unread = new Set([DAY, back(9), back(15)]), days: string[] = [];
+    const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10); const unread = new Set([DAY, back(9), back(15)]), days: string[] = [];
     for (let half = 0; half < 6; half += 1) await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now: half * 1_800_000,
       unreadDays: async (_t, from, to) => [...unread].filter((d) => d >= from && d <= to).sort(),
       readObservations: async (_t, o) => (days.push(String(o.day)), [{ ...row("o", `h-${o.day}`, null, false), day: String(o.day) }]),
@@ -342,8 +321,7 @@ describe("reading the answers back", () => {
     await refused(async () => { tries += 1; if (tries === 1) throw new Error("write lost"); });
     expect(tries).toBe(2); // exactly one retry, never a loop
     tries = 0;
-    await refused(async () => { tries += 1; throw new Error("write lost"); });
-    expect(tries).toBe(2);
+    await refused(async () => { tries += 1; throw new Error("write lost"); }); expect(tries).toBe(2);
     expect(said.warnings.join(" ")).toContain("could not record that I was refused a reading");
   });
   it("accounts for every answer it took on, exactly once: what it read, what came back missing, a reading it could not store, and what a stopped pass never reached", async () => {
@@ -390,24 +368,20 @@ describe("reading the answers back", () => {
     const { read: written } = await runAnswerAnalyses(T, DAY, { readObservations: async () => [row("s1", "h-s1", null, false)],
       analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => { seen = [...targets]; return readsAll({ targets }); },
       persist: async (_t, _id, x) => void saved.push(x), readPrompts: async () => null, identity: BRAND });
-    expect([written, seen.length]).toEqual([1, 1]);
-    expect(seen[0]).toMatchObject({ key: "s1", part: 1, parts: 1, text: "Acme is open on Sundays." });
+    expect([written, seen.length]).toEqual([1, 1]); expect(seen[0]).toMatchObject({ key: "s1", part: 1, parts: 1, text: "Acme is open on Sundays." });
     expect(saved[0]).toEqual({ ...analysis, ownedBrandMention: { mentioned: true, position: 1, context: null }, matchedBy: "both" }); // Byte for byte what a short answer stored before pieces existed: no part bookkeeping is invented for it.
   });
   // A PARTIAL READ WAS MARKED COMPLETE. Past six pieces the tail was never sent, and the one-at-a-time fallback read 12,000 characters while stamping the FULL answer hash, so the row left the worklist finished and everything after it was lost forever. Coverage now makes a part read resumable.
   it("finishes a 100,000 character answer across passes, resuming at the exact unread piece and paying for none twice", async () => {
-    let stored = { ...row("X", "h-X", null, false), answerText: longAnswer("The Zephyr Archive is the last thing this answer names.", 100_000) };
-    const sent: string[][] = [];
+    let stored = { ...row("X", "h-X", null, false), answerText: longAnswer("The Zephyr Archive is the last thing this answer names.", 100_000) }; const sent: string[][] = [];
     const pass = async () => void await runAnswerAnalyses(T, DAY, { readObservations: async () => [stored], readPrompts: async () => null, identity: BRAND,
       analyzeBatch: async ({ targets }: { targets: readonly Piece[] }) => { sent.push(targets.map((t) => t.key));
         return new Map(targets.map((t) => [t.key, { ...empty, topicEntities: [`entity ${"i".repeat(t.part)}`] }])); },
       persist: async (_t, _id, a, hash) => { stored = { ...stored, analysis: a, analysisHash: hash }; } });
-    await pass();
-    const parts = (stored.analysis as { coverage: { parts: number } }).coverage.parts;
+    await pass(); const parts = (stored.analysis as { coverage: { parts: number } }).coverage.parts;
     expect([parts > 6, sent[0]]).toEqual([true, Array.from({ length: 5 }, (_, i) => `X#${i + 1}`)]); // no six-piece ceiling throwing the tail away, and one pass reads one batch of it
     expect([stored.analysisHash === "h-X", isAnalysisSettled(stored), selectAnalysisTargets([stored]).map((r) => r.id)]).toEqual([false, false, ["X"]]); // A PART READ IS NOT AN ANALYSED ANSWER: the hash is deliberately not the answer's, so the row stays due.
-    expect(String((stored.analysis as Record<string, unknown>).reason)).toContain("the next pass reads part 6 onward");
-    await pass();
+    expect(String((stored.analysis as Record<string, unknown>).reason)).toContain("the next pass reads part 6 onward"); await pass();
     expect(sent[1]).toEqual(Array.from({ length: 5 }, (_, i) => `X#${i + 6}`)); // resumed at 6, never at 1
     while (selectAnalysisTargets([stored]).length > 0) await pass();    // and it finishes, over as many passes as its length takes
     const bought = sent.length; expect(new Set(sent.flat()).size).toBe(sent.flat().length); // every piece bought exactly once
@@ -417,8 +391,7 @@ describe("reading the answers back", () => {
     expect([isAnalysisSettled(unburied), selectAnalysisTargets([unburied]).map((r) => r.id)]).toEqual([false, ["Z"]]);
     expect((stored.analysis as { topicEntities: string[] }).topicEntities).toContain(`entity ${"i".repeat(parts)}`); // the tail survived
     stored = { ...stored, answerText: "The engine says something entirely different today.", answerHash: "h-X2" }; // A CHANGED PROVIDER ANSWER RESETS THE COVERAGE against the new hash and is read from part one.
-    expect(selectAnalysisTargets([stored]).map((r) => r.id)).toEqual(["X"]);
-    await pass();
+    expect(selectAnalysisTargets([stored]).map((r) => r.id)).toEqual(["X"]); await pass();
     expect([sent[bought], stored.analysisHash, isAnalysisSettled(stored)]).toEqual([["X"], "h-X2", true]);
   });
   it("degrades a broken batch to ONE CALL PER PIECE, each grounded in its own piece, and still finishes the answer", async () => {
@@ -462,8 +435,7 @@ describe("work that is genuinely finished", () => {
   });
   it("derives the engines it plans from the provider registry itself, with nobody handing it a list", async () => {
     // The engine-to-capability map is checked by the compiler and nothing more: a `satisfies` proves the mapping is well typed and proves nothing about whether the planner ever consults it. Turning ONE capability off in the registry is the only way to show the derivation actually reaches a plan.
-    const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99 };
-    expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
+    const world = { readPrompts: async () => ONE, readObservations: async () => [], readMarkers: async () => null, maxBatch: 99 }; expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(ENGINES));
     registry.off.add("llm_gemini");
     try { expect(new Set((await dueObservations(T, DAY, world))!.map((d) => d.engine))).toEqual(new Set(["chatgpt", "claude", "perplexity"])); }
     finally { registry.off.clear(); }
@@ -472,14 +444,11 @@ describe("work that is genuinely finished", () => {
   it("never plans an engine the registry cannot ask, on any day, and does not resurrect it from a stored row", () => {
     const yesterday = [seen({ promptId: "p1", engine: "perplexity", status: "unsupported", day: "2026-07-30" })];
     // The engine set is derived from the capability registry, so an engine that cannot be asked is simply absent from every plan. Nothing stores an "impossible forever" flag, so the day the capability comes back the pair is planned again with no cleanup pass and no stale marker to undo.
-    const askable = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt"], maxBatch: 99 });
-    expect(askable.some((d) => d.engine === "perplexity")).toBe(false);
-    const restored = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt", "perplexity"], maxBatch: 99 });
-    expect(restored.some((d) => d.engine === "perplexity")).toBe(true);
+    const askable = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt"], maxBatch: 99 }); expect(askable.some((d) => d.engine === "perplexity")).toBe(false);
+    const restored = planObservations(DAY, { prompts: ONE, observed: yesterday, engines: ["chatgpt", "perplexity"], maxBatch: 99 }); expect(restored.some((d) => d.engine === "perplexity")).toBe(true);
   });
   it("retries a broken pair the bounded number of times in one day, then settles the row as unavailable with the provider's own reason kept", async () => {
-    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T08:00:00.000Z` })];
-    let markers: DayMarkers | null = null, asks = 0;
+    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T08:00:00.000Z` })]; let markers: DayMarkers | null = null, asks = 0;
     const settled: Array<[string, string]> = [];
     const world = {
       readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
@@ -510,8 +479,7 @@ describe("work that is genuinely finished", () => {
   });
   it("settles a failed row on an engine the registry cannot ask as UNSUPPORTED, and never plans that engine again while that holds", async () => {
     // The engine set handed to the planner IS what the provider registry can ask today. A pair that broke on an engine outside it is not "the engine had nothing to give": I cannot ask it at all, and saying so is the difference between a gap I am working on and one I am not.
-    const store = [seen({ promptId: "p1", engine: "perplexity", status: "failed", failureReason: REASON })];
-    const settled: Array<[string, string]> = [];
+    const store = [seen({ promptId: "p1", engine: "perplexity", status: "failed", failureReason: REASON })]; const settled: Array<[string, string]> = [];
     const world = {
       readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
       readMarkers: async () => ({ observationRetries: { day: DAY, counts: { "p1|1|perplexity|0": FAILED_RETRIES_PER_DAY }, askedAt: { "p1|1|perplexity|0": store[0]!.requestedAt } } }),
@@ -519,8 +487,7 @@ describe("work that is genuinely finished", () => {
       settle: async (_t: string, id: string, status: "unavailable" | "unsupported") => {
         settled.push([id, status]); store.find((x) => x.id === id)!.status = status; },
     };
-    const due = (await dueObservations(T, DAY, world))!;
-    expect(settled).toEqual([[store[0]!.id, "unsupported"]]);
+    const due = (await dueObservations(T, DAY, world))!; expect(settled).toEqual([[store[0]!.id, "unsupported"]]);
     expect(due.some((d) => d.engine === "perplexity")).toBe(false);
     // AND THE DAY CAN SAY SO. The count reads a settled row off its OWN stored status: derived from today's engine list, "I cannot ask" was a state it could never reach, so a lost engine read as pure silence.
     expect(await dailyChecks(T, DAY, world)).toMatchObject({ done: 1, total: 2, answers: 0, unavailable: 0, unsupported: 1 });
@@ -529,10 +496,8 @@ describe("work that is genuinely finished", () => {
   });
   // A SETTLE THAT THREW IS NOT A SETTLE. The exhausted-retry marker used to land regardless, so the row said `failed` with no budget left to ask again: permanently owed and contradicted by the ledger beside it.
   it("leaves a pair whose settle threw exactly where it was, says so out loud, and closes it on the next pass", async () => {
-    const K = "p1|1|chatgpt|0", OLD = `${DAY}T08:00:00.000Z`;
-    const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T09:00:00.000Z` })];
-    let markers: DayMarkers | null = { observationRetries: { day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } } };
-    const settled: string[] = [];
+    const K = "p1|1|chatgpt|0", OLD = `${DAY}T08:00:00.000Z`; const store = [seen({ promptId: "p1", engine: "chatgpt", status: "failed", failureReason: REASON, requestedAt: `${DAY}T09:00:00.000Z` })];
+    let markers: DayMarkers | null = { observationRetries: { day: DAY, counts: { [K]: FAILED_RETRIES_PER_DAY - 1 }, askedAt: { [K]: OLD } } }; const settled: string[] = [];
     const world = {
       readPrompts: async () => ONE, readObservations: async () => store, engines, maxBatch: 99,
       readMarkers: async () => markers,
@@ -552,8 +517,7 @@ describe("work that is genuinely finished", () => {
   });
   it("asks the observation store for the DAY it is planning, so a 600 row day is read whole", async () => {
     // An unnamed read defaults to the newest 500 rows. A tracked set of 35 questions on 4 engines writes more than that in a day (retries and settles included), so the planner was deciding what was still owed off a truncated day and re-buying readings it could not see.
-    const asked: Array<{ day?: string }> = [];
-    const big = Array.from({ length: 600 }, (_, i) => seen({ promptId: `p${i}`, engine: "chatgpt", id: `obs-${i}` }));
+    const asked: Array<{ day?: string }> = []; const big = Array.from({ length: 600 }, (_, i) => seen({ promptId: `p${i}`, engine: "chatgpt", id: `obs-${i}` }));
     const plan = await dueObservations(T, DAY, {
       readPrompts: async () => ONE, engines, maxBatch: 99, readMarkers: async () => null,
       readObservations: async (_t, o) => { asked.push(o); return big.length === 600 ? big : []; },
@@ -563,20 +527,16 @@ describe("work that is genuinely finished", () => {
   });
   it("does not plan an unavailable pair again the same day, and does plan it the next day", async () => {
     const gone = seen({ promptId: "p1", engine: "chatgpt", status: "unavailable", failureReason: REASON });
-    const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null };
-    expect(await dueObservations(T, DAY, world)).toEqual([]);
-    const tomorrow = await dueObservations(T, "2026-08-01", world);
-    expect(tomorrow).toHaveLength(1);
+    const world = { readPrompts: async () => ONE, readObservations: async () => [gone], engines, maxBatch: 99, readMarkers: async () => null }; expect(await dueObservations(T, DAY, world)).toEqual([]);
+    const tomorrow = await dueObservations(T, "2026-08-01", world); expect(tomorrow).toHaveLength(1);
     expect(tomorrow![0]).toMatchObject({ promptId: "p1", engine: "chatgpt", slot: 0, day: "2026-08-01" });
   });
   it("reads a row already stored under the day it computes as that pair being done, and leaves every other day alone", async () => {
     // THE CUTOVER. Pacific runs behind UTC, so the operator's day can be a day that already holds rows taken under the old UTC label. Those rows are history: they mean the work is done, nothing is re-asked, and nothing is rewritten. A day that was genuinely missed stays missed rather than being filled in late.
-    const day = reportingDay(Date.parse("2026-08-05T02:00:00.000Z"));
-    expect(day).toBe("2026-08-04");
+    const day = reportingDay(Date.parse("2026-08-05T02:00:00.000Z")); expect(day).toBe("2026-08-04");
     // A BROKEN ROW WITH ITS BUDGET SPENT, so the settle path this pass owns actually RUNS. Without one the ledger returns at its first line and "a pass rewrote nothing" could never have failed.
     const spent = seen({ promptId: "p2", engine: "chatgpt", day: "2026-08-04", status: "failed", failureReason: "The provider refused this request." });
-    const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" }), spent];
-    const before = JSON.stringify(history);
+    const history = [seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-04" }), seen({ promptId: "p1", engine: "chatgpt", day: "2026-08-02" }), spent]; const before = JSON.stringify(history);
     const settled: Array<[string, string]> = [];
     const world = { readPrompts: async () => [PROMPTS[0]!, PROMPTS[1]!], readObservations: async () => history, engines, maxBatch: 99,
       readMarkers: async () => ({ observationRetries: { day, counts: { [key({ ...spent, promptId: "p2" })]: FAILED_RETRIES_PER_DAY }, askedAt: { [key({ ...spent, promptId: "p2" })]: spent.requestedAt } } }),
@@ -592,8 +552,7 @@ describe("work that is genuinely finished", () => {
 describe("every written form that still means this business", () => {
   it("says nothing at all about an account that has neither a name nor a website", () => {
     // No forms is the caller's signal to stop: asking a model "was this brand mentioned" with an empty brand comes back "no" every time, and a whole AI trend was computed off that answer.
-    expect(identityFrom("", "")).toEqual({ name: "", forms: [], host: "" });
-    expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
+    expect(identityFrom("", "")).toEqual({ name: "", forms: [], host: "" }); expect(identityFrom("  ", "   ")).toEqual({ name: "", forms: [], host: "" });
   });
   it("reads a company suffix as the same business, and offers the longest form first", () => {
     expect(identityFrom("Ritz Builders, Inc.", "https://www.ritz-builders.com/")).toEqual({ // A reader who sees "Ritz Builders" has seen "Ritz Builders, Inc.", and the longest form is tried first so the whole name wins over a fragment of it.
@@ -640,8 +599,7 @@ describe("who the answer was read for", () => {
       const ids = [...user.matchAll(/OBSERVATION (\S+)/g)].map((m) => m[1]);
       return { value: { analyses: ids.map((observationId) => ({ ...READING, observationId, ownedBrandMention: { mentioned: true, position: 1, context: null } })) } };
     };
-    const { written, saved } = await readBack(answer("a", "Iranopedia is the one I would start with."), { complete });
-    expect([written, asked.length]).toEqual([1, 1]);
+    const { written, saved } = await readBack(answer("a", "Iranopedia is the one I would start with."), { complete }); expect([written, asked.length]).toEqual([1, 1]);
     expect(asked[0]).toContain("BRAND TO LOOK FOR: Iranopedia");
     expect(asked[0]).not.toContain("(none supplied)"); // the defect: an empty brand reached the model on every call
     expect(asked[0]).toContain("OBSERVATION a");       // each answer is keyed by the observation it was taken on
@@ -651,10 +609,8 @@ describe("who the answer was read for", () => {
     onFile("Iranopedia", "https://www.iranopedia.com/");
     // The model read this answer IN A BATCH and said "not mentioned": the deterministic second read still runs per observation, and the merged verdict is still what lands on that observation's own row.
     const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
-    const byText = await readBack(answer("t", "Iranopedia covers the festivals in depth."), missed);
-    expect(byText.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
-    const byCitation = await readBack(answer("c", "A few travel guides cover it.", ["https://www.iranopedia.com/festivals"]), missed);
-    expect(byCitation.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "citation" });
+    const byText = await readBack(answer("t", "Iranopedia covers the festivals in depth."), missed); expect(byText.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
+    const byCitation = await readBack(answer("c", "A few travel guides cover it.", ["https://www.iranopedia.com/festivals"]), missed); expect(byCitation.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "citation" });
     const neither = await readBack(answer("n", "Ask a local travel agent.", ["https://example.com/x"]), missed);
     expect(neither.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null }); // a real absence, not a model miss
   });
@@ -662,8 +618,7 @@ describe("who the answer was read for", () => {
     // The mention verdict ORs every written form together, so the label on its own ("guide", "best") matched any sentence using that word and every such account read as mentioned in answers about nobody.
     const missed = { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) };
     onFile("", "https://guide.com");
-    const generic = await readBack(answer("g", "Here is a guide to the festivals."), missed);
-    expect(generic.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
+    const generic = await readBack(answer("g", "Here is a guide to the festivals."), missed); expect(generic.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
     const host = await readBack(answer("h", "It is all on guide.com."), missed); // The whole address always still counts (a confirmed name's own word is kept too: the test above reads Iranopedia out of an answer's own words).
     expect(host.saved[0]).toMatchObject({ ownedBrandMention: { mentioned: true }, matchedBy: "text" });
   });
@@ -673,8 +628,7 @@ describe("who the answer was read for", () => {
       { analyzeBatch: async ({ targets }: { targets: readonly { row: { id: string } }[] }) => new Map(targets.map((t) => [t.row.id, READING])) });
     expect(saved[0]).toMatchObject({ ownedBrandMention: { mentioned: false }, matchedBy: null });
     onFile("", ""); // No confirmed name and no website: I stop rather than pay to ask the model about nobody.
-    let calls = 0;
-    const silent = await readBack(answer("z", "Anything at all."), { analyzeBatch: async () => { calls += 1; return null; } });
+    let calls = 0; const silent = await readBack(answer("z", "Anything at all."), { analyzeBatch: async () => { calls += 1; return null; } });
     expect([silent.written, silent.saved.length, calls]).toEqual([0, 0, 0]);
   });
 });

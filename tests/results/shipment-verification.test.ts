@@ -49,10 +49,8 @@ describe("what Beacon can see on the live page, component by component", () => {
   it("reads the page's own fields exactly: the wording I gave, other wording, or no field at all", async () => {
     expect(await state("title", "How to set a nowruz table")).toBe("verified");
     expect(await state("title", "how to set a NOWRUZ table.")).toBe("verified"); // the same words are the same title
-    expect(await state("title", "Nowruz gift ideas")).toBe("changed_differently");
-    expect(await state("meta", "Set a nowruz table in seven steps.")).toBe("verified");
-    expect(await state("h1", "How to set a nowruz table")).toBe("verified");
-    expect(await state("meta", "anything", serve("<html><head><title>t</title></head><body><p>x</p></body></html>"))).toBe("not_verified");
+    expect(await state("title", "Nowruz gift ideas")).toBe("changed_differently"); expect(await state("meta", "Set a nowruz table in seven steps.")).toBe("verified");
+    expect(await state("h1", "How to set a nowruz table")).toBe("verified"); expect(await state("meta", "anything", serve("<html><head><title>t</title></head><body><p>x</p></body></html>"))).toBe("not_verified");
   });
   it("checks the opening answer against the words the page actually opens with", async () => {
     expect(await state("opening_answer", "A nowruz table is set with seven symbolic items known together as the haft seen")).toBe("verified");
@@ -60,8 +58,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("opening_answer", "anything at all", serve("<html><head><title>t</title></head><body></body></html>"))).toBe("unverifiable");
   });
   it("looks for a section by its heading, and reads a removal the other way round", async () => {
-    expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified");
-    expect(await state("section", "Where to buy a haft seen set")).toBe("not_verified");
+    expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified"); expect(await state("section", "Where to buy a haft seen set")).toBe("not_verified");
     expect(await state("section_remove", "Where to buy a haft seen set")).toBe("verified");
     // A section I was asked to REMOVE that is still there is not a different change, it is no change.
     expect(await state("section_remove", "What goes on the table")).toBe("not_verified");
@@ -78,8 +75,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("internal_link_add", "Link to /haft-seen")).toBe("verified"); // relative and absolute are one address
     expect(await state("internal_link_add", "Link to /chaharshanbe-suri")).toBe("not_verified");
     expect(await state("internal_link_add", "Add a link to the guide")).toBe("unverifiable"); // no address named
-    const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>");
-    expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");
+    const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>"); expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");
   });
   // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so checking for the address answered yes the moment the change was written: it read verified before the operator touched the page. The words on the live link are the only thing that can settle it.
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
@@ -99,18 +95,15 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("schema", "Add FAQPage structured data", serve("<html><head><title>t</title></head><body><div id=app></div></body></html>"))).toBe("unverifiable");
   });
   it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => {
-    expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified");
-    expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
+    expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified"); expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
     const noCanonical = serve("<html><head><title>t</title></head><body><main><p>a paragraph with quite enough words in it</p></main></body></html>");
     expect(await state("canonical", "Point the canonical at https://own.com/x", noCanonical)).toBe("not_verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: "https://own.com/haft-seen" }))).toBe("verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: URL_ }))).toBe("not_verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen")).toBe("unverifiable"); // no final address reported
     // MOVED IS NOT ARRIVED. A forward with no destination named could be landing on a login wall.
-    const moved = await check([{ kind: "redirect", after: "Set up a forward" }], serve(PAGE, { finalUrl: "https://own.com/login" }));
-    expect(moved.components[0]!.state).toBe("unverifiable");
-    expect(moved.components[0]!.note).toContain("named no destination");
-    const noindex = serve(PAGE.replace("<head>", '<head><meta name="robots" content="noindex, follow"/>'));
+    const moved = await check([{ kind: "redirect", after: "Set up a forward" }], serve(PAGE, { finalUrl: "https://own.com/login" })); expect(moved.components[0]!.state).toBe("unverifiable");
+    expect(moved.components[0]!.note).toContain("named no destination"); const noindex = serve(PAGE.replace("<head>", '<head><meta name="robots" content="noindex, follow"/>'));
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unverifiable"); // a header I cannot see could carry it
   });
@@ -119,8 +112,7 @@ describe("what Beacon can see on the live page, component by component", () => {
     const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
     const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] })
       .filter((f) => f.kind === "redirect_chain");
-    const parts = technicalComponents(found, "nowruz table");
-    expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", "https://own.com/haft-seen"]]);
+    const parts = technicalComponents(found, "nowruz table"); expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", "https://own.com/haft-seen"]]);
     expect(parts[0]!.after).toContain("/nowruz"); // the address being moved is still the first one in the sentence
     // exactly what "Mark implemented" records on the shipment, and exactly what the check is handed back
     const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null }));
@@ -138,10 +130,8 @@ describe("what Beacon can see on the live page, component by component", () => {
     const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }],
       (async (u: string) => (!u.endsWith("/sitemap.xml") ? { ok: true, html: PAGE, status: 200 }
         : xml == null ? { ok: false, reason: "fetch_failed" } : { ok: true, html: xml, status: 200 })) as unknown as Fetcher)).components[0]!;
-    expect((await graded(listing(URL_, "https://own.com/haft-seen"))).state).toBe("verified");
-    const absent = await graded(listing("https://own.com/haft-seen"));
-    expect([absent.state, absent.note]).toEqual(["not_verified", "Your sitemap lists 1 address, and this page is not one of them."]);
-    expect((await graded(null)).state).toBe("unverifiable");
+    expect((await graded(listing(URL_, "https://own.com/haft-seen"))).state).toBe("verified"); const absent = await graded(listing("https://own.com/haft-seen"));
+    expect([absent.state, absent.note]).toEqual(["not_verified", "Your sitemap lists 1 address, and this page is not one of them."]); expect((await graded(null)).state).toBe("unverifiable");
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing
   });
@@ -151,21 +141,17 @@ describe("what Beacon can see on the live page, component by component", () => {
       inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }],
       pages: [{ url: URL_, internal_links: ["https://own.com/old-price"] }],
     }).filter((f) => f.kind === "broken_internal_link");
-    const parts = technicalComponents(found, "nowruz table");
-    expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["internal_link_remove", "https://own.com/old-price"]]);
-    const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null }));
-    const still = serve(PAGE.replace("</main>", '<p><a href="/old-price">old prices</a></p></main>'));
+    const parts = technicalComponents(found, "nowruz table"); expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["internal_link_remove", "https://own.com/old-price"]]);
+    const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null })); const still = serve(PAGE.replace("</main>", '<p><a href="/old-price">old prices</a></p></main>'));
     expect((await verifyShipment(T, { id: "s1", url: URL_, components: applied }, { ...base, fetchPage: still })).components[0]!.state).toBe("not_verified");
     expect((await verifyShipment(T, { id: "s1", url: URL_, components: applied }, { ...base, fetchPage: serve(PAGE) })).components[0]!.state).toBe("verified");
   });
   it("reads body wording off the whole page, and refuses to judge a change whose wording it does not hold", async () => {
-    expect(await state("paragraph_correction", "Every item on the cloth stands for a wish")).toBe("verified");
-    expect(await state("factual_correction", "Nowruz always falls on the twenty first of March")).toBe("not_verified");
+    expect(await state("paragraph_correction", "Every item on the cloth stands for a wish")).toBe("verified"); expect(await state("factual_correction", "Nowruz always falls on the twenty first of March")).toBe("not_verified");
     expect(await state("title", "")).toBe("unverifiable"); // no copy on file for this component, so no claim about it
   });
   it("calls a new page live only when there is a real page at the address", async () => {
-    const long = `<html><head><title>Haft seen</title></head><body><main><p>${"a real sentence about the haft seen table ".repeat(20)}</p></main></body></html>`;
-    expect(await state("new_page", "", serve(long))).toBe("verified");
+    const long = `<html><head><title>Haft seen</title></head><body><main><p>${"a real sentence about the haft seen table ".repeat(20)}</p></main></body></html>`; expect(await state("new_page", "", serve(long))).toBe("verified");
     expect(await state("new_page", "", serve("<html><head><title>t</title></head><body><main><p>almost nothing is here yet at all</p></main></body></html>"))).toBe("changed_differently");
   });
 });
@@ -176,12 +162,9 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     expect((await check([{ kind: "title", after: "Nowruz gifts" }, { kind: "h1", after: "Nowruz gifts" }])).status).toBe("differs");
   });
   it("says blocked when it could not read the page, and not found when there is no page there", async () => {
-    const robots = await check([{ kind: "title", after: "How to set a nowruz table" }], refuse("robots_blocked"));
-    expect([robots.status, robots.components[0]!.state]).toEqual(["blocked", "unverifiable"]);
-    expect(robots.components[0]!.note).toContain("robots rules");
-    expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"))).status).toBe("blocked");
-    expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
-    expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
+    const robots = await check([{ kind: "title", after: "How to set a nowruz table" }], refuse("robots_blocked")); expect([robots.status, robots.components[0]!.state]).toEqual(["blocked", "unverifiable"]);
+    expect(robots.components[0]!.note).toContain("robots rules"); expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"))).status).toBe("blocked");
+    expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found"); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
     // A page I reached but nothing on it I can check is NOT a difference and never a pass: it is a check I could not complete.
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");
   });
@@ -200,20 +183,16 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   beforeEach(() => { ROWS.length = 0; WRITES.length = 0; passedBustedAt = undefined; });
   it("owes a check on every change marked implemented that has never been checked, and on nothing else", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b", verification: { status: "verified", checkedAt: "x", components: [] } }), row({ id: "c", implementedAt: null }));
-    expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]);
-    expect(await shipmentsAwaitingVerification("", 3)).toEqual([]);
+    expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]); expect(await shipmentsAwaitingVerification("", 3)).toEqual([]);
   });
   it("reads at most three live pages in one pass, writes each answer exactly once, and never reads a page twice", async () => {
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
-    const read: string[] = [];
-    const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
-    expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]);
-    expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);
+    const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
+    expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);
   });
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {
     ROWS.push(row({ id: "a" }));
-    let reads = 0;
-    const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
+    let reads = 0; const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
     expect([await pass(), WRITES[0]![2].status, reads]).toEqual([1, "blocked", 1]);
     // The store now holds an answer for that shipment, so the next pass finds nothing due and reads nothing.
     ROWS[0]!.verification = WRITES[0]![2];
@@ -233,10 +212,8 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     expect([written, reads]).toEqual([0, 1]);
   });
   it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {
-    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"));
-    expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
-    const robots = await check([{ kind: "title", after: "x" }], refuse("robots_blocked"));
-    expect([robots.status, robots.recheckAfter ?? null]).toEqual(["blocked", null]);
+    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout")); expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
+    const robots = await check([{ kind: "title", after: "x" }], refuse("robots_blocked")); expect([robots.status, robots.recheckAfter ?? null]).toEqual(["blocked", null]);
     // The retry's own answer is final, whatever it is: one retry is all there ever is.
     const again = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "x" }], recheck: true },
       { ...base, fetchPage: refuse("fetch_failed", "timeout") });
@@ -246,8 +223,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const blocked = (recheckAfter: string | null) => ({ status: "blocked", checkedAt: "2026-07-30T09:00:00Z", components: [], recheckAfter });
     ROWS.push(row({ id: "waiting", verification: blocked("2026-08-01") }), row({ id: "refused", verification: blocked(null) }));
     expect(await shipmentsAwaitingVerification(T, 3, { now: () => NOW })).toEqual([]); // 2026-07-31: not yet
-    const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY });
-    expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
+    const tomorrow = await shipmentsAwaitingVerification(T, 3, { now: () => NOW + DAY }); expect(tomorrow.map((s) => [s.id, s.recheck])).toEqual([["waiting", true]]);
   });
   /** THE PROMISED DAY IS THE OPERATOR'S DAY, not the UTC one. Read off a UTC instant, a retry promised for the 5th came due at 5 PM Pacific on the 4th, so the one retry a silent site earns was spent a day early and its answer, which is final either way, stood. */
   it("owes the retry on the promised day where the operator lives, not from 5 PM the evening before", async () => {
@@ -260,8 +236,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   /** And the promise itself is made in the same zone it is read in. */
   it("promises that retry on the operator's next day, not on UTC's", async () => {
     const evening = Date.parse("2026-08-05T02:00:00Z"); // 7 PM on the 4th where the operator is
-    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"), { now: () => evening });
-    expect(dead.recheckAfter).toBe("2026-08-05");
+    const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"), { now: () => evening }); expect(dead.recheckAfter).toBe("2026-08-05");
   });
 });
 describe("a change the operator implemented busts that page's freshness", () => {
@@ -270,14 +245,12 @@ describe("a change the operator implemented busts that page's freshness", () => 
     ROWS.push({ id: "a", page: URL_, path: "/nowruz", implementedAt: "2026-07-20T09:00:00Z" },
       { id: "b", page: "https://own.com/nowruz", path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" },
       { id: "c", page: "https://own.com/other", path: "/other", implementedAt: "2026-07-30T09:00:00Z" });
-    expect(await shipmentBustedAt(T, URL_)).toBe("2026-07-29T09:00:00Z");
-    expect(await shipmentBustedAt(T, "https://own.com/nothing")).toBeNull();
+    expect(await shipmentBustedAt(T, URL_)).toBe("2026-07-29T09:00:00Z"); expect(await shipmentBustedAt(T, "https://own.com/nothing")).toBeNull();
     expect(await shipmentBustedAt(T, "")).toBeNull();
   });
   it("busts the page that was changed and no other: a home page change does not throw away the whole site", async () => {
     ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
-    expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z");
-    expect(await shipmentBustedAt(T, URL_)).toBeNull();
+    expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z"); expect(await shipmentBustedAt(T, URL_)).toBeNull();
     // Nor does a change to /guide bust /nowruz-guide, which merely ends with the same letters.
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull();
@@ -290,12 +263,9 @@ describe("a change the operator implemented busts that page's freshness", () => 
   });
   it("passes that moment into the ONE owned page a research pass may read", async () => {
     ROWS.push({ id: "a", page: URL_, path: "/nowruz", implementedAt: "2026-07-29T09:00:00Z" });
-    const { defaultSteps } = await import("@/domains/runtime/ops/research-steps");
-    const focus = { basis: "b1", topics: [{ topicKey: "t1", query: "nowruz table", requirement: null, retryAfter: null, ownedUrl: URL_ }] };
-    await defaultSteps.funnelUnit("winning_pages", T, { basis: "b1" }, 1000, focus as never);
-    expect(passedBustedAt).toBe("2026-07-29T09:00:00Z");
+    const { defaultSteps } = await import("@/domains/runtime/ops/research-steps"); const focus = { basis: "b1", topics: [{ topicKey: "t1", query: "nowruz table", requirement: null, retryAfter: null, ownedUrl: URL_ }] };
+    await defaultSteps.funnelUnit("winning_pages", T, { basis: "b1" }, 1000, focus as never); expect(passedBustedAt).toBe("2026-07-29T09:00:00Z");
     ROWS.length = 0; // no shipment for that page: nothing changed it, and the ordinary freshness window decides
-    await defaultSteps.funnelUnit("winning_pages", T, { basis: "b1" }, 1000, focus as never);
-    expect(passedBustedAt).toBeNull();
+    await defaultSteps.funnelUnit("winning_pages", T, { basis: "b1" }, 1000, focus as never); expect(passedBustedAt).toBeNull();
   });
 });

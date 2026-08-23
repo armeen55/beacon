@@ -58,15 +58,13 @@ describe("a struggling source costs one read, and a list already in hand beats a
 
   // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted pins here used to hold.
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
-    await Promise.all([renderSection(), renderSection()]);
-    expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
+    await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
   });
 
   // ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins.
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {
     calls.failSurface = 2;
-    const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
-    const view = await loadChangesView();
+    const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); const view = await loadChangesView();
     expect([view.releaseUnreadable, view.surfaceBuilding, view.releaseFromMemory]).toEqual([true, false, undefined]);
   }, 15_000);
 
@@ -76,10 +74,8 @@ describe("a struggling source costs one read, and a list already in hand beats a
     await loadChangesView();
     calls.surface = 0;
     calls.failSurface = 2;
-    const view = await loadChangesView();
-    expect(calls.surface, "the blob read gets its own deadline and exactly one retry").toBe(2);
-    expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true);
-    expect(view.releaseUnreadable ?? false).toBe(false);
+    const view = await loadChangesView(); expect(calls.surface, "the blob read gets its own deadline and exactly one retry").toBe(2);
+    expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false);
     expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
   }, 15_000);
 });

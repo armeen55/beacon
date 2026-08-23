@@ -28,8 +28,7 @@ describe("GA4 runReport traffic contract", () => {
   });
   it("carries the top-level fields the pagination loop depends on", () => {
     // rowCount drives the offset loop; metricHeaders drive name-based mapping.
-    expect(typeof body.rowCount).toBe("number");
-    expect(Array.isArray(body.metricHeaders)).toBe(true);
+    expect(typeof body.rowCount).toBe("number"); expect(Array.isArray(body.metricHeaders)).toBe(true);
     expect(body.metricHeaders!.map((h) => h?.name)).toEqual([
       "sessions",
       "engagedSessions",
@@ -37,16 +36,14 @@ describe("GA4 runReport traffic contract", () => {
     ]);
   });
   it("a null/empty body parses to [] rather than throwing", () => {
-    expect(narrowRunReportRows(null)).toEqual([]);
-    expect(narrowRunReportRows({} as Ga4RunReportResponseBody)).toEqual([]);
+    expect(narrowRunReportRows(null)).toEqual([]); expect(narrowRunReportRows({} as Ga4RunReportResponseBody)).toEqual([]);
   });
 });
 
 describe("GA4 runReport revenue contract (name-mapped metrics)", () => {
   it("maps metrics BY HEADER NAME so a reordered metric set never misassigns", () => {
     // The fixture deliberately orders headers [transactions, totalRevenue, purchaseRevenue] - not our request order - to pin name-based mapping.
-    const body = fixture<Ga4RunReportResponseBody>("ga4-revenue-report.json");
-    const rows = narrowRevenueRows(body);
+    const body = fixture<Ga4RunReportResponseBody>("ga4-revenue-report.json"); const rows = narrowRevenueRows(body);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({
       date: "2026-07-01",
