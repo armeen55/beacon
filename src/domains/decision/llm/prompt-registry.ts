@@ -23,9 +23,9 @@ export const PROMPT_REGISTRY = {
   // Bumped to v6 (2026-07-11, pilot loop 6): every rephrase-class retry instruction (superlative-only, too-thin-only, and the combined instruction) now closes with a reminder not to introduce any number,
   // percentage, or statistic absent from the evidence. A prompt-wording change, so the cache must not serve a stale v5 response under the new guidance.
   "draft.answer_block": 6,
-  // draft.atomic_edit stays at v1 (2026-08-01, V1 Closure): the title and meta system prompt is byte for byte what it has always been. The opening-answer clause is APPENDED only when the field is
+  // draft.atomic_edit bumped to v2 (2026-08-23, grounded utility): the head clause now names the actual field (an answer block is no longer told it is a title edit) and the intent directive carries the AEO shape vocabulary, so the cache must never serve a v1 answer written under the two-assignments prompt. Previously: stayed at v1 (2026-08-01, V1 Closure); the opening-answer clause is APPENDED only when the field is
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
-  "draft.atomic_edit": 1,
+  "draft.atomic_edit": 2,
   "draft.editor_judgement": 1,
   "draft.factual_review": 1,
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and

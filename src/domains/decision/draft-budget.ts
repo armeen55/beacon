@@ -1,35 +1,11 @@
 import "server-only";
 
-/** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model
- *  money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field
- *  drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and
- *  funded here once. It lives beside the drafting rather than inside it because the money is the one thing every
- *  family shares (operator, 2026-08-22, after 239 charged calls bought nothing).
- *
- *  WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool
- *  and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no
- *  entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took
- *  the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims
- *  any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole
- *  manifest once and decides the funded set once, and each family then collects an allowance already decided for it.
- *  A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
+/** decision/draft-budget - THE ONE PAID DRAFTING BUDGET, and there is no second one. Every family that spends model money on a deliverable (the winning-pattern reading, the new page, the correction review, the shallow field drafts, the deep bundles and the editor) is DECLARED here before the pass spends anything, ranked here once, and funded here once. It lives beside the drafting rather than inside it because the money is the one thing every family shares (operator, 2026-08-22, after 239 charged calls bought nothing). WHY A MANIFEST AND NOT A CLAIM COUNTER (Codex, 2026-08-22). The first repair gave every family one shared pool and a ranked window, which stopped the private pools but left the order to whoever asked first: a family with no entry in the ranking claimed the moment it was reached, so an unranked new page or a correction review still took the pass's first slot ahead of the strongest completable change. Asking-order is not a ranking. So nothing claims any more. The pass compiles EVERY paid job it could run into one zero-cost manifest, `plan` ranks the whole manifest once and decides the funded set once, and each family then collects an allowance already decided for it. A key that is not on the funded list gets nothing, whenever it asks and whatever family it belongs to. */
 
-/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It
- *  is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this
- *  only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty
- *  (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can
- *  actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is
- *  NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the
- *  same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
+/** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
 const MAX_PAID_CALLS = 60;
 
-/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE PAGE, reduced to its path, and never the family working on it. Both
- *  halves were learned the hard way. Keying on whichever string was to hand (the deep door knows a page by its full
- *  address, every other family by its path) funded ONE page twice, at three calls and then at twelve. Keying by
- *  family did the same thing in daylight: a page with a rewrite AND an editor card took two candidate slots and two
- *  allowances, so a successful rewrite left the editor's slot funded and unused, and a failed one let the same page
- *  spend twelve calls and then three more. One page is ONE candidate, with ONE allowance, and the families working
- *  on it draw from that one allowance in turn. One account is one site here, so a path identifies a page. */
+/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE PAGE, reduced to its path, and never the family working on it. Both halves were learned the hard way. Keying on whichever string was to hand (the deep door knows a page by its full address, every other family by its path) funded ONE page twice, at three calls and then at twelve. Keying by family did the same thing in daylight: a page with a rewrite AND an editor card took two candidate slots and two allowances, so a successful rewrite left the editor's slot funded and unused, and a failed one let the same page spend twelve calls and then three more. One page is ONE candidate, with ONE allowance, and the families working on it draw from that one allowance in turn. One account is one site here, so a path identifies a page. */
 const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string => {
   const raw = (p.pagePath ?? p.pageUrl ?? "").trim().toLowerCase();
   if (!raw) return "unknown-page";
@@ -37,47 +13,28 @@ const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string
   try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
 };
 
-/** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the
- *  allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget"
- *  (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is
- *  DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may
- *  make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before
- *  it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
+/** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
 const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2, FINAL_REVIEW_CALLS = 1;
 const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND + FINAL_REVIEW_CALLS;
-/** THE POLICY A SETTLEMENT WAS REACHED UNDER. A page written off because the OLD allowance ran out says nothing
- *  about the new one, so this rides the day's fingerprint: change the policy and yesterday's answers under it stop
- *  counting, on the same day, rather than skipping the very pages the change was made for. */
-const POLICY = `r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
-/** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls.
- *  Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and
- *  the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a
- *  12-call proposal, not reported as a three-call candidate"). */
+/** THE POLICY A SETTLEMENT WAS REACHED UNDER, INCLUDING THE WRITER ITSELF. A page written off under the OLD allowance, or refused by the OLD writer, says nothing about the new one, so both ride the day's fingerprint: change either and yesterday's answers under it stop counting, on the same day, rather than skipping the very pages the change was made for. Achaemenid stayed settled through a whole writer repair for want of exactly this (Codex, 2026-08-23). WRITER bumps on every material change to what the drafter is told or how its retries work. */
+const WRITER = 3;
+const POLICY = `w${WRITER}r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
+/** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls. Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a 12-call proposal, not reported as a three-call candidate"). */
 const BUNDLE_DELIVERABLES = 4;
-/** A WHOLE PAGE IS STILL TWELVE, unchanged and deliberately not raised with the number above: no receipt has named a
- *  bundle running out, so nothing here moves on a guess. When one does, it will say so and this follows the evidence. */
+/** A WHOLE PAGE IS STILL TWELVE, unchanged and deliberately not raised with the number above: no receipt has named a bundle running out, so nothing here moves on a guess. When one does, it will say so and this follows the evidence. */
 const BUNDLE_CALLS_TOTAL = 12;
 
-/** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could
- *  plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole
- *  allowance, already multiplied out. */
+/** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
 type PaidJob = { key: string; family: string; impact: number; calls: number;
   /** The cheaper families that also want work on this page. They run only if the funded one does not produce, and they draw on ITS allowance, never a second. */ fallbacks?: readonly string[] };
 /** A job the pass declared and the plan refused, with the reason in the operator's words. Refusal is on the receipt. */
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
-/** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone:
- *  ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth
- *  more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two
- *  jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans
- *  the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise
- *  record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
+/** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
-  // ONE ENTRY PER PAGE, DECIDED BEFORE ANYTHING IS RANKED. Several families can want work on one page; the most
-  // expensive of them is the one that page is funded for, and the cheaper ones are its FALLBACKS, drawing on that
-  // same allowance rather than each buying their own. The page is worth the most any of them thinks it is worth.
+  // ONE ENTRY PER PAGE, DECIDED BEFORE ANYTHING IS RANKED. Several families can want work on one page; the most expensive of them is the one that page is funded for, and the cheaper ones are its FALLBACKS, drawing on that same allowance rather than each buying their own. The page is worth the most any of them thinks it is worth.
   const byKey = new Map<string, PaidJob>();
   for (const j of input.jobs) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
@@ -105,8 +62,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
     funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [] })),
     declined: declined as readonly DeclinedJob[],
-    /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never
-     *  declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
+    /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
     take(key: string) {
       const open = held.get(key);
       if (open) return open.left > 0 ? open : null;
@@ -116,10 +72,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       held.set(key, slice);
       return slice;
     },
-    /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is
-     *  what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three
-     *  and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the
-     *  page was not funded or has nothing left, which is a refusal, not an error. */
+    /** WHAT ONE FAMILY MAY DRAW FROM THAT PAGE'S ALLOWANCE: a bounded VIEW of it, never a second purse. `price` is what this family's own deliverable costs, so a three-call editor beside a twelve-call rewrite can spend three and only three, and everything it spends comes off the page's one allowance as it spends it. Null when the page was not funded or has nothing left, which is a refusal, not an error. */
     draw(key: string, price: number) {
       const open = this.take(key);
       if (!open || open.left <= 0) return null;

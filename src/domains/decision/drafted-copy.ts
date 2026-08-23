@@ -12,6 +12,7 @@ import type { AtomicEditDraft } from "./llm/schemas";
 import { validateProposal } from "./validate-proposal";
 import type { ChangeProposal } from "./contracts";
 import { DRAFT_BUDGET } from "./draft-budget";
+import { AI_CASE_COPY } from "./producers/ai-cases";
 type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 
 /** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the hardest cards every pass, so the completable descriptions behind them never got a body. */
@@ -91,8 +92,7 @@ const CHROME = /\b(?:top|bottom) of page/gi;
 const CHROME_AT = /\b(?:top|bottom) of page/i;
 const ANCHOR_MAX = 160; // a place on the page, not a paragraph: a 300 character blob is not an anchor
 const BODY_TO_JUDGE = 24_000; // how much of a stored page fits in one judging call beside the rest of the prompt
-// raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
-const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
+const PLACEHOLDER = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/; // raised from 30 with the operator's 2026-08-22 spend waiver: the per-card slice keeps any one candidate bounded, the daily dollar cap still rules real money, and the pool now reaches every draftable card in one pass instead of starving the completable tail
 /** MARKUP IS NOT WORDS. A drafted title read "Colors &amp; History": pasted, a reader sees the entity, not the ampersand. */
 const ENTITY = /&(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);/;
 /** THE WORDS THAT MAKE A FIGURE MEAN SOMETHING NARROWER THAN THE BARE NUMBER. A description shipped "ships in 7-21  business days" off a sentence that said INTERNATIONAL delivery takes 7-21 days while the same page promises 2-6 days inside the country: every digit was lifted from the page and the sentence was still false. */
@@ -148,13 +148,11 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
     const q = QUALIFIER.exec(said.find((s) => s.includes(n)) ?? "");
     if (q && !new RegExp(`\\b${q[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(copy)) {
       out.push(`the figure's own sentence says ${q[1]!.toLowerCase()}, and the copy drops it`); break; } }
-  // A RANGE IS A SPAN, NOT TWO NEIGHBOURS: "Afsaneh to Anoushka" sold a list of 194 names as a range whose two ends sit beside each other in the page's own list.
-  const span = /\b([A-Z][a-z]+)\s+to\s+([A-Z][a-z]+)\b/.exec(copy);
+  const span = /\b([A-Z][a-z]+)\s+to\s+([A-Z][a-z]+)\b/.exec(copy); // A RANGE IS A SPAN, NOT TWO NEIGHBOURS: "Afsaneh to Anoushka" sold a list of 194 names as a range whose two ends sit beside each other in the page's own list.
   if (span) { const list = p.headings.map((h) => flat(h)), a = list.indexOf(flat(span[1]!)), b = list.indexOf(flat(span[2]!));
     if (a >= 0 && b >= 0 && Math.abs(b - a) < Math.max(2, Math.floor(list.length / 2)))
       out.push(`it sells "${span[1]} to ${span[2]}" as a range, and this page's own list puts them ${Math.abs(b - a)} apart`); }
-  // A RIVAL'S NAME IS NOT COPY FOR THIS PAGE: naming the site the answers already cite hands that engine one more mention, on the operator's own page, in the operator's own words.
-  const bare = (t: string): string => flat(t).replace(/[^a-z0-9]/g, "");
+  const bare = (t: string): string => flat(t).replace(/[^a-z0-9]/g, ""); // A RIVAL'S NAME IS NOT COPY FOR THIS PAGE: naming the site the answers already cite hands that engine one more mention, on the operator's own page, in the operator's own words.
   const mine = bare(`${p.bodyText} ${p.title ?? ""} ${p.h1 ?? ""} ${p.headings.join(" ")}`), flatCopy = bare(copy);
   const rival = [...new Set(Object.values(p.evidence).flatMap((t) => [...t.matchAll(HOSTISH)].map((m) => m[1]!.toLowerCase().replace(/-/g, ""))))]
     .find((r) => flatCopy.includes(r) && !mine.includes(r));
@@ -218,8 +216,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
       const after = new Set(wordsOf(d.finalCopy));
       const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t));
       if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
-      // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.
-      const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))];
+      const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))]; // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.
       if (reps.length > 0) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(", ")} more than once, which is a keyword list rather than a line a person would write`);
     }
   } else {
@@ -235,12 +232,10 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (d.beforeText != null && same(d.finalCopy, d.beforeText)) out.push("it hands back the line the page already carries, re-punctuated, so nothing about the page would change");
   const [lo, hi, unit] = BAND[d.actionType], n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
   if (n < lo || n > hi || UNSAFE.test(d.finalCopy)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
-  // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted. AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
-  if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) {
+  if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) { // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted. AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
     out.push("it points at the page instead of answering"); }
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
-  // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of an anchor nobody will use blocked every description on the account.
-  if (!(d.actionType in FIELD)) {
+  if (!(d.actionType in FIELD)) { // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of an anchor nobody will use blocked every description on the account.
     if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
     if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)))
       out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
@@ -337,6 +332,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   if (opts.attempts && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
   const drafted = await draftAtomicEditStructured({
     query: packet.trackedQuestion ?? "", pageLabel, field: field === "internal_link" ? "answer_block" : field, currentValue: held,
+    ...(field === "answer_block" ? { intent: AI_CASE_COPY.intentOf(packet.trackedQuestion ?? "") } : {}), // THE REQUIRED ANSWER SHAPE, TYPED (Codex, 2026-08-23): the AEO producer's own classifier reads the tracked question and the drafter receives the shape as a directive, not prose buried in a brief; deterministic on the question, so draft and card always agree
     // THE SEARCHERS' WORDS RIDE THE BRIEF. The drafter used to receive one query string and the page's own outline, so it optimised for what the page already says (a shoes page described by its SKU names) and never for what people search. Demand is handed over explicitly, and the earning words are marked as load-bearing, so the model leads with the phrasing that has an audience and drops nothing that pays.
     outline: [...packet.headings].slice(0, 8), evidenceHints: [...hints,
       ...(packet.demand.vocabulary.length > 0 ? [`People actually search this as: ${packet.demand.vocabulary.slice(0, 8).map((v) => `"${v}"`).join(", ")}. Lead with the highest-demand phrasing the evidence supports.`] : []),
@@ -437,8 +433,8 @@ const kindFor = (c: ChangeProposal): DraftKind | null => {
   return KIND_OF_SLUG[slug] ?? null; };
 
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
-async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null,
-  opts: DraftedCopyOptions, kind: DraftKind): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
+async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, opts: DraftedCopyOptions, kind: DraftKind,
+  /** The final reviewer's own sentence, on the ONE corrective redraft it buys; present means this IS that redraft and a second refusal stands. */ reviewerNote?: string): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
   const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? []), outline = (page.content?.outline ?? []).slice(0, 8);
   // THE REFUSAL IS FEEDBACK, NOT ONLY A LOG LINE. The deterministic contract's reasons are exact and repeatable, and a pass that never repeats them to the writer buys the same refusal every time; the last refusal's reasons are kept so ONE bounded second attempt can be told precisely what to fix.
   const lessons: string[] = [];
@@ -452,7 +448,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (kind === "link" && !dest) return refuse("the destination this link names cannot be read off the card");
   // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
-  const hints = [...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, id.startsWith("page-copy") ? 700 : 400)}`),
+  const hints = [...(reviewerNote ? [reviewerNote] : []), ...Object.entries(packet.evidence).map(([id, text]) => `${id}: ${text.slice(0, id.startsWith("page-copy") ? 700 : 400)}`),
     ...(spec ? [card.researchOnly === true
       ? `The brief for this edit: "${spec.slice(0, 600)}". It describes the ASSIGNMENT: it is never the copy and never source material, no word of it may be cited as evidence, and its direction words (place, answer, add, write, section, block, directly, liftable) are workflow language that must not appear in the finished copy.`
       : `The target the team already agreed for this edit: "${spec.slice(0, 600)}". Verify it against the stored copy above and refine it to fit that copy exactly; do not replace it with a different idea.`] : []),
@@ -460,7 +456,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(kind === "answer" ? ["Write the answer as facts about the subject itself, in the searcher's own words. NEVER write \"this page\", \"this article\", \"here\", \"listed\", \"shown\" or any sentence describing the page; the first sentence answers the question outright.",
       // THE ANCHOR IS THE PAGE'S OWN MAIN HEADING (2026-08-22): stored body text is often crawler-glued, so an anchor lifted from it fails the findability gate on every retry; the H1 is stored clean and is exactly where a summary answer goes.
       "The PLACEMENT is chosen by the system (the page's own main heading), never by you: whatever you put in the anchor slot is discarded, so spend nothing on it and write only the copy, its claims and their evidence.",
-      "Evidence FIRST, sentence second: pick the stored passage that proves the point, write the sentence FROM it, and cite that passage on the claim. Category words are claims too: call something an idiom, a proverb or a tradition ONLY if a cited passage uses that word; otherwise use the word the evidence uses (phrase, expression, saying) or drop the label.",
+      "Evidence FIRST, sentence second: pick the stored passage that proves the point, write the sentence FROM it, and cite that passage on the claim. A category word is a claim too: use the exact category word a cited passage establishes, or omit the category.",
       `The section heading must NOT repeat "${card.primaryQuery}" or the page's own H1 back word for word; name what the section delivers in different words.`,
       "Build every sentence from words the evidence ids above already contain. Do not add adjectives or descriptive words of your own (simple, popular, beautiful, everyday and the like): if the evidence does not carry a word, the copy may not either.",
       "The finished answer is 40 to 90 words. Count them before you return it; 39 is refused.",
@@ -485,7 +481,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
   // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free. A RETRY IS CORRECTIVE, NEVER "TRY AGAIN" (Codex, 2026-08-23): the exact words a gate called unsupported are named back as removals, so the next attempt fixes the named defect instead of rediscovering it. The full reasons still follow, oldest first, so fixing one cannot quietly reintroduce another.
   const corrective = (): string => { const bad = [...new Set(lessons.filter((l) => /copy says|drops/.test(l)).flatMap((l) => [...l.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]!)))];
-    return [bad.length > 0 ? `REMOVE these exact words from your copy, or reword the sentence so a claim you declare carries them and cites the stored passage proving them: ${bad.map((w) => `"${w}"`).join(", ")}. Use the evidence's own word for any category (phrase, not idiom, unless a cited passage says idiom).` : "",
+    return [bad.length > 0 ? `REMOVE these exact words from your copy, or reword the sentence so a claim you declare carries them and cites the stored passage proving them: ${bad.map((w) => `"${w}"`).join(", ")}. For any category word, use the exact category the cited evidence establishes, or omit the category.` : "",
       `${lessons.length} previous ${lessons.length === 1 ? "attempt was" : "attempts were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`].filter(Boolean).join(" "); };
   for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1)
     deliverable = await runEditor(packet, field, card.pageLabel, [...hints, corrective()],
@@ -512,6 +508,10 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     } else {
       const a = await (opts.reviewer ?? adversaryReview(opts.tenantId, opts.now))(deliverable, packet).catch(() => null);
       const blocked = !a || Object.entries(a).some(([k, v]) => k !== "notes" && v !== true);
+      // THE REVIEWER'S NOTE IS FED BACK ONCE (Codex, 2026-08-23). The reviewer demands usefulness AFTER every drafting retry was spent, so the writer never heard the one requirement that kept refusing it ("accurate, but merely restates the page", live 02:00Z). A real note now buys exactly one corrective redraft through the same gates and the same budget; a second refusal stands.
+      if (blocked && a?.notes && reviewerNote == null) {
+        const again = await draftBlock(card, page, body, opts, kind, `The final reviewer read your last version and refused it for exactly this reason: "${a.notes}". Correct that one defect. Keep every fact grounded exactly as before, and change nothing else.`).catch(() => null);
+        if (again) return again; }
       if (blocked) {
         deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, `The final reviewer refused to promote this: ${a?.notes ?? "the review could not be read"}`];
         log.info("[drafted-copy] the final reviewer blocked promotion", { tenantId: opts.tenantId, path: card.pagePath, notes: a?.notes ?? null });
