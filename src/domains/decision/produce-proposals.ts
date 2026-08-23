@@ -225,8 +225,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       if (c.diagnosis && c.query) diagnosisByKey.set(`${k}::${canonicalQueryKey(c.query)}`, c.diagnosis);
     } }
   /** Stamp the basis, the ranking scalar, the cause the ladder named, and confidence by evidence completeness, whichever producer built it. Never invents a figure. */
-  const stamp = (p: ChangeProposal): ChangeProposal => {
-    const key = (p.pageUrl ?? "").trim().toLowerCase(), pathKey = (p.pagePath ?? "").trim().toLowerCase();
+  const stamp = (p: ChangeProposal): ChangeProposal => { const key = (p.pageUrl ?? "").trim().toLowerCase(), pathKey = (p.pagePath ?? "").trim().toLowerCase();
     const recoverable = recoverableByKey.get(key) ?? recoverableByKey.get(pathKey);
     const qk = canonicalQueryKey(p.primaryQuery); // only the readiness measured for THIS proposal's own search may set its confidence
     const readiness = readinessByKey.get(`${key}::${qk}`) ?? readinessByKey.get(`${pathKey}::${qk}`);
@@ -240,8 +239,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** RECOVERY BEFORE DISCOVERY: a page that lost real clicks while its ranking held is worth what it LOST. The lost figure never lowers a proven one, and only a card that could actually win those clicks back may claim it: a duplicate heading or an engine follow-up on a page that shed 191 clicks was inheriting all 191 as its own worth and outranking the rewrite that might really recover them. A bundle qualifies outright (it rewrites the page); a single edit only in a family whose words a searcher reads. */
   const RECOVERS_A_FALL = new Set(["title", "h1", "answer_block", "thin_page", "missing_description"]);
   const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
-  const recovered = (p: ChangeProposal): ChangeProposal => {
-    // AN ACCURACY DEFECT NEVER INHERITS A FALL: handed the page's lost clicks, a card about statements contradicting their own sources arrived claiming 192 clicks nothing tied it to (the merge of two separate truths the operator forbade, 2026-08-17). A cause that claims no clicks by construction is left alone.
+  const recovered = (p: ChangeProposal): ChangeProposal => { // AN ACCURACY DEFECT NEVER INHERITS A FALL: handed the page's lost clicks, a card about statements contradicting their own sources arrived claiming 192 clicks nothing tied it to (the merge of two separate truths the operator forbade, 2026-08-17). A cause that claims no clicks by construction is left alone.
     if ((p.causeFinding?.cause ?? p.diagnosisCause) === "factual_error") return p;
     if (!p.bundle && !RECOVERS_A_FALL.has(p.changeFamily)) return p;
     const lost = lostByKey.get((p.pageUrl ?? "").trim().toLowerCase()) ?? lostByKey.get((p.pagePath ?? "").trim().toLowerCase()) ?? 0;
@@ -272,8 +270,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const live = held.filter((p) => !retired.has(p.id));
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
-  const persistIfChanged = async (input: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => {
-    if (!persist) return "not_persisted";
+  const persistIfChanged = async (input: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => { if (!persist) return "not_persisted";
     // THE "NOT YET" NOTE GOES ON BEFORE THE ROW IS WRITTEN, never after it. Added once the row was already stored, the next pass re-minted the card WITHOUT the note, saved it because it differed from the stored one, then appended the note and saved again: two writes a pass, for ever, on a card nobody had touched. A refresh re-pays nothing only if it also re-writes nothing.
     const note = input.researchOnly === true && !input.bundle ? pageKeys(input.pageUrl).map((k) => blocked.get(k)).find(Boolean) : null;
     const notYet = note ? `Not yet, because ${note.reason}` : "";
@@ -313,6 +310,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
   const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row settled it; one that FAILED or HELD it settled nothing
     persisted_.set(key, r); // the STORE'S OWN ANSWER, on the receipt: "produced" is a claim, "saved" is what happened
+    // AND WHAT LANDED IS RE-READ FROM THE MAP THE STORE ANSWERED INTO (Codex, 2026-08-23): a live pass filed `produced` with the store answering "saved" while the stored row still carried its brief, so the one number the operator reads never moved. Finished work is a row that is ready, is not research, and carries words.
+    const landed = existing.get(row.id); if (landed && (landed.researchOnly === true || landed.status !== "ready")) {
+      file(key, "retryable_blocked", true, `this work was written and the row on file is still ${landed.status === "ready" ? "research" : landed.status}, so nothing finished reached the queue`); return; }
     file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked", true,
       r === "refused" ? "the store refused this row: it does not pass the bar a change must clear to be offered" : r === "failed" ? "the store could not save this row" : undefined); };
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
@@ -320,8 +320,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE SPLITS THIS PASS ACTUALLY SETTLES, one card per group, strongest first. Computed BEFORE the boundary runs, because a page may only be refused a card for a split that some card here settles. */
   const ownership = ownershipCards({ ...wiring(), judged: candidates, queryKeyOf: canonicalQueryKey });
   /** THE AUTHORIZATION BOUNDARY, asked of every card an independent producer mints. A change whose lever cannot treat the winning diagnosis for its OWN page is not offered: adding copy to one of two pages splitting a search leaves them splitting it, and the ranking picking the biggest number is exactly how that card led. It is withheld with its reason on the run receipt and any row on file for it is taken back. A page with no material diagnosis authorizes everything, byte for byte as before. A BUNDLE IS NOT ASKED: it is produced BY the ladder and refuses itself when the producer does not match the cause. */
-  const admit = async (p: ChangeProposal): Promise<boolean> => {
-    const key = (p.pageUrl ?? "").trim().toLowerCase(), path = (p.pagePath ?? "").trim().toLowerCase(), cause = (judged.get(key) ?? judged.get(path))?.cause.cause;
+  const admit = async (p: ChangeProposal): Promise<boolean> => { const key = (p.pageUrl ?? "").trim().toLowerCase(), path = (p.pagePath ?? "").trim().toLowerCase(), cause = (judged.get(key) ?? judged.get(path))?.cause.cause;
     if (cause === "cannibalization" && !ownership.covered.has(key) && !ownership.covered.has(path)) return true; // NO CARD, NO REFUSAL: a split this pass does not settle may not silence the page it names.
     const no = withholdReason(p, cause); if (!no) return true;
     extraHeld.push({ pageUrl: p.pageUrl ?? p.pagePath ?? "", reason: no });
@@ -511,7 +510,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (!at.some((k) => coveredNow.has(k))) eligible.push(c); }
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
-  const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
+  // THE WRITER WALKS THE ORDER THE MONEY WAS COMMITTED IN (Codex, 2026-08-23). The manifest funds by expected site impact and this loop walked `rankProposals` instead, a different score, so a live pass funded /persian-female-first-names at 560 recoverable clicks and /iran-flags/iran-islamic-republic-flag-history at 317, then drafted a product page worth 0.04 until the time box closed and reported both of the others as never reached. Two rankings meant the strongest work could be funded and never be first. The funded order leads; anything unfunded keeps the ranker's own order behind it.
+  const fundedRank = new Map(budget.funded.map((f, i) => [f.key, i])), atRank = (p: ChangeProposal): number => fundedRank.get(DRAFT_BUDGET.keyOf(p)) ?? Number.MAX_SAFE_INTEGER;
+  const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p).sort((a, b) => atRank(a) - atRank(b));
   const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, unsettled: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again. A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);

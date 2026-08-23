@@ -236,7 +236,7 @@ export const defaultSteps: ResearchCycleSteps = {
     const count = (o: string) => out.paid.receipts.filter((r) => r.outcome === o).length;
     const metered = Number(out.paid.receipts.reduce((n, r) => n + (r.costUsd ?? 0), 0).toFixed(6));
     const delta = ledgerBefore != null && ledgerAfter != null ? Number((ledgerAfter - ledgerBefore).toFixed(6)) : -1;
-    const tally = { readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal"), blocked: count("retryable_blocked"), unreached: count("not_reached"),
+    const tally: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[]; receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } = { readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal"), blocked: count("retryable_blocked"), unreached: count("not_reached"),
       stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `: ${r.why}` : ""}`).slice(0, 5),
       receipts: out.paid.receipts as unknown[], // the COMPLETE per-page record, durable: logs are not the receipt
       // WHAT THE RECEIPTS EXPLAIN, AND WHAT IS LEFT OVER. `metered` is the DRAFTING money the per-page receipts
@@ -246,6 +246,14 @@ export const defaultSteps: ResearchCycleSteps = {
       // out loud rather than hiding it (Codex, 2026-08-23).
       ledger: ledgerBefore != null && ledgerAfter != null
         ? { before: ledgerBefore, after: ledgerAfter, delta, metered, unexplained: Number((delta - metered).toFixed(6)), reconciled: delta + 0.005 >= metered } : undefined };
+    // FINISHED WORK THAT DID NOT ARRIVE IS NOT FINISHED WORK (Codex, 2026-08-23). A live pass reported one page
+    // `produced` with the store answering "saved", and the Ready count did not move: the receipt and the queue
+    // disagreed, and only the receipt was read. When they disagree the QUEUE is the authority and the run says so.
+    if (tally.readySaved > 0 && after <= before) {
+      const claimed = out.paid.receipts.filter((r) => r.outcome === "produced").map((r) => r.key);
+      log.error("[research-run] a page reported finished work that the queue cannot see", { tenantId, claimed, before, after });
+      tally.stuck = [...claimed.map((k) => `${k}:produced_but_absent: the store accepted this work and the ready queue does not carry it`), ...tally.stuck].slice(0, 5);
+    }
     if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));
