@@ -37,12 +37,18 @@ const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string
   try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
 };
 
-/** WHAT ONE DELIVERABLE ACTUALLY COSTS, counted off the editor rather than assumed. One round is TWO charged calls,
- *  the draft and its judge, and the editor is built to feed a refusal back and try again (up to three more rounds).
- *  At three, the first retry's judge ran the allowance out and the card was refused with "this pass has spent its
- *  whole attempt budget": named in the live receipt of 2026-08-23 00:32Z, on /funny-farsi-phrases and /cities, which
- *  is what this number is now set from. Six buys the draft, its judge, and two full retries. */
-const PER_DELIVERABLE_CALLS = 6;
+/** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the
+ *  allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget"
+ *  (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is
+ *  DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may
+ *  make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before
+ *  it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
+const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2, FINAL_REVIEW_CALLS = 1;
+const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND + FINAL_REVIEW_CALLS;
+/** THE POLICY A SETTLEMENT WAS REACHED UNDER. A page written off because the OLD allowance ran out says nothing
+ *  about the new one, so this rides the day's fingerprint: change the policy and yesterday's answers under it stop
+ *  counting, on the same day, rather than skipping the very pages the change was made for. */
+const POLICY = `r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
 /** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls.
  *  Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and
  *  the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a
@@ -133,5 +139,5 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
 }
 
 /** THE MONEY SURFACE, as one export: the ceilings, the prices, the plan and the key every family agrees on. */
-export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS,
+export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS, RETRIES: EDITOR_RETRIES, POLICY,
   BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, plan, keyOf } as const;

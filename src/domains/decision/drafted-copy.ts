@@ -38,6 +38,7 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   budget?: DraftBudget;
   /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: { left: number };
   /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number;
+  /** THE FINAL ADVERSARIAL READ, as a seam. Production wires the real one; a test injects, because the branch that decides whether finished copy may wear Ready is exactly the branch that must be provable without buying a call. */ reviewer?: JudgeFn;
   /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>;
   /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void;
   /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> };
@@ -476,8 +477,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
   let deliverable = await runEditor(packet, field, card.pageLabel, hints,
     card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
-  // THREE fed-back attempts at most, each told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free.
-  for (let round = 0; !deliverable && lessons.length > round && round < 3; round += 1) {
+  // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free.
+  for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1) {
     deliverable = await runEditor(packet, field, card.pageLabel,
       [...hints, `${lessons.length} previous ${lessons.length === 1 ? "attempt" : "attempts"} at this exact deliverable ${lessons.length === 1 ? "was" : "were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`],
       card.estimatedEffortMinutes ?? 0, opts, refuse, false, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null);
@@ -494,13 +495,19 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (ready) {
     if (opts.attempts && (opts.attempts.left -= 1) < 0) {
       deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, "The final reviewer could not be afforded this pass, so this stays for a human look."];
+      // NOT A VERDICT ON THE COPY: the words may be perfect and nobody read them. It stays owed, with the reason on the receipt.
+      opts.unsettled?.add(DRAFT_BUDGET.keyOf(card));
+      opts.note?.(DRAFT_BUDGET.keyOf(card), "retryable_blocked", "the final reviewer could not be afforded this pass, so the copy was never read");
       ready = false;
     } else {
-      const a = await adversaryReview(opts.tenantId, opts.now)(deliverable, packet).catch(() => null);
+      const a = await (opts.reviewer ?? adversaryReview(opts.tenantId, opts.now))(deliverable, packet).catch(() => null);
       const blocked = !a || Object.entries(a).some(([k, v]) => k !== "notes" && v !== true);
       if (blocked) {
         deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, `The final reviewer refused to promote this: ${a?.notes ?? "the review could not be read"}`];
         log.info("[drafted-copy] the final reviewer blocked promotion", { tenantId: opts.tenantId, path: card.pagePath, notes: a?.notes ?? null });
+        // A REVIEW THAT READ THE COPY AND REFUSED IT IS SETTLED, in the reviewer's own words. A review nobody could READ settles nothing.
+        if (a) opts.note?.(DRAFT_BUDGET.keyOf(card), "deterministic_refusal", `the final reviewer refused to promote this: ${a.notes ?? "no note given"}`);
+        else { opts.unsettled?.add(DRAFT_BUDGET.keyOf(card)); opts.note?.(DRAFT_BUDGET.keyOf(card), "retryable_blocked", "the final review could not be read"); }
         ready = false;
       }
     }

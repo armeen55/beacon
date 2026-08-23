@@ -172,8 +172,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
     expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
-    reset(SEEN()); const seed = await run(counting().complete); // AND WORK ALREADY TAKEN BACK under this evidence says THAT instead, so the two are never confused
-    reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id));
+    reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
     expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
     const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
@@ -183,8 +182,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree, and the bundle's answer stands. A proposal with NO cause takes this pass's.
     reset(SEEN()); // A LANDED BUNDLE THAT BRINGS NO CAUSE OF ITS OWN. A page the deep door selected declares the whole-page rewrite and no shallow draft beside it (paying for the field edit that rewrite replaces funded one page twice), so the rewrite is the change this half is about.
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide" }) };
-    const plain = await run(counting().complete);
-    const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
+    const plain = await run(counting().complete); const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
     expect(plain.proposals.find((p) => p.id.endsWith("::bundle"))!.diagnosisCause).toBe(here); expect(here).not.toBe("weak_opening"); // the ladder here reaches a DIFFERENT cause: the whole fixture
     reset(SEEN());
     const own = { cause: "weak_opening" as const, action: null, evidenceKeys: ["demand-exact"], competingExplanations: [], notConsidered: [],
@@ -275,8 +273,7 @@ const briefSeam = (brief: unknown = BRIEF): { complete: CompleteFn; kinds: strin
   return { kinds, complete: async (r) => { kinds.push(r.kind); return inner(r); } }; };
 describe("a new page needs a positive yes, never just the absence of a no", () => {
   it("authorizes a topic the account's own confirmations or demand tie to, and refuses one nothing ties to", async () => {
-    const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage");
-    const world = snap([GAP], READY(), DEMAND);
+    const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage"); const world = snap([GAP], READY(), DEMAND);
     const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
     expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
     const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
@@ -454,8 +451,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
   it("never opens a second deep door on AI evidence: the comparison's own door holds, and the staged case path owns AEO (2026-08-19)", async () => {
     // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
     const noGaps = (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" });
-    const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps); expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
-    const deep = res.proposals.find((p) => p.bundle)!;
+    const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps); expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]); const deep = res.proposals.find((p) => p.bundle)!;
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true); // still never a reworded title
   });
   /** WHAT A REFUSAL COSTS AND WHAT IT SETTLES: the sentence reaches the operator's receipt, and a stored change whose claims stopped resolving is re-judged and TAKEN BACK rather than quietly kept on their list. */

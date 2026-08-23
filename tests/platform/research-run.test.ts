@@ -171,8 +171,7 @@ describe("research-run phase truth", () => { it("counts only synced sources as r
     const publish = withRun({ current_phase: "publish_surface" }); // fresh repo + seed
     await run({ ...BENIGN, surfaceStale: async () => true, publishSurface: async () => { throw new Error("surface build failed"); } }); expect([publish[0]!.status, publish[0]!.current_phase, publish[0]!.progress.surfacePublished === true, publish[0]!.completed_at]).toEqual(["paused", "publish_surface", false, null]); }); });
 describe("the canonical run order is the RUNTIME order", () => { it("walks fact_check ahead of every paid phase, so a type-union edit alone can never move it", async () => {
-    const { nextPhase } = await import("@/domains/runtime/research-run");
-    const walked: string[] = []; let p = "refresh_sources" as Parameters<typeof nextPhase>[0];
+    const { nextPhase } = await import("@/domains/runtime/research-run"); const walked: string[] = []; let p = "refresh_sources" as Parameters<typeof nextPhase>[0];
     for (let i = 0; i < 12 && p !== "done"; i += 1) { walked.push(p); p = nextPhase(p); }
     expect(walked).toEqual(["refresh_sources", "gsc_backfill_chunk", "crawl_pages", "fact_check", "keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages", "publish_surface"]);
     for (const paid of ["keyword_discovery", "prompt_observations", "serp_analysis", "winning_pages"]) expect(walked.indexOf("fact_check")).toBeLessThan(walked.indexOf(paid)); }); });
@@ -187,8 +186,7 @@ describe("a fact check that cannot finish withholds that correction, not Beacon"
     expect([rows[0]!.progress.factCheck?.failure, rows[0]!.progress.factsChecked, rows[0]!.status, rows[0]!.current_phase]).toEqual([failure, 0, "completed", "done"]);
     for (const growth of ["keyword_discovery", "prompt_observations", "serp_analysis", "publish"]) expect(ran).toContain(growth); });
   it("still STOPS the run when the failure means it can no longer safely write", async () => {
-    const rows = withRun({ current_phase: "fact_check" }); const touched: string[] = [];
-    await run({ ...held("store_write_failed"), surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
+    const rows = withRun({ current_phase: "fact_check" }); const touched: string[] = []; await run({ ...held("store_write_failed"), surfaceStale: async () => true, publishSurface: async () => void touched.push("publish") });
     expect([touched, rows[0]!.status, rows[0]!.current_phase, rows[0]!.completed_at, rows[0]!.progress.factCheck?.failure, rows[0]!.last_error?.phase]).toEqual([[], "paused", "fact_check", null, "store_write_failed", "fact_check"]);
     const ok = withRun({ current_phase: "fact_check" }); const published: string[] = []; // a banked claim advances normally
     await run({ ...BENIGN, factCheck: async () => ({ status: "advanced" as const, banked: 1, pagesComplete: 0 }), surfaceStale: async () => true, publishSurface: async () => void published.push("publish") });
@@ -260,8 +258,7 @@ describe("research-run idempotency identity", () => {
   /** PHASE 5A. A run may pause at ANY phase, and a paused run that lives past midnight used to keep the one open-run index against TODAY's cycle: the guard that closed a dead day sat on the observation phase alone, so a pass parked at keyword_discovery, serp_analysis, winning_pages, crawl_pages, gsc_backfill or publish_surface could pause its way across the date forever, and today never opened at all. */
   it.each(["keyword_discovery", "serp_analysis", "winning_pages", "crawl_pages", "gsc_backfill_chunk", "publish_surface"] as const)(
     "closes a run stranded past midnight at %s, keeps every piece of evidence it wrote, buys nothing for the dead day, and frees today", async (phase) => {
-      const rows = withRun({ current_phase: phase, progress: { sourcesRefreshed: 2, funnel: { answersAnalyzed: 7 } } });
-      const touched: string[] = [];
+      const rows = withRun({ current_phase: phase, progress: { sourcesRefreshed: 2, funnel: { answersAnalyzed: 7 } } }); const touched: string[] = [];
       const spy: Partial<ResearchCycleSteps> = { ...BENIGN,
         refreshSources: async () => (touched.push("refresh"), { attempted: 0, succeeded: [], failures: [] }),
         backfillChunk: async () => (touched.push("backfill"), { kind: "no_work" }), crawlPages: async () => (touched.push("crawl"), 3),
@@ -552,8 +549,7 @@ describe("reading a pre-existing account's own website", () => {
     CRAWL.state = "unreachable"; CRAWL.racer = null; expect([await crawl(), CRAWL.starts, CRAWL.batches]).toEqual([0, 1, 1]); }); // unreachable is persisted truth, not a reason to start over
   /** ONE SMALL BATCH A DAY IS NOT THE PRODUCT. An account holding two hundred pages nobody had opened waited months on one fifteen-page batch per pass. */
   it("keeps reading the website inside one pass until a batch reads nothing, then advances, and never loops on it forever", async () => {
-    const rows = withRun({ current_phase: "crawl_pages" }); let left = 2, batches = 0;
-    await run({ ...BENIGN, crawlPages: async () => (batches += 1, left > 0 ? (left -= 1, 15) : 0) });
+    const rows = withRun({ current_phase: "crawl_pages" }); let left = 2, batches = 0; await run({ ...BENIGN, crawlPages: async () => (batches += 1, left > 0 ? (left -= 1, 15) : 0) });
     expect([batches, rows[0]!.status, rows[0]!.current_phase]).toEqual([3, "completed", "done"]); // two full batches, then the one that proved nothing is left
     const endless = withRun({ current_phase: "crawl_pages" }); let forever = 0;
     await run({ ...BENIGN, crawlPages: async () => (forever += 1, 15) }); // a site that never runs out must still hand the pass back
@@ -585,8 +581,7 @@ describe("what a stored observation says it cost", () => {
     expect([second.status, w.wrote.at(-1)!.status, w.wrote.at(-1)!.cost_usd]).toEqual(["done", "observed", 0.0075]); // THE pin: free collection never overwrites what placement paid
     expect([w.posts(), new Set(w.wrote.map((r) => r.id)).size, w.reads()]).toEqual([1, 1, 0]); }); // no second paid post, one identity upserted, and no read it did not need
   it("keeps the paid placement ALREADY ON FILE for an identity posted before the pair carried its own cost, instead of writing a paid receipt down to zero", async () => {
-    const w = world(0.0075, 0.0075);
-    await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000); w.forget();
+    const w = world(0.0075, 0.0075); await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000); w.forget();
     const second = await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000);
     expect([second.status, w.wrote.at(-1)!.cost_usd, w.reads()]).toEqual(["done", 0.0075, 1]); }); // the pending row's own receipt survives the free collect
 });
@@ -686,8 +681,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     const rows = completedToday(); const one = await RR.startExtraPass(T, "tab-1", today()); const two = await RR.startExtraPass(T, "tab-2", today()); // the first pass is still open
     expect([one?.lease_owner, two, rows.length]).toEqual(["tab-1", null, 2]); });
   it("marks the case a spending ceiling stopped, day-scoped on the run's own row, and the receipt reads it", async () => {
-    const rows = withRun({ current_phase: "keyword_discovery" });
-    await run({ funnelUnit: async () => ({ status: "failed", cursor: { stage: "competitors", cappedCase: "inv_haft" }, progress: {}, detail: "the ceiling was reached" }) });
+    const rows = withRun({ current_phase: "keyword_discovery" }); await run({ funnelUnit: async () => ({ status: "failed", cursor: { stage: "competitors", cappedCase: "inv_haft" }, progress: {}, detail: "the ceiling was reached" }) });
     expect(rows[0]!.progress.capped).toEqual({ day: today(), caseIds: ["inv_haft"] });
     const snapshot = { scope: { builtAt: iso() }, ownedPages: [], research: { cases: [{ id: "inv_haft", anchors: ["haft seen"] }],
       retainedKeywords: [], serpEvidence: [], aiObservations: [], pageComparisons: [], winningPages: [], caseCompetitors: [], receipt: { spentUsd: 0, cached: 0 } } } as unknown as EvidenceSnapshot;
@@ -918,8 +912,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     await run({ ...healthySteps(order),
       replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
-    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0);
-    expect(firstBuy).toBeGreaterThan(replenishAt);
+    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0); expect(firstBuy).toBeGreaterThan(replenishAt);
     expect(order.filter((x) => x === "replenish")).toHaveLength(1);
   });
   // ONCE PER DAY, DURABLY, AND ONLY ON PROVEN SUCCESS (operator, 2026-08-22): the marker rides run progress, so a resumed run never pays twice for a day that really was topped up. ONLY A PROVEN EXHAUSTION HOLDS A DAY SHUT. A day that closed because it REACHED the target says nothing an hour later, once the operator implements one of the five: the LIVE count is the authority, and a drive over a stock still at target costs nothing anyway (Codex, 2026-08-22).
@@ -942,8 +935,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     // GROWTH THAT STOPS SHORT IS NOT A REPLENISHED DAY EITHER (Codex, 2026-08-22): a drive that added two of the five owed used to stamp the day and lock the other three out until tomorrow. AND A BOUNDED BATCH THAT CAME UP EMPTY IS NOT AN EXHAUSTED ONE (Codex, 2026-08-22): two candidates failing proves nothing about the third, so `retryable_blocked` leaves the day open exactly like a quota failure does.
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
-      const rows = withRun({ current_phase: "keyword_discovery" });
-      await run({ ...healthySteps([]), replenishReady: async () => answer });
+      const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer });
       expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
     }
   });
@@ -971,11 +963,16 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.out = [{ key: "/g", outcome: "deterministic_refusal", why: "the closing line tells the reader to read the page" }, { key: "pattern:x", outcome: "evidence_banked" }];
       const last = await live.replenishReady(T, new Date(NOW), mem);
       expect([last!.outcomes!.readySaved, last!.outcomes!.evidenceBanked, last!.outcomes!.refused, last!.outcomes!.stuck.join(" ").includes("the closing line tells the reader to read the page")]).toEqual([0, 1, 1, true]);
+      // 7. AND A DRAFTING-POLICY CHANGE REOPENS WHAT THE OLD POLICY SETTLED, the same day: a page written off because the old allowance ran out mid-deliverable says nothing about the new one, so it is asked again rather than skipped.
+      const { DRAFT_BUDGET } = await import("@/domains/decision/draft-budget"); expect(last!.fingerprint).toContain(`::p${DRAFT_BUDGET.POLICY}::`);
+      const stale = { fingerprint: last!.fingerprint.replace(`::p${DRAFT_BUDGET.POLICY}::`, "::pr0c3::"), attempted: ["/g"] };
+      M.ready = 0; M.declared = ["/g"]; M.out = [{ key: "/g", outcome: "produced" }];
+      const reopened = await live.replenishReady(T, new Date(NOW), stale);
+      expect([reopened!.ready, reopened!.reason]).toEqual([1, "made_progress"]); // /g was settled under the OLD policy and is funded again under the new one
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
   });
   it("stamps the day only once the step PROVED the stock at target", async () => {
-    const rows = withRun({ current_phase: "keyword_discovery" });
-    await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
+    const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
     expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "target_reached"]);
   });
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */

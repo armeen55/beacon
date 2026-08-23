@@ -31,6 +31,7 @@ import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
 import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, type DuePhase, type DueWork } from "./due-work";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { ResearchPhase } from "../research-run";
 
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
@@ -186,7 +187,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // evidence rule was dead on arrival. Seen live in the 22:00Z memory on 2026-08-22, before it had cost anything.
     const acct = await accountBasis(tenantId).catch(() => null);
     const version = acct ? await evidenceRowVersion(tenantId, acct).catch(() => null) : null;
-    const stamp = `${acct ?? ""}::v${version ?? ""}`;
+    // THE DRAFTING POLICY IS PART OF THE QUESTION TOO. A page written off because the OLD allowance ran out mid-deliverable says nothing about the new one, so a policy change reopens those settlements the same day rather than skipping the very pages it was made for.
+    const stamp = `${acct ?? ""}::v${version ?? ""}::p${DRAFT_BUDGET.POLICY}`;
     const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => q.ready.length).catch(() => null);
     const before = await read();
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.

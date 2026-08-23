@@ -551,6 +551,22 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add 200 to 300 words that answer its main question." } }) });
     const out = await applyDraftedCopy([card("/persian-last-names"), card("/thin-guide")], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, attempts: { left: 0 } });
     expect([out[0]!.researchOnly, out[0]!.limitations.length, out[1]!.limitations.length]).toEqual([true, 0, 1]); }); // The unread page's card comes back UNTOUCHED, still research: not drafted, not decorated, not promoted.
+  /** THE PRICE AND THE LOOP ARE ONE CONTRACT, AND THE FINAL REVIEWER IS PART OF THE PRICE (Codex, 2026-08-23). A deliverable is a draft and its judge, twice more if refused, and ONE mandatory adversarial read of the survivor: three rounds of two, plus one. At six it could win on the second retry and then be unable to afford the review that promotes it, and hold the change again with nothing on the receipt to say why. */
+  it("prices a deliverable at exactly what its rounds and its final review cost, and never lets the two drift apart", () => {
+    expect([DRAFT_BUDGET.DELIVERABLE_CALLS, (1 + DRAFT_BUDGET.RETRIES) * 2 + 1]).toEqual([7, 7]);
+    expect(DRAFT_BUDGET.POLICY).toBe(`r${DRAFT_BUDGET.RETRIES}c${DRAFT_BUDGET.DELIVERABLE_CALLS}`); }); // and the policy the day's memory is keyed on moves with them, so a page written off under the old price is asked again under the new one
+  /** AN EDITOR REFUSAL IS NEVER MUTE, AND THE TWO KINDS ARE OPPOSITE FACTS (Codex, 2026-08-23). Beacon running out of its OWN allowance part-way through a deliverable settles nothing: the copy may be perfect and nobody finished reading it, so the page stays owed. One of Beacon's own gates reading the words and refusing them IS settled, in that gate's sentence. Filing both as a reasonless "blocked" wrote pages off for a whole day over Beacon's accounting, and told nobody which had happened. */
+  it("says why an editor refusal happened: running out of its own allowance stays owed, a gate that read the copy is settled and quotes itself", async () => {
+    const page = { url: "https://www.iranopedia.com/nowruz", content: { wordCount: 800, title: "Nowruz", h1: "Nowruz", outline: [] }, search: null };
+    const snapshot = { ownedPages: [page], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+    const card = () => prop({ id: `${TENANT}::/nowruz::existing_edit::missing_description`, pagePath: "/nowruz", pageUrl: page.url, changeFamily: "meta", status: "needs_review" as const,
+      researchOnly: true as const, limitations: [], recommendedChange: { kind: "existing_edit" as const, field: "meta" as const, before: null, after: "Write a description of about 150 characters." } });
+    const meta: CompleteFn = async () => ({ value: { field: "meta", before: null, after: "Nowruz is the Persian new year, marked at the spring equinox.", rationale: "The page carries no description.", ...TAIL } }), notes: Array<[string, string, string]> = []; const purse = (calls: number) => DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf({ pagePath: "/nowruz" }), family: "editor", impact: 9, calls }], candidates: 1, calls });
+    const run = (calls: number) => applyDraftedCopy([card()], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, complete: meta, budget: purse(calls), unsettled: new Set<string>(),
+      refusals: new Map<string, string>(), note: (k: string, o: string, why?: string) => { notes.push([k, o, why ?? ""]); } } as never);
+    await run(2); await run(DRAFT_BUDGET.DELIVERABLE_CALLS); // a round's worth and no more, then a whole deliverable's worth so the gates get to read the copy and refuse it
+    const ranOut = notes.find(([, , why]) => why.includes("spent its whole attempt budget")), gate = notes.find(([, , why]) => why !== "" && !why.includes("attempt budget"));
+    expect([ranOut?.[1] ?? "none", gate?.[1], (gate?.[2] ?? "").length > 0]).toEqual(["retryable_blocked", "deterministic_refusal", true]); }); // Beacon's own accounting is not a verdict on the words; a gate that READ them is settled and says what it saw
   // THE THREE CARDS WITHDRAWN FROM A PAYING OPERATOR'S LIVE QUEUE ON 2026-08-14, as fixtures. Each was written by the model, passed every gate INCLUDING the live judge on all seven of its criteria, and reached the customer surface. Each is now refused DETERMINISTICALLY, by name, before any model is consulted. The judge is defence in depth behind these, never the thing they rest on.
   it("the cards that reached a customer are refused before a model is asked", () => { const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms, demand: { preserve: [], vocabulary: [] } });
     const d = (o: Record<string, unknown>) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "answer_block", naturalHeading: "A human heading", beforeText: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 30, measurementTarget: "citations", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], ...o } as never, (o.P as never) ?? pk(""));
@@ -595,8 +611,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
       limitations: ["The exact description lands on the next pass; it is still owed, and this card is what is owed. No action needed from you until it does."] });
-    const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 });
-    const ranked = rankProposals([owed, finished]); expect(ranked.map((p) => p.id)).toEqual(["owed", "finished"]);
+    const finished = prop({ id: "finished", pagePath: "/small", impactScore: 100 }); const ranked = rankProposals([owed, finished]); expect(ranked.map((p) => p.id)).toEqual(["owed", "finished"]);
     // No diagnosed cause on the owed card: its 2,000-click figure rides the MEASURED-SHORTFALL band (half the proven reach), never "proven recoverable". 60 × 0.595 = 35.7; the order still holds.
     expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[0]!, "readiness"), factorOf(ranked[1]!, "readiness")]).toEqual([35.7, 0, 0]);
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at 60 percent because the copy is still owed and confidence is medium");
@@ -607,8 +622,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const safe = prop({ id: "safe", impactScore: 300, pagePath: "/quiet", bundle: bundleOf([comp({ kind: "title" })]) });
     const risky = prop({ id: "risky", impactScore: 300, pagePath: "/merge", status: "needs_review",
       bundle: bundleOf([comp({ kind: "consolidation", risk: "dangerous", after: "Fold this page into the sizing guide." })]) });
-    const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) });
-    const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
+    const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) }); const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
     // A DANGEROUS CHANGE IS DISCOUNTED, NOT SUNK, and being held for a look is no longer a score at all: what separates these three is what each costs (a risky lever, -18) and what each would ruin (-30, a second change on a page being read). Whether the risky one may be pasted is settled off this file.
     expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
     const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
@@ -684,8 +698,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
 
   // BANKED WORDS ARE RE-READ BEFORE THEY ARE SERVED AGAIN. Preserving finished copy on an unchanged identity skipped every gate it was written under, so a stored ready card outlived both the rules that would refuse it and its own evidence: identity says the page and the argument have not moved, and says nothing about whether the words still stand. The re-read is $0, buys no judging and no fresh reading, and REFUSES rather than repairs: a card it will not preserve goes back through the normal drafting path. What it is not holding it skips, so a page nobody could read this pass costs no copy at all.
   it("will not preserve banked copy today's rules would refuse, or copy whose support moved underneath it", () => {
-    const SHIP = "International shipping is available worldwide, with delivery usually between 7-21 business days depending on location.";
-    const CREDIT = "Every order earns store credit toward the next pair at the Tehran studio.";
+    const SHIP = "International shipping is available worldwide, with delivery usually between 7-21 business days depending on location."; const CREDIT = "Every order earns store credit toward the next pair at the Tehran studio.";
     const GOOD = "International shipping worldwide, with delivery usually between 7-21 business days, and every order earns store credit toward the next pair.";
     const banked = prop({ status: "ready", changeFamily: "missing_description", pagePath: "/shoes", pageUrl: "https://fixture-content.example/shoes",
       claims: [{ text: "International shipping worldwide takes 7-21 business days", supportedBy: ["card-1"] }, { text: "Every order earns store credit toward the next pair", supportedBy: ["card-2"] }],
@@ -728,8 +741,7 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
   it("puts a question asked every day for a week above one asked once with ten times the rows", () => {
     const recurring = aiProp("recurring", { answers: 5, citedRivals: 3, days: 7, engines: 4, stage: "owned_retrieved_not_cited" });
     const burst = aiProp("burst", { answers: 50, citedRivals: 3 }); // fifty rows, no recurrence on file
-    const ranked = rankProposals([burst, recurring]); expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]);
-    const receipt = ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
+    const ranked = rankProposals([burst, recurring]); expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]); const receipt = ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
     expect(receipt.input).toContain("asked on 7 days across 4 assistants"); // the receipt says the same thing the score used
     expect(receipt.input).toContain("while this page is already read and passed over");
   });
@@ -795,8 +807,8 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });
   it("does not let one expensive bundle silently starve several higher-value small changes", () => {
     expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/a", "/b", "/c", "/d", "/bundle"]); // 4 x 6 + 12 fits in forty, so everything is bought, cheapest-per-click first
-    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 25 }); // and when it does not fit, the finishable changes are bought and the bundle says why it was not
-    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/a", "/b", "/c", "/d"], ["this needs 12 charged calls and 1 were left"]]);
+    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 33 }); // and when it does not fit, the finishable changes are bought and the bundle says why it was not
+    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/a", "/b", "/c", "/d"], ["this needs 12 charged calls and 5 were left"]]);
   });
   it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
     .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));
