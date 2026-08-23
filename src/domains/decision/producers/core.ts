@@ -267,7 +267,13 @@ const rankingLoss: Producer = async (ctx) => {
         : "The pages above this one do not agree on opening by answering the search, so its opening is not what cost it the position." });
   // 6. NOTHING THE EVIDENCE CAN PICK BETWEEN. Name the ONE read that settles it and hand over nothing else.
   const unread = (ctx.ahead ?? []).find((a) => !a.wordCount);
-  return { components: [], considered, refusal: unread
+  // THE REQUIREMENT IS DECIDED HERE, WHERE THE MISSING READING IS KNOWN, and never inferred from the sentence below.
+  const requirement = unread
+    ? { kind: "competitor_page" as const, query: ctx.primary, url: unread.url, reasonCode: "winner_unread", resumeTreatment: "deep_bundle" }
+    : (ctx.ahead ?? []).length === 0
+      ? { kind: "serp" as const, query: ctx.primary, reasonCode: "no_exact_serp", resumeTreatment: "deep_bundle" }
+      : undefined;
+  return { components: [], considered, ...(requirement ? { requirement } : {}), refusal: unread
     ? `${unread.domain} sits at position ${unread.rank} for "${ctx.primary}", above this page, and none of its words are on file, so what it does that this page does not cannot be named. Read ${unread.url} and the exact change lands here.`
     : (ctx.ahead ?? []).length === 0
       ? `No results page for "${ctx.primary}" is on file, so which pages moved ahead of this one is not readable. Read the results page for that search and the exact change lands here.`

@@ -26,6 +26,7 @@ const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole allowance, already multiplied out. */
 type PaidJob = { key: string; family: string; impact: number; calls: number; treatment?: string;
+  /** THE IDENTITY OF THIS WORK, declared here with the job and read by everything downstream, so nothing recomputes a second one that cannot match the first (Codex, 2026-08-23). */ workKey?: string;
   /** WHY THIS JOB CANNOT BE DONE THIS PASS, in the caller's own words, decided from what was already on file
    *  BEFORE any funding (Codex, 2026-08-23). A page already under measurement, work the operator took back, a
    *  stored row that still stands and a card the authorization boundary will refuse are all knowable here, and
@@ -100,7 +101,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** EVERY candidate this pass COULD WORK ON, funded or not, best first. It is what says whether a manifest is FINISHED: a pass that funded two of nine has seven candidates left, and calling that exhausted is how a day closed on two failures (Codex, 2026-08-22). A BLOCKED job is not on it (Codex, 2026-08-23): it can never be funded, so it can never settle, and leaving it here made "every declared candidate is settled" unreachable for any account with one page under measurement, which held the day open and re-drove it on every visit. Blocked work is named in `declined`, with its reason. */
     declared: ranked.filter((j) => !j.blocked).map((j) => j.key),
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
-    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [], ...(j.treatment ? { treatment: j.treatment } : {}) })),
+    funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [], ...(j.treatment ? { treatment: j.treatment } : {}), ...(j.workKey ? { workKey: j.workKey } : {}) })),
     declined: declined as readonly DeclinedJob[],
     /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
     take(key: string) {

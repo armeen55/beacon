@@ -94,6 +94,10 @@ function evidenceFingerprint(p: ChangeProposal): string {
 export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
+    // THE IDENTITY OF THE WORK IS MATERIAL (Codex, 2026-08-23): without it here, a row that gained or changed its
+    // workKey hashed identically to the one on file and the store answered "unchanged", so the key never persisted
+    // and reuse could never match anything. Conditional, so a row minted before the key existed is never churned.
+    ...(p.workKey ? { workKey: p.workKey } : {}),
     change: p.recommendedChange, limitations: p.limitations, cause: p.causeFinding ?? null,
     // EVERY MATERIAL FIELD OF A PIECE, so a piece cannot change what it MEANS without a new identity. Kind, words, evidence and risk alone left the page it lands on, the place on that page, what it is for and why it works out of the hash: a four-address differentiation could drop an address, move a component from one page to another, or re-aim the whole change, and compute "unchanged" against the row it replaced.
     components: (p.bundle?.components ?? []).map((c) => [c.kind, c.page ?? null, c.where ?? null, c.before, c.after,

@@ -19,7 +19,9 @@ import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel
 import { biggerSearchesLine } from "./suggested-edits"; import { observationJoinsCase } from "./membership"; import { splitComparison } from "./split"; import { actionFamilyOf } from "./proposal-store"; import { draftFieldForPage } from "./drafted-copy";
 
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
-type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[] };
+type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[];
+  /** The exact reading this cause cannot be treated without, typed by the producer that discovered it. */
+  requirement?: { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; resumeTreatment: string } };
 
 type Research = EvidenceSnapshot["research"];
 type Observation = Research["aiObservations"][number];
@@ -420,7 +422,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
         [finding.cause, ...finding.competingExplanations.filter((c) => c.fired === true).map((c) => c.cause)]);
       for (const c of rebuild.components) keep(c, { kind: "existing_edit", field: fieldForComponent(c.kind), before: c.before, after: c.after });
     }
-    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.considered?.length ? { considered: produced.considered } : {}) };
+    if (components.length === 0) return { status: "none", reason: produced.refusal ?? finding.explanation, ...(produced.requirement ? { requirement: produced.requirement } : {}), ...(produced.considered?.length ? { considered: produced.considered } : {}) };
   }
 
   // A REASON MUST BE TRUE OF THE CARD IT SITS ON: this said the body text was not on file on a card quoting six headings off that very body, so the smaller lever read as a missing read.

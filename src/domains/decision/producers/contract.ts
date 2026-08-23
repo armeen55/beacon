@@ -89,6 +89,8 @@ export type ProducerCtx = {
 /** What one producer hands back: components that survive the caller's own gates, or one honest sentence
  *  saying why it wrote nothing. Both empty is impossible by construction: no components means a refusal. */
 export type Produced = { components: BundleComponent[]; refusal: string | null;
+  /** THE EXACT READING THIS CAUSE CANNOT BE TREATED WITHOUT, as data (Codex, 2026-08-23). The refusal sentence beside it is for a person; this is for the runtime, which used to recognise "No results page for X is on file" with a regex and therefore never fetched the one thing that would finish the account's strongest page. `kind` says what to buy, `query` or `url` says exactly which one, and `resumeTreatment` says what runs again once it lands. */
+  requirement?: { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; resumeTreatment: string };
   /** ONE VERDICT PER PAGE THE FINDING NAMED, stamped before any drafting so an address cannot leave the change
    *  by simply failing to appear in `components`. Carried onto the bundle, where completeness reads it. */
   dispositions?: ChangeBundle["dispositions"];

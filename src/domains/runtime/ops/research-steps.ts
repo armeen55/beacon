@@ -61,6 +61,10 @@ export type ResearchCycleSteps = {
   funnelUnit: (phase: ResearchPhase, tenantId: string, cursor: Record<string, unknown> | null, budgetMs: number, focus: ResearchFocus | null) => Promise<FunnelUnitOutcome>;
   /** THIS run's investigation, asked for ONCE (Runtime asks Decision, Evidence gets strings and pages). */
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
+  /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
+   *  investigation, which picks its own topic: THIS search, named by the producer that could not proceed without it.
+   *  Returns whether the reading landed, so an unfulfilled requirement stays owed with its own receipt. */
+  acquireEvidence: (tenantId: string, need: { kind: string; query: string; url?: string }, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory
@@ -104,7 +108,7 @@ export type ResearchCycleSteps = {
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
-    /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly { key: string; kind: string; query: string; reason: string; resume: string }[];
+    /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[];
     /** Pages this day spent real calls on that came back transiently blocked: owed, but ranked behind work nobody has tried, so one stubborn candidate cannot re-consume every drive. */ tried?: string[];
     /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
@@ -199,7 +203,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
     const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
-      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly { key: string; kind: string; query: string; reason: string; resume: string }[]) =>
+      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[]) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
     const deficit = Math.max(0, READY_STOCK_TARGET - before);
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
@@ -327,6 +331,14 @@ export const defaultSteps: ResearchCycleSteps = {
   // answer through the funnel's own save path, and FAILS CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
+  // THE ONE ACQUISITION TRANSPORT THE FUNNEL ALREADY USES, pointed at one search instead of a chosen topic.
+  async acquireEvidence(tenantId, need, budgetMs) {
+    if (need.kind !== "serp" || !need.query.trim()) return { acquired: false, detail: `nothing here can buy a ${need.kind}` };
+    const out = await serpAnalysisUnit({}, [need.query])(tenantId, null, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+    const done = (out as { status?: string }).status === "done";
+    log.info("[research-run] the exact reading a refused candidate named", { tenantId, query: need.query, status: (out as { status?: string }).status });
+    return { acquired: done, detail: `results page for "${need.query}": ${(out as { status?: string }).status ?? "unknown"}` };
+  },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
     // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the caller, never re-picked here: landing a results page closes that search, so a second, independent
     // lookup handed winning-pages a different three than the ones just paid for. The page COMPARISON rides the same phase that reads those winners, because the winners ARE the page set, but as its SECOND stage, so a real lease renewal sits in front of

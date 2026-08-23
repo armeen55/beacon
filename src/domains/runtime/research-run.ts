@@ -80,6 +80,8 @@ export type ResearchRunProgress = {
 
   };
   /** THE DAY'S READY-INVENTORY WORK, day-scoped like the other day memories here. `fingerprint` names the manifest it was working through (a different basis or candidate set is a different question and starts again), `attempted` is the pages already spent on under it, and `closed` is set ONLY by an answer that may end the obligation: the stock reached the target, or every candidate on that manifest was spent on and none produced. A quota failure, a transient failure or an unreadable read leaves it absent, so the work is owed again the moment the block lifts. */
+  /** THE EXACT READINGS FUNDED CANDIDATES ARE WAITING ON, typed and durable: an unfulfilled one stays owed here with its own receipt and is never called settled (Codex, 2026-08-23). */
+  evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[];
   replenish?: { day: string; fingerprint: string; attempted: string[]; tried?: string[]; closed?: "target_reached" | "candidates_exhausted";
     /** What became of the funded work on the last drive, so a cycle that funded five and settled one can be READ rather than guessed at. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];

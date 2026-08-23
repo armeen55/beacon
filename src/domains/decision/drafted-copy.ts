@@ -156,8 +156,9 @@ const CARRIER = new Set(["include", "includes", "including", "cover", "covers", 
 /** THE NAMES A PIECE OF COPY ASSERTS that nothing on file has ever mentioned. A fabricated fact wears a capital letter (Cyrus the Great, Ferdowsi, Topoli) and a word carrying none is prose rather than a claim about the world, so this leaves it alone. A word opening a sentence is capitalised by grammar and never counted, and neither is one the corpus already carries. */
 const unheldNames = (corpus: string, copy: string): string[] => {
   const held = flat(corpus.replace(/([a-z])([A-Z])/g, "$1 $2")), seen = new Set<string>(), out: string[] = [];
-  for (const line of copy.replace(/([a-z])([A-Z])/g, "$1 $2").split(/(?<=[.!?:;\n])\s+|\n+/)) {
-    const w = line.trim().split(/\s+/).filter(Boolean);
+  // A CLAUSE, NOT A SENTENCE (Codex, 2026-08-23): a capital letter after a bullet, a dash or a comma is grammar, not a name, and production blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item. The first word of any clause is skipped, and leading bullets and dashes are stripped before that word is found.
+  for (const clause of copy.replace(/([a-z])([A-Z])/g, "$1 $2").split(/(?<=[.!?:;,])\s+|\n+|\s+[-\u2013\u2014\u2022]\s+/)) {
+    const w = clause.trim().replace(/^[^A-Za-z]+/, "").split(/\s+/).filter(Boolean);
     for (let i = 1; i < w.length; i += 1) { const raw = w[i]!.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), key = raw.toLowerCase();
       if (/^[A-Z][a-z]{2,}$/.test(raw) && !CARRIER.has(key) && !seen.has(key) && !held.includes(key)) { seen.add(key); out.push(raw); } } }
   return out;
@@ -202,8 +203,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (d.actionType === "title" || d.actionType === "h1") {
       // PLAIN WORDS, NEVER TOPIC TOKENS. The destruction class lives exactly in the words a relevance tokenizer calls generic: "list" is noise to a topic gate and load-bearing on a page whose paid searches read "persian boy names list". A preserved search is compared as the searcher spelled it.
       const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-      const earning = new Set(p.demand.preserve.flatMap(wordsOf));
-      const after = new Set(wordsOf(d.finalCopy));
+      const earning = new Set(p.demand.preserve.flatMap(wordsOf)); const after = new Set(wordsOf(d.finalCopy));
       const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t));
       if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
       const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))]; // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.

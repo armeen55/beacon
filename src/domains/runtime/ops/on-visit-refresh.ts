@@ -259,7 +259,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       if (shortStock && r != null && r.reason !== "target_reached" && !owedFacts) {
         log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
-      if (owedFacts) log.info("[research-run] a funded candidate named the exact reading it needs, so this dispatch goes on to fetch it", { tenantId, phase, owed: (r?.evidenceOwed ?? []).slice(0, 3) });
+      // AND THE DISPATCH GOES AND GETS IT (Codex, 2026-08-23). Storing the requirement, logging it and checking it as a boolean is not acquisition: the reading was never bought, so the next drive drafted from the same missing evidence. The exact search a funded candidate named is fetched HERE, through the transport the funnel already uses, whatever phase set this dispatch opened with. A reading that lands leaves the work resumable; one that does not stays owed with its own receipt and is never called settled.
+      for (const need of (r?.evidenceOwed ?? []).slice(0, 2)) {
+        const got = await steps.acquireEvidence(tenantId, need, Math.max(20_000, Math.min(90_000, deadline - nowFn().getTime() - STOP_STARTING_MS))).catch(() => ({ acquired: false, detail: "the acquisition threw" }));
+        log.info("[research-run] the exact reading a funded candidate was refused for", { tenantId, key: need.key, kind: need.kind, query: need.query, acquired: got.acquired, detail: got.detail });
+        progress = { ...progress, evidenceOwed: (r?.evidenceOwed ?? []).filter((n) => !(got.acquired && n.key === need.key)) };
+      }
       // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
       // A STOCK-ONLY RUN STILL EXECUTES THE READING A FUNDED CANDIDATE NAMED. Skipping straight on was the second half
       // of the deadlock: the requirement was raised, persisted, and then jumped over, so the next drive drafted from
