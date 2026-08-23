@@ -212,8 +212,7 @@ export const defaultSteps: ResearchCycleSteps = {
       await runWithoutSpending(() => d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true })).catch(() => null);
       proven = (await read()) ?? before; // and the count the day closes on is the one just proven, never the one it opened with
       if (proven >= READY_STOCK_TARGET) return mark("target_reached", proven, 0, seen?.fingerprint ?? `${stamp}::stocked`, held); }
-    const deficit = Math.max(0, READY_STOCK_TARGET - proven);
-    if (deficit === 0) return mark("target_reached", proven, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
+    const deficit = READY_STOCK_TARGET - proven; // above here the stocked branch either returned or left this short, so there is no second "already stocked" answer to give
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });

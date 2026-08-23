@@ -1113,10 +1113,17 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     store.rows.set(JUDGED, row(["this one still needs a cited authoritative source before it is paste-ready"]));
     await runWith(incoming());
     expect(store.rows.get(JUDGED)!.status).toBe("needs_review");
-    // 3. and an ordinary withdrawn-rule line still releases the row
-    store.rows.set(JUDGED, row(["it tells a reader this page offers \"habitats\", and no claim on this card carries it"]));
+    // 3. BOTH rules withdrawn today release the row, because withdrawing a rule and not naming its receipt
+    //    strands every row it held with an objection nothing stands behind and no way back but a redraft
+    for (const gone of ["it tells a reader this page offers \"habitats\", and no claim on this card carries it",
+      "it tells a reader this page offers \"wool rugs\", and this page never puts those words together"]) {
+      store.rows.set(JUDGED, row([gone]));
+      await runWith(incoming());
+      expect(store.rows.get(JUDGED)!.status).toBe("ready"); }
+    // 4. and a note that merely ENDS the same way is a person's sentence, not the gate's line: it holds
+    store.rows.set(JUDGED, row(["the operator read this and no claim on this card carries it"]));
     await runWith(incoming());
-    expect(store.rows.get(JUDGED)!.status).toBe("ready"); });
+    expect(store.rows.get(JUDGED)!.status).toBe("needs_review"); });
 
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
