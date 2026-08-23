@@ -935,6 +935,29 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
     }
   });
+  /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed
+   *  answer sat Ready, made the count five, closed the day as target_reached and returned before the producer ran,
+   *  which is the only thing that re-reads stored rows against the rules that stand today. The bad row held its own
+   *  slot shut and stopped the pass that would have caught it. The free re-read runs first now and buys nothing. */
+  it("proves a stocked count against today's rules before it closes the day", async () => {
+    vi.resetModules();
+    const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] };
+    vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
+    vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b",
+      loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),
+      produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; zeroSpend?: boolean }) => { M.calls.push(o);
+        // the free re-read finds the stuffed row and holds it back, so the stock is really four
+        if (o.zeroSpend === true) { M.ready = 4; return { persisted: 0, held: [], outcome: "proposals_persisted", paid: { declared: [], funded: [], attemptUnitsSpent: 0, receipts: [] } }; }
+        M.ready = 5; return { persisted: 1, held: [], outcome: "proposals_persisted", paid: { declared: ["/x"], funded: ["/x"], attemptUnitsSpent: 3, receipts: [{ key: "/x", funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: 0, providerAttempted: true, outcome: "produced" as const }] } }; } }));
+    try {
+      const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps");
+      const r = await live.replenishReady(T, new Date(NOW), { fingerprint: null, attempted: [] });
+      expect(M.calls[0]).toMatchObject({ maxDrafts: 0, zeroSpend: true });   // the free re-read ran FIRST, and bought nothing
+      expect(M.calls.length).toBeGreaterThan(1);                             // the day did not close on a count it had not checked
+      expect(r!.reason).toBe("target_reached");                              // and it closes on the count it PROVED, after drafting the row the bad one was hiding
+    } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.resetModules(); } });
+
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
   it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
     const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string; why?: string; cost?: number }[], outcome: "proposals_persisted", throws: false }; vi.resetModules();

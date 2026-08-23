@@ -205,8 +205,11 @@ export const defaultSteps: ResearchCycleSteps = {
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
       outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[]) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
-    const deficit = Math.max(0, READY_STOCK_TARGET - before);
-    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
+    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
+    if (READY_STOCK_TARGET - before <= 0) { await d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true }).catch(() => null);
+      const proven = await read();
+      if (proven == null || proven >= READY_STOCK_TARGET) return mark("target_reached", proven ?? before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held); }
+    const deficit = Math.max(0, READY_STOCK_TARGET - ((await read()) ?? before));
     if (deficit === 0) return mark("target_reached", before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
