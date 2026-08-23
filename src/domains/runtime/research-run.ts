@@ -127,7 +127,7 @@ export type ResearchRun = {
 };
 
 /** Lease length for one claimed cycle. Renewed at DATABASE time BEFORE every bounded phase (renew_research_lease) so no phase inside the 210s cycle deadline can knowingly outlive its lease. */
-export const RESEARCH_RUN_LEASE_SECONDS = 240;
+export const RESEARCH_RUN_LEASE_SECONDS = 280; // THE LEASE MUST OUTLAST THE TURN IT PROTECTS (Codex, 2026-08-23): the dispatch deadline sits inside this, and this inside the hosted function's own 300-second ceiling, so a turn always finishes holding the lock it started with.
 
 // The operator-facing projection lives in run-status (the record and the way it READS are two jobs). Re-exported here so every existing caller keeps its one import.
 export { nextPhase, projectStatusView, researchStatusLine, type ResearchRunStatusView } from "./run-status";

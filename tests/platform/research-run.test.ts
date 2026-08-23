@@ -465,7 +465,7 @@ describe("research-run conflict-free research closure", () => {
     it("advances the phase and records the day BEFORE it reads one answer, so a reading that outruns the turn leaves the analyses OWED and the next pass resumes them without re-buying an observation", async () => {
       const rows = withRun({ current_phase: "prompt_observations" }); const budgets: number[] = [];
       const steps: Partial<ResearchCycleSteps> = { dayStanding: async () => FULL_DAY,
-        analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += 220_000, NO_READING) }; // the hosting ceiling hits INSIDE the reading
+        analyzeAnswers: async (_t, _d, budgetMs) => (budgets.push(budgetMs), NOW += RESEARCH_CYCLE_DEADLINE_MS + 10_000, NO_READING) }; // the hosting ceiling hits INSIDE the reading, whatever that ceiling is set to
       await run(steps);
       expect([rows[0]!.current_phase, rows[0]!.status, rows[0]!.progress.state?.checksDone, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual(["serp_analysis", "paused", 140, undefined]); // the phase MOVED and the day's collection is on the row; not one analysis is claimed by it
       expect(budgets).toEqual([RESEARCH_CYCLE_DEADLINE_MS]); // the reading was handed what was left of the turn, never a count of answers standing in for a clock
