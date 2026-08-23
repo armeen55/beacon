@@ -206,11 +206,14 @@ export const defaultSteps: ResearchCycleSteps = {
       outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[]) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
-    if (READY_STOCK_TARGET - before <= 0) { await d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true }).catch(() => null);
-      const proven = await read();
-      if (proven == null || proven >= READY_STOCK_TARGET) return mark("target_reached", proven ?? before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held); }
-    const deficit = Math.max(0, READY_STOCK_TARGET - ((await read()) ?? before));
-    if (deficit === 0) return mark("target_reached", before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
+    let proven = before;
+    if (READY_STOCK_TARGET - before <= 0) { const { runWithoutSpending } = await import("@/lib/spend-scope");
+      // ZERO SPEND IS ASSERTED ON THE STACK, not just asked for in the options. `zeroSpend` closes the producer's own doors; the ambient scope closes any door a future caller adds underneath it, and this path now runs on EVERY drive, which is the last place to rely on one flag being read.
+      await runWithoutSpending(() => d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true })).catch(() => null);
+      proven = (await read()) ?? before; // and the count the day closes on is the one just proven, never the one it opened with
+      if (proven >= READY_STOCK_TARGET) return mark("target_reached", proven, 0, seen?.fingerprint ?? `${stamp}::stocked`, held); }
+    const deficit = Math.max(0, READY_STOCK_TARGET - proven);
+    if (deficit === 0) return mark("target_reached", proven, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
