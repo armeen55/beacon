@@ -38,7 +38,7 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   budget?: DraftBudget;
   /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: { left: number };
   /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number;
-  /** WHO REFUSED THIS CARD. The pass records provider-side failures here as they happen, so a card that comes back unfinished can be told apart from one Beacon's OWN gates read and rejected: only the second settles anything. */ providerFailed?: Set<string>;
+  /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>;
   /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void;
   /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> };
 
@@ -321,7 +321,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
 type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; refusals?: Map<string, string>;
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. Absent means one editor run standing on its own. */
   attempts?: { left: number };
-  /** Pages the PROVIDER could not answer for, recorded as it happens so a card Beacon's own gates rejected is never confused with one nobody could write. */ providerFailed?: Set<string> };
+  /** Pages nobody settled: the provider could not answer, or this pass ran out of its own allowance part-way through the deliverable. Neither is a verdict on the copy. */ unsettled?: Set<string> };
 /** The fields this editor writes: a line the page already has, or the copy an opening owes. */
 type EditorField = "title" | "h1" | "meta" | "answer_block" | "internal_link";
 
@@ -333,7 +333,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field edit was refused for disagreeing with itself.
   const held = field === "meta" ? packet.metaDescription : field === "title" ? packet.title : field === "h1" ? packet.h1 : null;
   // THE MONEY IS SPENT HERE, SO THE BUDGET IS READ HERE. Counted down before the call and never after it, so a call that fails, refuses or throws has still been paid for and still counts against what this pass may spend.
-  if (opts.attempts && (opts.attempts.left -= 1) < 0) return refuse("this pass has spent its whole attempt budget");
+  if (opts.attempts && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
   const drafted = await draftAtomicEditStructured({
     query: packet.trackedQuestion ?? "", pageLabel, field: field === "internal_link" ? "answer_block" : field, currentValue: held,
     // THE SEARCHERS' WORDS RIDE THE BRIEF. The drafter used to receive one query string and the page's own outline, so it optimised for what the page already says (a shoes page described by its SKU names) and never for what people search. Demand is handed over explicitly, and the earning words are marked as load-bearing, so the model leads with the phrasing that has an audience and drops nothing that pays.
@@ -344,7 +344,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING: the budget line above pays before asking because a charged call that fails was still bought, but a cache hit never reached the provider, and letting it spend an attempt let twelve long-refused cached drafts starve the cards this pass actually exists for.
   if (opts.attempts && drafted && (drafted as { cached?: true }).cached) opts.attempts.left += 1;
   // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
-  if (!drafted || drafted.status !== "drafted") { opts.providerFailed?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("no draft came back", { status: drafted?.status ?? "threw",
+  if (!drafted || drafted.status !== "drafted") { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("no draft came back", { status: drafted?.status ?? "threw",
     errors: (drafted as { errors?: string[] } | null)?.errors?.slice(0, 4) ?? null, failure: (drafted as { failure?: string } | null)?.failure ?? null }); }
   const v = drafted.value as AtomicEditDraft;
   const claims = v.claims.map((c) => ({ text: c.text, supportedBy: c.supportedBy }));
@@ -381,7 +381,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   }
   if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
-  if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) return refuse("this pass has spent its whole attempt budget");
+  if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
   const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? liveJudge(opts.tenantId, opts.now));
   // A REFUSAL NAMES THE TWO STRINGS IT COMPARED. "not the line this page carries" was unactionable without them.
   if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120), copy: deliverable.finalCopy.slice(0, 200), claims: deliverable.claims.map((c) => `${c.text} <- ${c.supportedBy.join(",")}`).slice(0, 4) });
@@ -552,7 +552,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!) : null;
     // WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop).
-    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.providerFailed?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card)));
+    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card)));
     const drafted = done?.d;
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;

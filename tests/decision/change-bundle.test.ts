@@ -102,8 +102,8 @@ const topicKeyword = { query: TOPIC, searchVolume: 1600, competition: 0.3, compe
   it.each([ ["a tracked prompt alone", { ...emptyResearchEvidence(), aiObservations: [obs(null)] }, []],
     ["a tracked prompt and one cited page", { ...emptyResearchEvidence(), aiObservations: [obs([{ url: URL2, domain: "waterwise.example", title: "P" }])] }, []],
     ["a tracked prompt and real monthly search volume", { ...emptyResearchEvidence(), aiObservations: [obs(null)], retainedKeywords: [topicKeyword] }, []],
-    // THREE CALLS, AND EVERY ONE OF THEM PLANNED (Codex, 2026-08-22). This pass compiles and funds its jobs before it spends anything, and the page being bundled declares no shallow draft of its own: a bundle replaces the field edit it is about to rewrite, so paying for both funded one page twice, at three calls and then at twelve. Fewer calls, the same work, and still every call an edit to a page that already exists.
-    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
+    // FOUR CALLS, AND EVERY ONE OF THEM PLANNED. One deliverable is a draft and its judge, and the editor feeds a refusal back and tries again, so its allowance covers the retry the live receipt of 2026-08-23 proved it needs. This pass compiles and funds its jobs before it spends anything, and the page being bundled declares no shallow draft of its own: a bundle replaces the field edit it is about to rewrite, so paying for both funded one page twice, at three calls and then at twelve. Fewer calls, the same work, and still every call an edit to a page that already exists.
+    ["a tracked prompt, a live results page, and three pages I read", TOPIC_RESEARCH, ["atomic_edit", "atomic_edit", "atomic_edit", "atomic_edit"]], ])("refuses to draft a page from %s", async (_what, research, drafted) => {
     env.snap = snapshot({ research, competitors: [COMPETITOR] });
     const res = await produceProposalsForTenant(TENANT, { complete: seam, ...OPTS }); expect(res.proposals.every((p) => p.kind === "existing_edit")).toBe(true); // nothing new-page is queued
     expect([...store.rows.values()].every((p) => p.kind !== "new_page")).toBe(true); // and nothing new-page is written
@@ -780,7 +780,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     // THE DEFECT (Codex, 2026-08-22): a deep bundle and an editor card on one page were two candidates and two allowances, so a rewrite that SUCCEEDED left the editor's slot funded and unused, and one that FAILED let the same page spend twelve calls and then three more while other pages went unfunded.
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
-    expect(b.funded.map((f) => [f.key, f.family, f.calls, [...f.fallbacks]])).toEqual([["/next", "field_draft", 3, []], ["/one", "deep_bundle", 12, ["editor"]]]);
+    expect(b.funded.map((f) => [f.key, f.family, f.calls, [...f.fallbacks]])).toEqual([["/one", "deep_bundle", 12, ["editor"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, []]]);
     const rewrite = b.draw("/one", DRAFT_BUDGET.BUNDLE_CALLS)!; rewrite.left = 0; // the rewrite produced, spending its allowance
     expect([b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS), b.spent().calls]).toEqual([null, 12]); }); // and nothing else on that page may spend after it
   it("lets a failed rewrite's fallback draw its own price from the SAME allowance, never a second one", () => {
@@ -789,23 +789,23 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const editor = b.draw("/one", DRAFT_BUDGET.DELIVERABLE_CALLS)!;
     expect(editor.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // its OWN deliverable's price, never the page's whole remainder
     editor.left = 0;
-    expect([b.spent().calls, b.funded.length]).toEqual([5, 1]); }); // two calls then three, all inside the ONE twelve-call allowance, on ONE funded candidate
+    expect([b.spent().calls, b.funded.length]).toEqual([2 + DRAFT_BUDGET.DELIVERABLE_CALLS, 1]); }); // two calls, then one deliverable's worth, all inside the ONE twelve-call allowance on ONE funded candidate
   it("refuses a key nobody put on the manifest, whenever it asks", () => expect(plan([job("/best", "field_draft", 90)]).take("/never-declared")).toBeNull());
   it("prices a whole page and a deep bundle at TWELVE charged calls, and shows that price to the ranking before it funds one", () => {
     const b = plan([BUNDLE], { candidates: 5 }); expect([DRAFT_BUDGET.BUNDLE_CALLS, b.funded[0]!.calls, b.take("/bundle")!.left]).toEqual([12, 12, 12]); });
   it("does not let one expensive bundle silently starve several higher-value small changes", () => {
-    expect(plan([BUNDLE, ...SMALLS], { candidates: 5 }).funded.map((f) => f.key)).toEqual(["/a", "/b", "/c", "/d", "/bundle"]); // 4 x 3 + 12 fits, so everything is bought, cheapest-per-click first
-    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 13 }); // and when it does not fit, the four finishable changes are bought and the bundle says why it was not
+    expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/a", "/b", "/c", "/d", "/bundle"]); // 4 x 6 + 12 fits in forty, so everything is bought, cheapest-per-click first
+    const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 25 }); // and when it does not fit, the finishable changes are bought and the bundle says why it was not
     expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/a", "/b", "/c", "/d"], ["this needs 12 charged calls and 1 were left"]]);
   });
   it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
     .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));
   it("funds nothing at all while the provider's own credit is spent", () => {
     const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]); });
-  it("caps one candidate at three charged calls, banks the failure and still funds the next", () => {
-    const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)]);
-    const first = b.take("/best")!; expect(first.left).toBe(3);
+  it("caps one candidate at ONE deliverable's price, banks the failure and still funds the next", () => {
+    const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)], { calls: 40 });
+    const first = b.take("/best")!; expect(first.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // a draft, its judge, and the retries the editor is built to make
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
-    expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, 3]);
+    expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, DRAFT_BUDGET.DELIVERABLE_CALLS]);
   });
 });

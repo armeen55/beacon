@@ -37,14 +37,20 @@ const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string
   try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
 };
 
-/** WHAT ONE DELIVERABLE COSTS: a draft, its judge and the final reviewer. A single-field change owes exactly one
- *  deliverable and therefore exactly three charged calls, with no retry budget behind it. */
-const PER_DELIVERABLE_CALLS = 3;
+/** WHAT ONE DELIVERABLE ACTUALLY COSTS, counted off the editor rather than assumed. One round is TWO charged calls,
+ *  the draft and its judge, and the editor is built to feed a refusal back and try again (up to three more rounds).
+ *  At three, the first retry's judge ran the allowance out and the card was refused with "this pass has spent its
+ *  whole attempt budget": named in the live receipt of 2026-08-23 00:32Z, on /funny-farsi-phrases and /cities, which
+ *  is what this number is now set from. Six buys the draft, its judge, and two full retries. */
+const PER_DELIVERABLE_CALLS = 6;
 /** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls.
  *  Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and
  *  the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a
  *  12-call proposal, not reported as a three-call candidate"). */
 const BUNDLE_DELIVERABLES = 4;
+/** A WHOLE PAGE IS STILL TWELVE, unchanged and deliberately not raised with the number above: no receipt has named a
+ *  bundle running out, so nothing here moves on a guess. When one does, it will say so and this follows the evidence. */
+const BUNDLE_CALLS_TOTAL = 12;
 
 /** ONE PAID JOB, PRICED BEFORE IT RUNS. `impact` is in ONE unit across every family: the clicks this account could
  *  plausibly win back, so a bundle, a new page and a description are comparable at all. `calls` is the whole
@@ -128,4 +134,4 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
 
 /** THE MONEY SURFACE, as one export: the ceilings, the prices, the plan and the key every family agrees on. */
 export const DRAFT_BUDGET = { MAX_PAID_CALLS, DELIVERABLE_CALLS: PER_DELIVERABLE_CALLS,
-  BUNDLE_CALLS: PER_DELIVERABLE_CALLS * BUNDLE_DELIVERABLES, plan, keyOf } as const;
+  BUNDLE_CALLS: BUNDLE_CALLS_TOTAL, plan, keyOf } as const;
