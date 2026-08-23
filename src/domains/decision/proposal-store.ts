@@ -34,9 +34,7 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
   opening_answer: "section-family", section: "section-family", source_pack: "section-family",
   paragraph_correction: "section-family", section_add: "section-family", section_remove: "section-family",
   section_rewrite: "section-family", restructure: "section-family", full_rewrite: "section-family",
-  // REPLACING UNTRUE WORDS IS ITS OWN HYPOTHESIS ABOUT A PAGE, never the same one as adding a section. Filed
-  // under section-family, the accuracy card and the ranking-loss card for one page superseded each other, so
-  // the page could hold only one of two true findings at a time (operator, 2026-08-17: they are separate).
+  // REPLACING UNTRUE WORDS IS ITS OWN HYPOTHESIS ABOUT A PAGE, never the same one as adding a section. Filed under section-family, the accuracy card and the ranking-loss card for one page superseded each other, so the page could hold only one of two true findings at a time (operator, 2026-08-17: they are separate).
   factual_correction: "accuracy-family", source_update: "accuracy-family", entity_expansion: "section-family",
   table_or_list_add: "section-family", internal_links: "links-family", internal_link_add: "links-family",
   internal_link_remove: "links-family", anchor_text: "links-family", schema: "technical-family",
@@ -139,10 +137,8 @@ function decode(payload: unknown): ChangeProposal | null {
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
-  // A ROW THAT CHANGED IS NO LONGER WHERE THE LAST RANKING PUT IT (stamp clears; fresh position next build),
-  // and a row that lives again is no longer retired: the reason clears with the disposition, or a live row
-  // wears two states at once (operator, 2026-08-17). The objection survives on the answering draft's limitations.
-  status: p.status, terminal_disposition: null, superseded_by: null, queue_lane: null, queue_rank: null, withdrawn_reason: null,
+  // A DRAFT SAVE NEVER TOUCHES THE LIVE RANKING (Codex, 2026-08-23). Clearing the stamp on every save meant a regeneration pass un-ranked nine live rows and THEN failed to publish, so the database's own paging and the surviving customer release disagreed about order: a split brain manufactured by a failed build. The rank a row holds stays exactly as the last COMMITTED release stamped it (stampQueueRanking is the only writer), and a row whose position is stale is re-stamped when the next whole release commits, never un-ranked in between. A row that lives again is still no longer retired: the reason clears with the disposition, or a live row wears two states at once (operator, 2026-08-17). The objection survives on the answering draft's limitations.
+  status: p.status, terminal_disposition: null, superseded_by: null, withdrawn_reason: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
   decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
 });
@@ -253,22 +249,19 @@ export async function transitionProposalToImplemented(tenantId: string, id: stri
   return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed";
 }
 
-/** THE OPERATOR'S YES, APPLIED TO THE EXACT ROW THEY READ AND TO NO OTHER. Step two of the two-step hold used to be a read, a check and then an ordinary save, and the save takes its OWN read afterwards: a rewrite that landed in between was simply overwritten by the version the operator had been looking at, which is the one thing a hold on a page-mover exists to stop. ONE COMPARE-AND-SET instead. The row must still be this account's, still non-terminal, still in review, still at the stored version that was read, still under the basis it was drafted for, and still fingerprint for fingerprint the version that was confirmed; the promoted row is then put through the ONE servability verdict before anything is written. The write itself carries the version it read, so a save landing between this read and this write matches NO row, changes nothing, and answers `stale`.
- *  TWO ANSWERS RIDE THIS ONE DOOR, because both are a person answering one exact version of one reviewed change: `promote` makes it ready (the page-mover's confirmation, and a draft only judgement was holding, which stamps who and when), and `redraft` leaves it exactly where it is and asks the next funded pass to write better words over it. The refusal check runs on the PROMOTED row only: nothing about asking for better words has to pass the bar for handing work over. */
+/** THE OPERATOR'S YES, APPLIED TO THE EXACT ROW THEY READ AND TO NO OTHER. Step two of the two-step hold used to be a read, a check and then an ordinary save, and the save takes its OWN read afterwards: a rewrite that landed in between was simply overwritten by the version the operator had been looking at, which is the one thing a hold on a page-mover exists to stop. ONE COMPARE-AND-SET instead. The row must still be this account's, still non-terminal, still in review, still at the stored version that was read, still under the basis it was drafted for, and still fingerprint for fingerprint the version that was confirmed; the promoted row is then put through the ONE servability verdict before anything is written. The write itself carries the version it read, so a save landing between this read and this write matches NO row, changes nothing, and answers `stale`. TWO ANSWERS RIDE THIS ONE DOOR, because both are a person answering one exact version of one reviewed change: `promote` makes it ready (the page-mover's confirmation, and a draft only judgement was holding, which stamps who and when), and `redraft` leaves it exactly where it is and asks the next funded pass to write better words over it. The refusal check runs on the PROMOTED row only: nothing about asking for better words has to pass the bar for handing work over. */
 export async function answerReviewedProposal(tenantId: string, id: string, version: string, basis: string | null,
   answer: { kind: "promote" | "redraft"; by?: string; at: string }): Promise<{ status: "promoted" | "stale" | "refused" | "failed"; refusal?: string }> {
   if (!tenantId || !id || !version) return { status: "failed" };
   try {
     const row = await rowById(tenantId, id), stored = row ? decode(row.payload) : null;
     if (!row || !stored) return { status: "failed" };
-    // THE ACCOUNT HALF OF THE BASIS IS THE IDENTITY; the ::dN half is the kernel's clock: refusing a
-    // re-admitted row "stale" stranded it one confirmation short of ready forever. Two nulls still match.
+    // THE ACCOUNT HALF OF THE BASIS IS THE IDENTITY; the ::dN half is the kernel's clock: refusing a re-admitted row "stale" stranded it one confirmation short of ready forever. Two nulls still match.
     const strip = (s: string): string => s.replace(/::d\d+$/, "");
     const sameAccount = (row.basis ?? null) == null && basis == null
       ? true : row.basis != null && basis != null && strip(row.basis) === strip(basis);
     if (row.terminal_disposition != null || row.status !== "needs_review" || !sameAccount || confirmedVersion(stored) !== version) return { status: "stale" };
-    // PROMOTION RESTAMPS THE GENERATION: the door's own checks are the current bar, so a row that clears them
-    // under the operator's yes is current work by demonstration, and the ready lane may serve it as such.
+    // PROMOTION RESTAMPS THE GENERATION: the door's own checks are the current bar, so a row that clears them under the operator's yes is current work by demonstration, and the ready lane may serve it as such.
     const promoted: ChangeProposal = answer.kind === "redraft" ? { ...stored, redraftRequested: answer.at }
       : { ...stored, status: "ready", confirmedVersion: version, ...(basis != null ? { basis } : {}), ...(answer.by ? { approval: { by: answer.by, at: answer.at } } : {}) };
     // THE STORE REFUSES WHAT THE LABEL SAYS NOTHING ABOUT, never by classifying a stored limitation's wording: unfinished work, a lever that misses the diagnosed cause, and banked copy whose claims no longer resolve are asked HERE, on the row itself. STRICT: this door holds no fresh page body and no producer is standing by to fill one in, so provenance nobody can check is a refusal here rather than the skip an ordinary re-validation pass is owed. THE CANON RUNS LAST, on the words the row itself carries: the same validator a fresh draft passes through, asked again of the exact version being promoted, on the evidence banked beside it and nothing fetched new.
@@ -345,10 +338,7 @@ export async function loadChangeProposal(tenantId: string, id: string, opts: { r
   } catch (e) { log.error("[proposal-store] load threw", { id, error: e instanceof Error ? e.message : String(e) }); return null; }
 }
 
-/** STAMP THE LIVE RANKING in ONE statement per release: ONE GLOBAL RANK across every nonterminal
- *  opportunity, the id list IS the order, and the lane rides beside it as a control fact, never a second
- *  order (v1 numbered lanes separately and never stamped research; Codex, 2026-08-21). A stamp that cannot
- *  land leaves the ranking on file serving, which is why this is fail-soft. */
+/** STAMP THE LIVE RANKING in ONE statement per release: ONE GLOBAL RANK across every nonterminal opportunity, the id list IS the order, and the lane rides beside it as a control fact, never a second order (v1 numbered lanes separately and never stamped research; Codex, 2026-08-21). A stamp that cannot land leaves the ranking on file serving, which is why this is fail-soft. */
 export async function stampQueueRanking(tenantId: string, release: string, rows: ReadonlyArray<{ id: string; lane: "ready" | "todo" | "research" }>): Promise<boolean> {
   try {
     const { error } = await getSupabaseAdmin()
@@ -373,8 +363,7 @@ export async function readQueuePage(
     const release = ((head ?? []) as Array<{ queue_lane: string | null }>)
       .map((r) => (r.queue_lane ?? "").split("::")[0] ?? "").find((s) => s.length > 0) ?? null;
     if (release == null) return nothing;
-    // EVERY FILTER THE QUEUE OWES IS ASKED HERE; nothing is filtered after the fact. The ACCOUNT half of the
-    // basis gates in the database, the ::dN half belongs to the checks below, and LIKE wildcards are escaped.
+    // EVERY FILTER THE QUEUE OWES IS ASKED HERE; nothing is filtered after the fact. The ACCOUNT half of the basis gates in the database, the ::dN half belongs to the checks below, and LIKE wildcards are escaped.
     const accountBasis = basis.replace(/::d\d+$/, "").replace(/[\\%_]/g, "\\$&");
     const scoped = (cols: string, count?: { count: "exact"; head: true }) => {
       const q = sb.from(TABLE).select(cols, count).eq("tenant_id", tenantId).like("basis", `${accountBasis}%`).is("terminal_disposition", null);

@@ -397,8 +397,22 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
       : { side: { day: null, checked: 0, mentioning: 0, rate: null, from: "nothing" as const }, thin: true };
   const before: ShipmentAiOutcome["before"] = beforeSide.side;
 
-  const afterRows = rows.filter((r) => r.reporting_day >= stamp && r.reporting_day <= to);
+  const afterAll = rows.filter((r) => r.reporting_day >= stamp && r.reporting_day <= to);
+  // AN INSTRUMENT CHANGE STARTS A NEW SEGMENT, NEVER A FOOTNOTE UNDER A CROSS-INSTRUMENT NUMBER (Codex, 2026-08-23).
+  // The baseline froze the models and modes it was read on; an answer served on a model or mode the baseline never
+  // saw is a DIFFERENT instrument, and comparing across it sells an instrument swap as the change working or
+  // failing. Those answers are excluded from the DIRECTION arithmetic only: they still appear in `instruments` and
+  // the boundary sentence, and they become the new segment's own record. A baseline old enough to have frozen no
+  // instruments changes nothing here.
+  const frozenInstruments = held?.models?.length || held?.modes?.length
+    ? new Set([...(held.models ?? ["*"])].flatMap((m) => [...(held.modes ?? ["*"])].map((o) => `${m}::${o}`)))
+    : null;
+  const sameInstrument = (r: AiObservationRecord): boolean => frozenInstruments == null
+    || frozenInstruments.has(`${r.model_served ?? "*"}::${r.observation_mode ?? "*"}`)
+    || frozenInstruments.has(`${r.model_served ?? "*"}::*`) || frozenInstruments.has(`*::${r.observation_mode ?? "*"}`);
+  const afterRows = afterAll.filter(sameInstrument);
   const answered = afterRows.filter(cameBack);
+  const newInstrumentRows = afterAll.length - afterRows.length;
   const share = namedShare(afterRows);
   const after: ShipmentAiOutcome["after"] = { from: stamp, to, checked: share.checked, analyzed: share.analyzed, mentioning: share.mentioning, rate: share.rate };
   const coverage = { daysObserved: new Set(answered.map((r) => r.reporting_day)).size, daysElapsed: elapsedSince(stamp, to) };
@@ -452,6 +466,7 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
   const metricLines = metricLinesOf(objective, startLinks != null, mentionDirection, citationsAdj, retrieval, passedOver);
   const extraLines = [
     ...(movement ? [movement] : []),
+    ...(newInstrumentRows > 0 ? [`${newInstrumentRows} answers arrived on a model or mode this change's baseline never saw; they start their own segment and are not compared against the frozen starting point, because an instrument swap is not a result.`] : []),
     ...(conflicted ? [`The assistants disagree: ${called.map((e) => `${engineLabel(e.engine)} ${e.direction}`).join(", ")}. A split verdict is reported as a split, never averaged.`] : []),
     ...(controls && (controls.mentionDrift != null || controls.citationDrift != null)
       ? [`Read against ${controls.questions} of your own unaffected questions over the same days; their movement is subtracted before anything is called.`]
@@ -459,7 +474,7 @@ function outcomeFromRows(all: readonly AiObservationRecord[], nonMembers: readon
   ];
   return {
     direction: finalDirection, mentionDirection, objective, before, after, citations, retrieval, retrievedNotCited: passedOver,
-    instruments: instrumentsOf(answered), boundary: boundaryOf(held, beforeRows, answered), metricLines, coverage,
+    instruments: instrumentsOf(afterAll.filter(cameBack)), boundary: boundaryOf(held, beforeRows, afterAll.filter(cameBack)), metricLines, coverage,
     controls, perEngine,
     // THE MENTION SENTENCE IS STILL THE MENTION'S. It is written off the mention direction, never the objective's, or a citation change
     // with rising mentions would print "the same share as before".

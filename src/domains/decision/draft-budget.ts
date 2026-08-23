@@ -14,10 +14,10 @@ const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string
 };
 
 /** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
-const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2, FINAL_REVIEW_CALLS = 1;
-const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND + FINAL_REVIEW_CALLS;
-/** THE POLICY A SETTLEMENT WAS REACHED UNDER, INCLUDING THE WRITER ITSELF. A page written off under the OLD allowance, or refused by the OLD writer, says nothing about the new one, so both ride the day's fingerprint: change either and yesterday's answers under it stop counting, on the same day, rather than skipping the very pages the change was made for. Achaemenid stayed settled through a whole writer repair for want of exactly this (Codex, 2026-08-23). WRITER bumps on every material change to what the drafter is told or how its retries work. */
-const WRITER = 3;
+const EDITOR_RETRIES = 2, CALLS_PER_ROUND = 2;
+/** LOGICAL OPERATIONS, NEVER PROVIDER CALLS (Codex, 2026-08-23: a seven-unit price met a sixteen-call dispatch, because one structured operation retries internally and can be two real calls). One round is a draft and its ONE evaluation; the last evaluation IS the promotion decision, so no final-review unit exists any more. Real calls and real dollars are metered off the gateway's own receipts, per page, and reported as themselves. */
+const PER_DELIVERABLE_CALLS = (1 + EDITOR_RETRIES) * CALLS_PER_ROUND;
+const WRITER = 4;
 const POLICY = `w${WRITER}r${EDITOR_RETRIES}c${PER_DELIVERABLE_CALLS}`;
 /** WHAT A WHOLE PAGE OR A DEEP BUNDLE OWES: a brief plus its sections, four deliverables, so TWELVE charged calls. Said out loud rather than hidden inside a multiplier, because it is the most expensive thing a pass can buy and the ranking has to see the price before it funds it (Codex, 2026-08-22: "it must be named, ranked and tested as a 12-call proposal, not reported as a three-call candidate"). */
 const BUNDLE_DELIVERABLES = 4;
@@ -34,13 +34,15 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
-  // ONE ENTRY PER PAGE, DECIDED BEFORE ANYTHING IS RANKED. Several families can want work on one page; the most expensive of them is the one that page is funded for, and the cheaper ones are its FALLBACKS, drawing on that same allowance rather than each buying their own. The page is worth the most any of them thinks it is worth.
+  // ONE ENTRY PER PAGE, AND THE PAGE GETS ITS HIGHEST-VALUE TREATMENT, NEVER ITS MOST EXPENSIVE (Codex, 2026-08-23).
+  // The dearest-job-wins rule buried a seven-unit title behind a twenty-eight-unit bundle on the same page and then
+  // divided the page's worth by the inflated price, so the strongest cheap work ranked last. The job with the best
+  // impact per unit now wins the page; the others stay recorded as its fallbacks, never as extra funded work.
   const byKey = new Map<string, PaidJob>();
   for (const j of input.jobs) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
-    else byKey.set(j.key, { key: j.key, impact: Math.max(at.impact, j.impact),
-      family: j.calls > at.calls ? j.family : at.family, calls: Math.max(at.calls, j.calls),
-      fallbacks: [...new Set([...(at.fallbacks ?? []), ...(j.fallbacks ?? []), j.calls > at.calls ? at.family : j.family])].filter((f) => f !== (j.calls > at.calls ? j.family : at.family)) }); }
+    else { const win = (j.impact / Math.max(1, j.calls)) > (at.impact / Math.max(1, at.calls)) ? j : at, lose = win === j ? at : j;
+      byKey.set(j.key, { ...win, impact: Math.max(at.impact, j.impact), fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
   const ranked = [...byKey.values()].sort((a, b) =>
     (b.impact / Math.max(1, b.calls)) - (a.impact / Math.max(1, a.calls)) || b.impact - a.impact || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);

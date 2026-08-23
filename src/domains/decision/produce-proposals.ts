@@ -51,7 +51,8 @@ export type ProduceProposalsResult = {
     receipts: readonly { key: string; funded: boolean; providerAttempted: boolean;
       /** `produced` = finished work exists for this key. `deterministic_refusal` = one of Beacon's OWN gates read the work against today's evidence and said no. `retryable_blocked` = nobody could answer for it (credit, cap, timeout, provider, unreadable) or the drafter's own answer was unusable. `not_reached` = funded and never got to. ONLY the first two may ever write a key off. */
       /** `evidence_banked` is work that SUCCEEDED and is not a Change: a reading of the winning pages informs the next decision and can never be counted, shown or reported as something the operator can act on. */
-      outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** What settled it, in its own words. */ why?: string }[] };
+      outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** What settled it, in its own words. */ why?: string;
+      /** REAL provider calls and REAL dollars this page consumed, off the gateway's receipts. Logical attempt units are budget bookkeeping and are neither. */ providerCalls?: number; costUsd?: number }[] };
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
@@ -62,8 +63,7 @@ const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "mi
 type ProducerRun = { families: readonly string[]; complete: boolean };
 /** THE ONE PAGE A VERDICT DECIDED TO IMPROVE, as facts out of words this pass ALREADY holds. Null for `create_new`, and null when its own words are not held. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
-  if (decided.decision.verdict !== "improve_existing") return null;
-  const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld);
+  if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld);
   if (!held) return null;
   const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
   const row = snapshot.ownedPages.find((p) => at(p.url) === at(held.url))?.content ?? null;
@@ -95,8 +95,7 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
 async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
   const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
-  if (!ledger) return out;
-  const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
+  if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
   for (const r of ledger) {
     const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0];
     if (!read) continue;
@@ -196,12 +195,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
-  const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string }>(),
+  // meters: REAL per-page spend off the gateway's receipts; gateWords: the rule that refused each page, in its own words.
+  const meters = new Map<string, { ops: number; providerCalls: number; costUsd: number }>(), gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string }>(),
     RANK = { produced: 4, evidence_banked: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
   // The whole entry is REPLACED, never merged: a stronger answer must not inherit the words of the weaker one it overtook, which is how a produced page ends up carrying a refusal it never suffered.
   const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true, why?: string): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome, ...(why ? { why } : {}) }); };
   const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy; // checked at every paid door: work running is never abandoned, work not begun is not funded and reads `not_reached`, settling nothing
-  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => { const r = filed.get(f.key); return { key: f.key, funded: true, providerAttempted: r?.providerAttempted ?? false, outcome: r?.outcome ?? "not_reached" as const, ...(r?.why ? { why: r.why.slice(0, 200) } : {}) }; }) });
+  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => { const r = filed.get(f.key), m = meters.get(f.key); return { key: f.key, funded: true, providerAttempted: r?.providerAttempted ?? false, outcome: r?.outcome ?? "not_reached" as const, ...(r?.why ? { why: r.why.slice(0, 200) } : {}), ...(m ? { providerCalls: m.providerCalls, costUsd: Number(m.costUsd.toFixed(6)) } : {}) }; }) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
@@ -520,7 +520,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, unsettled: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, unsettled: new Set<string>(), refusals: gateWords, meters, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
   // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again. A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
     if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.

@@ -453,7 +453,9 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       { engine: "chatgpt", modelServed: "gpt-5.5", mode: "api", answers: 24 },
     ]);
     expect(outcome?.boundary).toBe("The instrument changed under this reading: ChatGPT moved from gpt-5 to gpt-5.5. A step here is the instrument, not the change.");
-    expect(outcome?.after.checked).toBe(44); // AND THE MODEL NEVER FILTERED THE READ: keeping only the answers served on the model the claim was made on empties the after side, which reads on screen as the change losing everything it had.
+    // DOCTRINE REVERSED (Codex, 2026-08-23). This pin used to demand 44: the model never filtered the read, because emptying the after side was the feared failure. The live counter-case is worse: comparing a gpt-5 baseline against gpt-5.5 answers sells an instrument swap as the change working or failing. An answer on a model the baseline never saw now starts its OWN segment: excluded from the direction arithmetic, still listed in instruments, and named in its own sentence.
+    expect(outcome?.after.checked).toBe(20);
+    expect(outcome?.line ? [outcome.line, ...(outcome.metricLines ?? [])].join(" ") : "").toBeDefined();
   });
   /** PIN: a baseline that could not be read at mark time is never rebuilt later. The implementation is recorded either way, and the AI half says it cannot be read rather than comparing today against today. */
   it("reports an unmeasurable AI outcome when no starting numbers were frozen, and rebuilds none", async () => {

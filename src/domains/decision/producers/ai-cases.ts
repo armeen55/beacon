@@ -7,6 +7,7 @@ import "server-only";
  *  is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE
  *  card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
 import { log } from "@/lib/logger";
+import type { ChangeProposal } from "../contracts";
 import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
@@ -238,9 +239,11 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const copy = caseCopy({ voice: g.prompt, quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage,
       retrievedNotCited: w?.rnc ?? 0, domain,
       covers, factLine: fact ? `A verified fact is already on file for this page (${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}), so the passage stands on it.` : null });
+    const tr = treatmentFor({ unreachable: unreach, passedOver, coversAsked: match.hits.length > 0 });
     out.push({
-      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
-      headline: copy.headline, before: null, after: copy.after,
+      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt, treatment: tr.treatment,
+      ...(tr.draftable ? {} : { next: tr.work }),
+      headline: copy.headline, before: null, after: tr.draftable ? `${copy.after} ${tr.work}` : copy.after,
       why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${labelOf(match.page)} at ${path} already covers ${covers}, so ${passedOver ? "the page is already being read and passed over: the work is making the answer liftable, not making it exist" : mentioned ? "the name is already in the answers: the work is a passage that converts the mention into a citation" : unreach ? "the work starts with making this page reachable, because no stored answer reports reading it" : "the work is a passage worth relying on, because these instruments report what they relied on rather than what they read"}.`,
       steps: copy.steps,
       hints: [`${engineLabel(cite.engine)} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
@@ -379,15 +382,17 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       path, intent: intentOf(subject), stage, retrievedNotCited: row.retrievedNotCitedAnswers,
       domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null,
       covers: asWritten(subject, fit.match.hits).join(", "), factLine: null });
+    const trF = treatmentFor({ unreachable: unreachF, passedOver: readOver, coversAsked: fit.match.hits.length > 0 });
     out.push({
-      page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject,
+      page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject, treatment: trF.treatment,
+      ...(trF.draftable ? {} : { next: trF.work }),
       headline: readOver
         ? `Assistants search "${row.query}" and read ${path} without crediting it`
         : unreachF
           ? `Assistants search "${row.query}" and none reports reading ${path}; make it the page they reach`
           : `Assistants search "${row.query}" and rely on other sites; ${path} is not among the sources they report`,
       before: null,
-      after: copyF.after,
+      after: trF.draftable ? `${copyF.after} ${trF.work}` : copyF.after,
       why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${count(rival.answers, "of those answers")}.` : "No page is credited on it often enough to name a leader."} ${labelOf(fit.match.page)} at ${path} already covers ${asWritten(subject, fit.match.hits).join(", ")}, so ${readOver ? "the page is reachable and being read: the work is making the answer liftable" : unreachF ? "the work starts with being reachable for it at all" : "the work is a passage worth relying on, because whether the page was read is not something these instruments report"}.`,
       steps: copyF.steps,
       hints: [`Assistants ran this search themselves: ${row.materialBecause}`,
@@ -444,4 +449,15 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   return { drafts: out, filed: write.filed };
 }
 /** ONE test surface for the copy layer: every derivation pinned through one export. */
-export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject } as const;
+/** THE TREATMENT PLANNER (Codex, 2026-08-23): between diagnosis and drafting, ONE closed decision about what kind of work this page actually needs. The stage rules are the point. A page RETRIEVED and passed over needs information gain, structure and precision, never a restatement; a page NO ANSWER REPORTS READING needs reachability work before wording; a page whose own coverage does not answer the asked intent needs a differentiation decision, not a forced block; and a page already carrying the answer gets that section REWRITTEN, never a duplicate beside it. */
+function treatmentFor(x: { unreachable: boolean; passedOver: boolean; coversAsked: boolean }): { treatment: NonNullable<ChangeProposal["treatment"]>; draftable: boolean; work: string } {
+  if (x.unreachable) return { treatment: "technical_reachability", draftable: false,
+    work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves the asked intent. Copy written before that lands cannot be selected." };
+  if (!x.coversAsked) return { treatment: "consolidate_or_differentiate", draftable: false,
+    work: "This page's own coverage serves a different intent than the question asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block that answers past the page." };
+  if (x.passedOver) return { treatment: "rewrite_existing_section", draftable: true,
+    work: "Assistants already read this page and select other sources, so the work is INFORMATION GAIN in the section that covers this: mapping, structure, definitions or precise facts the page lacks, never a restatement of what it already says." };
+  return { treatment: "add_answer_section", draftable: true,
+    work: "The page is credited or mentioned without a liftable passage, so the work is one new section that answers the question outright in the required shape." };
+}
+export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, treatmentFor } as const;

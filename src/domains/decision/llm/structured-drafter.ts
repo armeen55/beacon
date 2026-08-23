@@ -738,6 +738,7 @@ function intentDirective(intent?: string): string {
     case "process": return "the steps in order, one per line, each something a reader can do";
     case "history": return "the turns in order, earliest first, with their dates";
     case "category": return "what this category offers and how a buyer narrows it, using only what this page carries";
+    case "question": return "the direct answer in the first two sentences, then the specifics only this page has";
     case "when": return "The searcher wants a DATE or timeline. Lead with the specific date or schedule, never a definition.";
     case "cost": return "The searcher wants a PRICE or number. Lead with the concrete cost or range, never a definition.";
     case "how": return "The searcher wants STEPS or a method. Lead with the concrete how-to, not background.";
@@ -771,25 +772,27 @@ type AtomicEditStructuredInput = {
 
 /** THE OPENING NAMES THE ACTUAL JOB (Codex, 2026-08-23). This system prompt opened "You improve ONE on-page field (a page title or meta description)" for EVERY field, so a model asked for a 40-to-90-word answer block was simultaneously told it was writing a title: two assignments in one prompt, and the live reviewer read the confusion as thin restatement. The head clause now names the field being written; every homework rule after it is shared and unchanged. */
 const ATOMIC_HEAD: Record<string, string> = {
+  title: "You improve ONE page title to better match the search intent and earn the click. Keep it under 60 characters: COUNT them. ",
+  meta: "You improve ONE meta description to better match the search intent and earn the click. Keep it between 120 and 150 characters: COUNT them, and never go past 155. ",
+  h1: "You improve ONE page heading (the H1) so it names exactly what the page delivers in the searcher's own words. Keep it under 90 characters. ",
   answer_block: "You write ONE answer block that will be pasted into the page's body to answer the tracked question outright, transforming the page's stored evidence into the required shape rather than restating the page. ",
-  default: "You improve ONE on-page field (a page title or meta description) to better match the search intent and earn the click. ",
+  default: "You improve ONE on-page field to better match the search intent and earn the click. ",
 };
 const ATOMIC_EDIT_SYSTEM =
   'Return ONLY a JSON object: "field" (the field being edited), "before" (the exact current value, or null), "after" (the improved value), ' +
   '"rationale" (one sentence), "evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps), ' +
   '"proofPlan" ({"metrics":[...],"windowsDays":[7,14,28],"controls":"..."}). ' +
-  "Keep a title under 60 characters and a meta description between 120 and 150 characters: COUNT them, and never go past 155. Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
+  "Ground ONLY in what is provided. Do NOT invent statistics, dates, prices, rankings, or superlatives. No marketing language. No em-dashes. " +
   'ALSO SHOW YOUR HOMEWORK, or the edit is refused: "placementAnchor" (the EXACT existing heading or sentence from the stored page copy below that this edit replaces, lands on, or lands after, copied character for character), "naturalHeading" (a heading a reader would search for, or null when the edit replaces an existing field; NEVER the search or tracked question repeated back), ' +
   '"claims" (array of {"text","supportedBy"}, one per material statement the copy makes, where supportedBy lists the exact grounding ids given to you that carry it), "implementationMinutes" (how long this takes an operator). Every id in supportedBy must be one handed to you. State no figure the grounding does not already show. '
   + 'KEEP EVERY REFERENCE SHORT, or the whole edit is thrown away: each evidenceRefs "detail" and each claim\'s "text" must be UNDER 200 characters and NAME what backs it by its id, never quote the passage back.';
 
 /** APPENDED ONLY FOR `answer_block`, so the title and meta prompt stays byte for byte what it has always been and no stored draft is re-read under different wording. An opening answer is a different job from a field rewrite: it is the first thing a reader sees, and it has to answer the search in its own first line. */
 const OPENING_ANSWER_CLAUSE =
-  " This edit is the page's OPENING ANSWER: the first 2 to 4 sentences a reader sees. Write \"after\" as those " +
-  "sentences, 40 to 90 words, answering the search directly in the FIRST sentence and naming the exact subject " +
-  "the search is about. Never open with a dictionary definition, never defer (\"it varies\", \"check elsewhere\"), " +
-  "and state only what the evidence and the page's own sections below already support.";
+  " This edit is a BODY ANSWER BLOCK. Write \"after\" as 80 to 150 words: COUNT them, under 80 is refused as too thin. " +
+  "Open with the direct answer to the search in the first one or two sentences, naming the exact subject, then follow the required shape the directive above gives. " +
+  "Never open with a dictionary definition, never defer (\"it varies\", \"check elsewhere\"), and state only what the evidence and the page's own sections below already support.";
 
 /** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
 export async function draftAtomicEditStructured(
