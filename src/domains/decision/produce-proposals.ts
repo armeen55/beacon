@@ -96,8 +96,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const withdrawn = persist ? await withdrawnProposalIds(tenantId, basis) : new Set<string>();
   /** THE measurement context, derived once and shared by the diagnosis and both rankings. */
   const measuring = { measuringPagePaths: await measuringPaths(tenantId, existing, opts) };
-  // THE TWO WINDOWS, AND WHAT THIS ACCOUNT'S OWN FINISHED READINGS SAY. Both $0, both fail soft, neither creates work: one names a fall Google did not cause, the other ranks a losing kind of change below a winning one.
-  const [windows, familyHistory] = await Promise.all([twoWindows(tenantId, opts.now), familyHistoryOf(tenantId)]);
+  const [windows, familyHistory] = await Promise.all([twoWindows(tenantId, opts.now), familyHistoryOf(tenantId)]); // THE TWO WINDOWS, AND WHAT THIS ACCOUNT'S OWN FINISHED READINGS SAY. Both $0, both fail soft, neither creates work: one names a fall Google did not cause, the other ranks a losing kind of change below a winning one.
 
   let investigations: TopicInvestigation[] = []; // THE RESEARCH PACKETS, over the same evidence this pass judges. Non-actionable by construction.
   try { investigations = buildTopicInvestigations(snapshot); }
@@ -290,14 +289,18 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       && held0.recommendedChange.kind === "existing_edit" && held0.recommendedChange.after.trim().length > 0;
     const copy0 = held0 && !treatmentSwap && !held0.bundle && held0.researchOnly !== true && held0.recommendedChange.kind === "existing_edit" ? held0.recommendedChange : null;
     const clean = copy0 ? withoutCta(copy0.after, copy0.field) : null, trimmed = !copy0 ? held0 : clean == null ? null : clean === copy0.after ? held0 : { ...held0!, recommendedChange: { ...copy0, after: clean } };
-    const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held, false, preserve) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const prior = treatmentSwap ? null : why.length === 0 ? trimmed : null; // a treatment swap forfeits preservation outright: the old copy is retired above, with its receipt
+    const why = trimmed ? staleCopyReasons(trimmed, NO_BODIES, bannedTerms, held, false, preserve) : []; if (why.length > 0) log.info("[produce-proposals] banked copy no longer passes the rules that stand today, so it is not preserved", { tenantId, id: raw.id, reasons: why.slice(0, 3) }); const soft = why.length > 0 && why.every((w) => !DRAFT_BUDGET.HARD_REFUSAL.test(w)); // FINISHED COPY SURVIVES A SOFT RULE (Codex, 2026-08-23): the live /funny-farsi-phrases answer was saved Ready and destroyed back to its own brief ONE SECOND LATER over the word "Farsi", because a re-read applied the ban without the searcher-vocabulary exemption the editor honoured. A soft disagreement DOWNGRADES finished work to a review draft carrying the reason; only the four hard classes still null it.
+    const prior = treatmentSwap ? null : why.length === 0 || soft ? trimmed : null; // a SOFT failure hands preservation the FINISHED row: pre-downgrading it read as unfinished and the brief won anyway // a treatment swap forfeits preservation outright: the old copy is retired above, with its receipt
     // FINISHED COPY RETIRED BY TODAY'S RULES STILL LEAVES ITS RECEIPT (review, 2026-08-22): nulling the prior took the words out of preferFinished's sight entirely, so the one loss path a rule change opens was the one
     const retired = treatmentSwap
       ? { previousCopy: { after: held0!.recommendedChange.kind === "existing_edit" ? held0!.recommendedChange.after : "", retiredBecause: `the diagnosis changed to ${raw.treatment}: copy for this page is premature until that work is done`, at: (opts.now ?? new Date()).toISOString() } }
-      : why.length > 0 && trimmed && !trimmed.researchOnly && trimmed.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.after.trim() // loss path with no history. The receipt rides the incoming row before preservation runs.
+      : why.length > 0 && !soft && trimmed && !trimmed.researchOnly && trimmed.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.after.trim() // loss path with no history. The receipt rides the incoming row before preservation runs.
         ? { previousCopy: { after: trimmed.recommendedChange.after, retiredBecause: why[0]!, at: (opts.now ?? new Date()).toISOString() } } : {};
     const carried = preferFinished({ ...sized(raw), ...retired, ...(held ? { copyStamp: `${held.title ?? ""}|${held.h1 ?? ""}|${held.metaDescription ?? ""}|${(held.outline ?? []).join(">")}`.slice(0, 400) } : {}) }, prior);
-    const ranked: ChangeProposal = !carried.rankingReceipt && prior?.rankingReceipt ? { ...carried, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried;
+    // THE DOWNGRADE LANDS AFTER PRESERVATION (Codex, 2026-08-23): finished words surviving a soft re-read failure move to review with the reason on the card, so nothing soft ships unread and nothing soft destroys work.
+    const carried2 = soft && trimmed && carried.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.kind === "existing_edit" && carried.recommendedChange.after === trimmed.recommendedChange.after
+      ? { ...carried, status: "needs_review" as const, limitations: [...new Set([...carried.limitations, ...why.slice(0, 2)])] } : carried;
+    const ranked: ChangeProposal = !carried2.rankingReceipt && prior?.rankingReceipt ? { ...carried2, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried2;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
     const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
     const p: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])] } : ranked;
@@ -324,8 +327,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const no = withholdReason(p, cause); if (!no) return true;
     extraHeld.push({ pageUrl: p.pageUrl ?? p.pagePath ?? "", reason: no });
     const stored = existing.get(p.id); if (stored && persist) { await withdrawChangeProposal(stored, no).catch(() => false); existing.delete(p.id); }
-    return false; };
-  /** RANK, THEN WRITE THE ORDER BACK. Every card was written before the pass had ranked it, so the stored rows carried a null ranking receipt and nothing on file could say why a card sat where it sat. Written back ONLY where the order actually moved, so a settled queue still writes nothing, and never at all on a pass whose writes were already failing: a store that would not take the row will not take its order either. */
+    return false; }; /** RANK, THEN WRITE THE ORDER BACK. Every card was written before the pass had ranked it, so the stored rows carried a null ranking receipt and nothing on file could say why a card sat where it sat. Written back ONLY where the order actually moved, so a settled queue still writes nothing, and never at all on a pass whose writes were already failing: a store that would not take the row will not take its order either. */
   const rankAndStamp = async (rows: readonly ChangeProposal[]): Promise<ChangeProposal[]> => {
     const ranked = rankProposals(rows.map((p) => existing.get(p.id) ?? p).map(recovered).map(sized), { ...measuring, familyHistory }); // WHAT WAS PERSISTED IS WHAT GETS RANKED, or a card whose banked copy was kept above would rank as a brief the store no longer holds.
     if (!persist || writeFailures > 0) return ranked;
@@ -361,8 +363,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})$`);
     let taken = 0;
     for (const [id, row] of existing) {
-      if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue;
-      if (row.status !== "needs_review" || !pattern.test(id)) continue;
+      if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue; if (row.status !== "needs_review" || !pattern.test(id)) continue;
       if (row.bundle && !doorWalked.has((row.pagePath ?? "").trim().toLowerCase()) && !doorWalked.has((row.pageUrl ?? "").trim().toLowerCase())) continue;
       if (await withdrawChangeProposal(row, "swept: the producer that owns this family rewrote it and did not re-emit this card").catch(() => false)) taken += 1;
     }
@@ -494,8 +495,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       const why = outcome.status === "no_draft" ? outcome.drafterStatus : "withdrawn";
       file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), why === "withdrawn" || why === "not_diagnosed" ? "deterministic_refusal" : "retryable_blocked", why !== "budget_spent" && why !== "off", outcome.status === "no_draft" ? outcome.reason : "a safety gate rejected this draft, so it was never offered");
       noDraft += 1;
-      // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.
-      if (outcome.status === "withdrawn" && persist) await withdrawChangeProposal(stamp(outcome.proposal), "refused: a safety gate rejected this draft, so it was never offered");
+      if (outcome.status === "withdrawn" && persist) await withdrawChangeProposal(stamp(outcome.proposal), "refused: a safety gate rejected this draft, so it was never offered"); // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.
       continue;
     }
     const proposal = stamp(outcome.proposal); proposals.push(proposal);

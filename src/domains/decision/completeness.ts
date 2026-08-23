@@ -124,7 +124,10 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   }
   // AND A PERSON WHO READ THE WORDS AND ASKED FOR BETTER ONES OUTRANKS THE PRESERVATION RULE. Banked copy survives because a pass that did not reach a card must not destroy it, which says nothing about a card somebody read and sent back: the ask stands until a pass actually writes over it.
   if (prior.redraftRequested) return { ...incoming, ...inherited };
-  if (deliverableGaps(incoming).length === 0 || deliverableGaps(prior).length > 0) return { ...incoming, ...inherited };
+  // A RESEARCH BRIEF IS NEVER FINISHED WORK, however complete its sentences read (Codex, 2026-08-23): a gap-free
+  // instruction ("the work is reachability first") beat the finished /funny-farsi-phrases answer here, one second
+  // after that answer saved. Only a row that is itself a deliverable may replace one.
+  if ((incoming.researchOnly !== true && deliverableGaps(incoming).length === 0) || deliverableGaps(prior).length > 0) return { ...incoming, ...inherited };
   // COPY NOBODY CAN TRACE IS NOT FINISHED WORK. An atomic card's words are written by the editor, which hands back every claim beside the evidence ids carrying it, and this branch banked the words and dropped the claims: all three ready cards on the live account carried `claims: null` and no persisted mapping from a sentence to the thing behind it, so nothing on the row could ever be re-checked. Banked words survive only WITH their provenance now, and copy that reached the row before this did is redrafted once rather than served on for ever as an unsupported claim. A bundle answers on its receipt instead and is left alone.
   if (!prior.bundle && (prior.claims ?? []).length === 0) return { ...incoming, ...inherited };
   // AND A CLAIM POINTING AT AN ID NOBODY BANKED THE WORDS FOR IS NOT PROVENANCE EITHER. The ids resolve inside the pass that drafted the copy and nowhere else, so banked words survive only while every id their claims name has its exact quoted fact banked beside them. Copy banked before the pairs existed is redrafted once, exactly as copy banked before the claims existed was.

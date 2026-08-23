@@ -8,7 +8,8 @@ vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: as
   withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); const bodyStore = vi.hoisted(() => ({ map: null as null | Map<string, unknown> }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
-  loadOwnedPageBodies: async () => { if (bodyStore.map) return bodyStore.map; throw new Error("no body store in this fixture"); } })); vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle"; import { ledgerProofLine } from "@/domains/decision/changes/lifecycle-counts";
+  loadOwnedPageBodies: async () => { if (bodyStore.map) return bodyStore.map; throw new Error("no body store in this fixture"); } })); const acct = vi.hoisted(() => ({ profile: null as unknown }));
+vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => acct.profile ?? null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle"; import { ledgerProofLine } from "@/domains/decision/changes/lifecycle-counts";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals"; import { loadProposalQueue } from "@/domains/decision/load-proposals"; import { confidenceFor, serializeChangeProposal, deserializeChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter"; import { adjudicateCoverage, earnedNewPage, intersectionComparison } from "@/domains/decision/coverage-adjudication"; import type { OwnedCandidate } from "@/domains/decision/owned-coverage"; import type { ParsedPageIntersection } from "@/domains/evidence/page-intersection";
 import { answerIntelOf } from "@/domains/evidence/answer-intel"; import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"; import type { LlmCallCacheEntry } from "@/domains/decision/llm/call-cache"; import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
@@ -45,7 +46,7 @@ const reverse = <T,>(a: readonly T[]): T[] => [...a].reverse(); const OPTS = { n
 /** No provider name, no lab word, no dash reaches operator-facing copy. */
 const expectCleanCopy = (p: ChangeProposal): void => { const b = p.bundle!; const copy = [b.objective, b.metric, b.measurementPlan, p.whyItMatters, ...b.receipt.items.map((i) => i.fact), ...b.receipt.missing, ...b.risks,
     ...b.confidenceReasons, ...b.components.map((c) => `${c.label} ${c.after}`), ...b.alternatives.map((a) => `${a.option} ${a.reason}`)].join(" "); expect(copy).not.toMatch(/chatgpt|gemini|dataforseo|SERP|baseline|control group/i); expect(copy).not.toMatch(/[–—]/); };
-beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); sent.length = 0; kinds.length = 0; }); afterEach(() => { delete process.env.OPENAI_API_KEY; }); describe("produceBundleForSnapshot", () => {
+beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); sent.length = 0; kinds.length = 0; acct.profile = null; }); afterEach(() => { delete process.env.OPENAI_API_KEY; }); describe("produceBundleForSnapshot", () => {
   it("repairs the page with the biggest proven gap, in exact drafted copy, on a receipt every component cites", async () => { const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const p = out.proposal; const bundle = p.bundle!; expect(p.id).toBe(`${TENANT}::/rain-barrels::existing_edit::title-family`); expect(p.pagePath).toBe("/rain-barrels"); expect(p.changeFamily).toBe("title-family"); // the family, in the id AND the stamp: a snippet rewrite and a body rebuild are two changes, and the ledger must be able to tell them apart expect(p.kind).toBe("existing_edit"); // the 570-click gap, not the 55-click one
     // ONE field, the one the results page accused. A description or an opening answer would need the line Google shows under the result or this page's own words, and neither is on file.
     expect(p.impactScore).toBe(570); expect(bundle.components.map((c) => c.kind)).toEqual(["title"]); expect(bundle.components[0].before).toBe("Rain Barrels"); expect(bundle.components[0].after).toBe(TITLE_AFTER); expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER }); expect(bundle.receipt.items.map((i) => i.kind)).toEqual(expect.arrayContaining(["gsc_demand", "page_extract", "keyword", "serp", "ai_observation", "winning_page"]));
@@ -748,6 +749,19 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
       deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
   // THE HALLUCINATION THAT AUTHENTICATED ITSELF, on the live account's own stored page evidence, and with a judge that says yes to all seven of its rulings. The coverage graph carried the writer's own claim text, so a sentence and the claim declaring it were one string: a claim naming a real evidence id, repeated word for word in ordinary prose, cleared every check because the word was in the claim. Each claim is now read against the quoted facts IT names, with itself taken out of the corpus, and the refusal is DETERMINISTIC, so the permissive judge below is never asked. THE LIVE ROW IS HERE TOO: the one ready card on the account (2026-08-15) declared "The page includes Love Eshgh black and white variants" against four headings and one body excerpt that name the shoes and never say the page includes anything, and it is refused for exactly that word. A paraphrase made of the quoted facts' own content words still passes.
+  /** FINISHED WORK IS NEVER DESTROYED BY A SOFT RULE (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer was
+   *  drafted, saved Ready at 20:33:38, and overwritten by its own research brief at 20:33:39, because a re-read
+   *  applied the banned-word rule without the searcher-vocabulary exemption the editor had honoured. Soft reasons
+   *  DOWNGRADE finished copy to a review draft carrying the reason; only the four hard classes retire it. */
+  it("classifies the live destruction reason as soft, and every one of the four hard classes as hard", () => {
+    expect(DRAFT_BUDGET.HARD_REFUSAL.test("it uses words this account does not publish: Farsi")).toBe(false); // the exact live reason: SOFT
+    expect(DRAFT_BUDGET.HARD_REFUSAL.test("its copy is 68 long, outside the 80 to 150 this field takes, or carries something nobody can paste")).toBe(false);
+    expect(DRAFT_BUDGET.HARD_REFUSAL.test("it points at the page instead of answering")).toBe(false);
+    for (const hard of ["the words it says it replaces are not on the stored page", "it names a page this evidence is not about",
+      "its copy is blank or still carries a placeholder", "the evidence its claims name is not banked beside them: card-9",
+      'its copy names "Cyrus", and nothing on file about this page mentions them', "it names evidence that is not on file: owned_snapshot"])
+      expect(DRAFT_BUDGET.HARD_REFUSAL.test(hard)).toBe(true); });
+
   /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and
    *  $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE"
    *  never carried. Real qualifiers must still be enforced, so both directions are pinned. */
@@ -965,6 +979,25 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("reachability first");
     expect([out.researchOnly, out.status === "ready", out.evidence.hints.some((h) => h.includes("reports reading"))]).toEqual([true, false, true]);
   });
+  /** FINISHED WORK SURVIVES A SOFT RE-READ AS REVIEW WORK (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer
+   *  was saved Ready and destroyed back to its own brief ONE SECOND later, because the re-mint's re-read applied the
+   *  banned-word rule without the exemption the editor had honoured. Soft reasons keep the words, at review, with
+   *  the reason on the card; only the four hard classes still retire copy. */
+  it("keeps finished copy through a soft re-read failure, downgraded to review with the reason, never the brief", async () => {
+    const finished = "The finished cities section, with the word Farsi the searchers themselves use.";
+    store.rows.set(CITIES, heldRow({ copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Cities", placed after "Cities of Iran"' },
+      claims: [{ text: finished, supportedBy: ["card-1"] }], supportFacts: [{ id: "card-1", fact: finished }] }));
+    acct.profile = { trustedSourceDomains: { value: [] }, constraints: { value: { bannedTerms: ["Farsi"] } }, name: { value: "Fixture" } };
+    // the re-minted BRIEF, exactly the live shape: same page, same stamps, same diagnosis, no drafting of its own
+    await runWith(incoming({ treatment: "add_answer_section", researchOnly: true, status: "needs_review",
+      copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran" }));
+    const out = store.rows.get(CITIES)!;
+    const kept = out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "";
+    expect(kept).toBe(finished);                                          // THE WORDS SURVIVE
+    expect(out.status).toBe("needs_review");                              // downgraded, visible in the Review lane
+    expect(out.limitations.join(" ")).toContain("does not publish");      // with the reason on the card
+    expect(out.previousCopy).toBeUndefined(); });                         // nothing was retired, because nothing was lost
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));

@@ -28,7 +28,8 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
   bannedTerms?: readonly string[];
   /** The pass's ONE shared budget. Absent = this file owns one of its own for this run. */
   budget?: DraftBudget;
-  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: Allowance; /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number; /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>; /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked", why?: string) => void; /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> }; const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted /** The page this card lands on, by either key. */
+  /** One candidate's already-claimed allowance, when a caller drafts a single deliverable itself. */ attempts?: Allowance; /** Wall-clock moment this editor must stop STARTING cards (epoch ms). A card already being written finishes. */ stopBy?: number; /** PAGES NOBODY SETTLED: the provider could not answer, or the pass ran out of its own allowance mid-deliverable. Recorded as it happens, so a card that comes back unfinished is told apart from one Beacon's OWN gates read and rejected. Only the second settles anything. */ unsettled?: Set<string>; /** Reports one card's settled outcome to the caller's receipt, with the words of the refusal that settled it. */ note?: (key: string, outcome: "deterministic_refusal" | "retryable_blocked" | "review_saved", why?: string) => void; /** THE LAST REFUSAL PER PAGE, in the gate's own words. Kept because "blocked" alone cannot be acted on: a receipt that cannot say WHICH rule refused the copy sends the next pass to buy the identical refusal. */ refusals?: Map<string, string> }; const softOnly = (reasons: readonly string[]): boolean => reasons.length > 0 && reasons.every((r) => !DRAFT_BUDGET.HARD_REFUSAL.test(r));
+const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted /** The page this card lands on, by either key. */
 function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvidence | null {
   const url = (card.pageUrl ?? "").trim(), path = (card.pagePath ?? "").trim().toLowerCase();
   return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;
@@ -37,6 +38,7 @@ function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvi
 // ── THE EDITOR CONTRACT ───────────────────────────────────────────────────────
 /** WHETHER COPY IS FINISHED IS NOT A QUESTION ABOUT ITS SPELLING. Two word lists used to answer it: a verb list  called a sentence an instruction, and a vocabulary list called a word invented because the page had not  already printed it. The second refused the one thing an editor is for, a faithful paraphrase. So the editor hands back its HOMEWORK and two gates read it. The deterministic half checks only what code can know: fields  present, no placeholder, every id resolves, the text it replaces and the place it lands are really on the  stored page, the heading is not the tracked question said back, the copy is the length its field takes. Sense is the JUDGE's, and NO JUDGE MEANS NO DELIVERABLE. Dashes, ungrounded figures and destructive replacements stay where they live (validate-proposal, llm/numeric-fidelity): house rules for any copy. */
 type EditorDeliverable = {
+  /** Notes from a final round that failed only SOFT rules: the draft is complete and worth a human read, and these ride its limitations. */ softFailures?: readonly string[];
   actionType: "title" | "h1" | "meta" | "answer_block" | "section" | "internal_link"; targetUrl: string; placementAnchor: string; beforeText: string | null;
   finalCopy: string; naturalHeading: string | null; claims: readonly { text: string; supportedBy: readonly string[] }[];
   /** THE EXACT WORDS BEHIND EACH ID THE CLAIMS NAME, resolved off this packet's own evidence map and carried with the copy so provenance survives the pass that wrote it. */
@@ -121,8 +123,7 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
   if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
   // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
   const figure = (t: string): string => t.replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
-  // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies.
-  // ONE RANGE, HOWEVER IT IS SPELLED, AND UNITS COUNT (Codex, 2026-08-23): "from 550 BCE to 330 BCE" and "550-330 BCE" are the same fact, and reading the "from" as a dropped qualifier cost /iran-flags/achaemenid-empire-flag five calls and $0.026846 for a line naming the years its own page is about. Endpoints carrying the SAME unit fold together; genuinely different units (5 km to 3 miles) stay two facts, and every other qualifier is still enforced below.
+  // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies. ONE RANGE, HOWEVER IT IS SPELLED, AND UNITS COUNT (Codex, 2026-08-23): "from 550 BCE to 330 BCE" and "550-330 BCE" are the same fact, and reading the "from" as a dropped qualifier cost /iran-flags/achaemenid-empire-flag five calls and $0.026846 for a line naming the years its own page is about. Endpoints carrying the SAME unit fold together; genuinely different units (5 km to 3 miles) stay two facts, and every other qualifier is still enforced below.
   const ranges = (t: string): string => t.replace(/(?:\bfrom\s+)?(\d[\d,.]*)\s*([A-Za-z]{1,4})?\s+to\s+(\d[\d,.]*)\s*([A-Za-z]{1,4})?/gi,
     (m, a: string, ua: string | undefined, b: string, ub: string | undefined) => (!ua || !ub || ua.toLowerCase() === ub.toLowerCase()) ? `${a}-${b}${ub ? ` ${ub}` : ua ? ` ${ua}` : ""}` : m);
   const said = ranges(p.bodyText).split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
@@ -293,8 +294,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   const picked = scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6)
     .sort((a, b) => a.i - b.i);
   (picked.length > 0 ? picked : scored.slice(0, 6)).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
-  // THE PAGE'S OWN DEMAND, off its stored search rows: what it earns (never to be dropped) and how searchers actually phrase it (legal vocabulary, each entry a citable demand-N fact carrying its own numbers).
-  const rows = page.search?.topQueries ?? [];
+  const rows = page.search?.topQueries ?? []; // THE PAGE'S OWN DEMAND, off its stored search rows: what it earns (never to be dropped) and how searchers actually phrase it (legal vocabulary, each entry a citable demand-N fact carrying its own numbers).
   const preserve = [...rows].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
   const units = demandUnitsOf(rows, () => 0);
   const vocabulary: string[] = [...new Set(units.flatMap((u) => u.vocabulary))].slice(0, 15);
@@ -321,7 +321,8 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   /** A LINK RUN CARRIES ITS OWN TWO FACTS: the owned page the sentence lands a link on, and the words that become the link. Both are the caller's, read off the card, never the model's. */
   link: { to: string; anchor: string } | null = null,
   /** REWRITE TARGET (Codex, 2026-08-23): the stored passage this copy REPLACES and the stored heading it sits under. Present means rewrite_existing_section: the deliverable's `before` IS that passage and the card says Replace, never "a new section". */
-  rewrite: { heading: string | null; replaces: string } | null = null): Promise<EditorDeliverable | null> {
+  rewrite: { heading: string | null; replaces: string } | null = null,
+  lastRound = false): Promise<EditorDeliverable | null> {
   // THE LINE THE MODEL IS SHOWN IS THE LINE THE GATE CHECKS. The drafter used to be handed the CARD's stored `before` while the gate compared against the freshly loaded page, so any crawl newer than the card (a re-punctuated dash was enough) made the model echo one string and the gate demand another, and every field edit was refused for disagreeing with itself.
   const held = field === "meta" ? packet.metaDescription : field === "title" ? packet.title : field === "h1" ? packet.h1 : null;
   // THE MONEY IS SPENT HERE, SO THE BUDGET IS READ HERE. Counted down before the call and never after it, so a call that fails, refuses or throws has still been paid for and still counts against what this pass may spend.
@@ -384,7 +385,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
   if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
   const refused = await acceptDeliverable(deliverable, packet, opts.judge ?? evaluator(opts.tenantId, opts.now, opts.attempts));
-  // A REFUSAL NAMES THE TWO STRINGS IT COMPARED. "not the line this page carries" was unactionable without them.
+  if (refused.length > 0 && lastRound && softOnly(refused)) return { ...deliverable, softFailures: refused.slice(0, 4) }; // a LAST round failing only SOFT rules hands the complete draft back as REVIEW work with its notes, rather than discarding a paid answer over style (Codex, 2026-08-23)
   if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120), copy: deliverable.finalCopy.slice(0, 200), claims: deliverable.claims.map((c) => `${c.text} <- ${c.supportedBy.join(",")}`).slice(0, 4) });
   return deliverable;
 }
@@ -497,14 +498,14 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     "Return sources as an empty array; never send a source entry with blank fields. evidenceRefs is DIFFERENT and required: cite at least one of the evidence ids handed to you above. A claim's supportedBy lists at most 8 ids."];
   const field = kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : kind === "link" ? "internal_link" : "answer_block";
   let deliverable = await runEditor(packet, field, card.pageLabel, [...hints, ...(rewrite ? [`You are REWRITING the existing section that currently reads: "${rewrite.replaces.slice(0, 500)}". Your copy REPLACES it in place: keep everything true it says, add the mapping, structure or precision it lacks, and never write it as a new section.`] : [])],
-    card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite);
+    card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite, (DRAFT_BUDGET.RETRIES as number) === 0);
   // THE RETRIES THE POLICY PAYS FOR, and not a number of its own: the loop and the allowance read one contract (decision/draft-budget), because when they drifted the allowance ran out mid-deliverable every time. Each retry is told EVERY refusal so far: a section juggles nine constraints and a retry told only the last one fixes that and breaks an earlier one, so the lessons accumulate. The editor decrements the pass's shared attempt budget before every charged call, so this is counted work, never free. A RETRY IS CORRECTIVE, NEVER "TRY AGAIN" (Codex, 2026-08-23): the exact words a gate called unsupported are named back as removals, so the next attempt fixes the named defect instead of rediscovering it. The full reasons still follow, oldest first, so fixing one cannot quietly reintroduce another.
   const corrective = (): string => { const bad = [...new Set(lessons.filter((l) => /copy says|copy names|drops/.test(l)).flatMap((l) => [...l.matchAll(/"([^"]{1,40})"/g)].map((m) => m[1]!)))];
     return [bad.length > 0 ? `REMOVE these exact words from your copy, or reword the sentence so a claim you declare carries them and cites the stored passage proving them: ${bad.map((w) => `"${w}"`).join(", ")}. For any category word, use the exact category the cited evidence establishes, or omit the category.` : "",
       `${lessons.length} previous ${lessons.length === 1 ? "attempt was" : "attempts were"} refused. Every reason, oldest first, each of which your next version must not repeat: ${lessons.map((l, i) => `(${i + 1}) ${l}`).join(" ")}`].filter(Boolean).join(" "); };
   for (let round = 0; !deliverable && lessons.length > round && round < DRAFT_BUDGET.RETRIES; round += 1)
     deliverable = await runEditor(packet, field, card.pageLabel, [...hints, corrective()],
-      card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite);
+      card.estimatedEffortMinutes ?? 0, opts, refuse, kind === "link" ? { to: dest!, anchor: card.primaryQuery } : null, rewrite, round === DRAFT_BUDGET.RETRIES - 1);
   if (!deliverable) return null;
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
@@ -513,7 +514,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   // THE PROMOTION IS THE VERDICT, NOT A HABIT (operator, 2026-08-17; reshaped Codex, 2026-08-23): the ONE evaluator reads every round's copy with the adversary's own standards, its objections are fed back, and the canon's deterministic house rules run last, free. Any hold is a blocking finding with its sentence on the card. Unaffordable or unreadable means NOT promoted, never promoted unread.
-  const ready = verdict.verdict === "ready";
+  const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length;
+  if (deliverable.softFailures?.length) // A COMPLETE DRAFT THAT FAILED ONLY SOFT RULES IS REVIEW WORK, and the receipt says so: discarding it turned one imperfect word into zero output and sent the next pass to buy the identical draft again opts.note?.(DRAFT_BUDGET.keyOf(card), "review_saved", deliverable.softFailures.join("; ").slice(0, 300));
   // THE CANON HOLDING A DRAFT IS A VERDICT ON THE COPY, and it was the last one that said nothing. `needs_review` is not `rejected`: the words were read against today's evidence and held, so the page is SETTLED for this evidence and the final reviewer is never asked about copy the canon already stopped. It used to fall through with no note at all, `applyDraftedCopy` saw a non-null deliverable and stayed quiet too, and the receipt ended as a reasonless `retryable_blocked`: /funny-farsi-phrases, live, 2026-08-23 01:00Z. The canon's own status and its own first sentence go on the receipt; no second vocabulary is invented for something it already names.
   if (!ready) opts.note?.(DRAFT_BUDGET.keyOf(card), "deterministic_refusal",
     `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
@@ -604,7 +606,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
                 : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
                   `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
                   "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
-        limitations: [...card.limitations, ...drafted.uncertaintyOrOmitted, meta
+        limitations: [...card.limitations, ...(done!.d.softFailures ?? []), ...drafted.uncertaintyOrOmitted, meta
           ? "This line is written off the page's own title, headings and stored copy as last read, so check it still describes the page before you publish it."
           : title
             ? "This title is written off the page's own stored copy and the searches it still earns clicks on, so check it still names what the page delivers before you publish it."
@@ -668,8 +670,7 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   if (band !== "internal_link" && (field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering");
   if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
-  // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
-  const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription };
+  const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription }; // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
   if (held && field in line && c.before != null && (line[field] == null || flat(c.before) !== flat(line[field]!))) out.push("the line it says it replaces is not the one this page carries");
   return [...new Set(out)];
 }
