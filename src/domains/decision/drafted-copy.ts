@@ -492,6 +492,14 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   // THE PROMOTION IS THE VERDICT, NOT A HABIT, AND THE FINAL ADVERSARIAL REVIEWER IS PART OF IT (operator, 2026-08-17): copy that cleared the drafter, the deterministic contract, the sense judge and the canon validator STILL faces one hostile reading before it may wear Ready. Any false field is a blocking finding; the row stays at needs_review and the reviewer's sentence lands on the card as the reason. Unaffordable or unreadable means NOT promoted, never promoted unreviewed.
   let ready = verdict.verdict === "ready";
+  // THE CANON HOLDING A DRAFT IS A VERDICT ON THE COPY, and it was the last one that said nothing. `needs_review`
+  // is not `rejected`: the words were read against today's evidence and held, so the page is SETTLED for this
+  // evidence and the final reviewer is never asked about copy the canon already stopped. It used to fall through
+  // with no note at all, `applyDraftedCopy` saw a non-null deliverable and stayed quiet too, and the receipt ended
+  // as a reasonless `retryable_blocked`: /funny-farsi-phrases, live, 2026-08-23 01:00Z. The canon's own status and
+  // its own first sentence go on the receipt; no second vocabulary is invented for something it already names.
+  if (!ready) opts.note?.(DRAFT_BUDGET.keyOf(card), "deterministic_refusal",
+    `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
   if (ready) {
     if (opts.attempts && (opts.attempts.left -= 1) < 0) {
       deliverable.uncertaintyOrOmitted = [...deliverable.uncertaintyOrOmitted, "The final reviewer could not be afforded this pass, so this stays for a human look."];

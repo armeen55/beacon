@@ -56,10 +56,8 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
   it("reads an organic results page with its AI Overview, its questions, its related searches and its page-type votes", () => {
     const s = parsed("serp_organic", fx.serpOrganic());
     expect(s.organic.map((o) => o.rank)).toEqual([1, 2, 3, 4, 5, 6, 7]); // rank_group IS the position; rank_absolute counts ads and packs
-    expect(s.organic.find((o) => o.domain === SITE)!.url).toBe(`https://${GAP_URL}`);
-    expect(s.aiOverview!.references.map((r) => r.domain)).toEqual(["rival-a.example", "wikipedia.example"]);
-    expect(s.aiOverview!.excerpt).toBe("Kite festivals open at dawn and end with lanterns.");
-    expect(s.paaQuestions.map((p) => p.question)).toEqual(["What do people eat at a kite festival", "When did kite festivals start"]);
+    expect(s.organic.find((o) => o.domain === SITE)!.url).toBe(`https://${GAP_URL}`); expect(s.aiOverview!.references.map((r) => r.domain)).toEqual(["rival-a.example", "wikipedia.example"]);
+    expect(s.aiOverview!.excerpt).toBe("Kite festivals open at dawn and end with lanterns."); expect(s.paaQuestions.map((p) => p.question)).toEqual(["What do people eat at a kite festival", "When did kite festivals start"]);
     expect(s.relatedSearches).toEqual(["kite festival food", "kite festival dates", "paper lantern guide"]);
     const row: SerpRow = { query: GAP_QUERY, observedAt: fx.OBSERVED_AT, organic: s.organic, aiOverview: [], aiMode: [], paa: [], related: [] };
     const votes = pageTypeVotesOf([row]); // one vote per DOMAIN, and a result that classifies as nothing votes for nothing
@@ -86,8 +84,7 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
   it("reads a competitor body it can get, and claims nothing at all about one it cannot", () => {
     const readable = parsed("onpage_content_parsing", fx.competitorPageBody());
     expect([readable.title, readable.h1, readable.hasTable, readable.wordCount > 40]).toEqual(["Kite Festival Traditions Explained", "Kite festival traditions", true, true]);
-    expect(readable.headings).toEqual(["Kite festival traditions", "What families bring", "When the lanterns go up"]);
-    expect(readable.openingSample).toContain("A kite festival is a spring gathering");
+    expect(readable.headings).toEqual(["Kite festival traditions", "What families bring", "When the lanterns go up"]); expect(readable.openingSample).toContain("A kite festival is a spring gathering");
     const dark = parsed("onpage_content_parsing", fx.unreadablePageBody());
     expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);
   });
@@ -130,8 +127,7 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect(statuses).toEqual(["done", "done", "done"]);
     const consumer = evidence.aiObservations.find((o) => o.observationMode === "consumer_search")!;
     expect([consumer.promptText, consumer.fanOutQueries]).toEqual([PROMPTS[0]!.text, ["what happens at a kite festival", "kite festival food traditions"]]); // the question I asked, and the queries the engine ran, never confused
-    expect(consumer.citations!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]);
-    expect(new Set(evidence.aiObservations.map((o) => o.engine))).toEqual(new Set(["chatgpt", "claude", "gemini", "perplexity"]));
+    expect(consumer.citations!.map((c) => c.domain)).toEqual(["rival-a.example", SITE]); expect(new Set(evidence.aiObservations.map((o) => o.engine))).toEqual(new Set(["chatgpt", "claude", "gemini", "perplexity"]));
     const gap = evidence.retainedKeywords.find((k) => k.query === GAP_QUERY)!;
     expect([gap.searchVolume, gap.intent, gap.difficulty, gap.competitionLevel]).toEqual([2400, "informational", 31, "low"]); // bought once, carried whole
     expect(Object.keys(gap)).not.toContain("monthlySearches"); // the paid twelve-month trend survives the parser and stops at the funnel row

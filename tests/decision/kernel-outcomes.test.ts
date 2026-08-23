@@ -550,8 +550,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
   it("leaves a pair of my pages splitting a DIFFERENT search as not considered, never as ruled out", () => {
     const elsewhere = { ...ACTORS_SEEN(), cannibalization: [{ query: "persian actresses", competingUrls: ["iranopedia.example/a", "iranopedia.example/b"], note: "" }] };
     const c = compileCandidates(elsewhere)[0]!; expect(c.cause.cause).toBe("ctr_snippet"); // the search I measured was never checked for competing pages of mine
-    expect(c.cause.notConsidered.find((n) => n.cause === "cannibalization")!.missing).toContain("that exact search");
-    expect(c.cause.competingExplanations.map((x) => x.cause)).not.toContain("cannibalization"); });
+    expect(c.cause.notConsidered.find((n) => n.cause === "cannibalization")!.missing).toContain("that exact search"); expect(c.cause.competingExplanations.map((x) => x.cause)).not.toContain("cannibalization"); });
   it("stops recommending a page whose last change is still being measured, and admits when nobody told it", () => {
     const measuring = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/iranian-actors-actresses"] })[0]!; expect([measuring.action, measuring.cause.cause, measuring.cause.action]).toEqual(["watch", "measuring_change", null]);
     expect(measuring.cause.explanation).toContain("still being measured, so nothing is stacked on top of it");
@@ -618,8 +617,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     for (const world of [snap([WINNER]), SEEN(), snap([GAP]), snap([ACTORS], actorsSerp(DISPLAYED)), snap([GAP], CITED_ELSEWHERE()), BOTH()]) { for (const c of compileCandidates(world)) {
         expect(c.cause.competingExplanations.length).toBeGreaterThan(0); expect(c.cause.competingExplanations.length).toBeLessThanOrEqual(3);
         expect(c.cause.competingExplanations.every((x) => x.reason.length > 0)).toBe(true); expect(c.cause.falsifier.length).toBeGreaterThan(0);
-        expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD));
-        expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
+        expect(c.cause.notConsidered.map((n) => n.cause)).toEqual(expect.arrayContaining(NEVER_HELD)); expect(c.cause.notConsidered.every((n) => n.missing.length > 0)).toBe(true);
         expect(`${c.cause.explanation} ${c.cause.falsifier}`).not.toMatch(/[–—]|SERP|experiment|baseline/); } } }); });
 /** THE BAR EVERY GAP IS MEASURED AGAINST (2026-08-12). fitTenantCtrCurve was named in this module's own header and never existed, so every account was judged by an industry table promising 28 percent at position 1 while this one earns 1.34, and every card in the queue was sized about twenty times too big. */
 describe("the click curve is fitted to the account it judges", () => {
@@ -647,5 +645,4 @@ describe("the click curve is fitted to the account it judges", () => {
     const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
     expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 212]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
-    expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]);
-    expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });
+    expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });

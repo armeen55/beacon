@@ -997,8 +997,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(await owed()).toEqual([]); expect(await dispatch()).toBe("not_owed"); // nothing is owed once the stock is there, so no further dispatch opens a run
     const fresh = () => { rows.length = 0; rows.push(mk({ current_phase: "keyword_discovery", progress: { ...DECIDED, plan: { units: ["replenish_ready"] } } })); }; // a fresh day; nothing carried but the queue
     Q.ready = 0; Q.finishes = false; fresh(); // AND THE OTHER TERMINAL: a funded drive that finishes nothing proves no candidate on file can finish, so the day closes rather than spinning
-    expect(await dispatch()).toEqual([0, "candidates_exhausted"]);
-    expect(await dispatch()).toBe("not_owed");
+    expect(await dispatch()).toEqual([0, "candidates_exhausted"]); expect(await dispatch()).toBe("not_owed");
     Q.ready = 0; // and a spent provider balance owes nothing either, because a drive could achieve nothing: the day is NOT closed, so the moment the credit is back this is due again
     expect(await dueWork(T, new Date(NOW), { ...quiet, creditHeld: async () => true, run: async () => ({ open: false, progress: { ...DECIDED } }) })).toMatchObject({ due: [], readable: true }); });
   // A RUN ALREADY PARKED PAST THE FIRST PHASE STILL REPLENISHES BEFORE IT BUYS: bound to keyword_discovery alone, the live run sitting at serp_analysis could never top the inventory up at all.
@@ -1007,7 +1006,6 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     void withRun({ current_phase: "serp_analysis" });
     await run({ ...healthySteps(order), replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
-    expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0);
-    expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));
+    expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0); expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));
   });
 });

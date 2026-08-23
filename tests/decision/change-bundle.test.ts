@@ -334,8 +334,7 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     expect(found[1]!.redirectTo).toBe(`${AT}/rain-barrels`); // PIN (D, packet 19): a Ready technical change carries the EXACT edit, not a description of one
     expect(found.find((f) => f.kind === "missing_h1")!.exact).toBe("Rain Barrel Sizing Guide");
     const orphan = found.find((f) => f.kind === "orphaned_page")!; // PIN (D, packet 19): the orphan names a real source page, a real spot on it, and the words to type.
-    expect(orphan.exact).toBe("Rain Barrel Sizing"); expect(orphan.exactFix).toContain("/rain-barrels");
-    expect(orphan.exactFix).toContain('reading "Rain Barrel Sizing"');
+    expect(orphan.exact).toBe("Rain Barrel Sizing"); expect(orphan.exactFix).toContain("/rain-barrels"); expect(orphan.exactFix).toContain('reading "Rain Barrel Sizing"');
     expect(orphan.exactFix).toContain('in the part of it about "Rain Barrel Sizing Guide"'); // PIN (B, F8): the spot on the source page is named the way a person names it, never a bag of tokens.
     expect(JSON.stringify(found)).not.toMatch(/[–—]|SERP|crawl_state|http_status|discovered_via/);
     expect([readTechnicalFindings({}), readTechnicalFindings({ inventory: [row(`${AT}/a`)] })]).toEqual([[], []]); }); // NOTHING FIRES WITHOUT HELD EVIDENCE: no inventory and no capture is no findings, never a clean bill
@@ -344,15 +343,13 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     const dead = (over: Record<string, unknown>) => readTechnicalFindings({ inventory: [row(`${AT}/`), row(`${AT}/x`, over)] }).filter((f) => f.kind === "non_200");
     for (const code of [401, 403, 429, 503]) { expect(dead({ http_status: code }), `${code}`).toEqual([]); expect(dead({ crawl_state: "blocked", http_status: code }), `robots ${code}`).toEqual([]); }
     expect([dead({ http_status: 404 }).length, dead({ http_status: 410 }).length, dead({ crawl_state: "gone", http_status: null }).length]).toEqual([1, 1, 1]);
-    expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]);
-    expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
+    expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]); expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
     const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" }); expect(twice[0]!.evidence).toContain("two different days"); });
   // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and a copy fault with no copy behind it never reaches the operator as a change.
   it("writes no change it has not written the wording for, and says so instead", async () => { const noWords = readTechnicalFindings({
       inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/orphan`, { discovered_via: "nav" })],
       pages: [{ url: `${AT}/`, internal_links: [`${AT}/rain-barrels`] }, { url: `${AT}/rain-barrels`, title: "Rain Barrel Sizing Guide", internal_links: [] }] });
-    expect(noWords.some((f) => f.kind === "orphaned_page")).toBe(false);
-    expect(readTechnicalFindings({ pages: [{ url: `${AT}/p`, h1: "" }] }).some((f) => f.kind === "missing_h1")).toBe(false);
+    expect(noWords.some((f) => f.kind === "orphaned_page")).toBe(false); expect(readTechnicalFindings({ pages: [{ url: `${AT}/p`, h1: "" }] }).some((f) => f.kind === "missing_h1")).toBe(false);
     const run = async (findings: TechnicalFinding[]) => (CORE_PRODUCERS.technical_indexability as Producer)(
       { finding: { cause: "technical_indexability", payload: { cause: "technical_indexability", findings } }, primary: "rain barrel sizing" } as unknown as ProducerCtx);
     const vague = readTechnicalFindings({ pages: [{ url: `${AT}/a`, title: "Rain Barrel Sizing Guide" }, { url: `${AT}/b`, title: "Rain Barrel Sizing Guide" }] });
@@ -430,14 +427,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
     const bigger = prop({ id: "section-add", impactScore: 2000, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) });
     const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]); expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
-    expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads");
-    expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
+    expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads"); expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
     expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
     expect([factorOf(ranked[0]!, "confounding"), factorOf(ranked[1]!, "confounding")]).toEqual([-5, -5]); // both changes land on the same page, so each one discounts the other for confounding
     // a cause NOTHING on the page can fix rewards no lever and punishes none either: those changes rank on everything else
     for (const cause of ["demand_decline", "measuring_change"] as const) { const [only] = rankProposals([prop({ diagnosisCause: cause, bundle: bundleOf([comp({ kind: "title" })]) })]);
-      expect(factorOf(only!, "causeFit")).toBe(0);
-      expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
+      expect(factorOf(only!, "causeFit")).toBe(0); expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
     } });
   // DRAFT CAPACITY FOLLOWS THIS RANKING, NEVER ARRIVAL ORDER (operator, 2026-08-21): produce-proposals ranks the eligible cards through THIS function before the bounded drafter walks them, so with
   it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => { // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
@@ -500,8 +495,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   // THE CLOSING "READ THIS PAGE" LINE, on the two descriptions that carried one into the live queue on 2026-08-15. A description whose last sentence tells the reader to read the page carries filler where a fact belongs, which is the description equivalent of "click here". Trimmed where the field still fills without it, sent back for ONE redraft where it does not, and NEITHER card is special-cased: the achaemenid line loses too much (104 characters left, under the 110 a description takes) and the accessories line does not (142 left). LIST-SHAPED COPY (review, 2026-08-22): a CTA that is a whole last LINE is dropped whole, and the " - " separating a phrase from its meaning on an honest list item is never a cut point on multi-line copy.
   it("drops a CTA last line from list-shaped copy and never amputates a phrase-meaning item", () => {
     const LIST = "Persian greetings people actually use every day, from the first hello to the goodbye at the door:\nSalam - hello, the everyday greeting you can use with anyone at any time of day.\nKhodahafez - goodbye, literally may God protect you, said when parting.\nMerci - thank you, borrowed from French and completely common in Iran.";
-    expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST);
-    expect(withoutCta(LIST, "section")).toBe(LIST);
+    expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST); expect(withoutCta(LIST, "section")).toBe(LIST);
   });
   it("takes the call to action off the end of a description, or sends it back for one redraft", () => {
     const A = "Achaemenid Empire Flag (550-330 BCE): its symbolism, origins, role and changes in Persian flags history. Read this page for the focused summary.", B = "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion. Browse unique pieces.";
@@ -565,6 +559,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const run = (calls: number) => applyDraftedCopy([card()], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, complete: meta, budget: purse(calls), unsettled: new Set<string>(),
       refusals: new Map<string, string>(), note: (k: string, o: string, why?: string) => { notes.push([k, o, why ?? ""]); } } as never);
     await run(2); await run(DRAFT_BUDGET.DELIVERABLE_CALLS); // a round's worth and no more, then a whole deliverable's worth so the gates get to read the copy and refuse it
+    // AND A CANON HOLD IS A VERDICT, NEVER A MUTE BLOCK (Codex, 2026-08-23, from /funny-farsi-phrases live): `needs_review` means the copy was READ against today's evidence and held, so it is settled, it says which quality status held it, and the adversarial reviewer is never asked about copy the canon already stopped.
+    const reviewed: string[] = []; await applyDraftedCopy([card()], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, complete: meta, budget: purse(DRAFT_BUDGET.DELIVERABLE_CALLS),
+      unsettled: new Set<string>(), refusals: new Map<string, string>(), note: (k: string, o: string, why?: string) => { notes.push([k, o, why ?? ""]); },
+      reviewer: async () => (reviewed.push("asked"), { notes: "n" }) as never } as never);
+    expect([notes.filter(([, o, why]) => o === "deterministic_refusal" && why.length > 0).length > 0, reviewed]).toEqual([true, []]); // it named what held it, and nobody paid a reviewer to re-read copy the canon had already stopped
     const ranOut = notes.find(([, , why]) => why.includes("spent its whole attempt budget")), gate = notes.find(([, , why]) => why !== "" && !why.includes("attempt budget"));
     expect([ranOut?.[1] ?? "none", gate?.[1], (gate?.[2] ?? "").length > 0]).toEqual(["retryable_blocked", "deterministic_refusal", true]); }); // Beacon's own accounting is not a verdict on the words; a gate that READ them is settled and says what it saw
   // THE THREE CARDS WITHDRAWN FROM A PAYING OPERATOR'S LIVE QUEUE ON 2026-08-14, as fixtures. Each was written by the model, passed every gate INCLUDING the live judge on all seven of its criteria, and reached the customer surface. Each is now refused DETERMINISTICALLY, by name, before any model is consulted. The judge is defence in depth behind these, never the thing they rest on.
@@ -626,10 +625,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // A DANGEROUS CHANGE IS DISCOUNTED, NOT SUNK, and being held for a look is no longer a score at all: what separates these three is what each costs (a risky lever, -18) and what each would ruin (-30, a second change on a page being read). Whether the risky one may be pasted is settled off this file.
     expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
     const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
-    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
-    expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
-    expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0);
-    expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
+    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true); expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
+    expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0); expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); }); // every factor stays inside its own ceiling, so no single input can quietly decide the order
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]); // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
@@ -640,8 +637,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
     expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
-    expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]);
-    expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
+    expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
     // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
     const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([true, 19.38]);
     expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall, cause not yet diagnosed");
@@ -773,8 +769,7 @@ describe("finished copy survives a pass that cannot redraft", () => {
     for (const [over, said] of [[{ copyStamp: "THE PAGE WAS RECRAWLED DIFFERENT" }, "content changed"],
       [{ diagnosisCause: "ranking_loss" as const }, "cause changed"]] as const) {
       const out = preferFinished(brief(over), finished()); expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("credited pages");
-      expect(out.previousCopy?.after).toBe("The finished words, one item per line.");
-      expect(out.previousCopy?.retiredBecause).toContain(said);
+      expect(out.previousCopy?.after).toBe("The finished words, one item per line."); expect(out.previousCopy?.retiredBecause).toContain(said);
     }
   });
 });
