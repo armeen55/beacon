@@ -62,12 +62,9 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
 
 /** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed. Fail-soft to nothing. */
 async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> { const out = new Map<string, { readings: number; netLift: number }>();
-  const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
-  if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
+  const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null); if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
   for (const r of ledger) {
-    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0];
-    if (!read) continue;
-    const cur = out.get(actionFamilyOf(r.actionType)) ?? { readings: 0, netLift: 0 };
+    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0]; if (!read) continue; const cur = out.get(actionFamilyOf(r.actionType)) ?? { readings: 0, netLift: 0 };
     out.set(actionFamilyOf(r.actionType), { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) }); }
   return out;
 }
@@ -83,14 +80,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const profile = await loadBusinessProfile(tenantId).catch(() => null), allowlist = opts.authoritativeSourceDomains ?? profile?.trustedSourceDomains.value ?? [];
   const bannedTerms = profile?.constraints.value.bannedTerms ?? []; // the account's own vocabulary, read ONCE: every editor in the pass is held to the same words
   /** TWO HARD BUDGETS, and every paid Decision call this pass can reach decrements one of them BEFORE the call, whether it succeeded, refused or threw. 1. THE PAID PLAN (decision/draft-budget, compiled and funded below once every $0 producer has run): the reading of the winning pages, the new page, the shallow field drafts, every deep bundle piece, Beacon's own correction review and the editor. `maxDrafts` is the number of CANDIDATES the whole pass may spend on and MAX_PAID_CALLS caps the charged calls behind them, so no family keeps a pool and none can claim by being reached first. 2. `pageReads` (MAX_NEW_READS_PER_PASS): the durable page readings the $0 producers buy to place their cards (producers/page-job). These are a DIFFERENT thing bought at a different rate and are not folded into the call pool, where sixty of them would starve every drafter; they are named, counted and reported instead. A tripped provider breaker funds nothing at all. */
-  const breakerOpen = opts.zeroSpend === true ? true : await creditBreakerHeld(tenantId).catch(() => true);
-  if (breakerOpen && opts.zeroSpend !== true) log.warn("[produce-proposals] the provider's own credit is spent, so this pass drafts nothing and reports no funded work", { tenantId });
+  const breakerOpen = opts.zeroSpend === true ? true : await creditBreakerHeld(tenantId).catch(() => true); if (breakerOpen && opts.zeroSpend !== true) log.warn("[produce-proposals] the provider's own credit is spent, so this pass drafts nothing and reports no funded work", { tenantId });
   const pageReads = { left: opts.zeroSpend === true ? 0 : MAX_NEW_READS_PER_PASS };
   const basis = await resolveCurrentBasis(tenantId, profile); // The basis this pass generates under: the SAME fingerprint Runtime scopes derived work with. Fail-soft.
   // ONE CURVE FOR THE WHOLE PASS, fitted once and handed to every surface that measures a gap, so the diagnosis, the coverage walk, the bundle and the suggestions cannot judge one page by four bars.
   const curve = fitCurveForOwnedPages(snapshot.ownedPages, { name: profile?.name.value ?? null, domain: snapshot.scope.site }, opts.now);
 
-  const existing = persist ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>()) : new Map<string, ChangeProposal>();
+  const existing = persist ? await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>()) : new Map<string, ChangeProposal>(); let released = 0;
   /** The drafts already taken back under this basis: without this read the next pass repays every failure. */
   const withdrawn = persist ? await withdrawnProposalIds(tenantId, basis) : new Set<string>();
   /** THE measurement context, derived once and shared by the diagnosis and both rankings. */
@@ -112,8 +108,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const readPattern = async (slice: { left: number }): Promise<void> => {
     const at = coverage!, mine = new Set(at.investigation.winners.filter((w) => w.extractState === "current").map((w) => w.url)); // ONLY THE WINNERS CURRENTLY HELD A READ OF: the denominator is exactly what was read and is still held.
     const pattern = await readWinningPattern(extractPageFacts((snapshot.research.winningPages ?? []).filter((r) => mine.has(r.url))), ownedFactsFor(snapshot, at), tenantId, { complete: opts.complete, now: opts.now, pageType: at.investigation.pageType, label: at.investigation.label, attempts: slice }).catch(() => null);
-    if (!pattern) return;
-    const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, curve, patternFor: { topicKey: at.investigation.key, pattern } }).catch(() => null);
+    if (!pattern) return; const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, curve, patternFor: { topicKey: at.investigation.key, pattern } }).catch(() => null);
     if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
   };
   /** The pass's own research half, read at the END of the pass so it carries the verdict the funded reading refined rather than the one that stood before it. */
@@ -296,11 +291,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // THE DOWNGRADE LANDS AFTER PRESERVATION (Codex, 2026-08-23): finished words surviving a soft re-read failure move to review with the reason on the card, so nothing soft ships unread and nothing soft destroys work.
     const carried2 = soft && trimmed && carried.recommendedChange.kind === "existing_edit" && trimmed.recommendedChange.kind === "existing_edit" && carried.recommendedChange.after === trimmed.recommendedChange.after
       ? { ...carried, status: "needs_review" as const, limitations: [...new Set([...carried.limitations, ...why.slice(0, 2)])] } : carried;
-    // A ROW HELD BY A RULE THAT NO LONGER STANDS IS NOT HELD ANY MORE. Three finished answers sat in Review on the live account over a parser that read "with mammals of Iran" and "symbolizing royal authority" as things a page offers; the rule was corrected and the words stayed unreachable, because a soft hold is stamped ON the row and nothing ever took it off. A re-read that finds nothing wrong today IS the row's release: the copy is the same copy, so preservation already chose it, and the hold it was carrying is a receipt for a rule that no longer exists. The gate speaks in lowercase and the writer's own caveats do not, so the stale lines leave with the hold and the reader's caveats stay. Nothing is promoted past its own cause: `unfit` below re-asks whether the change still treats what its evidence named, and puts it straight back if it does not.
-    const revived = why.length === 0 && trimmed?.status === "needs_review" && trimmed.researchOnly !== true && trimmed.recommendedChange.kind === "existing_edit"
-      && carried2.status === "needs_review" && carried2.recommendedChange.kind === "existing_edit" && carried2.recommendedChange.after === trimmed.recommendedChange.after
-      ? { ...carried2, status: "ready" as const, limitations: carried2.limitations.filter((l) => !/^[a-z]/.test(l)) } : carried2;
-    const ranked: ChangeProposal = !revived.rankingReceipt && prior?.rankingReceipt ? { ...revived, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : revived;
+    const ranked: ChangeProposal = !carried2.rankingReceipt && prior?.rankingReceipt ? { ...carried2, rankingReceipt: prior.rankingReceipt, ...(prior.whyRankedAboveNext ? { whyRankedAboveNext: prior.whyRankedAboveNext } : {}) } : carried2;
     // READY MEANS THE CHANGE TREATS THE CAUSE ITS OWN EVIDENCE NAMED. Four producers mint `ready`, each off its own drafting, and not one asked whether the lever fits the diagnosis: the ranking was discounting 25 points for exactly that mismatch on the very card it left in the paste-ready lane. Asked ONCE, here, where every producer's row and every reused row passes on its way to the store.
     const unfit = ranked.status === "ready" ? unsettledCause(ranked) ?? openHold(ranked).blocking : null; // the reason rides the ROW, not a log: the operator reads why it is held where they read the change. AND WORK NOBODY CAN RE-PLACE IS NOT READY EITHER, WITHOUT BEING DESTROYED FOR IT: banked body copy is served on without the page's own words in hand, so an anchor no banked fact carries can no longer be checked, and the words, the claims and the evidence are kept exactly as banked while the row goes back to review carrying the sentence that says why (decision/completeness's `openHold`)
     const p: ChangeProposal = unfit ? { ...ranked, status: "needs_review", limitations: [...new Set([...ranked.limitations, unfit])] } : ranked;
@@ -542,6 +533,15 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     { families: ["factual_correction"], complete: factual.complete }, // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["ownership", "researching"], complete: gscComplete },
     { families: ["consolidation", "title-family", "section-family"], complete: doorWalked.size > 0 }]); // The door's own families, swept on the pages above and nowhere else.
+  // A HOLD LIFTED BY A RULE CHANGE REACHES EVERY ROW IT WRONGLY HELD, not only the pages a later pass happens to work. Three finished answers sat in Review on the live account over a parser that read "with mammals of Iran" and "symbolizing royal authority" as things a page offers. The parser was corrected, and the answers stayed unreachable: a soft hold is stamped ON the row, the row is only ever re-read when its page comes back up, and the day's manifest had already spent on those pages. Every held row is re-read here instead, against the same page, the same account vocabulary and the same earning words the per-page path uses, and a row that nothing finds fault with today is released. The gate speaks in lowercase and the writer's own caveats do not, so the dead rule's receipt leaves and the reader's caveats stay. Nothing is promoted past its own cause: the fitness check re-asks, and a row it still blocks is left exactly where it is.
+  if (persist) for (const row of [...existing.values()]) {
+    if (row.status !== "needs_review" || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim() || !row.limitations.some((l) => /^[a-z]/.test(l))) continue;
+    const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k)));
+    const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
+    if (staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept).length > 0) continue;
+    const freed: ChangeProposal = { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) };
+    if (!(unsettledCause(freed) ?? openHold(freed).blocking) && await saveChangeProposal(freed) === "saved") { existing.set(freed.id, freed); released += 1;
+      log.info("[produce-proposals] row released from a hold today's rules no longer make", { tenantId, id: freed.id }); } }
   const outcome: ProducerOutcome = // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
       : proposals.length > 0 ? "proposals_persisted"

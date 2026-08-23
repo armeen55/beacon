@@ -1038,6 +1038,26 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.limitations.some((l) => l.startsWith("it tells a reader"))).toBe(false); // the dead rule's receipt goes
     expect(out.limitations.some((l) => l.startsWith("Read off"))).toBe(true); }); // the reader's own caveat stays
 
+  /** AND IT REACHES THE ROWS THIS PASS NEVER WORKS. The three live answers were held on pages the day's manifest
+   *  had already spent on, so no later pass re-read them and the correction never arrived: a row is only re-read
+   *  when its own page comes back up. This one is stored for a page nothing in the pass touches, and it is still
+   *  released. Reaching only what a pass happens to work IS the defect. */
+  it("releases a held row on a page this pass never touches", async () => {
+    const OTHER = "fixture-tenant::/untouched::existing_edit::ai_answer_gap";
+    const finished = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
+    store.rows.set(CITIES, heldRow());
+    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/untouched", pageUrl: "https://fixture-content.example/untouched",
+      pageLabel: "Untouched", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
+        "it tells a reader this page offers \"habitats\", and no claim on this card carries it"],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Untouched", placed after "Untouched heading"' },
+      claims: [{ text: finished, supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: finished }, { id: "card-2", fact: "The page's Untouched heading introduces the list." }] }));
+    await runWith(incoming());
+    const out = store.rows.get(OTHER)!;
+    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
+    expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader"))]).toEqual(["ready", false]); });
+
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));
