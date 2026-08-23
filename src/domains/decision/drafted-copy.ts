@@ -69,6 +69,7 @@ const SELF_POINTER = /\b(?:covered|described|explained|shown|listed)\s+(?:in|on|
 /** WHAT THE COPY ASSERTS, READ OFF THE COPY. The gate used to check only the claims the WRITER chose to declare,  so an assertion nobody declared was never checked at all: a description promised visitors could "filter by  type, color, or region" on a page whose stored words carry no such control, declared none of it, and shipped. Replaces a phrase list ("this page lists|contains|shows...") that could only ever catch the sentences somebody  had thought of. TWO STRUCTURES, both about MEMBERSHIP and neither about any particular wording: a coordinated list says its members exist, and the object of an enumerating preposition says the page offers that thing. */
 const ENUMERATED = /\b([a-z][a-z' -]{2,40}(?:,\s*[a-z][a-z' -]{2,40}){1,5},?\s+(?:and|or)\s+[a-z][a-z' -]{2,40})\b/gi; const OFFERED = /\b(?:by|such as|including)\s+([a-z][a-z' -]{2,40})/gi;
 const MEMBER_WORDS = 4; // past this a comma joins clauses rather than listing members
+const SERP_FEATURE = /\b(?:people also (?:search|ask)|related searches|searches related to|autocomplete suggestions?)\b/i;
 const PROSE = /^(?:with|under|from|for|in|on|at|by|to|about|through|during|after|before|between|across|into|over|within|among|via|than|like|as)\b/i, PARTICIPLE = /\b[a-z]{3,}(?:ed|ing)\b/i;
 /** CRAWLER MARKERS ARE NOT PAGE COPY. The capture brackets every body with these, and an anchor cut from them ("top of pagePopular Persian...") names a string no operator can find on the rendered page. */
 const CHROME = /\b(?:top|bottom) of page/gi;
@@ -84,15 +85,13 @@ const HOSTISH = /\b([a-z][a-z0-9-]{3,})\.(?:com|org|net|io|co|edu|info)\b/gi;
 /** WHAT ONE PAGE ACTUALLY COST, off the gateway's own receipts: real provider calls (a structured call retries once internally, so one logical operation can be two calls) and real dollars. Logical attempt units are budget bookkeeping and are never reported as either (Codex, 2026-08-23: the seven-unit price met a sixteen-call dispatch). */
 /** ONE completed provider result, reported to the page's own allowance, which is the ONE thing every paid family already holds (Codex, 2026-08-23). The editor used to keep a private meter the caller passed in, so the other five families spent real money that no receipt could name; the money surface counts for all of them now. */
 type Allowance = { left: number; record?: (r: unknown) => void };
-const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); };
-const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
+const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); }; const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 /** THE STORED PAGE AS THE GATE READS IT: crawler markers out, then flattened. The gate matches against a body that had CHROME replaced while the passages handed to the writer never did, so a passage carrying "top of page" (which /funny-farsi-phrases does) could NEVER be found in it: production refused that rewrite with "the words it says it replaces are not on the stored page" over copy taken from the page itself (Codex, 2026-08-23). One normalizer now answers for both sides, so a passage chosen to be replaced passes the exists-on-page check by construction. */
 const storedFlat = (s: string): string => flat(s.replace(CHROME, " "));
 /** THE WHOLE STORED PAGE AS ONE STRING, built in ONE place: the failure this repair exists for was two sides of one comparison disagreeing, and two hand-built haystacks would only wait to disagree again. */
 const storedPage = (p: SourcePacket): string => storedFlat([p.bodyText, p.headings.join(" "), p.title ?? "", p.h1 ?? ""].join(" "));
 /** IS THIS TEXT ACTUALLY ON THE PAGE. Markers are ignored on BOTH sides, and text that is NOTHING BUT a marker is NOT on the page: `includes("")` is true for every string, so a needle that normalizes away used to pass the one gate written to catch it (Codex, 2026-08-23). */
-const onPage = (stored: string, needle: string): boolean => { const n = storedFlat(needle); return n.length > 0 && stored.includes(n); };
-const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
+const onPage = (stored: string, needle: string): boolean => { const n = storedFlat(needle); return n.length > 0 && stored.includes(n); }; const blankish = (s: string | null | undefined): boolean => !s || s.trim().length === 0 || PLACEHOLDER.test(s);
 const urlKey = (u: string): string => flat(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
 
 /** THE LIVE JUDGE, through the ONE gateway: registered prompt, content-hash cache ($0 on a repeat), fail-closed  budget, strict schema, single retry, then refusal. gpt-5-mini spends reasoning tokens before it answers, so  the timeout is the memory's floor and not the drafter's default. Any transport or schema failure is null, which is a refusal: nothing about a judge that could not read the copy says the copy is good. */
@@ -119,8 +118,7 @@ const evaluator = (tenantId: string, now: Date, meter?: Allowance): JudgeFn => a
 
 /** THE GATES THAT NEED NO MODEL AND NO FRESH EVIDENCE, so they can be re-read against a STORED piece as well as  a fresh one: markup where a word belongs, a figure that dropped the qualifier its own sentence carried, a  range that is really two neighbours, a rival's name this page never mentions, and the account's own banned words. Split out because a bundle is SERVED FROM REUSE without redrafting, so a piece written before a gate existed outlived the gate that would have refused it. PURE. */
 function rereadableRefusals(copy: string, p: SourcePacket, heading: string | null = null): string[] {
-  const out: string[] = [];
-  if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
+  const out: string[] = []; if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
   // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
   const figure = (t: string): string => t.replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
   // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies. ONE RANGE, HOWEVER IT IS SPELLED, AND UNITS COUNT (Codex, 2026-08-23): "from 550 BCE to 330 BCE" and "550-330 BCE" are the same fact, and reading the "from" as a dropped qualifier cost /iran-flags/achaemenid-empire-flag five calls and $0.026846 for a line naming the years its own page is about. Endpoints carrying the SAME unit fold together; genuinely different units (5 km to 3 miles) stay two facts, and every other qualifier is still enforced below.
@@ -131,6 +129,12 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
     const q = QUALIFIER.exec(said.find((s) => s.includes(n)) ?? "");
     if (q && !new RegExp(`\\b${q[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(copy)) {
       out.push(`the figure's own sentence says ${q[1]!.toLowerCase()}, and the copy drops it`); break; } }
+  // A PAGE'S OWN WORDS ARE NOT A LIST OF THE SEARCHES THAT REACH IT. Live and Ready on the account: "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian girls names, persian girl name, and unique persian girl names. People also search persian female names and female persian names." Six of those are ONE phrase reordered, and the line after it prints the name of a results-page feature. Nobody writes that, no reader gains a word from it, and it is the exact shape a search engine penalises: pasting it onto a live page costs the operator the ranking the card was bought to win. THE TEST IS PERMUTATION, not similarity: three members that reduce to the same set of content words are the same search said three ways, and a real list never does that.
+  const sets = new Map<string, number>();
+  for (const m of [...copy.matchAll(ENUMERATED)].flatMap((x) => x[1]!.split(/,|\band\b|\bor\b/))) { const k = [...new Set(topicTokens(m).filter((w) => !CARRIER.has(w)))].sort().join(" ");
+    if (k.split(" ").length > 1) sets.set(k, (sets.get(k) ?? 0) + 1); }
+  if ([...sets.values()].some((n) => n >= 3)) out.push("it lists the same search written several ways over, which reads as keyword stuffing rather than an answer");
+  if (SERP_FEATURE.test(copy)) out.push("it prints the name of a results-page feature, which belongs to the research and never to the page");
   const span = /\b([A-Z][a-z]+)\s+to\s+([A-Z][a-z]+)\b/.exec(copy); // A RANGE IS A SPAN, NOT TWO NEIGHBOURS: "Afsaneh to Anoushka" sold a list of 194 names as a range whose two ends sit beside each other in the page's own list.
   if (span) { const list = p.headings.map((h) => flat(h)), a = list.indexOf(flat(span[1]!)), b = list.indexOf(flat(span[2]!));
     if (a >= 0 && b >= 0 && Math.abs(b - a) < Math.max(2, Math.floor(list.length / 2)))
@@ -142,8 +146,7 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
   if (rival) out.push(`it names ${rival}, which this page's own words never mention, so the copy points a reader at somebody else's site`);
   // A BANNED WORD THE SEARCHERS THEMSELVES USE IS DIFFERENT SPEECH (operator ruling, 2026-08-16): "Persian, never Farsi" holds for Beacon's own voice, but when a real search for this page carries the word, using it beside the preferred term is meeting the searcher, not breaking the rule. The exception is demand-gated and generic: a term clears only when a stored search phrase for THIS page contains it.
   // BEACON'S OWN WORKFLOW WORDS ARE NOT CUSTOMER COPY (Codex, 2026-08-23): the drafted answer opened "Funny Persian phrases in the evidence include", leaking the brief's vocabulary onto the page. SOFT, so the otherwise-good answer lands in Review with this note rather than being destroyed.
-  const leaked = ["evidence", "grounding", "supportedBy", "claim ids"].find((w) => new RegExp(`\\b${w}\\b`, "i").test(copy));
-  if (leaked) out.push(`it says "${leaked}", which is Beacon's own workflow word rather than the page's`);
+  const leaked = ["evidence", "grounding", "supportedBy", "claim ids"].find((w) => new RegExp(`\\b${w}\\b`, "i").test(copy)); if (leaked) out.push(`it says "${leaked}", which is Beacon's own workflow word rather than the page's`);
   const banned = p.bannedTerms.filter((t) => t.trim() && new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(`${copy} ${heading ?? ""}`)
     && !p.demand.vocabulary.some((v) => new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(v)));
   if (banned.length > 0) out.push(`it uses words this account does not publish: ${banned.slice(0, 3).join(", ")}`);
@@ -197,8 +200,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   const asserted = [...new Set([...[...d.finalCopy.matchAll(ENUMERATED)].map((m) => members(m[1]!)),
     ...[...d.finalCopy.matchAll(OFFERED)].map((m) => [{ t: m[1]!.trim(), prose: false }])]
     .filter((list) => list.length > 0 && list.every((x) => words(x.t) <= MEMBER_WORDS)).flat().filter((x) => !x.prose).map((x) => x.t))];
-  const invented = asserted.filter((t) => topicTokens(t).length > 0 && unheld(corpus, t).length > 0);
-  if (invented.length > 0) out.push(`it tells a reader this page offers ${invented.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and this page's own evidence shows no such thing`);
+  const invented = asserted.filter((t) => topicTokens(t).length > 0 && unheld(corpus, t).length > 0); if (invented.length > 0) out.push(`it tells a reader this page offers ${invented.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and this page's own evidence shows no such thing`);
   // WHAT IS BEING REPLACED HAS TO EXIST, or the operator is told to swap words the page does not have, and the swap deletes whatever is truly there. A FIELD IS ITS OWN PLACE. A title, a heading and a description are lines the page already HAS, so what they replace is the stored FIELD and where they land IS that field, never a string inside the body copy. Checked against the body they were refused every single time: a description is not printed in a page's own words, so no real description edit could ever finish. Copy that lands in the body still owes a real anchor in it.
   const FIELD: Partial<Record<EditorDeliverable["actionType"], string | null>> = { title: p.title, h1: p.h1, meta: p.metaDescription };
   if (d.actionType in FIELD) {
@@ -206,10 +208,8 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     // NO TITLE OR HEADING DROPS A WORD THE PAGE EARNS CLICKS ON. A rewrite proposed "Shiraz Population" for a city page and stripped "Persian", "Boy" and "List" from a title earning 43 clicks: a word that appears both in the current line and in a search the page is PAID for is load-bearing, and only an explicit, evidenced reason may remove it. "List" is not filler when readers search for lists.
     if (d.actionType === "title" || d.actionType === "h1") {
       // PLAIN WORDS, NEVER TOPIC TOKENS. The destruction class lives exactly in the words a relevance tokenizer calls generic: "list" is noise to a topic gate and load-bearing on a page whose paid searches read "persian boy names list". A preserved search is compared as the searcher spelled it.
-      const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-      const earning = new Set(p.demand.preserve.flatMap(wordsOf)); const after = new Set(wordsOf(d.finalCopy));
-      const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t));
-      if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
+      const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3); const earning = new Set(p.demand.preserve.flatMap(wordsOf)); const after = new Set(wordsOf(d.finalCopy));
+      const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t)); if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
       const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))]; // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.
       if (reps.length > 0) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(", ")} more than once, which is a keyword list rather than a line a person would write`);
     }

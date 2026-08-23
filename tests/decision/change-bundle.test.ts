@@ -1058,6 +1058,24 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
     expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader"))]).toEqual(["ready", false]); });
 
+  /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z:
+   *  "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian
+   *  girls names, persian girl name, and unique persian girl names. People also search persian female names and
+   *  female persian names." Six of those are one phrase reordered and the next line names a results-page
+   *  feature. Pasting it costs the operator the ranking the card was bought to win. It keeps every word and it
+   *  stops being paste-ready. */
+  it("holds back a ready row that today's rules refuse, without losing a word of it", async () => {
+    const stuffed = "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian girls names, persian girl name, and unique persian girl names.\nPeople also search persian female names and female persian names.\nThe page covers Afsaneh, Afsoon, Aida, Anahita, Anoushka, and Arezou.\nAfsaneh: Goddess, divine and strong.\nAfsoon: Charming, enchanting, and alluring.\nAida: Radiance and eternal beauty.";
+    store.rows.set(CITIES, heldRow({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: stuffed, where: 'A new section headed "Names", placed after "Names heading"' },
+      claims: [{ text: stuffed, supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: stuffed }, { id: "card-2", fact: "The page's Names heading introduces the list." }] }));
+    await runWith(incoming({ pagePath: "/elsewhere", pageUrl: "https://fixture-content.example/elsewhere", id: "fixture-tenant::/elsewhere::existing_edit::ai_answer_gap" }));
+    const out = store.rows.get(CITIES)!;
+    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed); // every word kept
+    expect(out.status).toBe("needs_review");
+    expect(out.limitations.join(" ")).toContain("keyword stuffing"); });
+
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));

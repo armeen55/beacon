@@ -150,15 +150,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     [DRAFT_BUDGET.keyOf(c), basis ?? "no-basis", snapshot.evidenceHash ?? "", c.kind ?? "", c.changeFamily ?? "", c.treatment ?? "", (c.causeFinding?.cause ?? c.diagnosisCause) ?? "", canonicalQueryKey(c.primaryQuery ?? "")].join("::");
   const preJudged = new Map<string, QualifiedCandidate>(); for (const c of candidates) for (const k of pageKeys(c.pageUrl)) preJudged.set(k, c);
   for (const c of candidates) if (c.cause.payload?.cause === "cannibalization") for (const u of c.cause.payload.competingPaths) for (const k of pageKeys(u)) // THE SAME PROPAGATION THE BOUNDARY READS, or the two answer differently and a slot is burned on a card admit was always going to refuse
-    if ((preJudged.get(k)?.cause.cause ?? "no_problem") === "no_problem") preJudged.set(k, c);
-  const preOwned = ownershipCards({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages, judged: candidates, queryKeyOf: canonicalQueryKey });
+    if ((preJudged.get(k)?.cause.cause ?? "no_problem") === "no_problem") preJudged.set(k, c); const preOwned = ownershipCards({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages, judged: candidates, queryKeyOf: canonicalQueryKey });
   const measuringNow = (c: { pagePath?: string | null; pageUrl?: string | null }): boolean => [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()].some((k) => k.length > 0 && measuringPagesEarly.has(k));
   const MEASURED = "a change on this page is already being measured, so a second one cannot be saved until that finishes", MARKED_DONE = "the change on file for this page is marked done and is being read, so nothing is redrafted for it";
   /** WHY THIS ID CANNOT BE FUNDED, or undefined when it can: the stored row's own state, decided on the same identity the loop that would do the work uses. */
   const blockedById = (id: string, at: { pagePath?: string | null; pageUrl?: string | null }, reuse: boolean): string | undefined => {
     // WITHDRAWN IS DELIBERATELY NOT HERE (Codex, 2026-08-23): `withdrawnProposalIds` is basis-wide with no evidence comparison, while the store's own admission rule compares the readings underneath, so blocking on it would hold a row shut for a whole generation and refuse the redraft moved evidence had earned. The field-draft loop still settles a genuinely withdrawn row with its own receipt, which is where that answer belongs.
-    if (measuringNow(at)) return MEASURED;
-    const held = existing.get(id); if (held && held.status === "implemented_pending_verification") return MARKED_DONE;
+    if (measuringNow(at)) return MEASURED; const held = existing.get(id); if (held && held.status === "implemented_pending_verification") return MARKED_DONE;
     return reuse && held && basis != null && held.basis === basis ? "the change already on file for this page still stands under today's evidence, so nothing is redrafted for it" : undefined; };
   /** A card's own ineligibility, including the boundary's answer WITHOUT its withdrawal side effect: the real `admit` below asks the same question and owns the consequence. */
   const blockedFor = (c: ChangeProposal): string | undefined => {
@@ -166,14 +164,12 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const split = cause === "cannibalization" && !preOwned.covered.has(key) && !preOwned.covered.has(path); // NO CARD, NO REFUSAL
     return blockedById(c.id, c, false) ?? (split ? undefined : withholdReason(c, cause) ?? undefined); };
   const blockedField = (i: Parameters<typeof proposalId>[0]): string | undefined => blockedById(proposalId(i), { pagePath: i.page.path, pageUrl: i.page.url ?? null }, true);
-  if (patternKey) jobs.push({ key: patternKey, family: "winning_pattern", impact: topicWorth, calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
-  if (newPageIds && !heldNewPage) jobs.push({ key: `topic:${coverage!.investigation.key}`, family: "new_page", impact: topicWorth, calls: DRAFT_BUDGET.BUNDLE_CALLS });
+  if (patternKey) jobs.push({ key: patternKey, family: "winning_pattern", impact: topicWorth, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }); if (newPageIds && !heldNewPage) jobs.push({ key: `topic:${coverage!.investigation.key}`, family: "new_page", impact: topicWorth, calls: DRAFT_BUDGET.BUNDLE_CALLS });
   for (const d of deep) jobs.push({ key: page({ pageUrl: d.pageUrl }), family: "deep_bundle", impact: worthOf(d.pageUrl), calls: DRAFT_BUDGET.BUNDLE_CALLS, workKey: workKeyOf({ pageUrl: d.pageUrl, kind: "existing_edit", changeFamily: "deep_bundle", diagnosisCause: pageKeys(d.pageUrl).map((k) => preJudged.get(k)?.cause.cause).find(Boolean) ?? null, primaryQuery: d.evidence?.query ?? "" }) });
   for (const i of inputs) jobs.push({ key: page({ pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedField(i) ? { blocked: blockedField(i)! } : {}) });
   for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)), ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}) });
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to. A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
-  const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
-  if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
+  const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]); if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
   // THE IDENTITY IS DECLARED ONCE, WITH THE JOB, and every later step READS it (Codex, 2026-08-23): recomputing it from whatever a producer returned is how the lookup asked for changeFamily "bundle" while the bundle saved under its own derived family, two identities for one piece of work that can never match.
   const declaredWorkKey = new Map<string, string>(); for (const j of jobs) if (!declaredWorkKey.has(j.key)) declaredWorkKey.set(j.key, j.workKey ?? j.key);
@@ -232,8 +228,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** RECOVERY BEFORE DISCOVERY: a page that lost real clicks while its ranking held is worth what it LOST. The lost figure never lowers a proven one, and only a card that could actually win those clicks back may claim it: a duplicate heading or an engine follow-up on a page that shed 191 clicks was inheriting all 191 as its own worth and outranking the rewrite that might really recover them. A bundle qualifies outright (it rewrites the page); a single edit only in a family whose words a searcher reads. */
   const RECOVERS_A_FALL = new Set(["title", "h1", "answer_block", "thin_page", "missing_description"]); const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
   const recovered = (p: ChangeProposal): ChangeProposal => { // AN ACCURACY DEFECT NEVER INHERITS A FALL: handed the page's lost clicks, a card about statements contradicting their own sources arrived claiming 192 clicks nothing tied it to (the merge of two separate truths the operator forbade, 2026-08-17). A cause that claims no clicks by construction is left alone.
-    if ((p.causeFinding?.cause ?? p.diagnosisCause) === "factual_error") return p;
-    if (!p.bundle && !RECOVERS_A_FALL.has(p.changeFamily)) return p;
+    if ((p.causeFinding?.cause ?? p.diagnosisCause) === "factual_error") return p; if (!p.bundle && !RECOVERS_A_FALL.has(p.changeFamily)) return p;
     const lost = lostByKey.get((p.pageUrl ?? "").trim().toLowerCase()) ?? lostByKey.get((p.pagePath ?? "").trim().toLowerCase()) ?? 0;
     return lost > (p.impactScore ?? 0) ? { ...p, impactScore: lost, // THE NEW NUMBER SAYS WHERE IT CAME FROM, or the card's own sentence and the order disagree out loud.
       whyItMatters: `${p.whyItMatters} This page also lost ${lost.toLocaleString("en-US")} clicks against the four weeks before, and that fall is what it is ranked on here.` } : p;
@@ -535,13 +530,18 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     { families: ["consolidation", "title-family", "section-family"], complete: doorWalked.size > 0 }]); // The door's own families, swept on the pages above and nowhere else.
   // A HOLD LIFTED BY A RULE CHANGE REACHES EVERY ROW IT WRONGLY HELD, not only the pages a later pass happens to work. Three finished answers sat in Review on the live account over a parser that read "with mammals of Iran" and "symbolizing royal authority" as things a page offers. The parser was corrected, and the answers stayed unreachable: a soft hold is stamped ON the row, the row is only ever re-read when its page comes back up, and the day's manifest had already spent on those pages. Every held row is re-read here instead, against the same page, the same account vocabulary and the same earning words the per-page path uses, and a row that nothing finds fault with today is released. The gate speaks in lowercase and the writer's own caveats do not, so the dead rule's receipt leaves and the reader's caveats stay. Nothing is promoted past its own cause: the fitness check re-asks, and a row it still blocks is left exactly where it is.
   if (persist) for (const row of [...existing.values()]) {
-    if (row.status !== "needs_review" || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim() || !row.limitations.some((l) => /^[a-z]/.test(l))) continue;
+    const held = row.status === "needs_review" && row.limitations.some((l) => /^[a-z]/.test(l));
+    if ((!held && row.status !== "ready") || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim()) continue;
     const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k)));
     const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
-    if (staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept).length > 0) continue;
-    const freed: ChangeProposal = { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) };
-    if (!(unsettledCause(freed) ?? openHold(freed).blocking) && await saveChangeProposal(freed) === "saved") { existing.set(freed.id, freed); released += 1;
-      log.info("[produce-proposals] row released from a hold today's rules no longer make", { tenantId, id: freed.id }); } }
+    const why2 = staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept);
+    // THE SAME RE-READ ANSWERS BOTH WAYS, and it has to, or the queue only ever ratchets open. A rule added today reaches finished rows exactly as a rule withdrawn today does: the row moves to review carrying the reason, and it keeps every word, because holding work back is not the same as destroying it and no sweep may destroy.
+    const moved: ChangeProposal | null = why2.length > 0
+      ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])] } : null
+      : held ? { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) } : null;
+    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) continue;
+    if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
+      log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }
   const outcome: ProducerOutcome = // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
       : proposals.length > 0 ? "proposals_persisted"
