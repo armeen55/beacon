@@ -234,8 +234,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   };
   const held = [...existing.values()].filter((p) => p.status !== "implemented_pending_verification");
   /** A stored row generated under THIS basis. A null basis proves nothing, so it reuses nothing. */
-  const current = (p: ChangeProposal): boolean => basis != null && p.basis === basis;
-  const currentById = (id: string): ChangeProposal | null => { const p = existing.get(id); return p && p.status !== "implemented_pending_verification" && current(p) ? p : null; };
+  const current = (p: ChangeProposal): boolean => basis != null && p.basis === basis; const currentById = (id: string): ChangeProposal | null => { const p = existing.get(id); return p && p.status !== "implemented_pending_verification" && current(p) ? p : null; };
   const currentBundleFor = (match: (p: ChangeProposal) => boolean): ChangeProposal | null => live.find((p) => !!p.bundle && current(p) && match(p)) ?? null;
   /** THE AUDIENCE BEHIND A CARD, as a real field off this account's own rows and never read back out of a sentence. A defect card carries no recoverable click figure, so without this the order collapsed onto how long the work takes. Only stamped where the row brought none. */
   const byPage = new Map<string, number>(); for (const o of snapshot.ownedPages) if (o.search) for (const k of pageKeys(o.url)) byPage.set(k, o.search.impressions90d);
@@ -259,8 +258,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const persistIfChanged = async (input0: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => { if (!persist) return "not_persisted";
     const input: ChangeProposal = input0.workKey ? input0 : { ...input0, workKey: declaredWorkKey.get(DRAFT_BUDGET.keyOf(input0)) ?? workKeyOf(input0) }; // IDENTITY IS STAMPED AT THE ONE DOOR so no caller can forget it: the editor path saved raw rows carrying a basis and nothing else, which is why all twenty-five live rows held a null workKey
     // THE "NOT YET" NOTE GOES ON BEFORE THE ROW IS WRITTEN, never after it. Added once the row was already stored, the next pass re-minted the card WITHOUT the note, saved it because it differed from the stored one, then appended the note and saved again: two writes a pass, for ever, on a card nobody had touched. A refresh re-pays nothing only if it also re-writes nothing.
-    const note = input.researchOnly === true && !input.bundle ? pageKeys(input.pageUrl).map((k) => blocked.get(k)).find(Boolean) : null;
-    const notYet = note ? `Not yet, because ${note.reason}` : "";
+    const note = input.researchOnly === true && !input.bundle ? pageKeys(input.pageUrl).map((k) => blocked.get(k)).find(Boolean) : null; const notYet = note ? `Not yet, because ${note.reason}` : "";
     const raw: ChangeProposal = note && !(input.operatorSteps ?? []).includes(note.reason) && !(input.limitations ?? []).includes(notYet)
       ? { ...input, limitations: [...(input.limitations ?? []), notYet], evidence: { ...input.evidence, hints: [...input.evidence.hints, note.reason], evidenceRefCount: input.evidence.evidenceRefCount + 1 } } : input;
     // A PASS THAT DID NOT REACH A CARD MAY NOT UNDO IT: banked copy survives a brief re-minted on the same page, the same diagnosis, the same evidence and the same lever. THE PAGE AS THIS PASS READ IT rides on the row (its four stored fields, off the snapshot the pass already holds, so this costs no read), so words written for a page since re-crawled into a different shape are retired rather than served, and a page nothing is held for stamps nothing and is decided on everything else.
@@ -387,7 +385,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // THE SAME RE-READ ANSWERS BOTH WAYS, and it has to, or the queue only ever ratchets open. A rule added today reaches finished rows exactly as a rule withdrawn today does: the row moves to review carrying the reason, and it keeps every word, because holding work back is not the same as destroying it and no sweep may destroy.
     const moved: ChangeProposal | null = why2.length > 0
       ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])] } : null
-      : held ? { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) } : null;
+      // THE HOLD IS JUDGED BEFORE ITS WORDS ARE TAKEN OFF, or a hold written in lowercase is deleted instead of obeyed: stripping first and asking after let the fitness check read a row the hold had already been erased from. And AN EVALUATOR'S REFUSAL IS NOT A DETERMINISTIC ONE. A model read this copy and said what was wrong with it; no re-read of rules can answer that, and only a fresh draft can, which is exactly what a later pass does.
+      : held && !(unsettledCause(row) ?? openHold(row).blocking) && !row.limitations.some((l) => /evaluator/i.test(l))
+        ? { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) } : null;
     if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) continue;
     if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
       log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }

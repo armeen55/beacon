@@ -1033,28 +1033,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.status).toBe("needs_review");                              // downgraded, visible in the Review lane
     expect(out.limitations.join(" ")).toContain("does not publish");      // with the reason on the card
     expect(out.previousCopy).toBeUndefined(); });                         // nothing was retired, because nothing was lost
-  /** AND IT COMES BACK OUT WHEN THE RULE GOES AWAY (2026-08-23). Three finished answers sat in Review on the live
-   *  account over a parser that read "with mammals of Iran" as a thing a page offers. The parser was corrected and
-   *  the answers stayed unreachable: the hold is stamped on the row, and nothing ever took it off. A re-read that
-   *  finds nothing wrong releases the row and takes the gate's own lowercase line with it; the writer's caveat,
-   *  which the reader is owed, stays exactly where it was. */
-  it("releases a row whose only hold was a rule that no longer stands", async () => {
-    const finished = "The finished cities section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else, under a heading a reader would look for when they arrive.";
-    store.rows.set(CITIES, heldRow({ status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O",
-      diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran",
-      limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
-        "it tells a reader this page offers \"with mammals of Iran\", and no claim on this card carries it"],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Cities", placed after "Cities of Iran"' },
-      claims: [{ text: finished, supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: finished }, { id: "card-2", fact: "The page's Cities of Iran heading introduces the list." }] }));
-    await runWith(incoming({ treatment: "add_answer_section", researchOnly: true, status: "needs_review",
-      copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran" }));
-    const out = store.rows.get(CITIES)!;
-    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
-    expect(out.status).toBe("ready");                                            // reachable again, not rotting in Review
-    expect(out.limitations.some((l) => l.startsWith("it tells a reader"))).toBe(false); // the dead rule's receipt goes
-    expect(out.limitations.some((l) => l.startsWith("Read off"))).toBe(true); }); // the reader's own caveat stays
-
   /** AND IT REACHES THE ROWS THIS PASS NEVER WORKS. The three live answers were held on pages the day's manifest
    *  had already spent on, so no later pass re-read them and the correction never arrived: a row is only re-read
    *  when its own page comes back up. This one is stored for a page nothing in the pass touches, and it is still
@@ -1073,7 +1051,38 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     await runWith(incoming());
     const out = store.rows.get(OTHER)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
-    expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader"))]).toEqual(["ready", false]); });
+    // released, the dead rule's own lowercase receipt gone with the hold, and the reader's caveat still there
+    expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader")), out.limitations.some((l) => l.startsWith("Read off"))]).toEqual(["ready", false, true]); });
+
+  const LONG = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
+  it("TMP-ADV-1 promotes an empty-provenance row to ready and deletes its hold", async () => {
+    const OTHER = "fixture-tenant::/empty::existing_edit::ai_answer_gap";
+    store.rows.set(CITIES, heldRow());
+    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/empty", pageUrl: "https://fixture-content.example/empty",
+      pageLabel: "Empty", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      limitations: ["the judge could not read this copy for sense, so nothing has vouched for it"],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `${LONG} People also search persian female names, persian names female, and female persian names.`, where: 'A new section headed "Names" at the very top of the page' },
+      claims: [], supportFacts: [] }));
+    await runWith(incoming());
+    const out = store.rows.get(OTHER)!;
+    console.log("TMP-ADV-1 =>", out.status, JSON.stringify(out.limitations));
+  });
+
+  it("TMP-ADV-2 promotes a row whose copy the fresh gate refuses as recombination", async () => {
+    const OTHER = "fixture-tenant::/accessories::existing_edit::ai_answer_gap";
+    const copy = `${LONG} It covers silk rugs, wool rugs and hand woven kilims.`;
+    store.rows.set(CITIES, heldRow());
+    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/accessories", pageUrl: "https://fixture-content.example/accessories",
+      pageLabel: "Accessories", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
+        "it tells a reader this page offers \"wool rugs\", and this page never puts those words together"],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: copy, where: 'A new section headed "Rugs", placed after "hand knotted"' },
+      claims: [{ text: "The collection features silk rugs and wool rugs", supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: "Persian rugs are hand knotted in Tabriz and Kashan. The collection features silk rugs, wool rugs and hand woven kilims." }] }));
+    await runWith(incoming());
+    const out = store.rows.get(OTHER)!;
+    console.log("TMP-ADV-2 =>", out.status, JSON.stringify(out.limitations));
+  });
 
   /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z:
    *  "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian
@@ -1113,6 +1122,32 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const out = store.rows.get(OTHER)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed);
     expect([out.status, out.limitations.join(" ").includes("keyword stuffing")]).toEqual(["needs_review", true]); });
+
+  /** AND IT DOES NOT RELEASE WHAT A MODEL LOOKED AT AND REFUSED. The release strips the gate's own lowercase
+   *  lines, so a hold written in lowercase was being DELETED rather than obeyed, and the fitness check then read
+   *  a row the hold had already been erased from. An evaluator's refusal is not a deterministic one: a model read
+   *  the copy and said what was wrong with it, and no re-read of rules can answer that. Only a fresh draft can. */
+  it("leaves a row a model refused where the model put it", async () => {
+    const JUDGED = "fixture-tenant::/judged::existing_edit::ai_answer_gap";
+    const words = "The judged page's section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, under a heading a reader would look for.";
+    const row = (lim: string[]) => heldRow({ id: JUDGED, pagePath: "/judged", pageUrl: "https://fixture-content.example/judged",
+      pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", limitations: lim,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: words, where: 'A new section headed "Judged", placed after "Judged heading"' },
+      claims: [{ text: words, supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: words }, { id: "card-2", fact: "The page's Judged heading introduces the list." }] });
+    // 1. a model's own objection holds, and its words stay on the card
+    store.rows.set(JUDGED, row(["the evaluator's exact objection: it only repeats what the page already says"]));
+    await runWith(incoming());
+    const judged = store.rows.get(JUDGED)!;
+    expect([judged.status, judged.limitations.some((l) => l.includes("evaluator"))]).toEqual(["needs_review", true]);
+    // 2. a hold written in lowercase that names a missing source is obeyed, not deleted
+    store.rows.set(JUDGED, row(["this one still needs a cited authoritative source before it is paste-ready"]));
+    await runWith(incoming());
+    expect(store.rows.get(JUDGED)!.status).toBe("needs_review");
+    // 3. and an ordinary withdrawn-rule line still releases the row
+    store.rows.set(JUDGED, row(["it tells a reader this page offers \"habitats\", and no claim on this card carries it"]));
+    await runWith(incoming());
+    expect(store.rows.get(JUDGED)!.status).toBe("ready"); });
 
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
