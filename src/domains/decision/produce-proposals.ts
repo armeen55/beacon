@@ -57,8 +57,7 @@ export type ProduceProposalsResult = {
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
 /** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
-const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const;
-const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
+const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const; const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
 /** WHAT A PRODUCER REWROTE, AND WHETHER IT FINISHED. The sweep used to infer both from the length of one producer's output. A producer that read nothing and a producer that found nothing hand back the same empty list and mean opposite things, and on the night the search read timed out that inference retired cards out from under the operator mid-edit. Completeness is STATED, never read off an output length. */
 type ProducerRun = { families: readonly string[]; complete: boolean };
 /** THE ONE PAGE A VERDICT DECIDED TO IMPROVE, as facts out of words this pass ALREADY holds. Null for `create_new`, and null when its own words are not held. */
@@ -107,8 +106,7 @@ async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings
 
 /** Produce (and by default persist) ranked ChangeProposals for one tenant from cached evidence only. Never throws on a single-source outage: a failed source simply narrows the snapshot. */
 export async function produceProposalsForTenant(tenantId: string, opts: ProduceProposalsOptions = {}): Promise<ProduceProposalsResult> {
-  const maxDrafts = opts.zeroSpend === true ? 0 : opts.maxDrafts ?? DEFAULT_MAX_DRAFTS, persist = opts.persist ?? true;
-  const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
+  const maxDrafts = opts.zeroSpend === true ? 0 : opts.maxDrafts ?? DEFAULT_MAX_DRAFTS, persist = opts.persist ?? true; const snapshot = await loadEvidenceSnapshot(tenantId, { now: opts.now });
   // A SOURCE THAT DID NOT ANSWER IS NOT AN ACCOUNT WITH NOTHING IN IT: a GSC read that threw makes every page read clean, so the pass ENDS HERE rather than retiring the whole queue. Empty is not failed. AND THE SAME FOR THE PAGE READ: an account whose own pages could not be read presents as an account that owns NO PAGE AT ALL, which is the one condition that earns a brand new page, so a storage outage could talk this pass into building a page for a subject the operator already covers.
   const blind = snapshot.sources.find((s) => (s.source === "gsc" || s.source === "wix") && s.status === "failed");
   if (blind) {
@@ -191,7 +189,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const i of inputs) jobs.push({ key: page({ pagePath: i.page.path, pageUrl: i.page.url ?? null }), family: "field_draft", impact: worthOf(i.page.url ?? i.page.path), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)) });
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to.
-  if (!quietDay) editorCards.push(...recovery.cards, ...extra.cards);
+  // A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
+  const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
+  if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
