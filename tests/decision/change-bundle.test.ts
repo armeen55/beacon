@@ -742,6 +742,23 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([d(), d({ claims: [...claims, { text: "The page shows modern designs", supportedBy: ["page-copy-1"] }] })])
       .toEqual([["it tells a reader this page offers \"modern designs\", and this page never puts those words together"],
         ["it tells a reader this page offers \"modern designs\", and this page never puts those words together"]]); });
+  /** AN ANCHOR IS A LINE THE OPERATOR CAN FIND, and a crawler glues with whitespace as often as without any.
+   *  Live, /iran-animals drafted a finished answer to land after "Iran Wildlife and National Animals  Discover
+   *  the Animals of Iran": a heading and its subheading run together by the read, a string on no rendered page.
+   *  Nothing caught it until the banked re-read, by which point the page was out of hand and the card was stuck
+   *  in review with nothing anybody could fix. Caught while drafting, the editor picks a line that is really there. */
+  it("refuses a place on the page that only the crawler ever saw", () => {
+    const BODY = "Iran Wildlife and National Animals Discover the Animals of Iran. Native wildlife of Iran includes the caracal and the Persian leopard, each with the one fact a reader needs about it on the page today.";
+    const P = { targetUrl: "https://www.iranopedia.com/iran-animals", title: "T", h1: "Iran Wildlife and National Animals", metaDescription: null, bodyText: BODY, headings: ["Iran Wildlife and National Animals"], evidence: { "page-copy-1": BODY }, trackedQuestion: "What wildlife is native to Iran?", ownedPaths: ["/iran-animals"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
+    const at = (placementAnchor: string) => deliverableFailures({ actionType: "answer_block", targetUrl: P.targetUrl, placementAnchor, beforeText: null,
+      naturalHeading: "Native wildlife of Iran", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 20, measurementTarget: "citations", supportFacts: [],
+      claims: [{ text: "Native wildlife of Iran includes the caracal and the Persian leopard", supportedBy: ["page-copy-1"] }],
+      finalCopy: "Native wildlife of Iran includes the caracal and the Persian leopard, each with the one fact a reader needs about it on the page today, drawn from what this page already carries and nothing else." } as never, P as never)
+      .some((r) => r.startsWith("where it goes is two page elements glued together"));
+    // the live anchor, the same anchor with the glue closed up, and an ordinary heading
+    expect([at("Iran Wildlife and National Animals  Discover the Animals of Iran"), at("Iran Wildlife and National AnimalsDiscover"), at("Iran Wildlife and National Animals")])
+      .toEqual([true, true, false]); });
+
   // THE THREE FINISHED ANSWERS SITTING IN REVIEW ON THE LIVE ACCOUNT AT 21:02Z, 2026-08-23, as fixtures. Every one is accurate, drafted off its own page, and every one was held back by ONE refusal naming a fragment of its own sentence: "with mammals of Iran" and "habitats" are governed by a preposition, "under Shah Abbas I" carries "Shah Sultan Husayn" with it, "symbolizing royal authority" is a participle, and "Persia faced internal decline" is a clause. None of them is a thing a page offers, and the rule that flagged them asked whether the writer had restated each one inside a claim. Three answers, three customers' worth of finished work, one parser.
   it("reads a list member as a thing, never as the sentence around it", () => {
     const CASES = [

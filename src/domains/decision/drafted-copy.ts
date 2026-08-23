@@ -231,7 +231,8 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
   if (!(d.actionType in FIELD)) { // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of an anchor nobody will use blocked every description on the account.
     if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
-    if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)))
+    // AND A CRAWLER GLUES WITH WHITESPACE AS OFTEN AS IT GLUES WITHOUT ANY. Live, /iran-animals drafted a finished answer to land after "Iran Wildlife and National Animals  Discover the Animals of Iran", a heading and its subheading run together by the read, and the operator was handed a string that appears nowhere on the rendered page. Caught only later, at the banked re-read, which is far too late: the words were already written, the page was out of hand, and the card went to review with nothing anybody could fix. Caught HERE the editor still holds the page and picks a line that is really on it.
+    if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)) || /\S\s{2,}\S/.test(d.placementAnchor.trim()))
       out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
     if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
   }
@@ -293,8 +294,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
     .sort((a, b) => a.i - b.i);
   (picked.length > 0 ? picked : scored.slice(0, 6)).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
   const rows = page.search?.topQueries ?? []; // THE PAGE'S OWN DEMAND, off its stored search rows: what it earns (never to be dropped) and how searchers actually phrase it (legal vocabulary, each entry a citable demand-N fact carrying its own numbers).
-  const preserve = [...rows].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
-  const units = demandUnitsOf(rows, () => 0);
+  const preserve = [...rows].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query); const units = demandUnitsOf(rows, () => 0);
   const vocabulary: string[] = [...new Set(units.flatMap((u) => u.vocabulary))].slice(0, 15);
   rows.slice(0, 10).forEach((q, i) => {
     evidence[`demand-${i + 1}`] = `people search "${q.query}" ${q.impressions} times in 90 days${q.position != null ? ` and this page sits at position ${q.position.toFixed(1)} for it` : ""}`;
