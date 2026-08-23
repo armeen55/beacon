@@ -1054,36 +1054,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     // released, the dead rule's own lowercase receipt gone with the hold, and the reader's caveat still there
     expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader")), out.limitations.some((l) => l.startsWith("Read off"))]).toEqual(["ready", false, true]); });
 
-  const LONG = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
-  it("TMP-ADV-1 promotes an empty-provenance row to ready and deletes its hold", async () => {
-    const OTHER = "fixture-tenant::/empty::existing_edit::ai_answer_gap";
-    store.rows.set(CITIES, heldRow());
-    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/empty", pageUrl: "https://fixture-content.example/empty",
-      pageLabel: "Empty", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
-      limitations: ["the judge could not read this copy for sense, so nothing has vouched for it"],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `${LONG} People also search persian female names, persian names female, and female persian names.`, where: 'A new section headed "Names" at the very top of the page' },
-      claims: [], supportFacts: [] }));
-    await runWith(incoming());
-    const out = store.rows.get(OTHER)!;
-    console.log("TMP-ADV-1 =>", out.status, JSON.stringify(out.limitations));
-  });
-
-  it("TMP-ADV-2 promotes a row whose copy the fresh gate refuses as recombination", async () => {
-    const OTHER = "fixture-tenant::/accessories::existing_edit::ai_answer_gap";
-    const copy = `${LONG} It covers silk rugs, wool rugs and hand woven kilims.`;
-    store.rows.set(CITIES, heldRow());
-    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/accessories", pageUrl: "https://fixture-content.example/accessories",
-      pageLabel: "Accessories", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
-      limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
-        "it tells a reader this page offers \"wool rugs\", and this page never puts those words together"],
-      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: copy, where: 'A new section headed "Rugs", placed after "hand knotted"' },
-      claims: [{ text: "The collection features silk rugs and wool rugs", supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: "Persian rugs are hand knotted in Tabriz and Kashan. The collection features silk rugs, wool rugs and hand woven kilims." }] }));
-    await runWith(incoming());
-    const out = store.rows.get(OTHER)!;
-    console.log("TMP-ADV-2 =>", out.status, JSON.stringify(out.limitations));
-  });
-
   /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z:
    *  "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian
    *  girls names, persian girl name, and unique persian girl names. People also search persian female names and
