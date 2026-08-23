@@ -184,7 +184,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
   if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
-  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
+  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}), ...(opts.retryKeys ? { retry: opts.retryKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
   // gateWords: the rule that refused each page, in its own words. The MONEY is metered by the money surface itself.
   const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string; persistence?: string }>(),
@@ -201,8 +201,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       ops: m?.ops ?? 0, providerCalls: m?.providerCalls ?? 0, costUsd: m?.costUsd ?? 0, // ASKED MEANS A REQUEST LEFT THE PROCESS, off the meter and nothing else: derived from an allowance decrement it read `true` beside "0 calls, $0" on one line
       providerAttempted: (m?.providerCalls ?? 0) > 0, outcome: r?.outcome ?? "not_reached" as const, persistence: persisted_.get(f.key) ?? null,
       // NO FUNDED KEY ENDS SILENT (Codex, 2026-08-23), and nothing here is INFERRED. A reason recorded where it happened wins; where nobody recorded one, the sentence says only what the outcome itself proves. Guessing at a cause (a time box read at the end of the pass) put a plausible falsehood in front of the operator.
-      ...(r?.why ? { why: r.why } : r?.outcome === "produced" ? {} : { why: (r?.outcome ?? "not_reached") === "not_reached" ? "this pass ended before this page was reached, and nothing was bought for it"
-        : "nobody could answer for this page on this pass, and no reason was recorded where it happened" }) }; }) });
+      // NO RECEIPT INVENTS A CAUSE (Codex, 2026-08-23): "this pass ended before this page was reached" was printed for pages reached in two seconds and skipped through a branch that recorded nothing. Every funded exit files its own outcome now, so a row with nothing filed is a DEFECT IN THE PASS and says so.
+      ...(r?.why ? { why: r.why } : r?.outcome === "produced" ? {} : { why: "no branch of this pass recorded what happened to this funded page, which is a fault in the pass rather than a fact about the page" }) }; }) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
@@ -411,7 +411,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const heldDeep = new Map<string, ChangeProposal>();
   for (const d of deep) {
     const keys = pageKeys(d.pageUrl);
-    const has = currentBundleFor((p) => p.kind === "existing_edit" && keys.includes((p.pagePath ?? "").trim().toLowerCase()));
+    // SAME PAGE IS NOT SAME WORK (Codex, 2026-08-23). This matched ANY stored bundle on the address, so a forty-item factual-correction bundle satisfied a newly selected deep rewrite and a stale title-family bundle satisfied another job: the writer was never called, the allowance never drawn, and the receipt then reported "the pass ended before this page was reached" for a page reached in two seconds. Reuse has to be the SAME job, the diagnosis this pass funded the work for answered by a bundle minted for that same diagnosis; anything else is different work, funded and executed.
+    const want = keys.map((k) => judged.get(k)?.cause.cause).find(Boolean) ?? null;
+    const has = currentBundleFor((p) => p.kind === "existing_edit" && keys.includes((p.pagePath ?? "").trim().toLowerCase()) && want != null && (p.causeFinding?.cause ?? p.diagnosisCause) === want);
     if (has) heldDeep.set(d.pageUrl, has);
   }
   const bundledNow = new Set<string>(), readNow = new Set(snapshot.ownedPages.flatMap((o) => pageKeys(o.url))); // bundledNow: pages whose whole-page rewrite LANDED this pass, so their one-field edits are replaced rather than bought as well // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION, and only about a page this pass ACTUALLY READ.
@@ -434,19 +436,17 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // Every page THIS CASE IS ABOUT gets its own words read FIRST, because a stored bundle is re-read against them before it is served again.
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
     // A STORED BUNDLE IS RE-READ BEFORE IT IS SERVED AGAIN. Reuse skipped the drafter AND every gate, so a piece written before a gate existed outlived the gate that would have refused it. A piece a current gate refuses sends the whole bundle back through the producer THIS pass instead of being handed over one more time.
-    const heldBundle = heldDeep.get(d.pageUrl) ?? null;
-    const stale = heldBundle ? staleCopyReasons(heldBundle, bodyByUrl ?? NO_BODIES, bannedTerms) : [];
+    const heldBundle = heldDeep.get(d.pageUrl) ?? null, stale = heldBundle ? staleCopyReasons(heldBundle, bodyByUrl ?? NO_BODIES, bannedTerms) : [];
     if (heldBundle && stale.length > 0) log.info("[produce-proposals] a stored bundle no longer passes its own gates, so it is drafted again", { tenantId, id: heldBundle.id, reasons: stale.slice(0, 3) });
     if (heldBundle && stale.length === 0) {
       if (!proposals.some((p) => p.id === heldBundle.id)) { const proposal = stamp(heldBundle); // A held bundle reaches the queue here, re-stamped.
         proposals.push(proposal); reused += 1; await persistIfChanged(proposal); }
       enteredBy.set(d.pageUrl, d.entry);
-      continue;
-    }
+      file(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), "produced", false, "the work already on file for this page answers this exact diagnosis and still passes its own gates, so nothing was bought"); continue; }
     doorWalked.add((d.pageUrl ?? "").trim().toLowerCase()); // THE DOOR TRAVELS WITH THE PAGE, so a page an engine skipped is never explained in the click door's words.
     for (const k of pageKeys(d.pageUrl)) doorWalked.add(k.trim().toLowerCase());
     const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), DRAFT_BUDGET.BUNDLE_CALLS); // A DEEP BUNDLE IS A TWELVE-CALL PROPOSAL, ranked as one above against every cheaper change it would have starved.
-    if (!slot) { log.info("[produce-proposals] the pass's paid plan funded no allowance for this deep read", { tenantId, page: d.pageUrl }); continue; }
+    if (!slot) { file(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), "retryable_blocked", false, outOfTime() ? "the drive's time box ended before this page was started" : "this page's allowance was already spent by another family on the same page"); continue; }
     const bundled = await produceBundleForSnapshot(snapshot, { ...bundleOpts, attempts: slot, onlyPageUrl: d.pageUrl, door: d,
       coverage, ...measuring, decline: pageKeys(d.pageUrl).map((k) => decline.get(k)).find(Boolean), ...(bodyByUrl ? { bodyByUrl } : {}) }).catch(onThrow);
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";

@@ -178,6 +178,33 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
     reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
     expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
+  /** SAME PAGE IS NOT SAME WORK, AND retryKeys MUST REACH THE PLANNER (Codex, 2026-08-23). Both proved through the
+   *  REAL producer, because the planner-only versions of these tests passed while the integration was dead: the
+   *  producer never forwarded retryKeys at all, and any stored bundle on an address satisfied a newly selected
+   *  job, so the writer was skipped and the receipt then invented "the pass ended before this page was reached"
+   *  for a page the pass reached in two seconds. */
+  it("passes retryKeys through to the plan, so work already tried today ranks behind work nobody has tried", async () => {
+    reset(BOTH());
+    const plain = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
+    const first = plain.paid.funded[0]!;
+    const after = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, retryKeys: [first] });
+    expect(after.paid.funded[0]).not.toBe(first);            // the tried page stepped aside for untried work
+    expect(after.paid.declared).toContain(first); });        // and is still declared, still owed
+
+  it("never lets another diagnosis's bundle stand in for a newly selected job, and files an outcome when it truly is the same work", async () => {
+    reset(BOTH());
+    const other = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: GAP_URL,
+      basis: "basis_today", status: "needs_review", diagnosisCause: "factual_error",
+      bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [],
+        components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }],
+        receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
+    env.store = new Map([[other.id, other]]);
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
+    // EVERY funded page carries a real outcome; none is explained by a sentence the pass made up.
+    for (const r of out.paid.receipts) expect(r.why ?? "").not.toContain("no branch of this pass recorded what happened");
+    const guide = out.paid.receipts.find((r) => r.key === "/nowruz-guide");
+    if (guide) expect(guide.outcome).not.toBe("not_reached"); });
+
   /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that
    *  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one
    *  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */

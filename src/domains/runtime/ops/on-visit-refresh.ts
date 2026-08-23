@@ -169,6 +169,8 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
 
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
+  /** A REFUSAL ASKING FOR FACTS, in the words the evaluator and the gates actually use. */
+  const FACT_DEBT = /not reliable|unreliable|no facts|cannot be verified|unverified|source|evidence that claim|likely-wrong/i;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 240_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 40_000;
   // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
@@ -249,9 +251,17 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         log.warn("[research-run] no room to check the finished-change stock, so this drive buys no evidence and leaves the phase for the next one", { tenantId, phase, runway });
         return pause(); }
       // AND A STOCK STILL SHORT ENDS THE DISPATCH HERE, whatever else was owed. Beacon exists to keep five finished changes in front of the operator; while it cannot, buying broad keyword, results-page or AI-answer evidence outranks the work the customer is actually waiting on. Live on 22 August: 51 of 140 answers collected, about ninety cents spent, and Ready still zero. The receipts of the attempt are already persisted above, so nothing is lost: the next dispatch resumes this phase and tries the stock again before it buys anything.
-      if (shortStock && r != null && r.reason !== "target_reached") {
+      // A SHORT STOCK STOPS BROAD EXPLORATION, NEVER THE EVIDENCE A REFUSAL JUST NAMED (Codex, 2026-08-23). The
+      // deadlock this closes: the writer is refused because a page's own claims are unreliable, the refusal names
+      // the facts it needs, and the stock shortfall then ends the dispatch BEFORE the phase that would fetch them,
+      // so the next drive hands the writer the same contradicted page and earns the same refusal forever. Buying
+      // unrelated keywords while five changes are owed is still wrong; going and getting the exact facts a funded
+      // candidate was refused for is the work itself.
+      const owedFacts = (r?.outcomes?.stuck ?? []).some((line) => FACT_DEBT.test(line));
+      if (shortStock && r != null && r.reason !== "target_reached" && !owedFacts) {
         log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
+      if (owedFacts) log.info("[research-run] a funded candidate was refused for facts it does not hold, so this dispatch goes on to the phase that fetches them", { tenantId, phase });
       // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
       if (stockOnly) {
         const next = nextPlanned(nextPhase(phase), allowed ?? new Set<ResearchPhase>());
