@@ -182,7 +182,7 @@ function stampAnySources(value: unknown, tenantAllowlist?: readonly string[]): u
 }
 
 /** W5 (J-71): an answer block runs 80-150 words; the drafter gives ONE word-count retry so a too-thin answer is never cached for the gate to reject. Matches evaluateDraftQuality's own floor + word count. */
-const ANSWER_MIN_WORDS = 80;
+const ANSWER_MIN_WORDS = 30; // the floor under an answer that can stand ALONE, not a target: padding to a word count is what the 80-word floor bought, four dispatches running (Codex, 2026-08-23)
 function countWords(text: string): number {
   const t = (text ?? "").trim();
   return t ? t.split(/\s+/).length : 0;
@@ -578,7 +578,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         system = `${req.system}\n\n${VARIATION_INSTRUCTION}`;
       } else if (lastFailureWasThin) {
         // W5 (J-71): the first answer was under the 80-word floor - retry asking for the full band rather than an "invalid output" correction. Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a too-thin answer by adding a FRESH ungrounded superlative ("a leading classical vocalist") instead of more grounded facts - the same loophole SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative- triggered retry, but this retry reason never carried that reminder. State it here too, so lengthening never trades away groundedness. Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER so lengthening never trades away groundedness for an invented number either - the same reminder every other rephrase-class retry carries.
-        system = `${req.system}\n\nYour previous answer was too short. Write a complete answer of 80 to 150 words, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
+        system = `${req.system}\n\nYour previous answer stopped before it answered the search. Complete it, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
         system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems and include at least one non-empty evidenceRefs entry.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject the CORRECT grounded numbers so the retry can fix the figure instead of guessing again. One repair retry, then fail closed.
@@ -798,7 +798,7 @@ const ATOMIC_EDIT_SYSTEM =
 
 /** APPENDED ONLY FOR `answer_block`, so the title and meta prompt stays byte for byte what it has always been and no stored draft is re-read under different wording. An opening answer is a different job from a field rewrite: it is the first thing a reader sees, and it has to answer the search in its own first line. */
 const OPENING_ANSWER_CLAUSE =
-  " This edit is a BODY ANSWER BLOCK. Write \"after\" as 80 to 150 words: COUNT them, under 80 is refused as too thin. " +
+  " This edit is a BODY ANSWER BLOCK. ANSWER THE SEARCH COMPLETELY AND STOP: a reader who lands on this block alone must be able to act on it without the rest of the page. Do not pad to a length and do not repeat yourself; a sharp 40-word answer is better than an 80-word one carrying filler. " +
   "Open with the direct answer to the search in the first one or two sentences, naming the exact subject, then follow the required shape the directive above gives. " +
   "Never open with a dictionary definition, never defer (\"it varies\", \"check elsewhere\"), and state only what the evidence and the page's own sections below already support.";
 

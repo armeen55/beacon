@@ -149,7 +149,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    for (const said of ["Needs your review: 1 draft", EXACT, "Copy draft", "Why it is held", "Beacon is preparing 1 more"]) expect(html).toContain(said);
+    for (const said of ["Needs your review: 1 draft", EXACT, "Copy draft", "Why it is held", "Future opportunities (1)"]) expect(html).toContain(said);
     expect(html).not.toMatch(/Proven|Mark done|Still missing/);
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
       .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
@@ -159,7 +159,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
-    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is preparing 12 more"),
+    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Future opportunities (12)"),
       html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
       .toEqual([12, 12, true, false, true, false]); });
   // THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence.

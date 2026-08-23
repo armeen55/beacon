@@ -38,9 +38,7 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
-  /** Pages a previous pass TODAY funded and never reached (the drive ran out of time before starting them).
-   *  They are still owed work, so they are NOT written off; they go to the BACK of the ranking, so the next
-   *  drive funds what has not been tried instead of holding the same slots open forever (Codex, 2026-08-23). */ defer?: readonly string[] }) {
+ }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -56,9 +54,12 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
         : j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at;
       const win = cmp, lose = win === j ? at : j;
       byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
-  const defer = new Set(input.defer ?? []);
-  const ranked = [...byKey.values()].sort((a, b) =>
-    Number(defer.has(a.key)) - Number(defer.has(b.key)) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
+  // ONE ORDER, AND IT IS EXPECTED SITE IMPACT (Codex, 2026-08-23). Sorting pages that were funded and never
+  // started to the BACK put /persian-female-first-names, worth 560 recoverable clicks, behind a product page
+  // worth 0.22 and a category page worth 0.13, and it stayed unattempted for a third dispatch running. A
+  // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
+  // it for free because settled keys are the only ones the caller skips.
+  const ranked = [...byKey.values()].sort((a, b) => b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {

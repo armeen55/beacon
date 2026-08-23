@@ -184,7 +184,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);
   if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
-  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}), ...(opts.deferKeys ? { defer: opts.deferKeys } : {}) });
+  const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
   // gateWords: the rule that refused each page, in its own words. The MONEY is metered by the money surface itself.
   const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string; persistence?: string }>(),

@@ -984,23 +984,23 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "target_reached"]);
   });
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */
-  /** THE DEFERRAL ROUND TRIP, THROUGH THE REAL DISPATCH (Codex, 2026-08-23). The rotation was written, persisted and
-   *  typed, and the one production caller never read it back, so the same funded-and-never-reached pages were ranked
-   *  first on every drive: the very failure it was written to end, with a receipt claiming it was fixed. This drives
-   *  the REAL on-visit dispatch twice and reads what the second one was told. */
-  it("hands the pages it funded and never reached to the next dispatch as deferred, and forgets them when the manifest changes", async () => {
-    const seen: Array<{ attempted: readonly string[]; deferred: readonly string[] }> = [];
+  /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never
+   *  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The
+   *  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
+  it("carries only what settled into the day's memory, so an unreached page is asked again immediately", async () => {
+    const seen: Array<readonly string[]> = [];
     const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
-    const drive = async (out: { fingerprint: string; attempted: string[]; deferred?: string[] }) => {
+    const drive = async (attempted: string[]) => {
       await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
-        replenishReady: async (_t, _n, was) => { seen.push({ attempted: was?.attempted ?? [], deferred: was?.deferred ?? [] });
-          return { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, ...out }; } });
+        replenishReady: async (_t, _n, was) => { seen.push(was?.attempted ?? []);
+          return { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "m1", attempted }; } });
     };
-    await drive({ fingerprint: "m1", attempted: ["/settled"], deferred: ["/a", "/b"] });
-    expect(rows.at(-1)!.progress?.replenish?.deferred).toEqual(["/a", "/b"]); // persisted where the next dispatch can read it
-    await drive({ fingerprint: "m1", attempted: ["/settled"], deferred: ["/a", "/b"] });
-    expect(seen.at(-1)).toEqual({ attempted: ["/settled"], deferred: ["/a", "/b"] }); // AND READ BACK: the next drive knows what it never reached
-  });
+    await drive(["/settled"]); // /strong was funded and never reached, so it is NOT in attempted
+    expect(rows.at(-1)!.progress?.replenish?.attempted).toEqual(["/settled"]);
+    expect(JSON.stringify(rows.at(-1)!.progress?.replenish)).not.toContain("deferred"); // nothing is demoted, ever
+    await drive(["/settled"]);
+    expect(seen.at(-1)).toEqual(["/settled"]); }); // the next drive is told only what is finished with, so the rest ranks by worth
+
   it("keeps the stock owed across scheduler dispatches until five exist, and closes the day only at the target or on a proven exhaustion", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work");
     const Q = { ready: 0, finishes: true }; // the queue as the store holds it, moved only by the drives below

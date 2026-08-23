@@ -221,7 +221,11 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
   const hour = Number(nowPacific.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/Los_Angeles" }));
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   // THE TOP EDIT is the top of the SAME ranked queue Changes pages, so "do this first" here and "1" there are one change.
-  const top = today.nextOpportunities[0] ?? null;
+  // TODAY LEADS WITH SOMETHING THE OPERATOR CAN DO (Codex, 2026-08-23). Taking the first row meant an opportunity
+  // still being researched led the page while finished work sat below it, so the product opened on its own
+  // homework. Ready leads; then a draft awaiting review; research only when there is genuinely nothing else.
+  const top = today.nextOpportunities.find((o) => o.lane === "ready")
+    ?? today.nextOpportunities.find((o) => o.lane === "review") ?? today.nextOpportunities[0] ?? null;
   // WHAT THE TOP ITEM IS, BEFORE ANYTHING IS OFFERED ABOUT IT. Today leads with finished work whenever there is
   // any, and otherwise with the draft or the opportunity next in line: both are named for what they are, neither
   // gets the pasteable line or the "make this change" press, and neither is ever called finished.
@@ -248,7 +252,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {top ? (
         <div className={`rounded-2xl border bg-surface-raised p-5 ${lane === "ready" ? "border-accent-primary/50" : "border-border"}`} data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane={lane}>
-            {lane === "ready" ? "Do this first" : lane === "review" ? "A draft waiting on your review" : "An opportunity being researched"}
+            {lane === "ready" ? "Do this first" : lane === "review" ? "A draft waiting on your review" : "A future opportunity"}
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit && edit.after ? (

@@ -133,8 +133,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {preparingRows.length > 0 ? (
         <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
           <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
-            Beacon is preparing {preparingRows.length.toLocaleString("en-US")} more
-            <span className="ml-2 font-normal text-muted-foreground">Research Beacon finishes itself; nothing here needs you.</span>
+            Future opportunities ({preparingRows.length.toLocaleString("en-US")})
+            <span className="ml-2 font-normal text-muted-foreground">Evidence Beacon is still gathering. Nothing here is yours to do yet.</span>
           </summary>
           <ul className="list-none space-y-1 px-4 pb-3">
             {preparingRows.map((p) => (

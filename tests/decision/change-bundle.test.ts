@@ -580,16 +580,22 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const d = await drive({ ...GOOD, placementAnchor: "Ancient rooftop of the flag hall" }); expect([d?.anchor, (d?.after ?? "x").toLowerCase().includes("directly")]).toEqual(["Funny Farsi Phrases", false]); }); // the invented place that failed live on /iran-flags/achaemenid-empire-flag
     it("still refuses, and never invents, when the page's stored copy carries no clean heading", async () =>
       expect(await drive({ ...GOOD, placementAnchor: "anywhere" }, { ...BODY, title: null, h1: null, headings: [] })).toBeNull());
-    it("refuses a category word its cited passage does not carry, and the retry names it as a removal", async () => {
-      const asked: string[] = []; let round = 0; const idiom = { ...GOOD, after: `${P1.replace("expression of affection", "beloved idiom")}\n${P2}\n${P3}`, claims: [{ text: P1.replace("expression of affection", "beloved idiom"), supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+    /** A NAME NOTHING ON FILE HAS HEARD OF IS REFUSED, AND THE RETRY IS TOLD THE EXACT WORD (Codex, 2026-08-23).
+     *  This replaces a word-containment gate that refused ordinary prose; what is checked now is the thing that
+     *  actually reaches a reader as a false fact. */
+    it("refuses a name the page's evidence never mentions, and the retry names it as a removal", async () => {
+      const asked: string[] = []; let round = 0;
+      const invented = P1.replace("Persian expression of affection", "phrase coined by Bahram Beyzai");
+      const bad = { ...GOOD, after: `${invented}\n${P2}\n${P3}`, claims: [{ text: invented, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
       const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: true as const,
-        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers it." } });
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
+        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const snapshot = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? idiom : good2 }) } as never);
-      expect([asked.length > 1, /REMOVE these exact words[^]*"idiom"/.test(asked.at(-1)!)]).toEqual([true, true]); }); // the gate refused the first, and the retry named the exact word rather than "improve it"
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? bad : good2 }) } as never);
+      expect(asked.length).toBeGreaterThan(1);                          // the first was refused
+      expect(asked.at(-1)!).toMatch(/REMOVE these exact words[^]*"Bahram"/); }); // and the retry was told exactly which word to drop
     /** THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst
      *  defect, and they were being thrown away, so every retry heard only checkbox labels. */
     it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
@@ -608,43 +614,22 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
       expect(asked.length).toBeGreaterThan(1); // the first verdict refused, so the writer was asked again
       expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); });
-    /** A WRITER NEEDS SOMETHING TO WRITE FROM (Codex, 2026-08-23, from the 06:02Z live receipt). These are the two
-     *  cards production actually funded, with their real hints: three sentences ABOUT the page and not one fact
-     *  about its subject. Each spent three provider calls and came back 68 and 69 words long against an 80-to-150
-     *  contract, carrying words its evidence does not carry. It is the same refusal forever, so it is now free. */
-    it.each([
-      ["/iran-animals/persian-wolf", ["/iran-animals/persian-wolf holds 196 words of copy",
-        "/iran-animals/persian-wolf is shown 8,898 times and earns 12 clicks in 90 days", "The stored results page for this search"]],
-      ["/iran-flags/abbasid-caliphate-golden-emblem-flag", ["/iran-flags/abbasid-caliphate-golden-emblem-flag holds 124 words of copy",
-        "/iran-flags/abbasid-caliphate-golden-emblem-flag is shown 5,765 times and earns 3 clicks in 90 days", "The stored results page for this search"]],
-    ])("refuses to buy a draft for %s, whose whole evidence describes the page and names no fact", async (path, hints) => {
-      const asked: string[] = [], notes: string[] = [];
-      const card = prop({ id: `${TENANT}::${path}::existing_edit::thin_page`, pagePath: path, pageUrl: `https://www.iranopedia.com${path}`,
-        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "persian wolf",
-        limitations: [], evidence: { query: "persian wolf", hints, evidenceRefCount: 3 },
-        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add 200 to 300 words that answer its main question." } });
-      const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "T", h1: "H", outline: ["A heading"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const budget = DRAFT_BUDGET.plan({ jobs: [{ key: path, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
-        note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(), budget,
-        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
-      expect(asked).toEqual([]);                       // NOT ONE provider call: the answer was knowable for free
-      expect(budget.spent().calls).toBe(0);            // and not one unit of the allowance was consumed
-      expect(notes.join(" ")).toContain("this page carries no facts to write an answer from");
-      expect(notes.join(" ")).toContain("so the work is finding the facts before any of it can be written");
-      expect(out[0]!.status).not.toBe("ready"); });
-    it("still buys the draft when the card carries real outside facts, however thin the page", async () => {
+    /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor
+     *  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page
+     *  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with
+     *  what the pass could read for it; only being WRONG refuses it. */
+    it("still drafts for a page whose card carries little material, instead of refusing it unread", async () => {
       const asked: string[] = [];
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
-        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
-        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
-        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
-      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 90, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const card = prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::thin_page`, pagePath: "/iran-animals/persian-wolf",
+        pageUrl: "https://www.iranopedia.com/iran-animals/persian-wolf", changeFamily: "section", status: "needs_review" as const,
+        researchOnly: false, primaryQuery: "persian wolf", limitations: [],
+        evidence: { query: "persian wolf", hints: ["/iran-animals/persian-wolf holds 196 words of copy"], evidenceRefCount: 1 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add words that answer its main question." } });
+      const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "Persian Wolf", h1: "Persian Wolf", outline: ["Range"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
-        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
-      expect(asked.length).toBeGreaterThan(0); }); // the facts are the test, not the page's own word count
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf", family: "editor", impact: 91, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
+      expect(asked.length).toBeGreaterThan(0); }); // it was ASKED: the page is thin, which is a reason to find facts
 
     /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted
      *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
@@ -750,7 +735,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(RECV)
 
       // AND EVERY ONE OF THEM IS ALSO REFUSED BY THE CLAIM GRAPH, which is the gate the third card needed: it carries no list, no number and no "including", and it still says things ("Famous Iranian people... today") that the one claim it declares and the evidence that claim names do not carry. Ordinary prose is checked exactly as a list is.
-      .toEqual([["it tells a reader this page offers \"Topoli\", \"Gooz\", \"Bikhial\", and this page's own evidence shows no such thing", "its copy is 43 long, outside the 80 to 150 this field takes, or carries something nobody can paste", "it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is two page elements glued together, which nobody can find on the rendered page", "where it goes is taken from the crawl's own markers, not from the page", "it tells a reader this page offers \"Topoli\", \"Gooz\", \"Bikhial\", and no claim on this card carries it", "its copy says \"idiom\", \"playful\", \"pedar\", which no claim it makes and no evidence those claims name carries"], ["its copy is 45 long, outside the 80 to 150 this field takes, or carries something nobody can paste", "it points at the page instead of answering", "its copy says \"beginner\", \"simple\", \"sentence\", which no claim it makes and no evidence those claims name carries"], ["its copy is 50 long, outside the 80 to 150 this field takes, or carries something nobody can paste", "where it goes is a paragraph rather than a place on the page", "where it goes is two page elements glued together, which nobody can find on the rendered page", "its copy says \"iranian\", \"today\", \"cyru\", which no claim it makes and no evidence those claims name carries"]]) });
+      .toEqual([["it tells a reader this page offers \"Topoli\", \"Gooz\", \"Bikhial\", and this page's own evidence shows no such thing", "it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is two page elements glued together, which nobody can find on the rendered page", "where it goes is taken from the crawl's own markers, not from the page", "it tells a reader this page offers \"Topoli\", \"Gooz\", \"Bikhial\", and no claim on this card carries it", "its copy names \"Pedar\", \"Sag\", \"Topoli\", and nothing on file about this page mentions them"], ["it points at the page instead of answering", "its copy names \"Finglish\", and nothing on file about this page mentions them"], ["where it goes is a paragraph rather than a place on the page", "where it goes is two page elements glued together, which nobody can find on the rendered page", "its copy names \"Iranian\", \"Cyrus\", \"Great\", and nothing on file about this page mentions them"]]) });
   // THE READY CARD ON THE LIVE ACCOUNT, 2026-08-15: the description sells "modern designs" and not one of the four claims it persisted carries it. The page's own words let it through (one stored sentence says "timeless designs", another says "modern fashion"), which is exactly why an assertion is read against the CLAIM GRAPH and not only against the page. Real stored body, real persisted claims, real shipped copy.
   it("refuses copy that asserts something none of its own claims carries", () => {
     const BODY = "Persian AccessoriesShowcase your heritage with our Persian accessories, featuring timeless designs inspired by Iranian culture and craftsmanship. From stylish Iranian hats to intricately patterned Persian phone cases, each piece blends tradition with modern fashion. Elevate your look and express your love for Iran with unique accessories that stand out!";
@@ -769,13 +754,23 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
       deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
   // THE HALLUCINATION THAT AUTHENTICATED ITSELF, on the live account's own stored page evidence, and with a judge that says yes to all seven of its rulings. The coverage graph carried the writer's own claim text, so a sentence and the claim declaring it were one string: a claim naming a real evidence id, repeated word for word in ordinary prose, cleared every check because the word was in the claim. Each claim is now read against the quoted facts IT names, with itself taken out of the corpus, and the refusal is DETERMINISTIC, so the permissive judge below is never asked. THE LIVE ROW IS HERE TOO: the one ready card on the account (2026-08-15) declared "The page includes Love Eshgh black and white variants" against four headings and one body excerpt that name the shoes and never say the page includes anything, and it is refused for exactly that word. A paraphrase made of the quoted facts' own content words still passes.
-  it("refuses a claim the evidence it names does not carry, whatever a judge says about the copy", async () => {
-    const E = { "page-title": "Iranopedia x Tavan Designs Persian Shoes | Iranopedia", "page-h1": "Iranopedia x TavanDesigns Persian Shoes", "page-heading-1": "Love \"Eshgh\" Persian Calligraphy High Tops", "page-heading-3": "Love \"Eshgh\" White Persian Calligraphy Slip-Ons", "page-heading-4": "Love \"Eshgh\" Black Persian Calligraphy Slip-Ons", "page-copy-1": "Love \"Eshgh\" black high-top shoes featuring Persian calligraphy in an elegant design. These Iranian-inspired sneakers showcase intricate script, blending traditional Persian artistry with modern fashion." };
-    const P = { targetUrl: "https://www.iranopedia.com/tavan-designs-iranopedia-shoes", title: E["page-title"], h1: E["page-h1"], metaDescription: null, headings: [E["page-heading-1"], E["page-heading-3"], E["page-heading-4"]], trackedQuestion: "persian shoes", ownedPaths: ["/tavan-designs-iranopedia-shoes"], bannedTerms: [], bodyText: `${E["page-copy-1"]} ${E["page-heading-3"]} ${E["page-heading-4"]}`, evidence: E };
-    const yes = async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "every ruling is a yes" }), meta = (claims: unknown, finalCopy: string) => ({ actionType: "meta", targetUrl: P.targetUrl, placementAnchor: "the page's description field", beforeText: null, naturalHeading: null, evidenceIdsUsed: ["page-title"], uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "clicks on this page", supportFacts: [], claims, finalCopy });
-    const REAL = [{ text: "This page is titled Iranopedia x TavanDesigns Persian Shoes", supportedBy: ["page-title", "page-h1"] }, { text: "Love \"Eshgh\" Persian calligraphy high tops and white and black slip-ons are on the page", supportedBy: ["page-heading-1", "page-heading-3", "page-heading-4"] }];
-    expect([await acceptDeliverable(meta([...REAL, { text: "These Persian shoes are waterproof", supportedBy: ["page-title"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops, and these Persian shoes are waterproof.") as never, P as never, yes), await acceptDeliverable(meta([...REAL, { text: "The page includes Love \"Eshgh\" black and white variants", supportedBy: ["page-heading-3", "page-heading-4"] }], "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops; the page includes black and white slip-ons.") as never, P as never, yes), await acceptDeliverable(meta(REAL, "Iranopedia x TavanDesigns Persian Shoes: Love \"Eshgh\" Persian calligraphy high tops and white and black Persian calligraphy slip-ons.") as never, P as never, yes)])
-      .toEqual([["its copy says \"waterproof\" on a claim of its own, and the evidence that claim names does not carry it"], [], []]); }); // "include" is carrier grammar now: the verb that states a list is not a fact about the page
+  it("refuses a name nothing on file has heard of, whatever a judge says about the copy", async () => {
+    const E = { "page-title": "Iranopedia x Tavan Designs Persian Shoes | Iranopedia", "page-h1": "Iranopedia x TavanDesigns Persian Shoes", "page-heading-1": "Love \"Eshgh\" Persian Calligraphy High Tops" };
+    const P = { targetUrl: "https://www.iranopedia.com/tavan-designs-iranopedia-shoes", title: E["page-title"], h1: E["page-h1"], metaDescription: null, headings: [E["page-heading-1"]],
+      bodyText: "Love \"Eshgh\" Persian calligraphy high tops and white attar low tops.", evidence: E, trackedQuestion: "persian shoes", ownedPaths: [], bannedTerms: [],
+      demand: { preserve: [], vocabulary: [] } } as unknown as Parameters<typeof acceptDeliverable>[1];
+    const yes = async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "" } as never);
+    const meta = (claims: Array<{ text: string; supportedBy: string[] }>, copy: string) => ({ actionType: "meta" as const, targetUrl: P.targetUrl,
+      placementAnchor: "the page's description field", beforeText: null, naturalHeading: null, evidenceIdsUsed: ["page-title"], claims, finalCopy: copy,
+      uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "click rate", supportFacts: [] } as unknown as Parameters<typeof acceptDeliverable>[0]);
+    const REAL = [{ text: "Love \"Eshgh\" Persian calligraphy high tops", supportedBy: ["page-heading-1"] }];
+    // A FABRICATED MAKER, on a page that never names one: refused however warmly the reader speaks of the copy.
+    const invented = await acceptDeliverable(meta([...REAL, { text: "The shoes were made by Farhad Moshiri", supportedBy: ["page-title"] }],
+      "Love \"Eshgh\" Persian calligraphy high tops made by Farhad Moshiri."), P, yes);
+    expect(invented.join(" ")).toContain('its copy names "Farhad", "Moshiri", and nothing on file about this page mentions them');
+    // AND ORDINARY PROSE IS LEFT ALONE: the words a person writes between the facts are not claims about anything.
+    const plain = await acceptDeliverable(meta(REAL, "Love \"Eshgh\" Persian calligraphy high tops, made for a reader looking to start a collection and wear the words they grew up hearing."), P, yes);
+    expect(plain).toEqual([]); });
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
     // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
@@ -828,11 +823,6 @@ describe("a change earns ready on its own evidence, its whole version, and words
   const TOTES = "Every order earns store credit toward the next red tote; each order earns store credit toward the next red tote.";
   const PK = { targetUrl: "https://fixture-content.example/totes", title: "Totes", h1: "Totes", metaDescription: null, headings: [], bodyText: EV, evidence: { "page-copy-1": EV }, trackedQuestion: null, ownedPaths: ["/totes"], bannedTerms: [] };
   // A CLAIM WORD THAT ONLY SPELLS ITSELF INSIDE AN EVIDENCE WORD IS NOT SUPPORT. "The evidence carries this" was asked with String.includes, so evidence reading "credit" was held to carry copy saying "red": a colour nobody ever observed, published as a fact about a customer's product. EXACT NORMALIZED TOKEN MEMBERSHIP, singular and plural counted as one word, and nothing here is a claim about meaning: the judge stays the only reader of that, and the faithful paraphrase pinned above still passes.
-  it("never lets a claim word ride inside a longer evidence word", () => {
-    const said = (text: string) => deliverableFailures({ actionType: "meta", targetUrl: PK.targetUrl, placementAnchor: "the page's description field", beforeText: null, naturalHeading: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "clicks on this page", supportFacts: [], claims: [{ text, supportedBy: ["page-copy-1"] }], finalCopy: TOTES } as never, PK as never);
-    expect([said("Every order earns store credit toward the next red tote"), said("Every order earns store credit toward the next tote")])
-      .toEqual([['its copy says "red" on a claim of its own, and the evidence that claim names does not carry it'], []]); });
-
   // THE YES NAMES EVERYTHING THE OPERATOR READ. The stamp used to fold the copy, the pieces, their destinations and their grades and nothing else, so fourteen material things on the screen a person confirms could be rewritten under a stamp that still matched: the line being replaced, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reason a page is left alone, every claim, the ids it stands on, the exact quoted words behind them, the readings, the days they were taken, what could not be checked, and what would overturn the diagnosis. Every one of them moves the version now; the ranking, the clock and the measurement figures do not, because none of them is the change.
   it("mints a different version for everything material on the screen, and the same one for everything that is not", () => {
     const piece = comp({ kind: "consolidation", risk: "dangerous", label: "Merge the two pages", page: "/a", before: "Comedians", after: "Iranian Comedians: the 12 names people search",
@@ -879,15 +869,6 @@ describe("a change earns ready on its own evidence, its whole version, and words
         'its copy says "order", "earn", "store" on a claim of its own, and the evidence that claim names does not carry it',
         "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
   // A WORD IS THE WORD IT IS. The fold that made "showcase" and "showcases" one token also made "rate" and "rat" one, so evidence about a rat was read as carrying copy about a rate, in both directions. Only the tokenizer's own over-trim is repaired now.
-  it("never lets a silent e make two words one, and still matches the plural the tokenizer over-trims", () => {
-    const said = (fact: string, claim: string, after: string) => deliverableFailures({ targetUrl: "https://fixture-content.example/x", actionType: "meta",
-      naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["e1"], uncertaintyOrOmitted: [], implementationMinutes: 1,
-      measurementTarget: "clicks", claims: [{ text: claim, supportedBy: ["e1"] }], supportFacts: [], finalCopy: after } as never,
-    { targetUrl: "https://fixture-content.example/x", title: null, h1: null, metaDescription: null, headings: [], trackedQuestion: null, ownedPaths: [],
-      bannedTerms: [], evidence: { e1: fact }, bodyText: `${fact} ${after}` } as never).filter((r) => r.includes("on a claim of its own"));
-    expect([said("A rat lives in the barn here.", "the barn has a rate", "The barn has a rate of one.").length > 0,
-      said("A rate of one per day here.", "the barn has a rat", "The barn has a rat in it.").length > 0,
-      said("This page showcases every flag.", "the page showcase every flag", "The page showcase every flag.").length]).toEqual([true, true, 0]); });
   // THE THREE LANES, AND THE ONE DEMOTION THAT KEEPS THE WORK. Nothing written is research; exact copy owing only a look is a draft a person may approve; copy whose placement nobody can re-check is a draft nobody may approve, and its words, claims and evidence are untouched by the demotion.
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
@@ -1005,12 +986,16 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
       job("/p", "editor", 10)], { candidates: 1 });
     expect(b.funded.map((f) => [f.key, f.family, f.impact])).toEqual([["/p", "editor", 10]]); // ONE page, and the family that can still do something owns it
     expect(b.declined).toEqual([]); });
-  it("ranks a page funded and never reached LAST next time, without writing it off", () => {
-    const jobs = [job("/a", "editor", 90), job("/b", "editor", 80), job("/c", "editor", 70)];
-    expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/a", "/b"]);
-    const next = plan(jobs, { candidates: 2, defer: ["/a", "/b"] }); // both were funded and never started
-    expect(next.funded.map((f) => f.key)).toEqual(["/c", "/a"]);     // the untried page goes first; the deferred are still owed
-    expect(next.declared).toEqual(["/c", "/a", "/b"]); });           // and every one of them is still on the manifest
+  /** A CANDIDATE SELECTED AND NOT STARTED IS OWED FIRST, NOT LAST (Codex, 2026-08-23). Sorting unreached work to
+   *  the back put /persian-female-first-names, worth 560 recoverable clicks, behind a product page worth 0.22 and
+   *  a category page worth 0.13, and left it unattempted for a third dispatch running. */
+  it("funds the strongest candidate again the moment it was not reached, ahead of work worth a hundredth of it", () => {
+    const jobs = [job("/strong", "editor", 560), job("/tiny", "editor", 0.22), job("/tinier", "editor", 0.13)];
+    expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
+    // the drive ran out of time and never started it: the next plan puts it first again, because nothing settled it
+    expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/strong", "/tiny"]);
+    // and only a SETTLED page steps aside, which is the caller's skip list and never a demotion
+    expect(plan(jobs, { candidates: 1, skip: ["/strong"] }).funded.map((f) => f.key)).toEqual(["/tiny"]); });
   it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
     // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");
