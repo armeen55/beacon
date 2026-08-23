@@ -608,6 +608,44 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
       expect(asked.length).toBeGreaterThan(1); // the first verdict refused, so the writer was asked again
       expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); });
+    /** A WRITER NEEDS SOMETHING TO WRITE FROM (Codex, 2026-08-23, from the 06:02Z live receipt). These are the two
+     *  cards production actually funded, with their real hints: three sentences ABOUT the page and not one fact
+     *  about its subject. Each spent three provider calls and came back 68 and 69 words long against an 80-to-150
+     *  contract, carrying words its evidence does not carry. It is the same refusal forever, so it is now free. */
+    it.each([
+      ["/iran-animals/persian-wolf", ["/iran-animals/persian-wolf holds 196 words of copy",
+        "/iran-animals/persian-wolf is shown 8,898 times and earns 12 clicks in 90 days", "The stored results page for this search"]],
+      ["/iran-flags/abbasid-caliphate-golden-emblem-flag", ["/iran-flags/abbasid-caliphate-golden-emblem-flag holds 124 words of copy",
+        "/iran-flags/abbasid-caliphate-golden-emblem-flag is shown 5,765 times and earns 3 clicks in 90 days", "The stored results page for this search"]],
+    ])("refuses to buy a draft for %s, whose whole evidence describes the page and names no fact", async (path, hints) => {
+      const asked: string[] = [], notes: string[] = [];
+      const card = prop({ id: `${TENANT}::${path}::existing_edit::thin_page`, pagePath: path, pageUrl: `https://www.iranopedia.com${path}`,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "persian wolf",
+        limitations: [], evidence: { query: "persian wolf", hints, evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add 200 to 300 words that answer its main question." } });
+      const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "T", h1: "H", outline: ["A heading"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const budget = DRAFT_BUDGET.plan({ jobs: [{ key: path, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+        note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(), budget,
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
+      expect(asked).toEqual([]);                       // NOT ONE provider call: the answer was knowable for free
+      expect(budget.spent().calls).toBe(0);            // and not one unit of the allowance was consumed
+      expect(notes.join(" ")).toContain("this page carries no facts to write an answer from");
+      expect(notes.join(" ")).toContain("so the work is finding the facts before any of it can be written");
+      expect(out[0]!.status).not.toBe("ready"); });
+    it("still buys the draft when the card carries real outside facts, however thin the page", async () => {
+      const asked: string[] = [];
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
+        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 90, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
+      expect(asked.length).toBeGreaterThan(0); }); // the facts are the test, not the page's own word count
+
     /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted
      *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {

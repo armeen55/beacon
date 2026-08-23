@@ -2,23 +2,19 @@ import "server-only";
 
 /** decision/drafted-copy: THE WORDS, ON THE CARD. The $0 producers prove a page has no description and prove a page is a stub, and both hand the operator an instruction instead of work: "write a description of about 150 characters". That is the job, restated. This runs AFTER them and never inside one, so a budget block, a refusal or a cold cache changes nothing about which cards exist or which families were swept. Two halves:   1. A MISSING OR TEMPLATED DESCRIPTION gets a paste-ready line and a page AI answers never credit gets a      paste-ready ANSWER, both through the EXISTING structured drafter, grounded on that page's OWN STORED BODY under named ids (one bounded read for the pass), budgeted and cached by the one gateway, and read      back by the editor contract below, at most MAX_DRAFTS a pass. Anything short leaves the producer's card.   2. A THIN PAGE gets an OUTLINE, deterministically, out of headings at least two read winners share, named as theirs. No model, no invention; no winners on file leaves the card as the producer wrote it. */
 
-import { log } from "@/lib/logger";
-import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
-import { demandUnitsOf } from "@/domains/evidence/demand-units";
-import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
-import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "./llm/structured-drafter";
-import type { AtomicEditDraft } from "./llm/schemas";
-import { validateProposal } from "./validate-proposal";
-import type { ChangeProposal } from "./contracts";
-import { DRAFT_BUDGET } from "./draft-budget";
-import { AI_CASE_COPY } from "./producers/ai-cases";
+import { log } from "@/lib/logger"; import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate"; import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { demandUnitsOf } from "@/domains/evidence/demand-units"; import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot"; import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "./llm/structured-drafter";
+import type { AtomicEditDraft } from "./llm/schemas"; import { validateProposal } from "./validate-proposal"; import type { ChangeProposal } from "./contracts";
+import { DRAFT_BUDGET } from "./draft-budget"; import { AI_CASE_COPY } from "./producers/ai-cases";
 type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 
 /** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the hardest cards every pass, so the completable descriptions behind them never got a body. */
-const MAX_DRAFTS = 5;
-const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
+const MAX_DRAFTS = 5; const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
 const ANSWER_MIN = 80, ANSWER_MAX = 150; // ONE length contract with the canon (Codex, 2026-08-23): the editor demanded 40 to 90 while the canon's quality band demands 80 to 150, so only an 80-to-90-word answer could ever survive both and everything else was written to be refused
+/** A HINT THAT DESCRIBES THE PAGE IS NOT MATERIAL FOR WRITING ABOUT ITS SUBJECT: "holds 196 words of copy", "is shown 8,898 times in 90 days", "returns a normal response and zero readable words". They are the diagnosis that raised the card, and a writer cannot build a sentence about Persian wolves out of them. */
+/** The evidenceRefs vocabulary, which is NOT the grounding-id vocabulary: a claim that cites one of these has mixed up the two, and the refusal says so in those words rather than reporting a missing fact. */
+const SOURCE_KIND = new Set(["gsc", "ga4", "clarity", "dataforseo", "competitor_teardown", "owned_snapshot", "fanout"]);
+const ABOUT_THE_PAGE = /\b(?:holds \d|is shown \d|earns \d|words of copy|readable words|returns a normal response)\b/i;
 /** Headings this many read winners share before they are worth naming, and how many are named. */ const AGREEING_WINNERS = 2, MAX_HEADINGS = 5; const MAX_HEADING_WORDS = 8; // a heading past this is a wrapped paragraph, and site furniture is not a subject
 const FURNITURE = /^(home|menu|search|contact|about|share|follow|newsletter|comments?|related|categories|tags|advertisement|subscribe|navigation|footer|privacy|terms)\b/i;
 const UNSAFE = /[–—]|\[|\]|\{|\}/; // nothing an operator can paste: a dash Beacon never writes, a bracket somebody forgot to fill in
@@ -173,8 +169,7 @@ const fold = (w: string): string => w.replace(/se$/, "s");
 /** A CAPITAL LETTER RUNNING OUT OF A LOWERCASE ONE IS TWO WORDS. The capture glues a heading to the sentence under it ("Persian AccessoriesShowcase your heritage"), and matching whole words against that string calls the page's own word missing. Both sides are split the same way, so this can only ever restore a boundary a crawl removed. */
 const words2 = (t: string): string[] => topicTokens(t.replace(/([a-z])([A-Z])/g, "$1 $2"));
 function ungroundedClaimWords(claims: EditorDeliverable["claims"], evidence: Readonly<Record<string, string>>, copy: string): string[] {
-  const inCopy = new Set(words2(copy).map(fold));
-  return [...new Set(claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => evidence[id] ?? "").join(" ").replace(/([a-z])([A-Z])/g, "$1 $2")).replace(/[^a-z0-9]+/g, " ");
+  const inCopy = new Set(words2(copy).map(fold)); return [...new Set(claims.flatMap((c) => { const q = flat(c.supportedBy.map((id) => evidence[id] ?? "").join(" ").replace(/([a-z])([A-Z])/g, "$1 $2")).replace(/[^a-z0-9]+/g, " ");
     const held = new Set([...q.split(" ").filter(Boolean), ...topicTokens(q)].map(fold));
     return words2(c.text).filter((w) => !CARRIER.has(w.toLowerCase()) && inCopy.has(fold(w)) && !held.has(fold(w))); }))];
 }
@@ -186,7 +181,10 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
   if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about");
   const known = new Set(Object.keys(p.evidence)), unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
-  if (unknown.length > 0) out.push(`it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
+  // NAMING THE CONFUSION, NOT JUST THE SYMPTOM (Codex, 2026-08-23): live, a claim cited "owned_snapshot", a SOURCE KIND from the evidenceRefs vocabulary and never a grounding id, and "not on file" sent the retry hunting a missing fact instead of correcting a mix-up it could fix for free.
+  if (unknown.length > 0) out.push(unknown.some((id) => SOURCE_KIND.has(id))
+    ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
+    : `it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check");
   if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
   // THE COPY IS READ INDEPENDENTLY OF WHAT WAS DECLARED, so an assertion the writer simply did not mention is held to the same evidence as one it did. NOT A VOCABULARY TEST: asking whether every word of a sentence is printed on the page refuses the one thing an editor is for, a faithful paraphrase, and this codebase has already thrown that mechanism out once. This asks a STRUCTURAL question instead. Enumerating is naming MEMBERS, and a member either exists or it does not. The HEAD of a list is skipped on purpose: a pattern reading backwards from the first comma swallows the verb in front of it ("browse and filter Persian accessories by type"), and judging that phrase judges the sentence rather than the member. AND A LIST OF LONG MEMBERS IS NOT A LIST: "Ferdowsi, who founded an empire and wrote the epic that carried the Persian language" is a chain of clauses wearing commas, so a match with any member past MEMBER_WORDS is discarded whole rather than read as a claim about what the page holds.
@@ -448,6 +446,9 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // A LINK DELIVERABLE IS ONE SENTENCE, and both its facts are the card's own: the destination off its instruction line, the anchor off the search it names. Either unreadable is a refusal, never a guess.
   const dest = kind === "link" ? linkDestOf(card) : null;
   if (kind === "link" && !dest) return refuse("the destination this link names cannot be read off the card");
+  // A WRITER NEEDS SOMETHING TO WRITE FROM, CHECKED BEFORE A CENT MOVES (Codex, 2026-08-23, from a live receipt). A thin-page card's whole evidence is three sentences ABOUT the page ("holds 196 words of copy", "is shown 8,898 times in 90 days") and not one fact about its subject, so a writer asked for 80 to 150 grounded words has about 35 words of material and nothing to say: live, three such pages were funded, each spent three provider calls, and each came back 68 or 69 words long carrying words the evidence does not carry, which is the same refusal forever at about two and a half cents a time. The page's OWN copy is not material either, because an answer that merely restates the page is refused by the evaluator that reads it. So the only honest question is whether this card carries outside facts to build from; if it does not, the work is getting those facts, and saying so costs nothing.
+  if (kind === "answer") { const material = words(card.evidence.hints.filter((h) => !ABOUT_THE_PAGE.test(h)).join(" "));
+    if (material < ANSWER_MIN) return refuse(`this page carries no facts to write an answer from: ${material} words of material against the ${ANSWER_MIN} an answer needs, so the work is finding the facts before any of it can be written`); }
   // THE REWRITE TREATMENT IDENTIFIES ITS SECTION OR REFUSES (Codex, 2026-08-23): live, a rewrite_existing_section card still said "A new section ... placed after the H1", because the vocabulary changed and the delivery did not. The stored passage sharing the most topic words with the tracked question IS the section being replaced; a page where none overlaps has no identifiable section, and that is a refusal, never an append.
   let rewrite: { heading: string | null; replaces: string } | null = null;
   if (kind === "answer" && card.treatment === "rewrite_existing_section") {
