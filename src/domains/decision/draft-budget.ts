@@ -38,7 +38,11 @@ type DeclinedJob = { key: string; family: string; calls: number; reason: string 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
- }) {
+  /** Pages this day ALREADY SPENT REAL CALLS ON that came back transiently blocked. They are still owed and still
+   *  fundable, but they rank behind work nobody has tried, because a candidate that fails the same way every time
+   *  must never re-consume a whole drive ahead of untried candidates (Codex, 2026-08-23). THIS IS NOT THE DEFERRAL
+   *  THAT WAS DELETED: that one demoted work never STARTED, which sent the account's strongest page to the back
+   *  behind pages worth a hundredth of it. This demotes only work that was started and spent. */ retry?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -59,7 +63,9 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // worth 0.22 and a category page worth 0.13, and it stayed unattempted for a third dispatch running. A
   // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
   // it for free because settled keys are the only ones the caller skips.
-  const ranked = [...byKey.values()].sort((a, b) => b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
+  const tried = new Set(input.retry ?? []);
+  const ranked = [...byKey.values()].sort((a, b) =>
+    Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {

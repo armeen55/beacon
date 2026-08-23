@@ -982,6 +982,17 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   /** A CANDIDATE SELECTED AND NOT STARTED IS OWED FIRST, NOT LAST (Codex, 2026-08-23). Sorting unreached work to
    *  the back put /persian-female-first-names, worth 560 recoverable clicks, behind a product page worth 0.22 and
    *  a category page worth 0.13, and left it unattempted for a third dispatch running. */
+  /** A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names
+   *  spent seven provider calls, came back transiently blocked, and was top-ranked again on the next drive, taking the
+   *  whole box while the page behind it went unreached for a sixth dispatch. It stays owed; it just goes after work
+   *  nobody has tried. This is the OPPOSITE population to the deferral that was deleted, which demoted work never started. */
+  it("ranks a candidate that was tried and spent behind work nobody has tried, without writing it off", () => {
+    const jobs = [job("/strong", "editor", 560), job("/next", "editor", 312), job("/small", "editor", 9)];
+    expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
+    const after = plan(jobs, { candidates: 1, retry: ["/strong"] }); // it spent seven calls and came back blocked
+    expect(after.funded.map((f) => f.key)).toEqual(["/next"]);        // the page behind it finally gets the drive
+    expect(after.declared).toEqual(["/next", "/small", "/strong"]);   // and it is still declared, still owed, never written off
+    expect(plan(jobs, { candidates: 3, retry: ["/strong"] }).funded.map((f) => f.key)).toEqual(["/next", "/small", "/strong"]); });
   it("funds the strongest candidate again the moment it was not reached, ahead of work worth a hundredth of it", () => {
     const jobs = [job("/strong", "editor", 560), job("/tiny", "editor", 0.22), job("/tinier", "editor", 0.13)];
     expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);

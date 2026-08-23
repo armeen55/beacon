@@ -97,13 +97,14 @@ export type ResearchCycleSteps = {
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
   /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under the target, finish the strongest stored opportunities through the ONE canonical producer before this cycle buys exploratory
    *  evidence. Bounded per drive; null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
-  replenishReady: (tenantId: string, now: Date, seen?: { fingerprint: string | null; attempted: readonly string[] },
+  replenishReady: (tenantId: string, now: Date, seen?: { fingerprint: string | null; attempted: readonly string[]; tried?: readonly string[] },
     /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
     /** HOW THIS DRIVE ENDED, as a machine word. Only two of these four may close a day. `candidates_exhausted` is the one that has to be EARNED: it means every candidate on the current manifest has now been spent on and none of them finished, which is a different fact from "the two I could afford this drive produced nothing" (Codex, 2026-08-22). */
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
+    /** Pages this day spent real calls on that came back transiently blocked: owed, but ranked behind work nobody has tried, so one stubborn candidate cannot re-consume every drive. */ tried?: string[];
     /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
@@ -197,8 +198,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
     const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
-      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }) =>
-      ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(outcomes ? { outcomes } : {}) });
+      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[]) =>
+      ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(outcomes ? { outcomes } : {}) });
     const deficit = Math.max(0, READY_STOCK_TARGET - before);
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
     if (deficit === 0) return mark("target_reached", before, 0, seen?.fingerprint ?? `${stamp}::stocked`, held);
@@ -216,7 +217,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // call. The top-up is exactly the path that must never re-serve a refusal, so it always pays for a fresh take.
     const { getTenantSpentThisMonthUsd } = await import("@/lib/cost/budget-ledger-supabase");
     const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null);
-    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
+    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: Math.min(deficit, REPLENISH_DRAFTS_PER_DRIVE), skipKeys: held, retryKeys: seen?.tried ?? [], bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
     const ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.
@@ -231,6 +232,12 @@ export const defaultSteps: ResearchCycleSteps = {
     // A KEY IS SETTLED WHEN THERE IS NOTHING LEFT TO DO FOR IT UNDER THIS EVIDENCE: a change was saved, a reading was banked, or one of Beacon's own gates refused it.
     const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal").map((r) => r.key);
     const attempted = [...new Set([...fresh, ...settled])];
+    // A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names
+    // spent seven calls and came back transiently blocked, and on the next drive it was top-ranked again and took the
+    // whole box, so the page behind it was unreached for a sixth dispatch. It stays owed and stays fundable; it simply
+    // ranks behind work nobody has tried yet.
+    const triedNow = out.paid.receipts.filter((r) => r.outcome === "retryable_blocked" && (r.providerCalls ?? 0) > 0).map((r) => r.key);
+    const tried = [...new Set([...(fingerprint === (seen?.fingerprint ?? fingerprint) ? seen?.tried ?? [] : []), ...triedNow])].filter((k) => !attempted.includes(k));
     // A FUNDED PAGE THAT WAS NEVER REACHED IS OWED FIRST, NOT LAST: it is simply absent from `attempted`, so the
     // next continuation ranks it exactly where its impact puts it, which is where the strongest work belongs.
     const count = (o: string) => out.paid.receipts.filter((r) => r.outcome === o).length;
@@ -254,11 +261,11 @@ export const defaultSteps: ResearchCycleSteps = {
       log.error("[research-run] a page reported finished work that the queue cannot see", { tenantId, claimed, before, after });
       tally.stuck = [...claimed.map((k) => `${k}:produced_but_absent: the store accepted this work and the ready queue does not carry it`), ...tally.stuck].slice(0, 5);
     }
-    if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally);
+    if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally, tried);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));
     log.info("[research-run] the ready inventory is still short", { tenantId, before, after, target: READY_STOCK_TARGET, declared: out.paid.declared.length, settled: attempted.length, exhausted });
-    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, fingerprint, attempted, tally);
+    return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, fingerprint, attempted, tally, tried);
   },
   async refreshSources(tenantId, now) {
     // autoRefreshStaleConnectorsForTenant is fail-soft PER SOURCE and returns one { ok } result per ATTEMPTED stale source, which is what the refresh_sources contract above is counting. We do NOT .catch here: a THROW means the whole refresh could not
