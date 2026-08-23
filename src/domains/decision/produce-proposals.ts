@@ -377,6 +377,20 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const p = { ...card, ...(basis ? { basis } : {}) }; if (slot && card === c) file(DRAFT_BUDGET.keyOf(c), "retryable_blocked");
     if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && card !== c) await persistAndFile(p, DRAFT_BUDGET.keyOf(c)); else await persistIfChanged(p); }
   }
+  // A HOLD LIFTED BY A RULE CHANGE REACHES EVERY ROW IT WRONGLY HELD, not only the pages a later pass happens to work. Three finished answers sat in Review on the live account over a parser that read "with mammals of Iran" and "symbolizing royal authority" as things a page offers. The parser was corrected, and the answers stayed unreachable: a soft hold is stamped ON the row, the row is only ever re-read when its page comes back up, and the day's manifest had already spent on those pages. Every held row is re-read here instead, against the same page, the same account vocabulary and the same earning words the per-page path uses, and a row that nothing finds fault with today is released. The gate speaks in lowercase and the writer's own caveats do not, so the dead rule's receipt leaves and the reader's caveats stay. Nothing is promoted past its own cause: the fitness check re-asks, and a row it still blocks is left exactly where it is.
+  if (persist) for (const row of [...existing.values()]) {
+    const held = row.status === "needs_review" && row.limitations.some((l) => /^[a-z]/.test(l));
+    if ((!held && row.status !== "ready") || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim()) continue;
+    const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k)));
+    const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
+    const why2 = staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept);
+    // THE SAME RE-READ ANSWERS BOTH WAYS, and it has to, or the queue only ever ratchets open. A rule added today reaches finished rows exactly as a rule withdrawn today does: the row moves to review carrying the reason, and it keeps every word, because holding work back is not the same as destroying it and no sweep may destroy.
+    const moved: ChangeProposal | null = why2.length > 0
+      ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])] } : null
+      : held ? { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) } : null;
+    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) continue;
+    if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
+      log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }
   if (quietDay) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     for (const c of extra.cards) { // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
@@ -528,20 +542,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     { families: ["factual_correction"], complete: factual.complete }, // A page whose corrected words are live checks out on the next run, so its card retires itself here.
     { families: ["ownership", "researching"], complete: gscComplete },
     { families: ["consolidation", "title-family", "section-family"], complete: doorWalked.size > 0 }]); // The door's own families, swept on the pages above and nowhere else.
-  // A HOLD LIFTED BY A RULE CHANGE REACHES EVERY ROW IT WRONGLY HELD, not only the pages a later pass happens to work. Three finished answers sat in Review on the live account over a parser that read "with mammals of Iran" and "symbolizing royal authority" as things a page offers. The parser was corrected, and the answers stayed unreachable: a soft hold is stamped ON the row, the row is only ever re-read when its page comes back up, and the day's manifest had already spent on those pages. Every held row is re-read here instead, against the same page, the same account vocabulary and the same earning words the per-page path uses, and a row that nothing finds fault with today is released. The gate speaks in lowercase and the writer's own caveats do not, so the dead rule's receipt leaves and the reader's caveats stay. Nothing is promoted past its own cause: the fitness check re-asks, and a row it still blocks is left exactly where it is.
-  if (persist) for (const row of [...existing.values()]) {
-    const held = row.status === "needs_review" && row.limitations.some((l) => /^[a-z]/.test(l));
-    if ((!held && row.status !== "ready") || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim()) continue;
-    const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k)));
-    const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
-    const why2 = staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept);
-    // THE SAME RE-READ ANSWERS BOTH WAYS, and it has to, or the queue only ever ratchets open. A rule added today reaches finished rows exactly as a rule withdrawn today does: the row moves to review carrying the reason, and it keeps every word, because holding work back is not the same as destroying it and no sweep may destroy.
-    const moved: ChangeProposal | null = why2.length > 0
-      ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])] } : null
-      : held ? { ...row, status: "ready", limitations: row.limitations.filter((l) => !/^[a-z]/.test(l)) } : null;
-    if (!moved || (moved.status === "ready" && (unsettledCause(moved) ?? openHold(moved).blocking))) continue;
-    if (await saveChangeProposal(moved) === "saved") { existing.set(moved.id, moved); released += 1;
-      log.info("[produce-proposals] row re-read against the rules that stand today", { tenantId, id: moved.id, now: moved.status }); } }
   const outcome: ProducerOutcome = // The honest ending. A write that failed on EVERY attempt is a failure, not a quiet day.
     writeFailures > 0 && persisted === 0 ? "persistence_failed"
       : proposals.length > 0 ? "proposals_persisted"

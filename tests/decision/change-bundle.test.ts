@@ -1076,6 +1076,27 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.status).toBe("needs_review");
     expect(out.limitations.join(" ")).toContain("keyword stuffing"); });
 
+  /** AND ON A DAY WHEN NOTHING EARNS AN ACTION, WHICH IS THE DAY IT MATTERS MOST. A quiet pass returns before the
+   *  editor ever runs, and the sweep sat behind that return: live, the stuffed answer survived a pass that rewrote
+   *  fifteen other rows, because the one branch it took never reached the re-read. A stocked queue makes quiet days
+   *  the NORMAL case, so a sweep only ordinary days reach is a sweep that runs exactly when it is not needed. */
+  it("re-reads stored rows on a day nothing earns an action", async () => {
+    const OTHER = "fixture-tenant::/quiet-page::existing_edit::ai_answer_gap";
+    const stuffed = "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian girls names, persian girl name, and unique persian girl names.\nThe page covers Afsaneh, Afsoon, Aida, Anahita, Anoushka, and Arezou.\nAfsaneh: Goddess, divine and strong.\nAfsoon: Charming, enchanting, and alluring.";
+    store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/quiet-page", pageUrl: "https://fixture-content.example/quiet-page",
+      pageLabel: "Quiet", status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: stuffed, where: 'A new section headed "Names", placed after "Names heading"' },
+      claims: [{ text: stuffed, supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: stuffed }, { id: "card-2", fact: "The page's Names heading introduces the list." }] }));
+    vi.resetModules();
+    vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
+    const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
+    env.snap = snapshot({ ownedPages: [] }); // nothing earns an action, so this pass returns before the editor
+    await run(TENANT, { complete: seam, ...OPTS });
+    const out = store.rows.get(OTHER)!;
+    expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed);
+    expect([out.status, out.limitations.join(" ").includes("keyword stuffing")]).toEqual(["needs_review", true]); });
+
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));
