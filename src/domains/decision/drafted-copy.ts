@@ -455,9 +455,19 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     const q = new Set(topicTokens(card.primaryQuery));
     // THE TARGET IS THE PAGE'S OWN WORDS, VERBATIM (Codex, 2026-08-23). Stripping markers out of the target made the operator instruction unfindable ("bottom of page 12" is ordinary English, and taking it out leaves words no Ctrl-F will match), so the marker is ignored by the COMPARISON instead, on both sides. And the strongest candidate is chosen FIRST and then proved present: filtering before ranking silently retargeted the rewrite at a weaker passage with nothing said.
     const stored = storedPage(packet);
-    const best = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-"))
-      .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length })).sort((a, b) => b.n - a.n)[0];
-    if (!best || best.n < 2) return refuse("the section this rewrite should replace cannot be identified in the stored page copy");
+    // A TARGET IS A PASSAGE A PERSON CAN FIND AND WOULD AGREE TO LOSE (Codex, 2026-08-23, from the first live Ready
+    // change). The strongest overlap was a thousand-character crawler blob opening "top of pagePopular Persian(Farsi)
+    // Insults..." that ran from the page intro through a "Shop Now" block into two separate entries, and the operator
+    // was told to paste five lines over all of it: nobody can Ctrl-F that string, and doing it would delete real
+    // content including commerce. A candidate carrying crawler markers or glued-together page furniture is not a
+    // section, and among the passages that ARE sections the shortest sufficient one wins, because a rewrite should
+    // replace the thing it improves and nothing else.
+    const SECTION_MAX = 600;
+    const usable = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-"))
+      .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length }))
+      .filter((x) => !CHROME_AT.test(x.t) && !/[a-z][A-Z]/.test(x.t) && x.t.trim().length <= SECTION_MAX);
+    const best = usable.sort((a, b) => b.n - a.n || a.t.length - b.t.length)[0];
+    if (!best || best.n < 2) return refuse("no passage on this page is a section this rewrite could replace: the stored copy runs together as one block, so the work is a new section rather than a swap");
     if (!onPage(stored, best.t)) return refuse("the section this rewrite should replace cannot be identified in the stored page copy"); // it is not a target if the page does not carry it
     const heading = packet.headings.find((h) => topicTokens(h).some((w) => q.has(w))) ?? null;
     rewrite = { heading, replaces: best.t };

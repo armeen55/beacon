@@ -667,39 +667,32 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         complete: async () => ({ value: rewritten }) } as never);
       const rc = out[0]!.recommendedChange;
       expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
-      expect(rc.kind === "existing_edit" ? rc.before : null).toBe(P1); // the exact stored passage, held as the before
+      expect(rc.kind === "existing_edit" ? rc.before : null).toBe(P2); // a stored passage, held as the before; equal overlap breaks by brevity so a rewrite replaces the thing it improves and nothing more
       expect(JSON.stringify(out[0]!.operatorSteps)).toContain("Replace that passage with the copy above, exactly as written");
       expect(JSON.stringify(out[0])).not.toContain("A new section");
       bodyStore.map = null;
     });
-    /** THE LIVE FAILURE, AS A FIXTURE (Codex, 2026-08-23). Production refused this exact page's rewrite with "the
-     *  words it says it replaces are not on the stored page" over copy taken FROM that page: the body the gate
-     *  matches against has crawler markers stripped, the passages handed to the writer did not, so a passage
-     *  carrying "top of page" could never be found. The retry re-installed the same doomed target and re-earned
-     *  the same refusal at full price. One normalizer answers for both sides now. */
-    it("replaces a passage its own page carries under a crawler marker, instead of refusing copy taken from that page", async () => {
+    /** A CRAWLER BLOB IS NOT A SECTION (Codex, 2026-08-23, from the first live Ready change). The first change this
+     *  campaign produced told the operator to paste five lines over a thousand-character passage opening "top of
+     *  pagePopular Persian(Farsi) Insults..." that ran from the page intro through a "Shop Now" block into two
+     *  entries. Nobody can find that string, and following it would delete real content. Such a passage is refused
+     *  as a target, and the refusal names the work that IS available. */
+    it("refuses to aim a rewrite at a crawler blob, and says the work is a new section instead", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
-      const CHROMED = `top of page${P1}`; // exactly how the crawler stored this account's own section
-      const body = { ...BODY, passages: [CHROMED, P2, P3] };
-      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), body]]);
+      const CHROMED = `top of page${P1} Shop Now ${P2}`; // exactly the shape production picked
+      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), { ...BODY, passages: [CHROMED] }]]);
+      const notes: string[] = [];
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
-        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
-      const notes: string[] = [];
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async () => ({ value: rewritten }) } as never);
-      expect(notes.join(" ")).not.toContain("the words it says it replaces are not on the stored page");
-      const rc = out[0]!.recommendedChange;
-      // VERBATIM, marker and all: the comparison ignores markers on both sides, but what the operator is told to
-      // find is exactly what their page carries. Stripping it out left words no Ctrl-F would ever match.
-      expect(rc.kind === "existing_edit" ? rc.before : null).toBe(CHROMED);
-      expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
-      expect(out[0]!.status).toBe("ready");
+        complete: async () => ({ value: GOOD }) } as never);
+      expect(notes.join(" ")).toContain("the stored copy runs together as one block, so the work is a new section rather than a swap");
+      expect(JSON.stringify(out[0]!.recommendedChange)).not.toContain("Shop Now"); // and the operator is never told to delete it
       bodyStore.map = null;
     });
     it("a rewrite that cannot identify its section refuses in those words, and never invents a placement", async () => {
@@ -713,7 +706,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never); // no stored body is on file, so no passage can be identified
-      expect(notes.join(" ")).toContain("the section this rewrite should replace cannot be identified in the stored page copy");
+      expect(notes.join(" ")).toContain("no passage on this page is a section this rewrite could replace");
       expect([out[0]!.status === "ready", JSON.stringify(out[0]!.recommendedChange).includes("A new section")]).toEqual([false, false]);
     });
     it("a grounded answer passes every editor gate AND the canon, mechanically placed", async () => {
