@@ -152,7 +152,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
   };
   /** The pass's own research half, read at the END of the pass so it carries the verdict the funded reading refined rather than the one that stood before it. */
-  const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld }); 
+  const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld });
   // THE PAGE'S OWN TWO WINDOWS REACH THE DIAGNOSIS, keyed every way a candidate can be matched. Without this a fall was loaded, rendered on a lane, and never once weighed by the kernel that decides what to do.
   const decline = new Map<string, NonNullable<ReturnType<Windows["get"]>>>(); for (const [url, w] of windows) for (const k of pageKeys(url)) decline.set(k, w);
   const compile = () => compileCandidates(snapshot, { coverage, ...measuring, decline, curve }), bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts);
@@ -194,12 +194,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (!quietDay) editorCards.push(...recovery.cards, ...extra.cards);
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
-  /** WHAT BECAME OF EACH FUNDED JOB, recorded where it actually happens and never inferred from a counter. The strongest answer for a key wins, because a page whose bundle failed and whose one-field fallback then landed HAS finished work. Anything nobody filed in reads as `not_reached`: funded, never got to, and therefore never written off. */
-  const gateWords = new Map<string, string>(), // the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did
-    filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
+  /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
+  const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
   const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
-  /** OUT OF TIME TO START ANYTHING NEW, checked at every paid door: work running is never abandoned, work not begun is not funded and comes back `not_reached`, settling nothing and staying owed. */
-  const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy;
+  const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy; // checked at every paid door: work running is never abandoned, work not begun is not funded and reads `not_reached`, settling nothing
   const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => ({ key: f.key, funded: true, providerAttempted: filed.get(f.key)?.providerAttempted ?? false, outcome: filed.get(f.key)?.outcome ?? "not_reached" as const })) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
@@ -315,7 +313,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is
    *  not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save
    *  landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
-  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); }; // a store that REFUSED the row settled it against this evidence; one that FAILED or HELD it settled nothing
+  const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row settled it; one that FAILED or HELD it settled nothing
+    if (r === "refused") gateWords.set(key, "the store refused this row: it does not pass the bar a change must clear to be offered");
+    file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); };
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
   const wiring = () => ({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages });
   /** THE SPLITS THIS PASS ACTUALLY SETTLES, one card per group, strongest first. Computed BEFORE the boundary runs, because a page may only be refused a card for a split that some card here settles. */
@@ -346,9 +346,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
     return ranked;
   };
-  const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); }
-  /** suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged. */
-  const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");   /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
+  const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); } // suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged.
+  const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");  /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
   const withSuggestions = async (strict: ChangeProposal[]): Promise<ProducerRun> => {
     const skip = new Set([...strict.flatMap((p) => [p.id, (p.pagePath ?? "").trim().toLowerCase()]), ...withdrawn]);
     for (const s of suggestedEdits(snapshot, candidates, { now: opts.now ?? new Date(), basis, skip, windows, needs: enteredBy, curve })) {
@@ -437,8 +436,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     await retire(p, "retired: this pass reached a verdict and no case still asks for this new page");
   }
 
-  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms }; // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
-  const onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
+  const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms }, // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
+    onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[] } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
 
   for (const d of deep) {
     // Every page THIS CASE IS ABOUT gets its own words read FIRST, because a stored bundle is re-read against them before it is served again.
@@ -483,7 +482,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (pageKeys(input.page.url ?? input.page.path).some((k) => bundledNow.has(k))) continue; // the rewrite landed, and it replaces this edit
     const settled = existing.get(proposalId(input)); // A refresh re-pays nothing, and SETTLED WORK IS NOT REDRAFTED.
     if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; } // An IMPLEMENTED row is a change under measurement, so the fresh idea for that page is HELD, not dropped.
-    if (withdrawn.has(proposalId(input))) { file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), "deterministic_refusal", false); continue; } // work the operator already took back under this evidence is SETTLED, not blocked: offering it again every drive is the retry loop this repair exists to stop
+    if (withdrawn.has(proposalId(input))) { const k = DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }); // work already taken back under this evidence is SETTLED, not blocked
+      gateWords.set(k, "this work was already taken back under this evidence, so it is not offered again"); file(k, "deterministic_refusal", false); continue; }
     const held = currentById(proposalId(input))
       ?? (input.opportunity.kind === "existing_edit"
         ? [...heldDeep.values()].find((b) => b.pagePath === input.page.path) ?? null : null);
