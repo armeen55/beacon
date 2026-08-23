@@ -691,7 +691,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never);
-      expect(notes.join(" ")).toContain("the stored copy runs together as one block, so the work is a new section rather than a swap");
+      // THE PLANNER REPLANS RATHER THAN WRITING THE PAGE OFF: no section to replace is a fact about the treatment.
+      expect(notes.join(" ")).not.toContain("is a section this rewrite could replace");
       expect(JSON.stringify(out[0]!.recommendedChange)).not.toContain("Shop Now"); // and the operator is never told to delete it
       bodyStore.map = null;
     });
@@ -706,8 +707,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never); // no stored body is on file, so no passage can be identified
-      expect(notes.join(" ")).toContain("no passage on this page is a section this rewrite could replace");
-      expect([out[0]!.status === "ready", JSON.stringify(out[0]!.recommendedChange).includes("A new section")]).toEqual([false, false]);
+      // A REWRITE WITH NOTHING TO REPLACE BECOMES THE SECTION THE PAGE DOES NOT HAVE, and never a settled refusal.
+      expect(notes.join(" ")).not.toContain("is a section this rewrite could replace");
     });
     it("a grounded answer passes every editor gate AND the canon, mechanically placed", async () => {
       const d = await drive({ ...GOOD, placementAnchor: "whatever" }); expect([d?.anchor, (d?.after ?? "").includes(P2)]).toEqual(["Funny Farsi Phrases", true]);
@@ -747,6 +748,24 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
       deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
   // THE HALLUCINATION THAT AUTHENTICATED ITSELF, on the live account's own stored page evidence, and with a judge that says yes to all seven of its rulings. The coverage graph carried the writer's own claim text, so a sentence and the claim declaring it were one string: a claim naming a real evidence id, repeated word for word in ordinary prose, cleared every check because the word was in the claim. Each claim is now read against the quoted facts IT names, with itself taken out of the corpus, and the refusal is DETERMINISTIC, so the permissive judge below is never asked. THE LIVE ROW IS HERE TOO: the one ready card on the account (2026-08-15) declared "The page includes Love Eshgh black and white variants" against four headings and one body excerpt that name the shoes and never say the page includes anything, and it is refused for exactly that word. A paraphrase made of the quoted facts' own content words still passes.
+  /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and
+   *  $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE"
+   *  never carried. Real qualifiers must still be enforced, so both directions are pinned. */
+  it.each([
+    ["from 550 BCE to 330 BCE", "The empire ran 550-330 BCE.", true],
+    ["550 BCE to 330 BCE", "The empire ran 550-330 BCE.", true],
+    ["550-330 BCE", "The empire ran from 550 BCE to 330 BCE.", true],
+    ["shipping in 7 days", "Orders ship in 7 days, excluding weekends.", false],
+  ])("reads %s against the page correctly", (copy, body, shouldPass) => {
+    const P = { targetUrl: "https://www.iranopedia.com/f", title: "Flag", h1: "Flag", metaDescription: null, headings: [],
+      bodyText: body, evidence: { "page-copy-1": body }, trackedQuestion: "achaemenid flag", ownedPaths: [], bannedTerms: [],
+      demand: { preserve: [], vocabulary: [] } } as unknown as Parameters<typeof deliverableFailures>[1];
+    const d = { actionType: "answer_block" as const, targetUrl: P.targetUrl, placementAnchor: "Flag", beforeText: null,
+      naturalHeading: "The dates", evidenceIdsUsed: ["page-copy-1"], claims: [{ text: copy, supportedBy: ["page-copy-1"] }],
+      finalCopy: copy, uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "citations", supportFacts: [] } as unknown as Parameters<typeof deliverableFailures>[0];
+    const dropped = deliverableFailures(d, P).filter((r) => r.includes("and the copy drops it"));
+    expect(dropped.length === 0).toBe(shouldPass); });
+
   /** A CAPITAL LETTER AFTER A BULLET, A DASH OR A COMMA IS GRAMMAR, NOT A NAME (Codex, 2026-08-23): production
    *  blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item, at four calls and
    *  $0.024776. Both directions are pinned, because loosening this must not let a fabricated name through. */

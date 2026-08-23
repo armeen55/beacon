@@ -35,8 +35,7 @@ const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as cons
 type ProducerRun = { families: readonly string[]; complete: boolean };
 /** THE ONE PAGE A VERDICT DECIDED TO IMPROVE, as facts out of words this pass ALREADY holds. Null for `create_new`, and null when its own words are not held. */
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
-  if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld);
-  if (!held) return null;
+  if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld); if (!held) return null;
   const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
   const row = snapshot.ownedPages.find((p) => at(p.url) === at(held.url))?.content ?? null;
   return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount, headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;
@@ -273,7 +272,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const live = held.filter((p) => !retired.has(p.id));
   let persisted = 0, writeFailures = 0, reused = 0, heldForMeasurement = candidates.filter((c) => c.cause.cause === "measuring_change").length; // A HOLD HAPPENS WHERE THE DECISION IS MADE, NOT WHERE THE ROW IS WRITTEN
   /** Persist ONE material row, or nothing when the stored row already says exactly this. THE RANKING ON FILE SURVIVES A RE-STAMP: a producer mints its card before the pass has ranked anything, so dropping the stored receipt would make every pass rewrite every row twice and count it as new work each time. */
-  const persistIfChanged = async (input: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => { if (!persist) return "not_persisted";
+  const persistIfChanged = async (input0: ChangeProposal): Promise<"saved" | "unchanged" | "refused" | "blocked" | "failed" | "not_persisted"> => { if (!persist) return "not_persisted";
+    const input: ChangeProposal = input0.workKey ? input0 : { ...input0, workKey: declaredWorkKey.get(DRAFT_BUDGET.keyOf(input0)) ?? workKeyOf(input0) }; // IDENTITY IS STAMPED AT THE ONE DOOR so no caller can forget it: the editor path saved raw rows carrying a basis and nothing else, which is why all twenty-five live rows held a null workKey
     // THE "NOT YET" NOTE GOES ON BEFORE THE ROW IS WRITTEN, never after it. Added once the row was already stored, the next pass re-minted the card WITHOUT the note, saved it because it differed from the stored one, then appended the note and saved again: two writes a pass, for ever, on a card nobody had touched. A refresh re-pays nothing only if it also re-writes nothing.
     const note = input.researchOnly === true && !input.bundle ? pageKeys(input.pageUrl).map((k) => blocked.get(k)).find(Boolean) : null;
     const notYet = note ? `Not yet, because ${note.reason}` : "";

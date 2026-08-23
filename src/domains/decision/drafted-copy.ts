@@ -122,8 +122,11 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
   // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
   const figure = (t: string): string => t.replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-").replace(/\s+/g, " ");
   // A RANGE SPELLED OUT IS THE SAME FACT AS A RANGE WITH A DASH IN IT: "from 550 to 330 BCE" narrows nothing, and reading its "from" as a qualifier refused every line naming the years its own page is about. Normalized to the form the copy would write, BEFORE the sentence is asked what it qualifies.
-  const said = p.bodyText.replace(/\bfrom\s+([\d,.]+)\s+to\s+([\d,.]+)/gi, "$1-$2").split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
-  for (const n of new Set(figure(copy).match(/\d[\d,.-]*\d|\d+/g) ?? [])) {
+  // ONE RANGE, HOWEVER IT IS SPELLED, AND UNITS COUNT (Codex, 2026-08-23): "from 550 BCE to 330 BCE" and "550-330 BCE" are the same fact, and reading the "from" as a dropped qualifier cost /iran-flags/achaemenid-empire-flag five calls and $0.026846 for a line naming the years its own page is about. Endpoints carrying the SAME unit fold together; genuinely different units (5 km to 3 miles) stay two facts, and every other qualifier is still enforced below.
+  const ranges = (t: string): string => t.replace(/(?:\bfrom\s+)?(\d[\d,.]*)\s*([A-Za-z]{1,4})?\s+to\s+(\d[\d,.]*)\s*([A-Za-z]{1,4})?/gi,
+    (m, a: string, ua: string | undefined, b: string, ub: string | undefined) => (!ua || !ub || ua.toLowerCase() === ub.toLowerCase()) ? `${a}-${b}${ub ? ` ${ub}` : ua ? ` ${ua}` : ""}` : m);
+  const said = ranges(p.bodyText).split(/(?<=[.!?])\s+|\n+/).map((t) => figure(t).trim()).filter(Boolean);
+  for (const n of new Set(figure(ranges(copy)).match(/\d[\d,.-]*\d|\d+/g) ?? [])) {
     const q = QUALIFIER.exec(said.find((s) => s.includes(n)) ?? "");
     if (q && !new RegExp(`\\b${q[1]!.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(copy)) {
       out.push(`the figure's own sentence says ${q[1]!.toLowerCase()}, and the copy drops it`); break; } }
@@ -249,8 +252,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
 }
 
 /** A CLOSING SENTENCE THAT ASKS THE READER TO READ THE PAGE IS FILLER WHERE A FACT BELONGS: the description  equivalent of "click here". DETERMINISTIC and about the SHAPE of an imperative, never a vocabulary: the final  sentence, opening on an instruction to read, view, browse, visit or shop. Trimmed where what is left still fills  the field, and otherwise sent back for ONE redraft that is told not to write one. PURE. */
-const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|learn|find|check)\b/i;
-const NO_CTA = "Write no closing call to action. Never end with an instruction to read, view, browse, visit or shop this page: the last sentence has to carry a fact about the page.";
+const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|learn|find|check)\b/i; const NO_CTA = "Write no closing call to action. Never end with an instruction to read, view, browse, visit or shop this page: the last sentence has to carry a fact about the page.";
 export function withoutCta(copy: string, type: EditorDeliverable["actionType"]): string | null {
   // LIST-SHAPED COPY IS READ BY ITS LINES (review, 2026-08-22): with line breaks preserved, the closing CTA is a whole last LINE and the space-suffixed boundaries below never see it, while the " - " boundary would amputate the meaning off an honest "phrase - meaning" list item. Multi-line copy therefore drops a CTA last line whole and keeps every list separator; the single-line path is byte for byte what it was.
   if (copy.includes("\n")) {
@@ -457,10 +459,11 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length }))
       .filter((x) => !CHROME_AT.test(x.t) && !/[a-z][A-Z]/.test(x.t) && x.t.trim().length <= 600)
       .sort((a, b) => b.n - a.n || a.t.length - b.t.length)[0];
-    if (!best || best.n < 2) return refuse("no passage on this page is a section this rewrite could replace: the stored copy runs together as one block, so the work is a new section rather than a swap");
-    if (!onPage(stored, best.t)) return refuse("the section this rewrite should replace cannot be identified in the stored page copy"); // it is not a target if the page does not carry it
-    const heading = packet.headings.find((h) => topicTokens(h).some((w) => q.has(w))) ?? null;
-    rewrite = { heading, replaces: best.t };
+    // A PLANNER THAT CHOSE IMPOSSIBLE WORK REPLANS; IT DOES NOT WRITE THE PAGE OFF (Codex, 2026-08-23): /funny-farsi-phrases, worth 555 recoverable clicks, was settled as a deterministic refusal because the planner asked to rewrite a page whose stored copy is one glued block. No section to replace is a fact about the TREATMENT, not the page, so the run continues as the section the page does not have.
+    if (!best || best.n < 2) rewrite = null;
+    else {
+    if (!onPage(stored, best.t)) { rewrite = null; } // it is not a target if the page does not carry it, and that is the treatment's problem, not the page's
+    else rewrite = { heading: packet.headings.find((h) => topicTokens(h).some((w) => q.has(w))) ?? null, replaces: best.t }; }
   }
   // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : "";
@@ -486,8 +489,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line that earning searches carry (each must survive the rewrite), and the exact words the account bans.
       const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-      const earning = new Set(packet.demand.preserve.flatMap(wordsOf));
-      const held = kind === "title" ? packet.title : packet.h1;
+      const earning = new Set(packet.demand.preserve.flatMap(wordsOf)); const held = kind === "title" ? packet.title : packet.h1;
       const keep = [...new Set(wordsOf(held ?? ""))].filter((w) => earning.has(w));
       return [`Rewrite the line, but every one of these words must still appear in it, spelled as given: ${keep.join(", ") || "(none)"}. Add the higher-demand phrase alongside them; NEVER replace them with it. No word may appear twice: write ONE natural line a person would publish, never a comma list of search phrasings.${packet.bannedTerms.length > 0 ? ` These words are banned and must not appear at all: ${packet.bannedTerms.join(", ")}.` : ""}`];
     })() : []),
@@ -552,8 +554,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
   const bodies = drafting.length > 0 ? await loadOwnedPageBodies(opts.tenantId, drafting).catch(() => new Map<string, OwnedPageBody>()) : new Map<string, OwnedPageBody>();
   for (const card of cards) {
-    const slug = slugOf(card), wants = kindFor(card);
-    const page = wants ? pageFor(opts.snapshot, card) : null;
+    const slug = slugOf(card), wants = kindFor(card); const page = wants ? pageFor(opts.snapshot, card) : null;
     if (!page) { out.push(card); continue; }
     // AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names the rendered read as the next step, and no body-dependent copy may stand on words nobody holds.
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
@@ -653,8 +654,7 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   // A BANKED TITLE OR HEADING IS RE-READ AGAINST WHAT THE PAGE EARNS TODAY, exactly as a fresh draft is: the girl-names rewrite that dropped "List" was banked under a generation with no earning gate and stayed visible for exactly that reason. Same rule, same words-as-spelled comparison, run on the banked strings.
   if (preserve.length > 0 && (field === "title" || field === "h1") && held != null) {
     const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-    const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after));
-    const line = field === "title" ? held.title : held.h1;
+    const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after)); const line = field === "title" ? held.title : held.h1;
     const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t));
     if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
   }
@@ -664,8 +664,7 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   if (ungrounded.length > 0) out.push(`its copy says ${ungrounded.slice(0, 3).map((t) => `"${t}"`).join(", ")} on a claim of its own, and the evidence that claim names does not carry it`);
   if (uncovered.length > 0) out.push(`its copy says ${uncovered.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which no claim it makes and no evidence those claims name carries`);
   // A LINK IS ONE SENTENCE, filed under `section` for the store's sake. Its id still says what it is, and re-reading it against section's forty word floor would withdraw every finished link sentence on the sweep.
-  const band = p.id.endsWith("::internal_link") ? "internal_link" as const : field;
-  const [lo, hi, unit] = BAND[band], n = unit === "c" ? c.after.trim().length : words(c.after);
+  const band = p.id.endsWith("::internal_link") ? "internal_link" as const : field; const [lo, hi, unit] = BAND[band], n = unit === "c" ? c.after.trim().length : words(c.after);
   if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   if (band !== "internal_link" && (field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering");
   if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");

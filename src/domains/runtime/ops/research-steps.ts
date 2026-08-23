@@ -64,7 +64,7 @@ export type ResearchCycleSteps = {
   /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
    *  investigation, which picks its own topic: THIS search, named by the producer that could not proceed without it.
    *  Returns whether the reading landed, so an unfulfilled requirement stays owed with its own receipt. */
-  acquireEvidence: (tenantId: string, need: { kind: string; query: string; url?: string }, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
+  acquireEvidence: (tenantId: string, need: { kind: string; query: string; url?: string }, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory
@@ -332,9 +332,13 @@ export const defaultSteps: ResearchCycleSteps = {
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
   // THE ONE ACQUISITION TRANSPORT THE FUNNEL ALREADY USES, pointed at one search instead of a chosen topic.
-  async acquireEvidence(tenantId, need, budgetMs) {
+  async acquireEvidence(tenantId, need, basis, budgetMs) {
     if (need.kind !== "serp" || !need.query.trim()) return { acquired: false, detail: `nothing here can buy a ${need.kind}` };
-    const out = await serpAnalysisUnit({}, [need.query])(tenantId, null, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+    // THE READER NEEDS THE BASIS THE RUN IS WORKING UNDER (Codex, 2026-08-23). A null cursor was handed in, the funnel
+    // reads its basis off that cursor, and so every "exact reading" failed before it looked at anything: the one search
+    // that finishes the account's strongest page was never fetched, on any dispatch. Runtime already knows the basis.
+    if (!basis) return { acquired: false, detail: "this dispatch has no confirmed basis, so nothing can be read against it" };
+    const out = await serpAnalysisUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
     const done = (out as { status?: string }).status === "done";
     log.info("[research-run] the exact reading a refused candidate named", { tenantId, query: need.query, status: (out as { status?: string }).status });
     return { acquired: done, detail: `results page for "${need.query}": ${(out as { status?: string }).status ?? "unknown"}` };

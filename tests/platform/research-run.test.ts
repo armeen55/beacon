@@ -989,15 +989,16 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
    *  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the
    *  dispatch ended, and the next drive drafted from the same missing evidence. Proved through the REAL runtime. */
   it("buys exactly the search a funded candidate was refused for, even on a run that opened only for the stock", async () => {
-    const asked: Array<{ kind: string; query: string }> = [];
+    const asked: Array<{ kind: string; query: string; basis: string }> = [];
     const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
     await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
-      acquireEvidence: async (_t, need) => { asked.push({ kind: need.kind, query: need.query }); return { acquired: true, detail: "bought" }; },
+      acquireEvidence: async (_t, need, basis) => { asked.push({ kind: need.kind, query: need.query, basis: basis ?? "(none)" }); return { acquired: true, detail: "bought" }; },
       replenishReady: async () => ({ ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const,
         fingerprint: "m1", attempted: [],
         evidenceOwed: [{ key: "/persian-female-first-names", kind: "serp", query: "persian girl names", reasonCode: "no_exact_serp",
           resumeTreatment: "deep_bundle", reason: "No results page is on file", workKey: "wk-1" }] }) });
-    expect(asked).toEqual([{ kind: "serp", query: "persian girl names" }]); // the EXACT search, not a topic the run picked
+    expect(asked.map((a) => ({ kind: a.kind, query: a.query }))).toEqual([{ kind: "serp", query: "persian girl names" }]); // the EXACT search, not a topic the run picked
+    expect(asked[0]!.basis).not.toBe("(none)"); // AND IT CARRIES THE RUN'S BASIS: a null one failed before reading anything
     void rows; });
 
   /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never
