@@ -338,10 +338,10 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // A CACHED ANSWER COST NOTHING, SO IT COUNTS AS NOTHING: the budget line above pays before asking because a charged call that fails was still bought, but a cache hit never reached the provider, and letting it spend an attempt let twelve long-refused cached drafts starve the cards this pass actually exists for.
   if (opts.attempts && drafted && (drafted as { cached?: true }).cached) opts.attempts.left += 1;
   // WHY THE DRAFTER SAID NO, NOT JUST THAT IT DID. The status alone ("validation_failed") named nothing that could be acted on, so diagnosing one refusal meant buying another call to see what the last one objected to.
-  if (!drafted || drafted.status !== "drafted") { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("no draft came back", { status: drafted?.status ?? "threw",
-    errors: (drafted as { errors?: string[] } | null)?.errors?.slice(0, 4) ?? null, failure: (drafted as { failure?: string } | null)?.failure ?? null }); }
-  const v = drafted.value as AtomicEditDraft;
-  const claims = v.claims.map((c) => ({ text: c.text, supportedBy: c.supportedBy }));
+  // WHAT CAME BACK INSTEAD, ON THE RECEIPT (Codex, 2026-08-23): "no draft came back" cost /persian-female-first-names six provider calls and $0.049 and told nobody anything, because the status and the drafter's own errors were logged and then dropped. The reason is the receipt's job.
+  if (!drafted || drafted.status !== "drafted") { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl }));
+    const st = drafted?.status ?? "threw", errs = (drafted as { errors?: string[] } | null)?.errors?.slice(0, 3) ?? [], fail = (drafted as { failure?: string } | null)?.failure ?? null; return refuse(`no draft came back (${st}${fail ? `, ${fail}` : ""})${errs.length > 0 ? `: ${errs.join("; ")}` : ""}`, { status: st, errors: errs, failure: fail }); }
+  const v = drafted.value as AtomicEditDraft, claims = v.claims.map((c) => ({ text: c.text, supportedBy: c.supportedBy }));
   const deliverable: { -readonly [K in keyof EditorDeliverable]: EditorDeliverable[K] } = {
     actionType: field, targetUrl: packet.targetUrl,
     // LINE STRUCTURE IS PART OF THE DELIVERABLE (operator, 2026-08-22): flattening every newline turned a phrase list into one run-on paragraph. Spaces collapse WITHIN a line; a list-shaped answer's line breaks survive into copy, store and paste.
