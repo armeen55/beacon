@@ -295,12 +295,10 @@ describe("the coverage verdict never invents a page this account already owns", 
     expect([elsewhere.verdict, cosmetic.verdict]).toEqual(["research_needed", "research_needed"]); });
   it("carries the one purchase that would change a refusal, and stops asking once buying has stopped paying", async () => {
     const buy = { kind: "buy_serp" as const, subject: "rain barrel sizing", why: "I have never looked at Google's results for this." };
-    const asking = await adjudicateCoverage(INV({ exactSerps: [], serpFreshness: "missing", nextAcquisition: buy }), [ONE], TENANT, {});
-    expect([asking.verdict, asking.acquisition]).toEqual(["research_needed", buy]);
+    const asking = await adjudicateCoverage(INV({ exactSerps: [], serpFreshness: "missing", nextAcquisition: buy }), [ONE], TENANT, {}); expect([asking.verdict, asking.acquisition]).toEqual(["research_needed", buy]);
     expect(asking.explanation).toContain('What changes this: buying the results page for "rain barrel sizing".');
     const blind = { demand: { ...INV().demand, intent: null } }; // NO ENDLESS INVESTIGATION: the acquisition was tried, nothing left to buy moves it, so it becomes a decision
-    const spent = await adjudicateCoverage(INV({ ...blind, nextAcquisition: null, diminishing: true }), [ONE], TENANT, {});
-    expect([spent.verdict, spent.missing, spent.acquisition]).toEqual(["do_nothing", [], undefined]);
+    const spent = await adjudicateCoverage(INV({ ...blind, nextAcquisition: null, diminishing: true }), [ONE], TENANT, {}); expect([spent.verdict, spent.missing, spent.acquisition]).toEqual(["do_nothing", [], undefined]);
     expect(spent.explanation).toContain("Nothing more that can be bought moves this today. It moves again when your own numbers move.");
     const again = await adjudicateCoverage(INV({ ...blind, nextAcquisition: buy }), [ONE], TENANT, {}); // while something IS still buyable, the same topic stays an investigation and says what to buy
     expect([again.verdict, again.missing, again.acquisition]).toEqual(["research_needed", ["intent"], buy]); }); });
@@ -315,8 +313,7 @@ describe("a new page is earned by read evidence, and never by a guess about page
     const cited = INV({ winners: WIN.map((w) => ({ ...w, appearances: [{ ...w.appearances[0]!, kind: "ai_overview" as const, rank: null }] })) });
     expect((await adjudicateCoverage(cited, [ONE], TENANT, {})).missing).toEqual(["winners"]); });
   it.each(["blocked", "capped", "waiting", "quarantined", "ambiguous", "failed"] as const)("cannot turn a comparison that came back %s into a new page, and says why in plain words", async (unavailable) => {
-    const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } });
-    expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
+    const d = await adjudicateCoverage(INV(), [ONE], TENANT, { intersection: { unavailable } }); expect([d.verdict, d.missing, earnedNewPage(d)]).toEqual(["research_needed", ["page_intersection"], false]);
     expect(d.explanation).toContain("nothing is worth building"); expect(d.explanation).not.toMatch(/blocked|capped|quarantin|ambiguous|provider|task|status/i); }); });
 const AT = "https://fixture-content.example"; // ── how a page is SERVED: the V1 technical catalogue, off the two stores that answer it ──
 const row = (url: string, over: Record<string, unknown> = {}) => ({ url, discovered_via: "sitemap", crawl_state: "crawled", http_status: 200, redirects_to: null, ...over });
@@ -349,8 +346,7 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     expect([dead({ http_status: 404 }).length, dead({ http_status: 410 }).length, dead({ crawl_state: "gone", http_status: null }).length]).toEqual([1, 1, 1]);
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z" })).toEqual([]);
     expect(dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-01T18:00:00Z" })).toEqual([]);
-    const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" });
-    expect(twice[0]!.evidence).toContain("two different days"); });
+    const twice = dead({ http_status: 500, last_crawled_at: "2026-08-01T09:00:00Z", status_reconfirmed_at: "2026-08-03T09:00:00Z" }); expect(twice[0]!.evidence).toContain("two different days"); });
   // PIN (D, packet 20): vague advice cannot enter Ready. Without the words to type there is no finding, and a copy fault with no copy behind it never reaches the operator as a change.
   it("writes no change it has not written the wording for, and says so instead", async () => { const noWords = readTechnicalFindings({
       inventory: [row(`${AT}/`), row(`${AT}/rain-barrels`), row(`${AT}/orphan`, { discovered_via: "nav" })],
@@ -433,8 +429,7 @@ describe("the complete change universe answers for itself", () => { it("round-tr
 describe("one score orders every kind of change, and says why", () => { it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
     const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
     const bigger = prop({ id: "section-add", impactScore: 2000, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) });
-    const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]);
-    expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
+    const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]); expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
     expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads");
     expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
     expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
@@ -446,8 +441,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     } });
   // DRAFT CAPACITY FOLLOWS THIS RANKING, NEVER ARRIVAL ORDER (operator, 2026-08-21): produce-proposals ranks the eligible cards through THIS function before the bounded drafter walks them, so with
   it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => { // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
-    const six = Array.from({ length: 6 }, (_, i) => prop({ id: `card-${i}`, pagePath: `/p${i}`, impactScore: i === 5 ? 900 : 10 + i }));
-    expect(rankProposals(six)[0]!.id).toBe("card-5");
+    const six = Array.from({ length: 6 }, (_, i) => prop({ id: `card-${i}`, pagePath: `/p${i}`, impactScore: i === 5 ? 900 : 10 + i })); expect(rankProposals(six)[0]!.id).toBe("card-5");
   });
   it("puts what is riding on the change above how long it takes, and never lets a wrong lever ride a recovery", () => {
     // A page proven to be losing 191 clicks against a description errand on a page shown twice: value leads, and the whole of the errand's speed is worth less than what the losing page has riding on it.
@@ -643,8 +637,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
     void _r; void _w; void _c; void _b;
     const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal)); expect(back).not.toBeNull();
-    const [ranked] = rankProposals([back!]);
-    expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["readiness", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
+    const [ranked] = rankProposals([back!]); expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["readiness", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
     // A ROW WITH NO DIAGNOSIS AND NO RECEIPT STILL RANKS ON WHAT IS RIDING ON IT, and below a change with thirty three times its proven recovery, whatever stage either is at: worth what its own figures say, never less for its age.
     expect(proposalValueScore(back!)).toBeLessThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });
@@ -735,8 +728,7 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
   it("puts a question asked every day for a week above one asked once with ten times the rows", () => {
     const recurring = aiProp("recurring", { answers: 5, citedRivals: 3, days: 7, engines: 4, stage: "owned_retrieved_not_cited" });
     const burst = aiProp("burst", { answers: 50, citedRivals: 3 }); // fifty rows, no recurrence on file
-    const ranked = rankProposals([burst, recurring]);
-    expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]);
+    const ranked = rankProposals([burst, recurring]); expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]);
     const receipt = ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
     expect(receipt.input).toContain("asked on 7 days across 4 assistants"); // the receipt says the same thing the score used
     expect(receipt.input).toContain("while this page is already read and passed over");
@@ -768,8 +760,7 @@ describe("finished copy survives a pass that cannot redraft", () => {
   it("a MATERIAL change replaces the copy and stamps the retirement receipt with the fact that moved", () => {
     for (const [over, said] of [[{ copyStamp: "THE PAGE WAS RECRAWLED DIFFERENT" }, "content changed"],
       [{ diagnosisCause: "ranking_loss" as const }, "cause changed"]] as const) {
-      const out = preferFinished(brief(over), finished());
-      expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("credited pages");
+      const out = preferFinished(brief(over), finished()); expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("credited pages");
       expect(out.previousCopy?.after).toBe("The finished words, one item per line.");
       expect(out.previousCopy?.retiredBecause).toContain(said);
     }
@@ -783,8 +774,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   const SMALLS = ["/a", "/b", "/c", "/d"].map((k, i) => job(k, "field_draft", 40 - i)), BUNDLE = job("/bundle", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS);
   it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
     // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
-    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]);
-    expect(b.funded[0]!.key).toBe("/best");
+    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");
     expect([b.take("topic:wildlife"), b.take("/best") != null]).toEqual([null, true]); // it asks FIRST in the pass and still gets nothing
   });
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
@@ -814,8 +804,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]); });
   it("caps one candidate at three charged calls, banks the failure and still funds the next", () => {
     const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)]);
-    const first = b.take("/best")!;
-    expect(first.left).toBe(3);
+    const first = b.take("/best")!; expect(first.left).toBe(3);
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
     expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, 3]);
   });

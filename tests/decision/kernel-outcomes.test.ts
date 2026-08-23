@@ -1,17 +1,17 @@
 /** DECISION kernel outcomes: what the evidence justifies BEFORE anything is drafted, then generate -> validate -> rank -> persist -> REUSE, and fail-closed rejections. Each test name states its promise. */
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
     .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", metaDescription: null, openingSample: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }] as const))) }));
 // The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
-  return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => new Set<string>(), // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
+  return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => env.withdrawnIds, // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => {
     const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
-    env.saved.push(p); if (env.failWrites || env.failIds.has(p.id)) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
+    if (env.refuseIds.has(p.id)) return "refused"; env.saved.push(p); if (env.failWrites || env.failIds.has(p.id)) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
 // A PASSTHROUGH, NOT A STAND-IN: it records which page and which DOOR the pass aimed at, then replays a pinned answer or runs the REAL producer.
 vi.mock("@/domains/decision/produce-bundle", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/produce-bundle")>("@/domains/decision/produce-bundle");
   return { ...actual, produceBundleForSnapshot: async (s: never, o: { onlyPageUrl?: string | null; door?: never }) => {
@@ -153,7 +153,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
 const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */ const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
 const BOTH = () => snap([WEAK, GAP], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]));
-const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.failIds = new Set(); env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
+const reset = (s: EvidenceSnapshot): void => { env.snap = s; env.saved = []; env.store = new Map(); env.withdrawn = []; env.failWrites = false; env.failIds = new Set(); env.refuseIds = new Set(); env.withdrawnIds = new Set(); env.bundleTarget = null; env.bundle = null; env.realBundle = false; env.door = null; };
 /** Count every drafter call a pass made, answering with one valid edit. */
 const counting = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: VALID_ATOMIC_EDIT }; }, calls: () => n }; };
 const run = (complete: CompleteFn) => produceProposalsForTenant("fixture-tenant", { complete, now: NOW, bypassCache: true });
@@ -165,6 +165,16 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect([one.outcome, one.persisted, one.reused, first.calls()]).toEqual(["proposals_persisted", 2, 0, 2]); const second = counting(); env.saved = []; const again = await run(second.complete);
     expect([again.outcome, again.persisted, again.reused, second.calls()]).toEqual(["proposals_persisted", 0, 2, 0]); // zero drafts, zero writes
     expect(env.saved).toEqual([]); expect(again.proposals.map((p) => p.id)).toEqual(one.proposals.map((p) => p.id)); });
+  /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
+  it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => {
+    reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
+    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), before.paid.receipts.filter((r) => r.outcome === "not_reached").every((r) => r.why === undefined)]).toEqual([true, true, true]); // produced and never-reached work carries no refusal text
+    reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
+    const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
+    expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
+    reset(SEEN()); const seed = await run(counting().complete); // AND WORK ALREADY TAKEN BACK under this evidence says THAT instead, so the two are never confused
+    reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id));
+    expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
   it("writes a new generation the moment the material content changes, and ignores a moved clock", () => {
     const p = baseProposal(); expect(proposalFingerprint({ ...p, createdAt: "2026-07-27T09:00:00.000Z" })).toBe(proposalFingerprint(p)); // a new timestamp is not new thinking
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },
@@ -181,8 +191,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       falsifier: "If the page already answers the search in its first lines, this is not it.", explanation: "The page takes too long to answer the search." };
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle",
       pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide", diagnosisCause: "weak_opening", causeFinding: own }) };
-    const res = await run(counting().complete); const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!;
-    expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]); });
+    const res = await run(counting().complete); const bundled = res.proposals.find((p) => p.id.endsWith("::bundle"))!; expect([bundled.diagnosisCause, bundled.causeFinding!.cause]).toEqual(["weak_opening", "weak_opening"]); });
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
@@ -270,8 +279,7 @@ describe("a new page needs a positive yes, never just the absence of a no", () =
     const world = snap([GAP], READY(), DEMAND);
     const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
     expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
-    const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] };
-    expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
+    const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
   });
 });
 
@@ -327,8 +335,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after; for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
     // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so it keeps the caveat and the page is held for review.
-    const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after;
-    expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
+    const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after; expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
     expect(page.limitations).toContain("Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out.");
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis! }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready
@@ -447,8 +454,7 @@ describe("a page earns the deep read through the door its own evidence opens", (
   it("never opens a second deep door on AI evidence: the comparison's own door holds, and the staged case path owns AEO (2026-08-19)", async () => {
     // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
     const noGaps = (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" });
-    const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps);
-    expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
+    const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps); expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]);
     const deep = res.proposals.find((p) => p.bundle)!;
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true); // still never a reworded title
   });
@@ -456,18 +462,15 @@ describe("a page earns the deep read through the door its own evidence opens", (
   it("carries a refusal onto the candidate line, and takes back the stored change whose evidence stopped resolving", async () => {
     const owed = "I could write 1 of the 3 sections this rebuild needs and 2 are still owed, so I am not handing you half a page.";
     reset(doorWorld()); env.bundle = { status: "none", reason: owed };
-    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) });
-    expect(res.candidates.some((c) => c.reason.includes(owed))).toBe(true);
+    const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) }); expect(res.candidates.some((c) => c.reason.includes(owed))).toBe(true);
     const kept = (await doorRun(doorWorld({ aiObservations: [ASKED] }), (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" }))).proposals.find((p) => p.bundle)!;
     env.store.set(kept.id, { ...kept, causeFinding: { ...kept.causeFinding!, evidenceKeys: [...kept.causeFinding!.evidenceKeys, "demand-competing"] } });
     env.realBundle = false; env.bundle = { status: "none", reason: owed }; env.saved = []; env.withdrawn = [];
-    const again = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) });
-    expect([env.withdrawn, again.proposals.some((p) => p.id === kept.id)]).toEqual([[kept.id], false]); });
+    const again = await produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: pageSeam(BRIEF) }); expect([env.withdrawn, again.proposals.some((p) => p.id === kept.id)]).toEqual([[kept.id], false]); });
   it("never rewords one of two pages fighting over one search: it settles the split or it refuses", async () => {
     const split = ownedPage(SPLIT_URL, `${HAFT} table`, { impressions: 900, clicks: 30 }, [{ query: HAFT, impressions: 900, clicks: 30, position: 9 }]);
     const res = await doorRun(doorWorld({}, [WHOLE, split], [{ query: HAFT, note: "two of your own pages", competingUrls: [GAP_URL, SPLIT_URL] }]));
-    const deep = res.proposals.find((p) => p.bundle);
-    expect(res.proposals.every((p) => p.bundle?.components.some((c) => c.kind === "title") !== true)).toBe(true);
+    const deep = res.proposals.find((p) => p.bundle); expect(res.proposals.every((p) => p.bundle?.components.some((c) => c.kind === "title") !== true)).toBe(true);
     if (deep) expect(deep.bundle!.components.map((c) => c.kind)).toEqual(["consolidation"]); });
 }); // ── do I already have the right page for what I investigated? ────────────────
 const FOOD = "fixture-outdoors.example/nowruz-food"; const cands = (s: EvidenceSnapshot) => ownedCandidatesFor(s, buildTopicInvestigations(s)[0]!);
@@ -554,8 +557,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(c.cause.notConsidered.find((n) => n.cause === "cannibalization")!.missing).toContain("that exact search");
     expect(c.cause.competingExplanations.map((x) => x.cause)).not.toContain("cannibalization"); });
   it("stops recommending a page whose last change is still being measured, and admits when nobody told it", () => {
-    const measuring = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/iranian-actors-actresses"] })[0]!;
-    expect([measuring.action, measuring.cause.cause, measuring.cause.action]).toEqual(["watch", "measuring_change", null]);
+    const measuring = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/iranian-actors-actresses"] })[0]!; expect([measuring.action, measuring.cause.cause, measuring.cause.action]).toEqual(["watch", "measuring_change", null]);
     expect(measuring.cause.explanation).toContain("still being measured, so nothing is stacked on top of it");
     const quiet = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/somewhere-else"] })[0]!; // told, and this page is not one of them
     expect([quiet.action, quiet.cause.cause]).toEqual(["act_existing_page", "ctr_snippet"]);

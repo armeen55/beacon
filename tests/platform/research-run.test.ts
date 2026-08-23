@@ -918,8 +918,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     await run({ ...healthySteps(order),
       replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
-    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery");
-    expect(replenishAt).toBeGreaterThanOrEqual(0);
+    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0);
     expect(firstBuy).toBeGreaterThan(replenishAt);
     expect(order.filter((x) => x === "replenish")).toHaveLength(1);
   });
@@ -950,12 +949,12 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   });
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
   it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
-    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string }[], outcome: "proposals_persisted", throws: false }; vi.resetModules();
+    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string; why?: string }[], outcome: "proposals_persisted", throws: false }; vi.resetModules();
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
     vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => (M.ready < 0 ? Promise.reject(new Error("queue unreadable")) : { ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; skipKeys?: readonly string[] }) => { if (M.throws) throw new Error("the provider fell over");
         const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)).slice(0, o.maxDrafts ?? 0);
-        const receipts = funded.map((key) => ({ key, funded: true, providerAttempted: true, outcome: (M.out.find((r) => r.key === key)?.outcome ?? "not_reached") as never }));
+        const receipts = funded.map((key) => { const hit = M.out.find((r) => r.key === key); return { key, funded: true, providerAttempted: true, outcome: (hit?.outcome ?? "not_reached") as never, ...(hit?.why ? { why: hit.why } : {}) }; });
         M.ready += receipts.filter((r) => r.outcome === "produced").length;
         return { persisted: 0, held: [], outcome: M.outcome, paid: { declared: M.declared, funded, attemptUnitsSpent: funded.length * 3, receipts } }; } }));
     try {
@@ -967,6 +966,11 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.outcome = "proposals_persisted"; M.throws = true; expect(await drive()).toEqual([0, "retryable_blocked", 0]); M.throws = false;
       M.out = M.declared.map((key) => ({ key, outcome: "deterministic_refusal" })); expect(await drive()).toEqual([0, "candidates_exhausted", 5]); // 4. settled receipts are the only thing that writes a page off, and only a fully settled manifest exhausts
       M.declared = ["/f"]; M.out = [{ key: "/f", outcome: "produced" }]; expect(await drive()).toEqual([1, "made_progress", 1]); // 5. credit returning later the SAME DAY finishes the page that was blocked, on a manifest that moved on
+      // 6. THE REFUSAL'S OWN WORDS REACH THE DAY'S MEMORY, and a reading of the winning pages is banked EVIDENCE, never a change anybody can act on.
+      M.ready = 0; M.declared = ["/g", "pattern:x"]; mem = { fingerprint: null, attempted: [] };
+      M.out = [{ key: "/g", outcome: "deterministic_refusal", why: "the closing line tells the reader to read the page" }, { key: "pattern:x", outcome: "evidence_banked" }];
+      const last = await live.replenishReady(T, new Date(NOW), mem);
+      expect([last!.outcomes!.readySaved, last!.outcomes!.evidenceBanked, last!.outcomes!.refused, last!.outcomes!.stuck.join(" ").includes("the closing line tells the reader to read the page")]).toEqual([0, 1, 1, true]);
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
   });
   it("stamps the day only once the step PROVED the stock at target", async () => {

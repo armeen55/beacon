@@ -50,7 +50,8 @@ export type ProduceProposalsResult = {
   paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number;
     receipts: readonly { key: string; funded: boolean; providerAttempted: boolean;
       /** `produced` = finished work exists for this key. `deterministic_refusal` = one of Beacon's OWN gates read the work against today's evidence and said no. `retryable_blocked` = nobody could answer for it (credit, cap, timeout, provider, unreadable) or the drafter's own answer was unusable. `not_reached` = funded and never got to. ONLY the first two may ever write a key off. */
-      outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** The rule that refused it, in its own words. */ why?: string }[] };
+      /** `evidence_banked` is work that SUCCEEDED and is not a Change: a reading of the winning pages informs the next decision and can never be counted, shown or reported as something the operator can act on. */
+      outcome: "produced" | "evidence_banked" | "deterministic_refusal" | "retryable_blocked" | "not_reached"; /** What settled it, in its own words. */ why?: string }[] };
 };
 /** Bounded drafting: the strongest few, never a queue. */ export const DEFAULT_MAX_DRAFTS = 5;
 const MAX_INVENTORY = 200; const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure
@@ -195,15 +196,17 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS });
   const budget = DRAFT_BUDGET.plan({ jobs, candidates: maxDrafts, calls: DRAFT_BUDGET.MAX_PAID_CALLS, breakerOpen, ...(opts.skipKeys ? { skip: opts.skipKeys } : {}) });
   /** WHAT BECAME OF EACH FUNDED JOB, recorded where it happens and never inferred from a counter. The strongest answer for a key wins: a page whose bundle failed and whose one-field fallback landed HAS finished work. Anything nobody filed reads `not_reached`: funded, never got to, never written off. `gateWords` is the rule that refused each page, in its own words, so the receipt says WHICH one rather than only that something did. */
-  const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: "produced" | "deterministic_refusal" | "retryable_blocked" | "not_reached" }>(), RANK = { produced: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
-  const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome }); };
+  const gateWords = new Map<string, string>(), filed = new Map<string, { providerAttempted: boolean; outcome: keyof typeof RANK; why?: string }>(),
+    RANK = { produced: 4, evidence_banked: 3, deterministic_refusal: 2, retryable_blocked: 1, not_reached: 0 } as const;
+  // The whole entry is REPLACED, never merged: a stronger answer must not inherit the words of the weaker one it overtook, which is how a produced page ends up carrying a refusal it never suffered.
+  const file = (key: string, outcome: keyof typeof RANK, providerAttempted = true, why?: string): void => { const at = filed.get(key); if (!at || RANK[outcome] > RANK[at.outcome]) filed.set(key, { providerAttempted: providerAttempted || (at?.providerAttempted ?? false), outcome, ...(why ? { why } : {}) }); };
   const outOfTime = (): boolean => opts.stopBy != null && Date.now() >= opts.stopBy; // checked at every paid door: work running is never abandoned, work not begun is not funded and reads `not_reached`, settling nothing
-  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => ({ key: f.key, funded: true, providerAttempted: filed.get(f.key)?.providerAttempted ?? false, outcome: filed.get(f.key)?.outcome ?? "not_reached" as const })) });
+  const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls, receipts: budget.funded.map((f) => { const r = filed.get(f.key); return { key: f.key, funded: true, providerAttempted: r?.providerAttempted ?? false, outcome: r?.outcome ?? "not_reached" as const, ...(r?.why ? { why: r.why.slice(0, 200) } : {}) }; }) });
   log.info("[produce-proposals] the paid plan for this pass, decided before it spent anything", { tenantId, declared: jobs.length,
     funded: budget.funded.map((f) => `${f.key} @${f.calls}`).slice(0, 8), refused: budget.declined.slice(0, 4).map((d) => `${d.key}: ${d.reason}`) });
   // THE FUNDED READING RUNS FIRST, and everything derived from the verdict is derived again after it. A key the plan never saw (a verdict this reading only just changed) simply goes unfunded and is picked up next pass, when the stored pattern is already on the verdict the plan is built from.
   if (patternKey) { const slice = outOfTime() ? null : budget.draw(patternKey, DRAFT_BUDGET.DELIVERABLE_CALLS);
-    if (slice) { const was = slice.left; await readPattern(slice); file(patternKey, coverage?.decision.pattern ? "produced" : "retryable_blocked", slice.left < was); candidates = compile(); acted = candidates.filter((c) => c.action === "act_existing_page"); earned = candidatesToEvidenceInputs(snapshot, acted); inputs = earned.slice(0, bound);
+    if (slice) { const was = slice.left; await readPattern(slice); file(patternKey, coverage?.decision.pattern ? "evidence_banked" : "retryable_blocked", slice.left < was, coverage?.decision.pattern ? "a reading of the pages that win this subject: evidence for the next decision, not a change anybody can make" : "the reading of the winning pages did not come back"); candidates = compile(); acted = candidates.filter((c) => c.action === "act_existing_page"); earned = candidatesToEvidenceInputs(snapshot, acted); inputs = earned.slice(0, bound);
       cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")])); deep = selectDeepCandidates({ candidates, coverage, limit: bound }); } }
   // A SEARCH NO PAGE OF THIS ACCOUNT IS FOR IS BANKED, NOT LOGGED: the coverage walk owns what happens next, on the NEXT pass, exactly as before.
   if (persist && extra.needsOwnPage.length > 0) await recordCoverageNeeds(tenantId, extra.needsOwnPage, opts.now ?? new Date()).catch(() => undefined);
@@ -310,12 +313,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // ONLY WHAT LANDED IS REMEMBERED. A row the store refused or could not take is not on file, and holding it in the pass's own map made every later reader believe it was: the reuse check, the ranking write-back and the receipt below all read this map (Codex, 2026-08-22).
     if (result === "saved" || result === "unchanged") existing.set(p.id, p);
     return result; };
-  /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is
-   *  not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save
-   *  landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
+  /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
   const persistAndFile = async (row: ChangeProposal, key: string): Promise<void> => { const r = await persistIfChanged(row); // a store that REFUSED the row settled it; one that FAILED or HELD it settled nothing
-    if (r === "refused") gateWords.set(key, "the store refused this row: it does not pass the bar a change must clear to be offered");
-    file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked"); };
+    file(key, r === "saved" || r === "unchanged" || r === "not_persisted" ? "produced" : r === "refused" ? "deterministic_refusal" : "retryable_blocked", true,
+      r === "refused" ? "the store refused this row: it does not pass the bar a change must clear to be offered" : r === "failed" ? "the store could not save this row" : undefined); };
   /** What the card builders in decision/authorization need to name a page and stamp a row. */
   const wiring = () => ({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages });
   /** THE SPLITS THIS PASS ACTUALLY SETTLES, one card per group, strongest first. Computed BEFORE the boundary runs, because a page may only be refused a card for a split that some card here settles. */
@@ -461,7 +462,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const covered = bundled.status === "bundled" ? (bundled.proposal.pageUrl ?? "").trim().toLowerCase() : "";
     const path = bundled.status === "bundled" ? (bundled.proposal.pagePath ?? "").trim().toLowerCase() : "";
     // A BUNDLE THAT DID NOT LAND WRITES NOTHING OFF: its refusals are not typed apart yet, so the safe reading is that nobody could answer for that page today, and it is offered again rather than declared impossible.
-    if (bundled.status !== "bundled") file(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), "retryable_blocked");
+    if (bundled.status !== "bundled") file(DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl }), "retryable_blocked", true, bundled.reason);
     if (bundled.status !== "bundled" || (!selectedKeys.has(covered) && !selectedKeys.has(path))) {
       log.info("[produce-proposals] no bundle this pass", { tenantId, page: d.pageUrl, door: d.door,
         reason: bundled.status === "bundled" ? "page no door selected" : bundled.reason });
@@ -483,7 +484,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const settled = existing.get(proposalId(input)); // A refresh re-pays nothing, and SETTLED WORK IS NOT REDRAFTED.
     if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; } // An IMPLEMENTED row is a change under measurement, so the fresh idea for that page is HELD, not dropped.
     if (withdrawn.has(proposalId(input))) { const k = DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }); // work already taken back under this evidence is SETTLED, not blocked
-      gateWords.set(k, "this work was already taken back under this evidence, so it is not offered again"); file(k, "deterministic_refusal", false); continue; }
+      file(k, "deterministic_refusal", false, "this work was already taken back under this evidence, so it is not offered again"); continue; }
     const held = currentById(proposalId(input))
       ?? (input.opportunity.kind === "existing_edit"
         ? [...heldDeep.values()].find((b) => b.pagePath === input.page.path) ?? null : null);
@@ -501,7 +502,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     // WHOSE FAILURE IT WAS, TYPED. `not_diagnosed` is Beacon's own evidence gate reading today's evidence and refusing, and a withdrawn draft is a safety gate refusing finished words: both are decided HERE, against what is on file, so they are terminal for this evidence. Everything else (the cap, an empty balance, a timeout, a provider that would not answer, an answer that would not validate) is somebody else being unable to answer, and it writes nothing off.
     if (outcome.status !== "ready") {
       const why = outcome.status === "no_draft" ? outcome.drafterStatus : "withdrawn";
-      file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), why === "withdrawn" || why === "not_diagnosed" ? "deterministic_refusal" : "retryable_blocked", why !== "budget_spent" && why !== "off");
+      file(DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }), why === "withdrawn" || why === "not_diagnosed" ? "deterministic_refusal" : "retryable_blocked", why !== "budget_spent" && why !== "off", outcome.status === "no_draft" ? outcome.reason : "a safety gate rejected this draft, so it was never offered");
       noDraft += 1;
       // A REFUSED DRAFT IS FILED, NOT FORGOTTEN: history is what stops the next pass paying to fail twice.
       if (outcome.status === "withdrawn" && persist) await withdrawChangeProposal(stamp(outcome.proposal), "refused: a safety gate rejected this draft, so it was never offered");
@@ -519,9 +520,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's own cards were priced and ranked on the ONE manifest above with everything else, so this is now only the order it WALKS them in: an unfunded card is refused by the plan, never by arriving late. IT ORDERS, IT DOES NOT STAMP. The ranker returns rows carrying a receipt, and letting that provisional one ride to the store made every pass write each card twice: once with the score as it stood before the pass finished, then again with the real one. The order is taken; the cards themselves go on untouched, and rankAndStamp below is the only thing that ever writes an order down.
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
   const allowed = rankProposals(eligible.map(recovered).map(sized), { ...measuring, familyHistory }).map((p) => byId.get(p.id) ?? p);
-  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, providerFailed: new Set<string>(), refusals: gateWords, note: (k, o, why) => { if (why) gateWords.set(k, why); file(k, o); }, ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
-  // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again.
-  // A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
+  const drafted = await applyDraftedCopy(allowed,{ tenantId, snapshot, providerFailed: new Set<string>(), refusals: gateWords, note: (k, o, why) => file(k, o, true, why), ...(opts.stopBy != null ? { stopBy: opts.stopBy } : {}), now: opts.now ?? new Date(), complete: opts.complete, bypassCache: opts.bypassCache, bannedTerms, budget }).catch(() => allowed); // the account's own vocabulary AND the pass's ONE paid plan reach the editor
+  // THE EDITOR REPORTS THROUGH ITS OWN CARDS: one that came back with finished words produced; one that did not was refused by whoever could not answer, and is offered again. A CARD THE PLAN NEVER FUNDED WAS NEVER TRIED: it reads `not_reached`, not `blocked`. Filing every unfinished editor card as blocked said the pass had attempted work it had not even paid for, which is the kind of receipt this repair exists to stop telling.
   for (const raw of drafted) { const p = { ...raw, ...(basis ? { basis } : {}) }, key = DRAFT_BUDGET.keyOf(p); proposals.push(p);
     if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   // THE ONE READ A DEEP PASS SAID IT NEEDED, ONTO THE CARD THAT ALREADY SPEAKS FOR THAT PAGE, because a card for a page whose work is not written yet is minted BEFORE that read runs. Only a research card, never a change with copy on it. A REFUSAL IS NOT AN INSTRUCTION, though: numbered under "Read this twice, then:" it read as the thing to go and do, which is the one thing it says nobody can do yet, so it lands as the "not yet" line under the card. A REFUSAL THAT RULES OUT AN ACTION IS THE MOST USEFUL THING ON THE CARD, and it is shown: the ownership card names which page the figures keep and never what settling it takes, so the producer's structural "no merge here, and here are the sections that rule it out" is the answer rather than a contradiction (2026-08-14, when suppressing it hid the truth and left the falsehood standing).

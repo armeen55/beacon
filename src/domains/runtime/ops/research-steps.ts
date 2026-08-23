@@ -103,8 +103,8 @@ export type ResearchCycleSteps = {
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
-    /** WHAT BECAME OF THE FUNDED WORK, as a tally plus the first few keys that did not settle. Stored on the run so a cycle that funded five and settled one can be READ afterwards instead of guessed at. */
-    outcomes?: { produced: number; refused: number; blocked: number; unreached: number; stuck: string[] } } | null>;
+    /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change (a reading of the winning pages), which must never be presented or counted as one. */
+    outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] } } | null>;
 };
 /** How many deliverables ONE drive may finish toward the target. Raised from two to the target itself (operator,
  *  2026-08-22, "no guardrails, unlimited money"): at two a drive could never reach five however much credit there
@@ -194,7 +194,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
     const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
-      outcomes?: { produced: number; refused: number; blocked: number; unreached: number; stuck: string[] }) =>
+      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(outcomes ? { outcomes } : {}) });
     const deficit = Math.max(0, READY_STOCK_TARGET - before);
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all.
@@ -222,11 +222,12 @@ export const defaultSteps: ResearchCycleSteps = {
     if (after == null) return mark("retryable_blocked", before, persisted, fingerprint, fresh);
     if (after >= READY_STOCK_TARGET) return mark("target_reached", after, persisted, fingerprint, fresh);
     // ONLY A JOB'S OWN RECEIPT MAY WRITE ITS PAGE OFF, and only the two answers that actually settle it: finished work exists, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a page never reached all leave it owed. Reading a single "calls were charged" number as "every funded page was attempted" is what let one out-of-quota call write off four pages nobody ever asked about (Codex, 2026-08-22).
-    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "deterministic_refusal").map((r) => r.key);
+    // A KEY IS SETTLED WHEN THERE IS NOTHING LEFT TO DO FOR IT UNDER THIS EVIDENCE: a change was saved, a reading was banked, or one of Beacon's own gates refused it.
+    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal").map((r) => r.key);
     const attempted = [...new Set([...fresh, ...settled])];
-    const tally = { produced: out.paid.receipts.filter((r) => r.outcome === "produced").length, refused: out.paid.receipts.filter((r) => r.outcome === "deterministic_refusal").length,
-      blocked: out.paid.receipts.filter((r) => r.outcome === "retryable_blocked").length, unreached: out.paid.receipts.filter((r) => r.outcome === "not_reached").length,
-      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `:${r.why}` : ""}`).slice(0, 5) };
+    const count = (o: string) => out.paid.receipts.filter((r) => r.outcome === o).length;
+    const tally = { readySaved: count("produced"), evidenceBanked: count("evidence_banked"), refused: count("deterministic_refusal"), blocked: count("retryable_blocked"), unreached: count("not_reached"),
+      stuck: out.paid.receipts.filter((r) => r.outcome !== "produced").map((r) => `${r.key}:${r.outcome}${r.why ? `: ${r.why}` : ""}`).slice(0, 5) };
     if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));

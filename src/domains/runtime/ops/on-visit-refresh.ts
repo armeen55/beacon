@@ -170,11 +170,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** How many observation WINDOWS one drive may chain. Seven cover 35 questions on four engines at twenty a pass; the rest is slack, and past it I pause rather than let a planner and an executor that disagree turn this into a hot loop on the database until the deadline kills it. MAX_CRAWL_ROUNDS is the same idea for the website: four fifteen-page batches is sixty pages a pass, and the rest is owed to the next pass. */
   const MAX_DAY_WINDOWS = 12, MAX_CRAWL_ROUNDS = 4; let windows = 0, crawlRounds = 0;
   const REPLENISH_MIN_MS = 45_000, REPLENISH_RESERVE_MS = 60_000, REPLENISH_BOX_MS = 180_000, LEASE_REPROVE_AFTER_MS = 1_000, STOP_STARTING_MS = 45_000;
-  // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin
-  // the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's
-  // TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second
-  // runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one
-  // that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
+  // MIN gates entry, RESERVE stays banked for the phases behind, BOX bounds the wait, and STOP_STARTING is the margin the pass keeps back so whatever it starts can finish and be filed. Ninety-five seconds (one reasoning call's TIMEOUT FLOOR) proved far too cautious: it is a ceiling, not a typical latency, and reserving it left a 150-second runway with fifty-five usable seconds, so nothing was ever started. Forty-five covers a normal call; a rare one that runs to its floor gets cut off, and a cut-off is safe now because the receipt says not_reached and settles nothing.
   let replenished = false; // one inventory check per DAY before the first exploratory phase
   while (phase !== "done") {
     if (nowFn().getTime() >= deadline) return pause(); // out of time before this phase; leave durable progress and resume next visit
@@ -226,23 +222,18 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
     if (FUNNEL_PHASES.has(phase) && !replenished && progress.replenish?.closed !== "candidates_exhausted") {
       replenished = true;
       const day = run.cycle_key.slice(-10), mem = progress.replenish?.day === day ? progress.replenish : null;
-      // A DRIVE TOPPING UP A SHORT STOCK BANKS NO RESERVE. The reserve exists for the phases BEHIND this one, and
-      // inventory comes before acquisition anyway: if the top-up uses the drive, those phases resume on the next
-      // dispatch, which is exactly what pausing is for. Measured live at 22:30Z: a 150-second runway less a
-      // 95-second margin left FIFTY-FIVE seconds to start any paid work, the free producers ate them, and every
-      // funded candidate came back not_reached. The stock got nothing while the drive was nominally spent on it.
+      // A DRIVE TOPPING UP A SHORT STOCK BANKS NO RESERVE. The reserve exists for the phases BEHIND this one, and inventory comes before acquisition anyway: if the top-up uses the drive, those phases resume on the next dispatch, which is exactly what pausing is for. Measured live at 22:30Z: a 150-second runway less a 95-second margin left FIFTY-FIVE seconds to start any paid work, the free producers ate them, and every funded candidate came back not_reached. The stock got nothing while the drive was nominally spent on it.
       const shortStock = (work?.due ?? []).includes("replenish_ready");
       const runway = deadline - nowFn().getTime() - (stockOnly || shortStock ? 0 : REPLENISH_RESERVE_MS);
-      let answered = false;
+      let answered = false, r: Awaited<ReturnType<ResearchCycleSteps["replenishReady"]>> = null;
       if (runway > REPLENISH_MIN_MS) {
         const began = nowFn().getTime();
-        // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive
-        // may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
+        // BOXED IS NOT THE SAME AS ANSWERED NOTHING. A step that ran and came back empty-handed HAD its chance, and the drive may go on; one the box cut off never got to look, and that is the case that must not turn into buying instead.
         const raced = await Promise.race([
           steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [] }, nowFn().getTime() + Math.min(runway, REPLENISH_BOX_MS) - STOP_STARTING_MS).then((v) => ({ v })).catch(() => ({ v: null })),
           new Promise<null>((res) => setTimeout(() => res(null), Math.min(runway, REPLENISH_BOX_MS))),
         ]);
-        const r = raced?.v ?? null;
+        r = raced?.v ?? null;
         answered = raced != null;
         log.info("[research-run] ready inventory checked before buying evidence", { tenantId, ...(r ?? { answered, boxed: !answered }) });
         // TWO ANSWERS MAY END THE DAY'S OBLIGATION AND NO OTHERS: the stock reached the target, or every candidate on the current manifest was spent on and not one produced. A quota failure, a provider failure, a boxed drive, an unreadable read and a bounded batch that simply came up empty all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
@@ -253,17 +244,13 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
         } else if (nowFn().getTime() - began >= LEASE_REPROVE_AFTER_MS && !await renewLease(tenantId, run.id, ownerToken, attemptCursor)) return "lost_lease";
       }
-      // AND A DRIVE THAT COULD NOT CHECK THE STOCK DOES NOT GO ON TO BUY EVIDENCE INSTEAD. "Inventory before acquisition" was
-      // true only when the check happened to fit: this phase sits behind four free ones, the whole drive is 210 seconds, and on
-      // the FIRST funded cycle (2026-08-22 21:30Z, live) those four ate the runway, the check was skipped, and the same drive
-      // then spent $0.12 buying keywords with the finished-change queue still on zero. That is the exact trade the rule exists to
-      // forbid. A drive that could not get an answer PAUSES here instead, leaving the phase and its cursor untouched; the next
-      // dispatch resumes AT this phase with a whole drive in hand, checks the stock first, and buys afterwards. It cannot stall:
-      // a resumed run does not re-walk the free phases, so the retry always has the runway the first attempt lacked.
-      // ...AND ONLY WHEN THE STOCK IS ACTUALLY SHORT. Due-work already said so in this drive's own plan, and it costs
-      // nothing to ask: a drive whose inventory is full has nothing to put first, so a short turn still does its phase.
-      if (!answered && (work?.due ?? []).includes("replenish_ready")) {
+      // AND A DRIVE THAT COULD NOT CHECK THE STOCK DOES NOT GO ON TO BUY EVIDENCE INSTEAD. "Inventory before acquisition" was true only when the check happened to fit: this phase sits behind four free ones, the whole drive is 210 seconds, and on the FIRST funded cycle (2026-08-22 21:30Z, live) those four ate the runway, the check was skipped, and the same drive then spent $0.12 buying keywords with the finished-change queue still on zero. That is the exact trade the rule exists to forbid. A drive that could not get an answer PAUSES here instead, leaving the phase and its cursor untouched; the next dispatch resumes AT this phase with a whole drive in hand, checks the stock first, and buys afterwards. It cannot stall: a resumed run does not re-walk the free phases, so the retry always has the runway the first attempt lacked. ...AND ONLY WHEN THE STOCK IS ACTUALLY SHORT. Due-work already said so in this drive's own plan, and it costs nothing to ask: a drive whose inventory is full has nothing to put first, so a short turn still does its phase.
+      if (!answered && shortStock) {
         log.warn("[research-run] no room to check the finished-change stock, so this drive buys no evidence and leaves the phase for the next one", { tenantId, phase, runway });
+        return pause(); }
+      // AND A STOCK STILL SHORT ENDS THE DISPATCH HERE, whatever else was owed. Beacon exists to keep five finished changes in front of the operator; while it cannot, buying broad keyword, results-page or AI-answer evidence outranks the work the customer is actually waiting on. Live on 22 August: 51 of 140 answers collected, about ninety cents spent, and Ready still zero. The receipts of the attempt are already persisted above, so nothing is lost: the next dispatch resumes this phase and tries the stock again before it buys anything.
+      if (shortStock && r != null && r.reason !== "target_reached") {
+        log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
       // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
       if (stockOnly) {
