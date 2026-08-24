@@ -381,7 +381,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if ((!held && row.status !== "ready") || row.researchOnly === true || row.bundle || row.recommendedChange.kind !== "existing_edit" || !row.recommendedChange.after.trim()) continue;
     const on = snapshot.ownedPages.find((x) => pageKeys(x.url).some((k) => pageKeys(row.pageUrl ?? row.pagePath).includes(k))); const kept = [...(on?.search?.topQueries ?? [])].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query);
     // READ AS THE PER-PAGE PATH READS, not strictly. A row carrying no claims and no support facts comes back "nothing wrong", so copy with no record of what it stands on is exempt from every rule there is, and the emptier a row is the safer it looks. Reading it strictly here HOLDS BACK EVERY DETERMINISTIC EDIT: a title or description written without a model carries no claims by construction, and the sweep would empty the queue of exactly the work that needs no evidence. The hole is real and it is not this sweep's to close.
-    const why2 = staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept);
+    // AND A ROW THAT ONLY SAYS ITS PAGE BACK IS NOT STOCK. Coverage no longer counts one, but the READY COUNT still did, so five restatements reported a full queue, the drive closed the day as already stocked, and the pass that would have replaced them was never funded. It moves to review carrying the reason and keeps every word, which is what the count should have meant all along.
+    const why2 = [...staleCopyReasons(row, NO_BODIES, bannedTerms, on?.content ?? null, false, kept),
+      ...(row.status === "ready" && thinCoverage(row) ? ["every claim it makes stands on this page's own words, so a reader already on the page learns nothing new"] : [])];
     // THE SAME RE-READ ANSWERS BOTH WAYS, and it has to, or the queue only ever ratchets open. A rule added today reaches finished rows exactly as a rule withdrawn today does: the row moves to review carrying the reason, and it keeps every word, because holding work back is not the same as destroying it and no sweep may destroy.
     const moved: ChangeProposal | null = why2.length > 0
       ? row.status === "ready" ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, ...why2.slice(0, 2)])] } : null
@@ -417,13 +419,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const bundledNow = new Set<string>(), readNow = new Set(snapshot.ownedPages.flatMap((o) => pageKeys(o.url))); // bundledNow: pages whose whole-page rewrite LANDED this pass, so their one-field edits are replaced rather than bought as well // A CHANGE MAY NOT OUTLIVE ITS OWN EXPLANATION, and only about a page this pass ACTUALLY READ.
   const provenNow = new Set([...acted.flatMap((c) => pageKeys(c.pageUrl)), ...selectedKeys]);
   for (const p of live) {
-    const key = (p.pagePath ?? "").trim().toLowerCase();
-    if (!p.bundle || p.kind !== "existing_edit" || !current(p) || retired.has(p.id) || !readNow.has(key) || provenNow.has(key)) continue;
+    const key = (p.pagePath ?? "").trim().toLowerCase(); if (!p.bundle || p.kind !== "existing_edit" || !current(p) || retired.has(p.id) || !readNow.has(key) || provenNow.has(key)) continue;
     await retire(p, "retired: this page was read again this pass and nothing on it earned a change");
   }
   if (decided) for (const p of live) { // AND THE PAGE NOBODY EARNED: only a pass that REACHED a verdict may retire one.
-    if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue;
-    if (earnedNewPage(decided.decision) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`))) continue;
+    if (p.kind !== "new_page" || !current(p) || retired.has(p.id)) continue; if (earnedNewPage(decided.decision) && [decided.investigation.key, ...decided.investigation.aliasKeys].some((k) => p.id.includes(`::${k}::`))) continue;
     await retire(p, "retired: this pass reached a verdict and no case still asks for this new page");
   }
 
