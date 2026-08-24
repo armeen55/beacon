@@ -42,6 +42,8 @@ export type OwnedPageBody = {
   /** complete = the whole page is in this read. partial = a ceiling cut it, mine or the crawler's.
    *  sample_only = the CRAWLER itself kept a sample, so what is not here is UNKNOWN, never absent. */
   completeness: "complete" | "partial" | "sample_only";
+  /** THE PAGE VERSION THESE WORDS ARE. A stored fact records the hash it was checked against, so a caller can prove a fact is about the page as it reads NOW instead of a version that has since changed. Without it nothing downstream can bind the two. */
+  contentHash: string | null;
   /** What I hold and what I do not, in plain words, with the numbers. */
   heldNote: string;
 };
@@ -67,13 +69,14 @@ const MAX_HEADINGS = 60, MAX_FAQS = 20, MAX_ENTITIES = 12, MAX_LINKS = 12;
 /** A page keeps a snapshot history: read a few rows per URL newest-first and keep the newest. */
 const MAX_ROWS = MAX_URLS * 8;
 /** Every column of the capture that carries page CONTENT, and nothing else. */
-const COLUMNS = "url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links";
+const COLUMNS = "url, title, h1, meta_description, fetched_at, word_count, h2_list, h3_list, faqs, body_text, body_paragraph_sample, card_texts, schema_entity_names, internal_links, content_hash";
 
 type Row = {
   url?: string | null; title?: string | null; h1?: string | null; meta_description?: string | null;
   fetched_at?: string | null; word_count?: unknown; body_text?: unknown;
   h2_list?: unknown; h3_list?: unknown; faqs?: unknown;
   body_paragraph_sample?: unknown; card_texts?: unknown; schema_entity_names?: unknown; internal_links?: unknown;
+  content_hash?: string | null;
 };
 
 /** The whole page as ordered passages, split on whitespace so no word is cut in half. The stored text is
@@ -190,6 +193,7 @@ function bodyOf(row: Row): OwnedPageBody {
     vocabulary: full, cardTexts, faqs, entityNames, internalLinks,
     fetchedAt: typeof row.fetched_at === "string" ? row.fetched_at : null,
     completeness: sampled ? "sample_only" : truncated ? "partial" : "complete",
+    contentHash: typeof row.content_hash === "string" ? row.content_hash : null,
     heldNote: ((sampled
       ? `On file for this page: ${passages.length} stored passages and ${headings.length} headings, about ${heldWords} words of the ${pageWords ?? "unknown number of"} words its last crawl counted. The crawl keeps a sample, so anything not shown here is unknown, not missing: re-crawl the page before calling anything absent.`
       : truncated ? "" : `On file for this page: all ${heldWords} words its last crawl captured.`) + range).trim(),

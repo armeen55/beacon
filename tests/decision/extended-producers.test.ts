@@ -36,7 +36,7 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
   body: { url: PAGE_URL, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "How much rain a roof collects", "Barrel sizes"],
     passages: ["Rain barrels catch what runs off a roof."], openingSample: "Rain barrels catch what runs off a roof.", vocabulary: "Rain barrels catch what runs off a roof.",
     cardTexts: [], faqs: [], entityNames: ["Roof area", "Storm"], internalLinks: LINKS, metaDescription: null,
-    fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", heldNote: "I hold a sample of this page, not the whole page." },
+    fetchedAt: "2026-07-30T00:00:00.000Z", completeness: "sample_only", contentHash: null, heldNote: "I hold a sample of this page, not the whole page." },
   pattern: PATTERN, receiptFacts: FACTS, readiness: { gsc: true, ownedCopy: true, serp: true, winners: 3, body: true }, draft: { section: async () => null,
     internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over, });
 /** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
@@ -121,7 +121,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
     const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
-    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, true]); });
+    // The refusal stands on the REAL defect. It no longer also names "Point": a lone capital opening a sentence is the
+    // sentence's capital, not a name, and looking it up refused ordinary copy on live pages ("Common", "Distinct").
+    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, false]); });
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
     const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] })); expect(nowhere.components).toHaveLength(0);
@@ -232,7 +234,12 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
-    const narrow = validate(many.components, RECEIPT_ONLY); expect([narrow.verdict, narrow.factViolations.join(" ").includes('names "Choosing"')]).toEqual(["rejected", true]);
+    // A KNOWN, DELIBERATE GAP, recorded rather than hidden: on receipt lines alone this rebuild is NOT refused. It used
+    // to be, but only because "Choosing" is the first word of a heading line and the proper-noun scanner read that
+    // capital as a name. That same accident refused ordinary copy in production, so the scanner now skips a lone
+    // sentence-opening capital. Whether a rebuild's headings are grounded in the winners' observed pattern is a real
+    // question, but it is a question about the REBUILD's evidence, not about proper nouns, and nothing asks it today.
+    const narrow = validate(many.components, RECEIPT_ONLY); expect([narrow.verdict, narrow.factViolations]).toEqual(["ready", []]);
     // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
     expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]); expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);

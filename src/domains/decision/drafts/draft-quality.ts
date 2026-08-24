@@ -530,7 +530,16 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
   // needs an authoritative source before it is paste-ready. A pure rephrase, the same facts as before, just reworded, asserts nothing new and is
   // never held up on this; that mirrors the COUNT_CLAIM check above, using the same narrow SPECIFIC_FACT signal rather than the broader classifier
   // evaluateDraftQuality uses (a title/meta field is a formatting edit, not a fresh answer-block claim, see the module docstring).
-  if (SPECIFIC_FACT.test(after) && !SPECIFIC_FACT.test(before) && !hasQualifyingAuthoritativeSource(after, input.sources, input.authoritativeSourceDomains)) {
+  // A FIELD SUMMARISES THE PAGE, SO ITS FACTS COME FROM THE PAGE. Comparing only against the line being replaced
+  // makes any figure a "new" fact the moment a generic description is improved: /iran-animals/asiatic-cheetah was
+  // held for "a new fact with no cited authoritative source" over "Iran's national animal is the Asiatic cheetah",
+  // a sentence its own stored page carries word for word. What is new is what the PAGE does not say. Only the matched fact is looked for, never every word of the
+  // line, because requiring the whole sentence verbatim refuses ordinary paraphrase around a fact the page does carry. A fact the page never states still needs one.
+  const carried = (t: string): boolean => { const body = (input.pageBodyText ?? "").replace(/\s+/g, " ").toLowerCase();
+    const facts = t.match(new RegExp(SPECIFIC_FACT.source, "gi")) ?? []; return body.length > 0 && facts.length > 0 && facts.every((f) => body.includes(f.replace(/\s+/g, " ").toLowerCase())); };
+  const metaField = input.field === "meta" || input.field === "title" || input.field === "h1";
+  if (SPECIFIC_FACT.test(after) && !SPECIFIC_FACT.test(before) && !(metaField && carried(after))
+    && !hasQualifyingAuthoritativeSource(after, input.sources, input.authoritativeSourceDomains)) {
     return {
       status: "missing_source",
       reasons: ["Introduces a new fact with no cited authoritative source yet. Add one before this is paste-ready."],

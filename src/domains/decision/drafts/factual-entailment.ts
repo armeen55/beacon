@@ -170,9 +170,12 @@ export function extractCapitalizedSpans(text: string): string[] {
   // the site does not print "No Achaemenid", though it prints Achaemenid on every line. A sentence-initial
   // span is checked from its SECOND word, so the real name is what has to be found and a genuinely invented
   // one still is. Nothing is loosened mid-sentence, where a capital does carry a claim.
-  const spans = [...scanned.matchAll(/\b[A-Z][a-zA-Z'-]*(?:\s+[A-Z][a-zA-Z'-]*){0,3}\b/g)].map((m) =>
-    (m.index === 0 || /[.!?]\s+$/.test(scanned.slice(Math.max(0, m.index - 2), m.index))) && m[0].includes(" ")
-      ? m[0].slice(m[0].indexOf(" ") + 1) : m[0]);
+  // THE SAME PRINCIPLE FINISHES THE JOB ON A LONE WORD: a single sentence-initial span has no capital except the sentence's own, so it is dropped, not looked up
+  // ("Common", "Distinct", "Key" each cost a deliverable). A list line and a bullet open a sentence too; mid-sentence a lone capital carries a claim and is still checked.
+  const initial = (i: number): boolean => i === 0 || /(?:[.!?:]["')\]]?\s+|\n\s*(?:[-*•]\s+)?)$/.test(scanned.slice(0, i));
+  // A NAME DOES NOT RUN ACROSS A LINE BREAK: `\s+` swallowed it, so "...to Iran\nThese are..." was reported as one invented entity, `Iran These`, and refused a page.
+  const spans = [...scanned.matchAll(/\b[A-Z][a-zA-Z'-]*(?:[ \t]+[A-Z][a-zA-Z'-]*){0,3}\b/g)].map((m) =>
+    !initial(m.index) ? m[0] : m[0].includes(" ") ? m[0].slice(m[0].indexOf(" ") + 1) : "");
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of spans) {
@@ -221,10 +224,13 @@ function haystackHasWord(word: string, haystackLower: string): boolean {
 export function entityGrounded(entity: string, haystackLower: string): boolean {
   const lower = entity.toLowerCase();
   if (haystackHasWord(lower, haystackLower)) return true;
+  // A HYPHEN IS A SPACE FOR FINDING A NAME: whitespace alone left "white-bellied" one word, so the two-word fallback never ran and a page printing "White Bellied Sea Eagle" could not ground its own bird.
   const words = lower
-    .split(/\s+/)
+    .split(/[\s‐-―-]+/)
     .filter((w) => w.length > 2 && !GENERIC_CAPITALIZED.has(w));
-  if (words.length < 2) return false;
+  // WHAT IS LEFT AFTER THE GENERIC WORDS IS THE NAME, AND IT IS ASKED ABOUT RATHER THAN REFUSED: requiring two survivors refused "Common Persian" on a page printing
+  // Persian on every line, the filter having left exactly the word that carries the claim. Nothing left at all means furniture ("Top Picks"), which is not a name.
+  if (words.length === 0) return true;
   return words.every((w) => haystackHasWord(w, haystackLower));
 }
 

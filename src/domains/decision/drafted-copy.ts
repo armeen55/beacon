@@ -24,7 +24,7 @@ const pathOf = (url: string): string => { try { return new URL(url.startsWith("h
 const words = (s: string): number => s.trim().split(/\s+/).filter(Boolean).length;
 
 /** `judge` is the semantic reader of a finished edit. ABSENT MEANS NOTHING IS ACCEPTED, so a pass with no judge wired writes no copy and buys nothing, and wiring one is a deliberate act rather than a default. */
-type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
+type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: Date; basis?: string | null; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn;
   /** The account's banned vocabulary, read once per pass by the caller so this file does no I/O of its own. */
   bannedTerms?: readonly string[];
   /** The pass's ONE shared budget. Absent = this file owns one of its own for this run. */
@@ -95,7 +95,9 @@ const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type
   && Object.keys(evidence).some((id) => !OWN_PAGE_ID.test(id))
   && claims.every((c) => c.supportedBy.length > 0 && c.supportedBy.every((id) => OWN_PAGE_ID.test(id)));
 /** THERE IS ONE DEFINITION OF AN AUTHORIZED FACT AND IT ALREADY EXISTED. What stood here was a second, looser one: checked + a source + today's rules version, which admits `likely`, `disputed`, `unsupported` and `page_correct` rows, a source nobody classified, and a fact checked against a version of the page that has since changed. `authorizedCorrections` is the real thing (confirmed confidence, a correction-authorizing verdict, a proposed replacement, an authoritative source KIND, and a record that the source was actually read) Reusing it means the writer and the correction bundle can never disagree about what is true. ONE PART IS NOT AVAILABLE HERE AND IS NOT PRETENDED: the version binding needs the page's stored content hash, and neither the snapshot's page content nor the stored body carries it, so the writer applies every other condition and the correction bundle remains the only place that also proves the fact was checked against the page as it reads now. */
-const authorized = (f: readonly FactCheck[]): FactCheck[] => authorizedCorrections(f);
+const authorized = (f: readonly FactCheck[], hash: string | null, basis: string | null): FactCheck[] =>
+  // FAIL CLOSED WITHOUT THE PAGE VERSION. A fact records the hash it was checked against, so without the page's current hash an authoritative fact about a version that has since changed reads as current. No hash, no `fact-*` evidence: the writer loses only a source it could not have trusted, and the correction bundle keeps its own hash-bound path.
+  hash == null ? [] : authorizedCorrections(f, { pageContentHash: hash, evidenceBasis: basis });
 const BODY_READ_BOUND = 7; // owned-context refuses a page-body read wider than this and returns NOTHING, so this list may never exceed it
 const PAGE_COPY_BUDGET = 12_000; // characters of the target page a body edit may read, in document order
 const FACTS_IN_PACKET = 8; // one ordering, shared by the packet's `fact-N` ids and the validator's source list
@@ -118,10 +120,11 @@ const EVALUATOR_SYSTEM = 'You are the FINAL EDITOR of one finished website edit,
   + '"placementCorrect" (does it belong exactly where it says it lands: answer false when the new heading pointlessly duplicates the page\'s existing title or H1), '
   + '"implementableNow" (could an operator paste this today with no further decisions), '
   + '"improvesPage" (THE HARDEST TEST AND THE ONE THIS EDITOR HAS MOST OFTEN GOT WRONG. Read the page\'s own words below, then name to yourself, in one concrete sentence, the specific fact, number, date, comparison, definition, named entity or answer this copy adds that the page does not already contain IN ANY FORM. If you cannot name one, the answer is FALSE. Smoother prose over the same ground is FALSE. Restating the page\'s own opening, list or headings is FALSE however well written. A real card that was wrongly passed: copy reading "Kerman rugs are Persian carpets known for intricate designs, exceptional wool quality, and craftsmanship" on a page whose first sentence already read "A Kerman rug is a distinguished Persian carpet known for its intricate designs, exceptional wool quality, and a rich tradition of craftsmanship" - that is FALSE. When it is TRUE, your notes must state the added information in plain words), '
-  + '"wouldHandToCustomer" (would you personally hand this to a customer).';
+  + '"wouldHandToCustomer" (would you personally hand this to a customer). '
+  + 'ONE EXCEPTION, AND IT DECIDES improvesPage AND wouldHandToCustomer TOGETHER: when the edit type is a title, an h1 or a meta description, SUMMARISING THE PAGE IS THE WHOLE JOB. Judge it as a searcher reading a result: does it say what this page answers, in the words someone would search, better than the line it replaces? A description that restates the page well is CORRECT and both answers are true. Never mark one down for adding no new information; only body copy owes that.';
 const evaluator = (tenantId: string, now: Date, meter?: Allowance): JudgeFn => async (d, p) => {
   const user = [`Page: ${p.targetUrl}`, `Its title: ${p.title ?? "(none)"}`, `Its heading: ${p.h1 ?? "(none)"}`, `The search or question behind this: ${p.trackedQuestion ?? "(none)"}`,
-    `Edit type: ${d.actionType}`, `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "", d.beforeText ? `It replaces: ${d.beforeText}` : "It replaces nothing.",
+    `Edit type: ${d.actionType}`, p.treatment !== "structural_synthesis" ? "" : 'THIS EDIT IS A STRUCTURAL SYNTHESIS: its whole job is to put an answer the page already supports into ONE place a reader and an assistant can lift, so decide "improvesPage" on FORM and not on new facts. TRUE when the page\'s own words scatter this answer across separate passages, sections or an FAQ and this copy finally assembles it in one block. FALSE when the page already presents the same answer in one place: an opening sentence or an existing list that already says what this copy says is a restatement however much better it reads.', `It lands at: ${d.placementAnchor}`, d.naturalHeading ? `Under the heading: ${d.naturalHeading}` : "", d.beforeText ? `It replaces: ${d.beforeText}` : "It replaces nothing.",
     `THE COPY: ${d.finalCopy}`, "Its claims and the evidence each one names:", ...d.claims.map((c) => `- "${c.text}" <- ${c.supportedBy.join(", ")}`),
     "The stored evidence, by id:", ...Object.entries(p.evidence).map(([id, t]) => `${id}: ${t.slice(0, 4000)}`),
     p.bodyText.length > BODY_TO_JUDGE ? `The page's own words (first ${BODY_TO_JUDGE} characters of ${p.bodyText.length}; anything past this you have NOT seen, so do not conclude the page lacks something on this alone): ${p.bodyText.slice(0, BODY_TO_JUDGE)}`
@@ -183,7 +186,9 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   const out: string[] = [], stored = storedPage(p), corpus = corpusOf(p);
   for (const [what, text] of [["copy", d.finalCopy], ["placement", d.placementAnchor], ["measurement target", d.measurementTarget]] as const) {
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
-  if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about"); const known = new Set(Object.keys(p.evidence)), unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
+  if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about"); // A SINGLETON ID WITH AN INDEX ON IT IS THE SAME ID: the writer cited `page-title-1` where the packet holds `page-title` and the whole of /funny-farsi-phrases was refused for it. Numbering a lone id is a slip, not a fabrication, so it resolves when stripping the index lands on an id the packet really has.
+  const known = new Set(Object.keys(p.evidence)), fits = (id: string): boolean => known.has(id) || known.has(id.replace(/-\d+$/, ""));
+  const unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !fits(id));
   // NAMING THE CONFUSION, NOT JUST THE SYMPTOM (Codex, 2026-08-23): live, a claim cited "owned_snapshot", a SOURCE KIND from the evidenceRefs vocabulary and never a grounding id, and "not on file" sent the retry hunting a missing fact instead of correcting a mix-up it could fix for free.
   if (unknown.length > 0) out.push(unknown.some((id) => SOURCE_KIND.has(id))
     ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
@@ -249,16 +254,18 @@ export function withoutCta(copy: string, type: EditorDeliverable["actionType"]):
 /** THE ONE ANSWER: a finished deliverable, or every reason it is not one. Deterministic first, so a judge is never paid to read copy the packet already refutes. */
 export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: JudgeFn | undefined): Promise<string[]> {
   const hard = deliverableFailures(d, p); if (hard.length > 0) return hard; if (!judge) return ["nothing read it for sense, so it is not finished"]; const v = await judge(d, p).catch(() => null); if (!v) return ["no reading of it came back, so nothing is accepted"];
+  // INFORMATION GAIN IS A QUESTION ABOUT BODY COPY, NOT A FIELD: summarising the page is what a title, an H1 and a description are FOR, and asking a description to add something the page lacks refuses it for doing its job.
+  const fieldEdit = d.actionType === "title" || d.actionType === "meta" || d.actionType === "h1";
   const failed = ([["pageFit", "it does not belong on this page"], ["claimsEntailed", "the evidence it names does not carry every claim it makes"],
     ["usefulAndNatural", "it is not useful or does not read naturally"], ["placementCorrect", "it lands in the wrong place"],
-    ["implementableNow", "an operator could not act on it as written"], ["improvesPage", "it repeats the search instead of improving the page"],
-    ["wouldHandToCustomer", "no serious editor would hand this to a customer"]] as const).filter(([k]) => v[k] !== true).map(([, why]) => why);
+    ["implementableNow", "an operator could not act on it as written"], ["improvesPage", fieldEdit ? "" : "it repeats the search instead of improving the page"],
+    ["wouldHandToCustomer", "no serious editor would hand this to a customer"]] as const).filter(([k, why]) => why !== "" && v[k] !== true).map(([, why]) => why);
   // THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK, not the checkbox labels (Codex, 2026-08-23): the notes name the single worst defect and were being thrown away, so the retry heard "not useful" and never WHY. The note rides first, so the corrective loop repeats the evaluator's exact objection to the writer.
   return failed.length > 0 && typeof v.notes === "string" && v.notes.trim() ? [`the evaluator's exact objection: ${v.notes.trim()}`, ...failed] : failed;
 }
 
 /** THE STORED FACTS THIS PAGE'S EDIT IS CHECKED AGAINST, each under an id the drafter is handed and the  deliverable must name back. Nothing here is fetched: it is the snapshot's own capture and this card's own evidence, so "the evidence supports this" is a lookup rather than a belief. */
-function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[], siblings: ReadonlyMap<string, OwnedPageBody> = new Map(), facts: readonly FactCheck[] = []): SourcePacket {
+function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[], siblings: ReadonlyMap<string, OwnedPageBody> = new Map(), facts: readonly FactCheck[] = [], basis: string | null = null): SourcePacket {
   const evidence: Record<string, string> = {}; if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
   (page.content?.outline ?? []).slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   // THE SIX PASSAGES MOST ABOUT THIS CARD'S QUESTION, in page order, never simply the first six the crawler stored: a claim can only cite words the packet carries, and the words that ground an answer about "persian rugs known for" live wherever the page talks about it, not necessarily in its opening.
@@ -267,10 +274,9 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
     score: topicTokens(t).filter((w) => qTokens.has(w)).length }));
   // A BODY EDIT GETS THE PAGE IN ORDER, NOT THE SIX PASSAGES THAT REPEAT THE QUESTION. Scoring by query overlap
   // hands over the passages that talk ABOUT the topic and drops the ones that CONTAIN the answers: on
-  // /funny-farsi-phrases it kept the intro and the FAQ and dropped "Chert o Pert Meaning: nonsense or gibberish",
-  // "Khar means donkey" and every other gloss, so the writer produced a list of phrases with no meanings and said
-  // "listed here as a slang phrase" instead. For copy that lands in the body the page is the evidence base, so it
-  // arrives whole in document order under a character budget; a field edit still gets the six most relevant.
+  // /funny-farsi-phrases it kept the intro and the FAQ and dropped "Khar means donkey" and every other gloss, so
+  // the writer produced a list of phrases with no meanings. For copy that lands in the body the page IS the
+  // evidence base, so it arrives whole in document order under a character budget; a field edit still gets six.
   const body_edit = card.recommendedChange.kind !== "existing_edit" || card.recommendedChange.field === "section" || card.recommendedChange.field === "answer_block";
   if (body_edit) { let room = PAGE_COPY_BUDGET, n = 0;
     for (const x of scored) { if (room <= 0) break; evidence[`page-copy-${++n}`] = x.t; room -= x.t.length; } }
@@ -290,7 +296,8 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   const unanswered = [...rows].filter((q) => owed(q.query)).sort((a, b) => b.impressions - a.impressions).slice(0, 8)
     .map((q) => `"${q.query}" (${q.impressions} searches in 90 days${q.position != null ? `, this page sits at ${q.position.toFixed(1)}` : ""})`);
   // THE FACT ENGINE, CONNECTED. 290 checked statements with a real URL, a real quotation and a confidence sat in page_source_facts while the writer was handed none of them; it was then refused for adding a fact with no source. Only a row that is CHECKED, whose source was actually read, under today's rules version, may authorize copy: the same filter the specialised producers already use.
-  authorized(facts).slice(0, 8).forEach((f, i) => { evidence[`fact-${i + 1}`] = `${f.proposed ?? f.current} — ${f.sources[0]!.url} says "${f.sources[0]!.says}" (${f.confidence})`; });
+  authorized(facts, body?.contentHash ?? null, basis).slice(0, FACTS_IN_PACKET).forEach((f, i) => {
+    evidence[`fact-${i + 1}`] = `${f.proposed ?? f.current} — ${f.sources.map((x) => `${x.url} says "${x.says}"`).join("; ")} (${f.confidence})`; });
   return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null, metaDescription: body?.metaDescription ?? page.content?.metaDescription ?? null,
     bodyText: [...(body?.passages ?? []), body?.vocabulary ?? ""].join(" ").replace(CHROME, " "),
     headings: [...(page.content?.outline ?? []), ...(body?.headings ?? [])], evidence, trackedQuestion: card.primaryQuery,
@@ -423,7 +430,7 @@ const kindFor = (c: ChangeProposal): DraftKind | null => {
 
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, opts: DraftedCopyOptions, kind: DraftKind, siblings: ReadonlyMap<string, OwnedPageBody>, checked: readonly FactCheck[]): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
-  const verifiedFacts = authorized(checked); const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? [], siblings, checked), outline = (page.content?.outline ?? []).slice(0, 8);
+  const verifiedFacts = authorized(checked, body?.contentHash ?? null, opts.basis ?? null); const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? [], siblings, checked, opts.basis ?? null), outline = (page.content?.outline ?? []).slice(0, 8);
   // THE REFUSAL IS FEEDBACK, NOT ONLY A LOG LINE. The deterministic contract's reasons are exact and repeatable, and a pass that never repeats them to the writer buys the same refusal every time; the last refusal's reasons are kept so ONE bounded second attempt can be told precisely what to fix.
   const lessons: string[] = [];
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
@@ -474,7 +481,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       "Every claim names the ids it stands on. A claim that names no id, or names an id that is not `page-*`, `fact-*` or `owned-page`, is not allowed.",
       `The heading must not repeat "${card.primaryQuery}" or the page's own H1 back word for word.`,
       "Placement is chosen by the system from the page's stored headings. Whatever you put in the anchor slot is discarded, so spend nothing on it.",
-      "Write it as a person would: complete sentences, no closing instruction to read or browse the page, and any non-English expression paired with its English meaning.",
+      "Write it as a person would: complete sentences, no closing instruction to read or browse the page, and any non-English expression paired with its English meaning. NEVER REFER TO THE PAGE FROM INSIDE THE COPY. A reader is already on it, so \"on this page\", \"this page highlights\", \"listed here\" and every phrase like them describe the container instead of answering, and they are the difference between an answer and a caption. Where you would write \"the species this page highlights\", write the species.",
     ] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line that earning searches carry (each must survive the rewrite), and the exact words the account bans.
@@ -504,12 +511,15 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       ? f.sources.filter((x) => AUTHORITATIVE_KIND.has(x.kind)).map((x) => ({ url: x.url, verified: true, claim: f.proposed ?? f.current, excerpt: x.says }))
       : []) });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
-  // THE PROMOTION IS THE VERDICT, NOT A HABIT (operator, 2026-08-17; reshaped Codex, 2026-08-23): the ONE evaluator reads every round's copy with the adversary's own standards, its objections are fed back, and the canon's deterministic house rules run last, free. Any hold is a blocking finding with its sentence on the card. Unaffordable or unreadable means NOT promoted, never promoted unread.
-  const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length;
-  if (deliverable.softFailures?.length) // A COMPLETE DRAFT THAT FAILED ONLY SOFT RULES IS REVIEW WORK, and the receipt says so: discarding it turned one imperfect word into zero output and sent the next pass to buy the identical draft again opts.note?.(DRAFT_BUDGET.keyOf(card), "review_saved", deliverable.softFailures.join("; ").slice(0, 300));
-  // THE CANON HOLDING A DRAFT IS A VERDICT ON THE COPY, and it was the last one that said nothing. `needs_review` is not `rejected`: the words were read against today's evidence and held, so the page is SETTLED for this evidence and the final reviewer is never asked about copy the canon already stopped. It used to fall through with no note at all, `applyDraftedCopy` saw a non-null deliverable and stayed quiet too, and the receipt ended as a reasonless `retryable_blocked`: /funny-farsi-phrases, live, 2026-08-23 01:00Z. The canon's own status and its own first sentence go on the receipt; no second vocabulary is invented for something it already names.
-  if (!ready) opts.note?.(DRAFT_BUDGET.keyOf(card), "deterministic_refusal",
-    `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
+  // EVERY WAY OUT OF THIS FUNCTION FILES ITS OWN RECEIPT, WITH BRACES. The `review_saved` call sat after a line comment on its own `if`, so the comment swallowed it: the branch took the NEXT statement, `deterministic_refusal` fired only when there WERE soft failures, and `review_saved` fired never. Complete copy held for taste read as a hard refusal; copy the canon held with no soft failures reported nothing. Third time compression has eaten code in this file, so the braces are not optional.
+  const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length, key = DRAFT_BUDGET.keyOf(card);
+  if (deliverable.softFailures?.length) {
+    // COMPLETE COPY THAT FAILED ONLY SOFT RULES IS REVIEW WORK, and the objection rides with it so the next pass corrects instead of re-buying the identical draft.
+    opts.note?.(key, "review_saved", deliverable.softFailures[0]);
+  } else if (!ready) {
+    // THE CANON HOLDING COMPLETE COPY IS A LOOK OWED, NOT A REFUSAL: `needs_review` is not `rejected`, so this is review work carrying the canon's own quality reason.
+    opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
+  }
   // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
   return { d: deliverable, ready };
 }
@@ -642,7 +652,7 @@ type HeldPage = { title: string | null; h1: string | null; metaDescription: stri
 /** WHY BANKED ATOMIC COPY MAY NOT BE PRESERVED, or empty. Banking skips the drafter AND every gate, so copy accepted under an older boundary was served on for ever while the boundary moved under it: identity alone decided, and identity says nothing about whether the words still stand. The packet is rebuilt from what the ROW ITSELF banked (its claims and the exact words behind each id) plus the page as this pass holds it, and every deterministic rule is asked again on the evidence the copy actually leans on. No provider, no fresh read, and NO RE-JUDGING: the prior reading of sense stands while the material identity does. A row that banked no copy or no provenance answers empty, because there is nothing here to re-read; whether such a row may be preserved at all is preferFinished's question. */
 function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null, preserve: readonly string[] = []): string[] {
   const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? []; if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return []; const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
-  const out: string[] = [], field = c.field as EditorDeliverable["actionType"]; const unknown = [...new Set(claims.flatMap((x) => [...x.supportedBy]))].filter((id) => !evidence[id]); if (unknown.length > 0) out.push(`the evidence its claims name is not banked beside them: ${unknown.slice(0, 3).join(", ")}`);
+  const out: string[] = [], field = c.field as EditorDeliverable["actionType"]; const unknown = [...new Set(claims.flatMap((x) => [...x.supportedBy]))].filter((id) => !evidence[id] && !evidence[id.replace(/-\d+$/, "")]); if (unknown.length > 0) out.push(`the evidence its claims name is not banked beside them: ${unknown.slice(0, 3).join(", ")}`);
   // THE BANKED ROW'S OWN DEMAND FACTS stand in for live search rows, so a re-read never refuses vocabulary the original packet legitimately granted (the demand-gated banned-term exception included).
   const bankedVocab = facts.filter((f) => f.id.startsWith("demand-")).map((f) => (/"([^"]+)"/.exec(f.fact)?.[1] ?? "")).filter(Boolean);
   const packet: SourcePacket = { targetUrl: p.pageUrl ?? p.pagePath ?? "", title: held?.title ?? null, h1: held?.h1 ?? null, metaDescription: held?.metaDescription ?? null,

@@ -76,6 +76,11 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
         .flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...x.body.headings.slice(0, 40)].join(" "))));
       const lost = topicTokens(done.before ?? "").filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
       if (lost.length > 0) { log.info("[differentiate] a piece would have made its page less distinct", { page: path, field, dropped: lost.slice(0, 3), after: done.after.slice(0, 90) }); continue; }
+      // AND IT CARRIES THE PAGE'S OWN SUBJECT, not merely whatever its old line said: the check above reads `before`, so a page whose line was ALREADY generic may be
+      // rewritten more generic still. The page headed "Islamic Republic of Iran Flag (1979-Current)" was handed "Iran Flag History: Meaning, Colors & Full Timeline" and went on competing with /iran-flags for the very search this card exists to settle.
+      const distinct = topicTokens(subject).filter((w) => !siblings.has(w)), carries = new Set(topicTokens(done.after));
+      if (distinct.length > 0 && !distinct.some((w) => carries.has(w))) {
+        log.info("[differentiate] a piece carries none of its page's own subject", { page: path, field, subject, after: done.after.slice(0, 90) }); continue; }
       const label = field === "title" ? "Page title" : field === "h1" ? "Page heading" : "Opening lines";
       components.push({
         kind: field === "title" ? "title" : field === "h1" ? "h1" : "opening_answer",

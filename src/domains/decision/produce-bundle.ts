@@ -29,7 +29,7 @@ type SerpEvidence = Research["serpEvidence"][number];
 type Keyword = Research["retainedKeywords"][number];
 
 const norm = (s: string): string => s.trim().toLowerCase(); const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-export type OwnedBody = { openingSample: string | null; fetchedAt: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
+export type OwnedBody = { openingSample: string | null; fetchedAt: string | null; contentHash?: string | null; // the page's OWN WORDS, whole, read by the caller through the targeted Evidence reader; absent means absent
   cardTexts?: string[]; entityNames?: string[]; internalLinks?: { href: string; anchorText: string }[]; metaDescription?: string | null;
   headings?: string[]; passages?: string[]; faqs?: { question: string; answer: string }[]; vocabulary?: string;
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
@@ -325,7 +325,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
     : { url, title: c?.title ?? null, h1: c?.h1 ?? null, metaDescription: b.metaDescription ?? c?.metaDescription ?? null,
       headings: b.headings ?? c?.outline ?? [], passages: b.passages ?? [], openingSample: b.openingSample, vocabulary: b.vocabulary ?? "", cardTexts: b.cardTexts ?? [],
       faqs: b.faqs ?? [], entityNames: b.entityNames ?? [], internalLinks: b.internalLinks ?? [], fetchedAt: b.fetchedAt,
-      completeness: b.completeness ?? "sample_only", heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page." };
+      completeness: b.completeness ?? "sample_only", contentHash: b.contentHash ?? null, heldNote: b.heldNote ?? "A sample of this page is on file, not the whole page." };
   const held = heldOf(page.url, content, body ?? undefined);
   const heldBodies = new Map(snapshot.ownedPages.flatMap((p) => {
     const one = heldOf(p.url, p.content, opts.bodyByUrl?.get(canonicalUrlKey(p.url)));
