@@ -493,8 +493,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       preferFinished(brief, { ...banked, claims: undefined }).researchOnly, preferFinished({ ...brief, evidence: { ...brief.evidence, hints: [] } }, banked).researchOnly,
       kept.supportFacts, preferFinished(brief, { ...banked, supportFacts: undefined }).researchOnly])
       .toEqual([[], banked.recommendedChange, false, 3, banked.limitations, 9, banked.claims, false, "Achae", "A newer", true, true, false, banked.supportFacts, true]);
-    // AND A SECOND GENERATION OF THE SAME WORK DOES NOT REPLACE THE ONE THAT ALREADY PASSED. `fresher` above is the rule for work that is still open; once a row is READY under a settled identity the model
-    // has had its say. Five inspected deliverables persisted as three because later passes re-drafted them and saved whatever came back that time, once storing "Goodbye: goodbye." over a finished answer.
+    // AND A SECOND GENERATION OF THE SAME WORK DOES NOT REPLACE THE ONE THAT ALREADY PASSED. `fresher` above is the rule for work still open; once a row is READY under a settled identity the model has had its say. Five inspected deliverables persisted as three because later passes re-drafted them and saved whatever came back, once storing "Goodbye: goodbye." over a finished answer.
     const same = { workKey: "wk-1", copyStamp: "the page as it read when this line was written", status: "ready" as const };
     const settled = prop({ ...banked, ...same }), worse = prop({ ...banked, ...same, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Goodbye: goodbye. Please: please." } });
     // Same work, same page, a finished predecessor: the banked words stand. A page that has moved under it is different work, so the new copy lands.
@@ -670,9 +669,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(out[0]!.operatorSteps)).toContain("Replace that passage with the copy above, exactly as written");
       expect(JSON.stringify(out[0])).not.toContain("A new section");
       expect(out[0]!.treatment).toBe("rewrite_existing_section"); // the passage WAS found, so this really is a replacement and stays one
-      // AND WHEN NO PASSAGE CAN BE FOUND, THE CARD SAYS SO IN THE TREATMENT AND NOT ONLY IN THE PLACEMENT. Same page, same body, a question sharing nothing with any stored passage: the copy still lands,
-      // but as an ADDITION. It used to keep `rewrite_existing_section` while rendering "A new section headed ...", which tells the operator to start a new section straight after the very section it was
-      // written to replace, and that is a restructure shipping as a duplicate. An addition that arrived this way is judged as one and owes information the page does not already carry.
+      // AND WHEN NO PASSAGE CAN BE FOUND, THE CARD SAYS SO IN THE TREATMENT AND NOT ONLY IN THE PLACEMENT. Same page, same body, a question sharing nothing with any stored passage: the copy still lands, but as an ADDITION. It used to keep `rewrite_existing_section` while rendering "A new section headed ...", telling the operator to start a new section straight after the very section it was written to replace, which is a restructure shipping as a duplicate.
       const away = { ...card, primaryQuery: "wholesale freight logistics", evidence: { query: "wholesale freight logistics", hints: [P1], evidenceRefCount: 1 } };
       const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },),

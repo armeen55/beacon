@@ -264,11 +264,9 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
-    // ON RECEIPT LINES ALONE A REBUILD IS REFUSED, AND FOR THE RIGHT REASON. This used to be caught only because
-    // "Choosing" is the first word of a heading line and the proper-noun scanner read that capital as a name, which
-    // is the same accident that refused ordinary copy on live pages. Now every section DECLARES the winner reading
-    // that authorized it, so a receipt that never read those pages cannot back the sections it is being asked to
-    // ship, and the check every bundle already runs says so. Nothing here turns on how a word is spelled.
+    // ON RECEIPT LINES ALONE A REBUILD IS REFUSED, AND FOR THE RIGHT REASON. This used to be caught only because "Choosing" is the first word of a heading line and the proper-noun scanner read that capital
+    // as a name, the same accident that refused ordinary copy on live pages. Now every section DECLARES the winner reading that authorized it, so a receipt that never read those pages cannot back the
+    // sections it is asked to ship, and the check every bundle already runs says so. Nothing here turns on how a word is spelled.
     const bare = { ...bundleOf(many.components), receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null } };
     const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });
     expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence I cannot show you, so I am not putting it in front of you."), narrow.factViolations]).toEqual(["rejected", true, []]);

@@ -87,7 +87,7 @@ function leversOf(p: ChangeProposal): BundleComponentKind[] {
 function treatsCause(p: ChangeProposal, cause: Cause | null | undefined): boolean {
   const levers = cause ? CAUSE_LEVERS[cause] : undefined;
   if (!levers || levers.size === 0) return true;
-  if (cause === "cannibalization" && p.changeFamily === OWNERSHIP_FAMILY) return true;
+  if (cause === "cannibalization" && (p.changeFamily === OWNERSHIP_FAMILY || new Set((p.bundle?.components ?? []).map((c) => c.page).filter(Boolean)).size > 1)) return true; // A BUNDLE WHOSE PIECES LAND ON MORE THAN ONE PAGE IS SETTLING THE SPLIT, whatever field each piece uses. A differentiation is filed by its FIRST component's field, so the two-page flag bundle arrived as `title-family`, missed the ownership exception, and a finished ready row was served from the research lane where nobody can act on it.
   return leversOf(p).some((k) => levers.has(k));
 }
 
