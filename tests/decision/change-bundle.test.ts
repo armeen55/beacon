@@ -587,8 +587,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     it("refuses a name the page's evidence never mentions, and the retry names it as a removal", async () => {
       const asked: string[] = []; let round = 0;
       const invented = P1.replace("Persian expression of affection", "phrase coined by Bahram Beyzai");
-      const bad = { ...GOOD, after: `${invented}\n${P2}\n${P3}`, claims: [{ text: invented, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const bad = { ...GOOD, after: `${invented}\n${P2}\n${P3}`, claims: [{ text: invented, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-2"] }, { text: P3, supportedBy: ["page-copy-3"] }] };
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-2"] }, { text: P3, supportedBy: ["page-copy-3"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
         limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const snapshot = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
@@ -601,7 +601,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
      *  defect, and they were being thrown away, so every retry heard only checkbox labels. */
     it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
       const asked: string[] = []; let judged = 0;
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-heading-1"] }, { text: P2, supportedBy: ["page-heading-1"] }, { text: P3, supportedBy: ["page-heading-1"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
         limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
@@ -636,14 +636,17 @@ describe("one score orders every kind of change, and says why", () => { it("puts
      *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
       const asked: string[] = []; let round = 0;
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
-      const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["card-1"] }] };
+      // the packet keeps only the passages that overlap this card's question, so the fixture cites the one it is sure of
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-1"] }, { text: P3, supportedBy: ["page-copy-1"] }] };
+      const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["page-copy-1"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
         limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       const budget = DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
+      const { canonicalUrlKey: ck } = await import("@/domains/evidence/snapshot");
+      bodyStore.map = new Map([[ck(BODY.url), BODY]]);
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? cta : good2 }) } as never);
       expect(asked.length).toBe(2); // the repair is a second PAID draft, not a hidden free one
@@ -662,7 +665,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["card-1"] }, { text: P2, supportedBy: ["card-2"] }, { text: P3, supportedBy: ["card-3"] }] };
+      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-heading-1"] }, { text: P2, supportedBy: ["page-heading-1"] }, { text: P3, supportedBy: ["page-heading-1"] }] };
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: rewritten }) } as never);
