@@ -6,6 +6,10 @@ const env = vi.hoisted(() => ({
   rpc: {} as Record<string, RpcAnswer[]>,
   calls: [] as Array<{ name: string; args: unknown }>,
   snapshot: null as unknown,
+  /** EVERY DURABLE WRITE THE PRODUCE PATH CAN MAKE, named as it happens, so a dry run can be asked to have made none. */
+  wrote: [] as string[],
+  /** THE LAST ROW THE STORE WAS HANDED FOR EACH ID: what persistence actually keeps. */
+  saved: new Map<string, ChangeProposal>(),
   store: new Map<string, unknown>(),
   withdrawn: [] as string[],
   /** The 28-day AI window as the producer's read sees it: rows, or the read failing outright. */
@@ -88,7 +92,13 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => {
     loadChangeProposals: async () => new Map(env.store as Map<string, ChangeProposal>),
     withdrawnProposalIds: async () => new Set<string>(),
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
-    saveChangeProposal: async () => "unchanged" as const }; });
+    publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
+    saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); return "unchanged" as const; } }; });
+// RECORDING, NEVER REPLACING: these two write elsewhere and the rest of this file depends on what they really do.
+vi.mock("@/domains/decision/ai-case-store", async (orig) => { const a = await orig() as { recordAiCaseDispositions: (...x: never[]) => Promise<unknown> };
+  return { ...a, recordAiCaseDispositions: async (...x: never[]) => { env.wrote.push("recordAiCaseDispositions"); return a.recordAiCaseDispositions(...x); } }; });
+vi.mock("@/domains/decision/coverage-pass", async (orig) => { const a = await orig() as { recordCoverageNeeds: (...x: never[]) => Promise<unknown> };
+  return { ...a, recordCoverageNeeds: async (...x: never[]) => { env.wrote.push("recordCoverageNeeds"); return a.recordCoverageNeeds(...x); } }; });
 import { loadGscPageSignalsForTenant, readGscPageSignalsForTenant } from "@/domains/evidence/readers/gsc-page-signals";
 import { loadEvidenceSnapshot } from "@/domains/evidence/snapshot-loader";
 import { buildEvidenceSnapshot, type EvidenceSnapshotInput } from "@/domains/evidence/snapshot";
@@ -169,7 +179,29 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     await produceProposalsForTenant(TENANT);
     // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
-    expect(env.withdrawn).toEqual([stale.id]); }); });
+    expect(env.withdrawn).toEqual([stale.id]); });
+  /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the
+   *  harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
+  it("writes nothing at all when it is told not to persist", async () => {
+    env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
+    const stale = openCard("title"), theirs = openCard("ai_answer_gap");
+    env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
+    env.wrote = []; env.withdrawn = [];
+    await produceProposalsForTenant(TENANT, { persist: false });
+    // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
+    expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); });
+  /** AND WHAT A DRY RUN HANDS BACK IS WHAT PERSISTENCE WOULD KEEP. The guard used to sit at the TOP of persistIfChanged, so a dry run returned the row BEFORE nine transforms (identity stamp, banked-copy
+   *  preservation, soft downgrade, ranking inheritance) and the copy an operator inspected was not the copy that later landed. Inspecting one object and storing another is the whole defect. */
+  it("hands back exactly the payload persistence would keep", async () => {
+    const shape = (p: ChangeProposal) => ({ id: p.id, rc: p.recommendedChange, steps: p.operatorSteps, claims: p.claims, support: (p.supportFacts ?? []).map((f) => f.id),
+      workKey: p.workKey, status: p.status, pieces: (p.bundle?.components ?? []).map((c) => [c.kind, c.page, c.where, c.after]) });
+    env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
+    const stale = openCard("title"); env.store = new Map([[stale.id, stale]]);
+    const dry = await produceProposalsForTenant(TENANT, { persist: false });
+    env.store = new Map([[stale.id, stale]]); env.saved = new Map();
+    const wet = await produceProposalsForTenant(TENANT);
+    expect(dry.proposals.length).toBe(wet.proposals.length);
+    expect(dry.proposals.map(shape)).toEqual(dry.proposals.map((p) => shape(env.saved.get(p.id) ?? p))); }); });
 
 /** A PASS THAT DID NOT BUY MUST NOT TAKE BACK WHAT A PAID PASS BANKED (operator, 2026-08-19). Pausing research now rebuilds the customer surface from stored evidence alone, which is right: a paused account still owes its customer a current list. What it may never do is read its own empty hands as the generator withdrawing its work. "Did not run" is not "rejected its previous work". */
 describe("a zero-spend regeneration is non-destructive", () => {

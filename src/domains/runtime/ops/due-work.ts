@@ -255,11 +255,12 @@ type DueWorkDeps = {
  *  2026-08-22). Internal: never a customer setting, never UI. */
 export const READY_STOCK_TARGET = 5;
 
-/** How many finished changes are on file right now. $0: a lean projection of rows already stored. */
+/** How many finished changes THE CUSTOMER CAN SEE right now. $0. Counted off the released queue Today and Changes read, never off raw rows: a row is saved by one act and released by another, so a pass that
+ *  persisted three finished changes and published none reported stock 3 against a screen showing 0, and the day closed on work nobody could reach. Undelivered work is not stock. */
 async function readyStock(tenantId: string): Promise<number | null> {
   const d = await import("@/domains/decision");
   const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
-  return (await d.loadProposalQueue(tenantId, { currentBasis: basis })).ready.length;
+  return (await d.readQueuePage(tenantId, "ready", basis ?? "", 0, 1)).total;
 }
 
 /** CLAIMS THE PAGES MAKE THAT NOBODY HAS CHECKED against a source outside them. */

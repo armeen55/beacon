@@ -98,7 +98,7 @@ const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type
 const authorized = (f: readonly FactCheck[], hash: string | null, basis: string | null): FactCheck[] =>
   // FAIL CLOSED WITHOUT THE PAGE VERSION. A fact records the hash it was checked against, so without the page's current hash an authoritative fact about a version that has since changed reads as current. No hash, no `fact-*` evidence: the writer loses only a source it could not have trusted, and the correction bundle keeps its own hash-bound path.
   hash == null ? [] : authorizedCorrections(f, { pageContentHash: hash, evidenceBasis: basis });
-const BODY_READ_BOUND = 7; // owned-context refuses a page-body read wider than this and returns NOTHING, so this list may never exceed it
+const REPLACEABLE_MAX = 2_400; const BODY_READ_BOUND = 7; // owned-context refuses a page-body read wider than this and returns NOTHING, so this list may never exceed it
 const PAGE_COPY_BUDGET = 12_000; // characters of the target page a body edit may read, in document order
 const FACTS_IN_PACKET = 8; // one ordering, shared by the packet's `fact-N` ids and the validator's source list
 /** The source kinds the canonical authorization counts as real authority. A fact may cite several; the validator gets every one of them that qualifies, not the first in the array. */
@@ -272,11 +272,8 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   const qTokens = new Set(topicTokens(`${card.primaryQuery} ${card.evidence.query ?? ""}`));
   const scored = (body?.passages ?? []).map((t, i) => ({ t, i,
     score: topicTokens(t).filter((w) => qTokens.has(w)).length }));
-  // A BODY EDIT GETS THE PAGE IN ORDER, NOT THE SIX PASSAGES THAT REPEAT THE QUESTION. Scoring by query overlap
-  // hands over the passages that talk ABOUT the topic and drops the ones that CONTAIN the answers: on
-  // /funny-farsi-phrases it kept the intro and the FAQ and dropped "Khar means donkey" and every other gloss, so
-  // the writer produced a list of phrases with no meanings. For copy that lands in the body the page IS the
-  // evidence base, so it arrives whole in document order under a character budget; a field edit still gets six.
+  // A BODY EDIT GETS THE PAGE IN ORDER, NOT THE SIX PASSAGES THAT REPEAT THE QUESTION. Scoring by query overlap hands over the passages that talk ABOUT the topic and drops the ones that CONTAIN the answers: on /funny-farsi-phrases it kept the intro and the FAQ and dropped
+  // "Khar means donkey" and every other gloss, so the writer produced a list of phrases with no meanings. For copy that lands in the body the page IS the evidence base, so it arrives whole in document order under a character budget; a field edit still gets six.
   const body_edit = card.recommendedChange.kind !== "existing_edit" || card.recommendedChange.field === "section" || card.recommendedChange.field === "answer_block";
   if (body_edit) { let room = PAGE_COPY_BUDGET, n = 0;
     for (const x of scored) { if (room <= 0) break; evidence[`page-copy-${++n}`] = x.t; room -= x.t.length; } }
@@ -446,7 +443,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const carriesMaterial = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-")).some(([, t]) => topicTokens(t).filter((w) => new Set(topicTokens(card.primaryQuery)).has(w)).length >= 3);
   // A PAGE THAT ALREADY HOLDS THE MATERIAL IS THE SYNTHESIS CASE, NOT A REFUSAL. /funny-farsi-phrases carries the phrases and lacks the meanings and the shape; the refusal it used to get said the work was "making the answer reachable and liftable, not writing it again" and then declined to do it. That work is a typed treatment now: reorganise what the page already proves into the answer the search wanted.
   // EITHER TREATMENT ON A PAGE THAT ALREADY HOLDS THE MATERIAL IS A SYNTHESIS. Scoped to add_answer_section alone it never fired for /funny-farsi-phrases, whose card is a rewrite: with every gloss on the page in hand ("Chert o Pert Meaning: nonsense or gibberish") it still returned "one of the page's listed slang or funny phrases" on every line, because nothing told it the job was the meanings.
-  if (kind === "answer" && carriesMaterial && (card.treatment === "add_answer_section" || card.treatment === "rewrite_existing_section")) packet.treatment = "structural_synthesis";
+  if (kind === "answer" && carriesMaterial && rewrite && card.treatment === "rewrite_existing_section") packet.treatment = "structural_synthesis"; // STRUCTURAL SYNTHESIS EARNS A REPLACEMENT, NEVER AN ADDITION: its gain is the SHAPE the page lacks, which is a reason to replace weaker presentation IN PLACE. Bolted on as a second section it is the same words twice, so it is granted only where a passage to replace was found.
   if (kind === "answer" && card.treatment === "rewrite_existing_section") {
     const q = new Set(topicTokens(card.primaryQuery));
     // THE TARGET IS THE PAGE'S OWN WORDS, VERBATIM (Codex, 2026-08-23). Stripping markers out of the target made the operator instruction unfindable ("bottom of page 12" is ordinary English, and taking it out leaves words no Ctrl-F will match), so the marker is ignored by the COMPARISON instead, on both sides. And the strongest candidate is chosen FIRST and then proved present: filtering before ranking silently retargeted the rewrite at a weaker passage with nothing said.
@@ -454,7 +451,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     // A TARGET IS A PASSAGE A PERSON CAN FIND AND WOULD AGREE TO LOSE (Codex, 2026-08-23, from the first live Ready change). The strongest overlap was a thousand-character crawler blob opening "top of pagePopular Persian(Farsi) Insults..." running from the page intro through a "Shop Now" block into two separate entries, and the operator was told to paste five lines over all of it: nobody can Ctrl-F that string, and following it would delete real content including commerce. Markers or glued-together page furniture mean it is not a section, and among the passages that ARE sections the shortest sufficient one wins, because a rewrite replaces the thing it improves and nothing else.
     const best = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-"))
       .map(([, t]) => ({ t, n: topicTokens(t).filter((w) => q.has(w)).length }))
-      .filter((x) => !CHROME_AT.test(x.t) && !/[a-z][A-Z]/.test(x.t) && x.t.trim().length <= 600)
+      .filter((x) => !CHROME_AT.test(x.t) && !/[a-z][A-Z]/.test(x.t) && x.t.trim().length <= REPLACEABLE_MAX)
       .sort((a, b) => b.n - a.n || a.t.length - b.t.length)[0];
     // A PLANNER THAT CHOSE IMPOSSIBLE WORK REPLANS; IT DOES NOT WRITE THE PAGE OFF (Codex, 2026-08-23): /funny-farsi-phrases, worth 555 recoverable clicks, was settled as a deterministic refusal because the planner asked to rewrite a page whose stored copy is one glued block. No section to replace is a fact about the TREATMENT, not the page, so the run continues as the section the page does not have.
     if (!best || best.n < 2) rewrite = null;
@@ -549,12 +546,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => kindFor(c) != null)
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
-  // AND THE PAGES THAT HOLD WHAT THOSE PAGES DO NOT SAY, INSIDE THE READ'S OWN BOUND. The reader refuses the WHOLE
-  // request when it is asked for more pages than its bound, and returns an empty map rather than a short one, so
-  // widening this list past that bound did not add siblings: it silently removed every target page's body. Every
-  // draft since then was written from titles and headings alone, which is why /funny-farsi-phrases listed eight
-  // phrases and could not give one meaning while every gloss sat in the body it never received. Targets first,
-  // siblings only into the room that is left.
+  // AND THE PAGES THAT HOLD WHAT THOSE PAGES DO NOT SAY, INSIDE THE READ'S OWN BOUND. The reader refuses the WHOLE request when it is asked for more pages than its bound, and returns an empty map rather than a short one, so widening this list past that bound did not add siblings: it silently removed
+  // every target page's body. Every draft since then was written from titles and headings alone, which is why /funny-farsi-phrases listed eight phrases and could not give one meaning while every gloss sat in the body it never received. Targets first, siblings only into the room that is left.
   for (const c of cards.filter((c) => kindFor(c) != null).slice(0, MAX_DRAFTS)) {
     if (drafting.length >= BODY_READ_BOUND) break; const q = new Set(topicTokens(c.primaryQuery)), self = pageFor(opts.snapshot, c)?.url;
     for (const o of opts.snapshot.ownedPages.filter((o) => o.url !== self)
@@ -580,6 +573,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card))); const drafted = done?.d;
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;
+      const shape = meta || h1 || title ? "field" : link ? "link" : card.treatment === "rewrite_existing_section" && drafted.beforeText != null ? "replace" : "add"; // THE ONE PLACE A TREATMENT BECOMES A PLACEMENT: `where` and the operator steps were two hand-copied ternaries keyed on the same boolean twenty lines apart, honest only while they agreed by hand.
       out.push({ ...card, researchOnly: false,
         // FINISHED WORK IS READY WORK. Copy that cleared the drafter, the deterministic editor contract, the judge and the canon validator is not something waiting on a human look, and leaving it at `needs_review` put it in the same lane, with the same Copy and Mark done, as a card nobody wrote.
         status: done!.ready ? "ready" : card.status,
@@ -590,11 +584,13 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
         recommendedChange: { kind: "existing_edit", field: meta ? "meta" : h1 ? "h1" : title ? "title" : "section",
           before: drafted.beforeText, after: drafted.finalCopy,
           // WHERE IT GOES, IN THE PAGE'S OWN WORDS: the anchor the editor found in the stored copy, checked against that copy before it got here. A field edit replaces its own line and names no place.
-          where: meta || h1 || title ? null : link
+          where: shape === "field" ? null : shape === "link"
             ? `One sentence placed after "${drafted.placementAnchor}", with "${card.primaryQuery}" linked to ${dest ?? "the page it names"}`
-            : card.treatment === "rewrite_existing_section" && drafted.beforeText
+            : shape === "replace"
               ? `Replaces the existing passage under "${drafted.placementAnchor}"`
               : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
+        // AND THE CARD SAYS WHICH WORK THIS IS, IN THE SAME WORD THE PLACEMENT USED. A rewrite that could not find its passage kept its treatment and rendered the ADD shape, so the card told the operator to start a new section straight after the very section it was written to replace: a restructure shipping as a duplicate. An addition that arrived this way is judged as one, owing information the page does not carry, rather than waved through on the synthesis exception a replacement earns.
+        ...(card.treatment === "rewrite_existing_section" && shape !== "replace" ? { treatment: "add_answer_section" as const } : {}),
         operatorSteps: meta
           ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
             "Mark it done here and the click rate gets read again"]
@@ -609,8 +605,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
                 "Paste the sentence above straight after it",
                 `Make the words "${card.primaryQuery}" in that sentence a link to ${dest ?? "the page this card names"}`,
                 "Mark it done here and the position gets read again"]
-              : card.treatment === "rewrite_existing_section" && drafted.beforeText
-                ? [`Open the site editor on ${card.pagePath}`, `Find the passage beginning "${drafted.beforeText.slice(0, 80)}" under "${drafted.placementAnchor}"`,
+              : shape === "replace"
+                ? [`Open the site editor on ${card.pagePath}`, `Find the passage beginning "${drafted.beforeText!.slice(0, 80)}" under "${drafted.placementAnchor}"`,
                   "Replace that passage with the copy above, exactly as written", "Mark it done here and the next answers get checked against it"]
                 : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
                   `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
