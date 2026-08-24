@@ -87,6 +87,15 @@ const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type
   (type === "answer_block" || type === "section") && claims.length > 0
   && Object.keys(evidence).some((id) => !OWN_PAGE_ID.test(id))
   && claims.every((c) => c.supportedBy.length > 0 && c.supportedBy.every((id) => OWN_PAGE_ID.test(id)));
+const unheldNames = (corpus: string, copy: string): string[] => {
+  const held = flat(corpus.replace(/([a-z])([A-Z])/g, "$1 $2")), seen = new Set<string>(), out: string[] = [];
+  // A CLAUSE, NOT A SENTENCE (Codex, 2026-08-23): a capital letter after a bullet, a dash or a comma is grammar, not a name, and production blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item. The first word of any clause is skipped, and leading bullets and dashes are stripped before that word is found.
+  for (const clause of copy.replace(/([a-z])([A-Z])/g, "$1 $2").split(/(?<=[.!?:;,])\s+|\n+|\s+[-\u2013\u2014\u2022]\s+/)) {
+    const w = clause.trim().replace(/^[^A-Za-z]+/, "").split(/\s+/).filter(Boolean);
+    for (let i = 1; i < w.length; i += 1) { const raw = w[i]!.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), key = raw.toLowerCase();
+      if (/^[A-Z][a-z]{2,}$/.test(raw) && !CARRIER.has(key) && !seen.has(key) && !held.includes(key)) { seen.add(key); out.push(raw); } } }
+  return out;
+};
 const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 /** THE STORED PAGE AS THE GATE READS IT: crawler markers out, then flattened. The gate matches against a body that had CHROME replaced while the passages handed to the writer never did, so a passage carrying "top of page" (which /funny-farsi-phrases does) could NEVER be found in it: production refused that rewrite with "the words it says it replaces are not on the stored page" over copy taken from the page itself (Codex, 2026-08-23). One normalizer now answers for both sides, so a passage chosen to be replaced passes the exists-on-page check by construction. */
 const storedFlat = (s: string): string => flat(s.replace(CHROME, " "));
@@ -161,15 +170,6 @@ const CARRIER = new Set(["include", "includes", "including", "cover", "covers", 
   "can", "could", "will", "would", "often", "among", "same", "like", "both", "each", "every", "other", "more", "most"]);
 /** Every content word of a phrase that the canonical page evidence does not carry. Singularized and stripped of  universal words by the ONE tokenizer this codebase already uses, so a faithful paraphrase passes and an invented member does not. Substring containment on purpose: it errs toward letting real copy through. */
 /** THE NAMES A PIECE OF COPY ASSERTS that nothing on file has ever mentioned. A fabricated fact wears a capital letter (Cyrus the Great, Ferdowsi, Topoli) and a word carrying none is prose rather than a claim about the world, so this leaves it alone. A word opening a sentence is capitalised by grammar and never counted, and neither is one the corpus already carries. */
-const unheldNames = (corpus: string, copy: string): string[] => {
-  const held = flat(corpus.replace(/([a-z])([A-Z])/g, "$1 $2")), seen = new Set<string>(), out: string[] = [];
-  // A CLAUSE, NOT A SENTENCE (Codex, 2026-08-23): a capital letter after a bullet, a dash or a comma is grammar, not a name, and production blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item. The first word of any clause is skipped, and leading bullets and dashes are stripped before that word is found.
-  for (const clause of copy.replace(/([a-z])([A-Z])/g, "$1 $2").split(/(?<=[.!?:;,])\s+|\n+|\s+[-\u2013\u2014\u2022]\s+/)) {
-    const w = clause.trim().replace(/^[^A-Za-z]+/, "").split(/\s+/).filter(Boolean);
-    for (let i = 1; i < w.length; i += 1) { const raw = w[i]!.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), key = raw.toLowerCase();
-      if (/^[A-Z][a-z]{2,}$/.test(raw) && !CARRIER.has(key) && !seen.has(key) && !held.includes(key)) { seen.add(key); out.push(raw); } } }
-  return out;
-};
 const unheld = (corpus: string, phrase: string): string[] => topicTokens(phrase).filter((w) => !CARRIER.has(w) && !corpus.includes(w));
 /** SUPPORT ENTAILMENT, and it used to be nobody's question: does each claim stand on the evidence IT names. The coverage corpus above carries the claim text, so a sentence and the claim declaring it are one string and a hallucination authenticated itself ("These shoes are waterproof", declared word for word against a page title silent about waterproofing). A CLAIM IS NEVER PART OF ITS OWN SUPPORT: each is read against the quoted facts its own supportedBy names and nothing else, on the words the COPY actually leans on, because a claim word the copy never prints cannot make the copy false and an editor's bookkeeping ("the page subject is") is not a page claim. EXACT NORMALIZED TOKEN MEMBERSHIP, never substring: `held.includes(w)` let a claim word ride inside a longer evidence word, so a page whose evidence said "credit" was held to support copy saying "red". A WHOLE WORD, matched whole, after both sides go through the ONE tokenizer. THIS IS SPELLING AND NOTHING MORE: meaning stays the judge's. PURE, so a stored row is re-read exactly as a fresh draft is checked. */
 
@@ -179,8 +179,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   const out: string[] = [], stored = storedPage(p), corpus = corpusOf(p);
   for (const [what, text] of [["copy", d.finalCopy], ["placement", d.placementAnchor], ["measurement target", d.measurementTarget]] as const) {
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
-  if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about");
-  const known = new Set(Object.keys(p.evidence)), unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
+  if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about"); const known = new Set(Object.keys(p.evidence)), unknown = [...new Set([...d.evidenceIdsUsed, ...d.claims.flatMap((c) => [...c.supportedBy])])].filter((id) => !known.has(id));
   // NAMING THE CONFUSION, NOT JUST THE SYMPTOM (Codex, 2026-08-23): live, a claim cited "owned_snapshot", a SOURCE KIND from the evidenceRefs vocabulary and never a grounding id, and "not on file" sent the retry hunting a missing fact instead of correcting a mix-up it could fix for free.
   if (unknown.length > 0) out.push(unknown.some((id) => SOURCE_KIND.has(id))
     ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
@@ -240,16 +239,12 @@ export function withoutCta(copy: string, type: EditorDeliverable["actionType"]):
     return kept && (unit0 === "c" ? kept.length : words(kept)) >= lo0 ? kept : null;
   }
   // A CLAUSE IS A CLOSING LINE TOO. Cut only on a full stop and the same instruction came back joined on with a dash or a semicolon ("- click to read the focused account"), which is the identical filler wearing different punctuation. THE CUT LEAVES A SENTENCE, NEVER A STUB: whatever the join was, what is left ends its own line.
-  const t = copy.trim(), cut = Math.max(t.lastIndexOf(". "), t.lastIndexOf("; "), t.lastIndexOf("! "), t.lastIndexOf("? "), t.lastIndexOf(" - "));
-  if (cut < 0 || !CTA_TAIL.test(t.slice(cut).replace(/^[.;!?\s-]+/, ""))) return copy;
+  const t = copy.trim(), cut = Math.max(t.lastIndexOf(". "), t.lastIndexOf("; "), t.lastIndexOf("! "), t.lastIndexOf("? "), t.lastIndexOf(" - ")); if (cut < 0 || !CTA_TAIL.test(t.slice(cut).replace(/^[.;!?\s-]+/, ""))) return copy;
   const kept = t.slice(0, cut + 1).trim().replace(/[;,-]+$/, "").trim(), [lo, , unit] = BAND[type], done = /[.!?]$/.test(kept) ? kept : `${kept}.`;
   return (unit === "c" ? done.length : words(done)) >= lo ? done : null; }
 /** THE ONE ANSWER: a finished deliverable, or every reason it is not one. Deterministic first, so a judge is never paid to read copy the packet already refutes. */
 export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, judge: JudgeFn | undefined): Promise<string[]> {
-  const hard = deliverableFailures(d, p);
-  if (hard.length > 0) return hard;
-  if (!judge) return ["nothing read it for sense, so it is not finished"];
-  const v = await judge(d, p).catch(() => null); if (!v) return ["no reading of it came back, so nothing is accepted"];
+  const hard = deliverableFailures(d, p); if (hard.length > 0) return hard; if (!judge) return ["nothing read it for sense, so it is not finished"]; const v = await judge(d, p).catch(() => null); if (!v) return ["no reading of it came back, so nothing is accepted"];
   const failed = ([["pageFit", "it does not belong on this page"], ["claimsEntailed", "the evidence it names does not carry every claim it makes"],
     ["usefulAndNatural", "it is not useful or does not read naturally"], ["placementCorrect", "it lands in the wrong place"],
     ["implementableNow", "an operator could not act on it as written"], ["improvesPage", "it repeats the search instead of improving the page"],
@@ -502,7 +497,11 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
     before: deliverable.beforeText, after: deliverable.finalCopy } },
   // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
-  { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now });
+  { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now,
+    // A FACT THIS ACCOUNT ITSELF PUBLISHES IS A SOURCED FACT. No sources were ever passed here, so the rule holding a new specific fact until something backs it refused EVERY fact the editor could add, and saying the page back became the only thing that could pass. A claim cited to one of this account's own pages is checkable by the person pasting it, on their own site.
+    sources: [...new Set(deliverable.claims.flatMap((c) => c.supportedBy).filter((id) => id.startsWith("owned-page ")).map((id) => id.split(" ")[1] ?? ""))]
+      .filter(Boolean).map((path) => ({ url: `${new URL(packet.targetUrl).origin}${path}`, verified: true, claim: deliverable.finalCopy })),
+    authoritativeSourceDomains: [new URL(packet.targetUrl).hostname] });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   // THE PROMOTION IS THE VERDICT, NOT A HABIT (operator, 2026-08-17; reshaped Codex, 2026-08-23): the ONE evaluator reads every round's copy with the adversary's own standards, its objections are fed back, and the canon's deterministic house rules run last, free. Any hold is a blocking finding with its sentence on the card. Unaffordable or unreadable means NOT promoted, never promoted unread.
   const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length;
@@ -658,10 +657,11 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
     const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t));
     if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
   }
-  out.push(...rereadableRefusals(c.after, packet));
-  // WORD CONTAINMENT WAS DELETED FROM THE EDITOR AND SURVIVED HERE (Codex, 2026-08-23), so a rule no fresh draft is held to went on destroying banked work: the second finished /funny-farsi-phrases answer was retired over the ordinary word "evidence". What it was protecting is kept in the only form that survives a paraphrase: a claim whose cited evidence is ABOUT SOMETHING ELSE ENTIRELY. Support that was reworded still passes; support that was swapped for a different reading does not, and no banked row can argue from something nobody banked.
   const inventedNames = unheldNames(`${facts.map((f) => f.fact).join(" ")} ${claims.map((x) => x.text).join(" ")} ${(held?.outline ?? []).join(" ")} ${held?.title ?? ""}`, c.after);
   if (inventedNames.length > 0) out.push(`its copy names ${inventedNames.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and nothing on file about this page mentions them`);
+  out.push(...rereadableRefusals(c.after, packet));
+  // WORD CONTAINMENT WAS DELETED FROM THE EDITOR AND SURVIVED HERE (Codex, 2026-08-23), so a rule no fresh draft is held to went on destroying banked work: the second finished /funny-farsi-phrases answer was retired over the ordinary word "evidence". What it was protecting is kept in the only form that survives a paraphrase: a claim whose cited evidence is ABOUT SOMETHING ELSE ENTIRELY. Support that was reworded still passes; support that was swapped for a different reading does not, and no banked row can argue from something nobody banked.
+
   const adrift = claims.filter((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w)), its = new Set(topicTokens(x.supportedBy.map((id) => evidence[id] ?? "").join(" ")));
     return mine.length >= 4 && mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
   if (adrift.length > 0) out.push(`the evidence "${adrift[0]!.text.slice(0, 60)}" names is about something else entirely, so this copy argues from support nobody banked`);
