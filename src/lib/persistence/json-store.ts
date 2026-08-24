@@ -51,6 +51,7 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   "gsc-fresh-tail",
   // The banked searches no page of an account is for; read by the coverage walk on every hosted pass.
   "coverage-needs",
+  "llm-budget", // THE WRITER'S MONTHLY CEILING, WHICH ONLY EXISTS IF PRODUCTION CAN READ IT. The cap lived in a file that no-ops on Vercel, so hosted `readState` fell back to the code default while the SPEND came from the durable Supabase ledger: two authorities for one door, and the only way to give an account room was editing a constant for every tenant and every month. Mirrored, the operator's per-account ceiling is durable and production reads the same one a local pass does. domains/decision/llm/adjudicator-budget.ts
 ]);
 
 const BLOBS_TABLE = "json_store_blobs";

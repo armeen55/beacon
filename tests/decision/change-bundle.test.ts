@@ -588,11 +588,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const d = await drive({ ...GOOD, placementAnchor: "Ancient rooftop of the flag hall" }); expect([d?.anchor, (d?.after ?? "x").toLowerCase().includes("directly")]).toEqual(["Funny Farsi Phrases", false]); }); // the invented place that failed live on /iran-flags/achaemenid-empire-flag
     it("still refuses, and never invents, when the page's stored copy carries no clean heading", async () =>
       expect(await drive({ ...GOOD, placementAnchor: "anywhere" }, { ...BODY, title: null, h1: null, headings: [] })).toBeNull());
-    /** A NAME NOTHING ON FILE HAS HEARD OF IS REFUSED, AND THE RETRY IS TOLD THE EXACT WORD (Codex, 2026-08-23).
-     *  This replaces a word-containment gate that refused ordinary prose; what is checked now is the thing that
-     *  actually reaches a reader as a false fact. */
-    /** THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst
-     *  defect, and they were being thrown away, so every retry heard only checkbox labels. */
+    /** A NAME NOTHING ON FILE HAS HEARD OF IS REFUSED, AND THE RETRY IS TOLD THE EXACT WORD (Codex, 2026-08-23). This replaces a word-containment gate that refused ordinary prose; what is checked now is the thing that actually reaches a reader as a false fact. THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst defect, and they were being thrown away, so every retry heard only checkbox labels. */
     it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
       const asked: string[] = []; let judged = 0;
       const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-heading-1"] }, { text: P2, supportedBy: ["page-heading-1"] }, { text: P3, supportedBy: ["page-heading-1"] }] };
@@ -679,11 +675,29 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(add[0]!.treatment === "rewrite_existing_section").toBe(JSON.stringify(arc).includes("Replaces the existing passage"));
       bodyStore.map = null;
     });
-    /** A CRAWLER BLOB IS NOT A SECTION (Codex, 2026-08-23, from the first live Ready change). The first change this
-     *  campaign produced told the operator to paste five lines over a thousand-character passage opening "top of
-     *  pagePopular Persian(Farsi) Insults..." that ran from the page intro through a "Shop Now" block into two
-     *  entries. Nobody can find that string, and following it would delete real content. Such a passage is refused
-     *  as a target, and the refusal names the work that IS available. */
+    /** THE SYNTHESIS QUESTION IS ASKED AFTER THE SECTION IS FOUND, AND A REPLACEMENT MAY NOT RESTATE WHAT STAYS BELOW IT. The structural_synthesis assignment sat ABOVE the block that computes `rewrite`, reading a variable still initialised to null, so the condition was false on every card ever drafted and the instruction reached the evaluator exactly ZERO times: a correctly targeted rewrite was then judged by the standard written for a brand-new section. And once it does arrive, "the page already holds this" stops being a refusal, so the copy has to be held to something else: only the named passage goes, and repeating the detail still printed underneath hands the reader the same thing twice. Live, /funny-farsi-phrases replaced a content-free intro with six definitions that all remain in their own sections directly below. */
+    it("tells the evaluator this is a synthesis, and refuses copy that repeats what stays below", async () => {
+      const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
+      const Q3 = "Chert o Pert means nonsense or gibberish in everyday Persian conversation between close friends.";
+      const TWO = { ...BODY, headings: ["Playful Persian expressions", "More playful expressions"], passages: ["Playful Persian expressions", P1, "More playful expressions", P2, P3, Q3] };
+      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), TWO]]);
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
+        limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1, P2, P3], evidenceRefCount: 3 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: TWO.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
+      const run = async (copy: string) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never,
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-heading-1"] }] } }) } as never);
+      // A summary that restates nothing below lands, as a REPLACEMENT: the section was found, which is the only state in which the synthesis flag is now set.
+      const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
+      expect((ok[0]!.recommendedChange as { where?: string }).where).toBe('Replaces the existing passage under "Playful Persian expressions"');
+      // The same card, handed the three lines that stay directly below it, is refused for exactly that.
+      const dup = await run(`${P2}\n${P3}\n${Q3}`);
+      expect(JSON.stringify(dup[0]!.limitations ?? [])).toContain("it repeats what stays on the page below it");
+      bodyStore.map = null;
+    });
+    /** A CRAWLER BLOB IS NOT A SECTION (Codex, 2026-08-23, from the first live Ready change). The first change this campaign produced told the operator to paste five lines over a thousand-character passage opening "top of pagePopular Persian(Farsi) Insults..." that ran from the page intro through a "Shop Now" block into two entries. Nobody can find that string, and following it would delete real content. Such a passage is refused as a target, and the refusal names the work that IS available. */
     it("refuses to aim a rewrite at a crawler blob, and says the work is a new section instead", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
       const CHROMED = `top of page${P1} Shop Now ${P2}`; // exactly the shape production picked
@@ -747,11 +761,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       finalCopy: "Persian Accessories - showcases heritage-inspired hats, intricately patterned phone cases and modern designs; page lists these accessory types.", ...over } as never, P as never);
     expect([d(), d({ claims: [...claims, { text: "The page shows modern designs", supportedBy: ["page-copy-1"] }] })])
       .toEqual([[], []]); });   // both pass the deterministic gates; only a reader of MEANING can refuse this one
-  /** AN ANCHOR IS A LINE THE OPERATOR CAN FIND, and a crawler glues with whitespace as often as without any.
-   *  Live, /iran-animals drafted a finished answer to land after "Iran Wildlife and National Animals  Discover
-   *  the Animals of Iran": a heading and its subheading run together by the read, a string on no rendered page.
-   *  Nothing caught it until the banked re-read, by which point the page was out of hand and the card was stuck
-   *  in review with nothing anybody could fix. Caught while drafting, the editor picks a line that is really there. */
+  /** AN ANCHOR IS A LINE THE OPERATOR CAN FIND, and a crawler glues with whitespace as often as without any. Live, /iran-animals drafted a finished answer to land after "Iran Wildlife and National Animals  Discover the Animals of Iran": a heading and its subheading run together by the read, a string on no rendered page. Nothing caught it until the banked re-read, by which point the page was out of hand and the card was stuck in review with nothing anybody could fix. Caught while drafting, the editor picks a line that is really there. */
   it("refuses a place on the page that only the crawler ever saw", () => {
     const BODY = "Iran Wildlife and National Animals Discover the Animals of Iran. Native wildlife of Iran includes the caracal and the Persian leopard, each with the one fact a reader needs about it on the page today.";
     const P = { targetUrl: "https://www.iranopedia.com/iran-animals", title: "T", h1: "Iran Wildlife and National Animals", metaDescription: null, bodyText: BODY, headings: ["Iran Wildlife and National Animals"], evidence: { "page-copy-1": BODY }, trackedQuestion: "What wildlife is native to Iran?", ownedPaths: ["/iran-animals"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
@@ -820,11 +830,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const dropped = deliverableFailures(d, P).filter((r) => r.includes("and the copy drops it"));
     expect(dropped.length === 0).toBe(shouldPass); });
 
-  /** THE CAPITAL-LETTER NAME CHECK IS GONE, and this pins that it stays gone for the ordinary-word cases it kept
-   *  refusing. It blocked /iran-animals/persian-wolf over "Look" opening a list item, and in three consecutive
-   *  live drafting runs on 2026-08-24 it refused "Key", "BCE The" and "Earliest" - three ordinary English words,
-   *  three whole pages lost. Whether a claim is entailed by its evidence is a question about meaning, and the
-   *  evaluator reads every claim against the quoted evidence for exactly that. A spelling rule cannot ask it. */
+  /** THE CAPITAL-LETTER NAME CHECK IS GONE, and this pins that it stays gone for the ordinary-word cases it kept refusing. It blocked /iran-animals/persian-wolf over "Look" opening a list item, and in three consecutive live drafting runs on 2026-08-24 it refused "Key", "BCE The" and "Earliest" - three ordinary English words, three whole pages lost. Whether a claim is entailed by its evidence is a question about meaning, and the evaluator reads every claim against the quoted evidence for exactly that. A spelling rule cannot ask it. */
   it.each([
     ["a dash-led clause", "The Persian wolf ranges across Iran - Look for it in the highlands.", []],
     ["a bulleted list", "Where to see it:\n- Look in the highlands\n- Look at dawn", []],
@@ -1044,12 +1050,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     // released, the dead rule's own lowercase receipt gone with the hold, and the reader's caveat still there
     expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader")), out.limitations.some((l) => l.startsWith("Read off"))]).toEqual(["ready", false, true]); });
 
-  /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z:
-   *  "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian
-   *  girls names, persian girl name, and unique persian girl names. People also search persian female names and
-   *  female persian names." Six of those are one phrase reordered and the next line names a results-page
-   *  feature. Pasting it costs the operator the ranking the card was bought to win. It keeps every word and it
-   *  stops being paste-ready. */
+  /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z: "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian girls names, persian girl name, and unique persian girl names. People also search persian female names and female persian names." Six of those are one phrase reordered and the next line names a results-page feature. Pasting it costs the operator the ranking the card was bought to win. It keeps every word and it stops being paste-ready. */
   it("holds back a ready row that today's rules refuse, without losing a word of it", async () => {
     const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
     store.rows.set(CITIES, heldRow({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
@@ -1170,13 +1171,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
       job("/p", "editor", 10)], { candidates: 1 });
     expect(b.funded.map((f) => [f.key, f.family, f.impact])).toEqual([["/p", "editor", 10]]); // ONE page, and the family that can still do something owns it
     expect(b.declined).toEqual([]); });
-  /** A CANDIDATE SELECTED AND NOT STARTED IS OWED FIRST, NOT LAST (Codex, 2026-08-23). Sorting unreached work to
-   *  the back put /persian-female-first-names, worth 560 recoverable clicks, behind a product page worth 0.22 and
-   *  a category page worth 0.13, and left it unattempted for a third dispatch running. */
-  /** A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names
-   *  spent seven provider calls, came back transiently blocked, and was top-ranked again on the next drive, taking the
-   *  whole box while the page behind it went unreached for a sixth dispatch. It stays owed; it just goes after work
-   *  nobody has tried. This is the OPPOSITE population to the deferral that was deleted, which demoted work never started. */
+  /** A CANDIDATE SELECTED AND NOT STARTED IS OWED FIRST, NOT LAST (Codex, 2026-08-23). Sorting unreached work to the back put /persian-female-first-names, worth 560 recoverable clicks, behind a product page worth 0.22 and a category page worth 0.13, and left it unattempted for a third dispatch running. A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names spent seven provider calls, came back transiently blocked, and was top-ranked again on the next drive, taking the whole box while the page behind it went unreached for a sixth dispatch. It stays owed; it just goes after work nobody has tried. This is the OPPOSITE population to the deferral that was deleted, which demoted work never started. */
   it("ranks a candidate that was tried and spent behind work nobody has tried, without writing it off", () => {
     const jobs = [job("/strong", "editor", 560), job("/next", "editor", 312), job("/small", "editor", 9)];
     expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
