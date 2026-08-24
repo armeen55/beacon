@@ -4,7 +4,7 @@ import "server-only";
 
 import { log } from "@/lib/logger"; import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate"; import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { demandUnitsOf } from "@/domains/evidence/demand-units"; import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot"; import { callStructuredLLM, draftAtomicEditStructured, type CompleteFn } from "./llm/structured-drafter";
-import { readFactChecks, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { AtomicEditDraft } from "./llm/schemas"; import { validateProposal } from "./validate-proposal"; import type { ChangeProposal } from "./contracts";
 import { DRAFT_BUDGET } from "./draft-budget"; import { AI_CASE_COPY } from "./producers/ai-cases";
 type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
@@ -56,7 +56,9 @@ type SourcePacket = { targetUrl: string; title: string | null; h1: string | null
   bannedTerms: readonly string[];
   /** THE SEARCHERS' OWN WORDS FOR THIS PAGE. `preserve`: queries the page EARNS clicks on today, whose concepts no rewrite may drop without a stated reason. `vocabulary`: every member phrasing of the page's demand units, which the drafter may lead with (each also rides the evidence map as a demand-N id, so a claim can cite it and the grounding gate resolves searched words the page's own copy never printed). This is the input that was missing when a shoes page was described by its SKU names instead of what people search. */
   /** TARGETING, NEVER SUPPORT. What people search and why this treatment was chosen shape the answer's subject, shape and wording; neither may authorize a claim, and neither is an id a claim can name. */
-  demand: { preserve: readonly string[]; vocabulary: readonly string[]; unanswered?: readonly string[] }; diagnosis?: readonly string[] };
+  demand: { preserve: readonly string[]; vocabulary: readonly string[]; unanswered?: readonly string[] }; diagnosis?: readonly string[];
+  /** WHICH KIND OF WORK THIS IS. `structural_synthesis` may build its answer entirely from facts already on the target page, because its gain is the STRUCTURE the page lacks, not a new fact. Every other body treatment owes information the page does not carry. */
+  treatment?: string };
 /** Every ruling the judge owes on a finished edit. All seven must hold; `notes` is for the log line and nothing else. */
 type JudgeVerdict = { pageFit: boolean; claimsEntailed: boolean; usefulAndNatural: boolean; placementCorrect: boolean;
   implementableNow: boolean; improvesPage: boolean; wouldHandToCustomer: boolean; notes: string };
@@ -84,24 +86,21 @@ const HOSTISH = /\b([a-z][a-z0-9-]{3,})\.(?:com|org|net|io|co|edu|info)\b/gi;
 /** ONE completed provider result, reported to the page's own allowance, which is the ONE thing every paid family already holds (Codex, 2026-08-23). The editor used to keep a private meter the caller passed in, so the other five families spent real money that no receipt could name; the money surface counts for all of them now. */
 type Allowance = { left: number; record?: (r: unknown) => void };
 const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); }; /** WHETHER A BODY EDIT ADDS ANYTHING, DECIDED BY THE TYPE OF EVIDENCE ITS CLAIMS STAND ON. `page-*` is the target page's own text, so copy resting only on those tells a reader already standing there nothing. Gain has exactly two honest forms and each has its own id: a `fact-*` claim is a new externally supported fact, and an `owned-page` claim relates this page to another the account owns, which is the comparison, mapping or differentiation the page itself cannot carry. Demand and diagnosis are not ids at all any more, so neither can satisfy this. A description is exempt: summarising the page IS its job. */
-const OWN_PAGE_ID = /^page-(?:copy|title|h1|heading)/;
-const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type: string, evidence: Readonly<Record<string, string>>): boolean =>
-  (type === "answer_block" || type === "section") && claims.length > 0
+const OWN_PAGE_ID = /^page-(?:copy|title|h1|heading)/; const LINES = (t: string): number => t.split("\n").filter((x) => x.trim().length > 0).length;
+/** A SYNTHESIS EARNS ITS PLACE BY BEING A STRUCTURE THE PAGE DOES NOT HAVE. It may take every fact from the target page, so the only thing that separates it from the page's opening reworded is shape: a direct answer followed by the items, definitions or comparison the reader came for. One paragraph is not a structure, and the evaluator reads the whole page for whether the shape is genuinely new. */
+const synthesisTooThin = (copy: string): boolean => LINES(copy) < 3;
+const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type: string, evidence: Readonly<Record<string, string>>, treatment?: string): boolean =>
+  (type === "answer_block" || type === "section") && claims.length > 0 && treatment !== "structural_synthesis"
   // ASKED ONLY WHERE THERE WAS A TYPED ROUTE TO GAIN. A page with no checked fact and no sibling on file has no id that could carry new information, and its gain may still be real in FORM (a list that finally gives the meanings). That is a judgement about the whole page, and the evaluator now makes it on clean inputs: demand and diagnosis are no longer evidence, so `improvesPage` is no longer reading search volumes and Beacon's own notes as if they were facts.
   && Object.keys(evidence).some((id) => !OWN_PAGE_ID.test(id))
   && claims.every((c) => c.supportedBy.length > 0 && c.supportedBy.every((id) => OWN_PAGE_ID.test(id)));
-const unheldNames = (corpus: string, copy: string): string[] => {
-  const held = flat(corpus.replace(/([a-z])([A-Z])/g, "$1 $2")), seen = new Set<string>(), out: string[] = [];
-  // A CLAUSE, NOT A SENTENCE (Codex, 2026-08-23): a capital letter after a bullet, a dash or a comma is grammar, not a name, and production blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item. The first word of any clause is skipped, and leading bullets and dashes are stripped before that word is found.
-  for (const clause of copy.replace(/([a-z])([A-Z])/g, "$1 $2").split(/(?<=[.!?:;,])\s+|\n+|\s+[-\u2013\u2014\u2022]\s+/)) {
-    const w = clause.trim().replace(/^[^A-Za-z]+/, "").split(/\s+/).filter(Boolean);
-    for (let i = 1; i < w.length; i += 1) { const raw = w[i]!.replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, ""), key = raw.toLowerCase();
-      if (/^[A-Z][a-z]{2,}$/.test(raw) && !CARRIER.has(key) && !seen.has(key) && !held.includes(key)) { seen.add(key); out.push(raw); } } }
-  return out;
-};
-/** The only rows that may ever authorize customer copy: checked, its source actually read, under today's rules version, with a source attached. The same filter the specialised producers use. */
-const authorized = (f: readonly FactCheck[]): FactCheck[] => f.filter((x) => x.state === "checked" && x.sourceReadAt != null && x.rulesVersion === VERIFICATION_RULES_VERSION && x.sources.length > 0);
-const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
+/** THERE IS ONE DEFINITION OF AN AUTHORIZED FACT AND IT ALREADY EXISTED. What stood here was a second, looser one: checked + a source + today's rules version, which admits `likely`, `disputed`, `unsupported` and `page_correct` rows, a source nobody classified, and a fact checked against a version of the page that has since changed. `authorizedCorrections` is the real thing (confirmed confidence, a correction-authorizing verdict, a proposed replacement, an authoritative source KIND, and a record that the source was actually read) Reusing it means the writer and the correction bundle can never disagree about what is true. ONE PART IS NOT AVAILABLE HERE AND IS NOT PRETENDED: the version binding needs the page's stored content hash, and neither the snapshot's page content nor the stored body carries it, so the writer applies every other condition and the correction bundle remains the only place that also proves the fact was checked against the page as it reads now. */
+const authorized = (f: readonly FactCheck[]): FactCheck[] => authorizedCorrections(f);
+const BODY_READ_BOUND = 7; // owned-context refuses a page-body read wider than this and returns NOTHING, so this list may never exceed it
+const PAGE_COPY_BUDGET = 12_000; // characters of the target page a body edit may read, in document order
+const FACTS_IN_PACKET = 8; // one ordering, shared by the packet's `fact-N` ids and the validator's source list
+/** The source kinds the canonical authorization counts as real authority. A fact may cite several; the validator gets every one of them that qualifies, not the first in the array. */
+const AUTHORITATIVE_KIND = new Set(["scholarly", "dictionary", "encyclopedia"]); const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 /** THE STORED PAGE AS THE GATE READS IT: crawler markers out, then flattened. The gate matches against a body that had CHROME replaced while the passages handed to the writer never did, so a passage carrying "top of page" (which /funny-farsi-phrases does) could NEVER be found in it: production refused that rewrite with "the words it says it replaces are not on the stored page" over copy taken from the page itself (Codex, 2026-08-23). One normalizer now answers for both sides, so a passage chosen to be replaced passes the exists-on-page check by construction. */
 const storedFlat = (s: string): string => flat(s.replace(CHROME, " "));
 /** THE WHOLE STORED PAGE AS ONE STRING, built in ONE place: the failure this repair exists for was two sides of one comparison disagreeing, and two hand-built haystacks would only wait to disagree again. */
@@ -216,7 +215,8 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (n < lo || n > hi || UNSAFE.test(d.finalCopy)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) { // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted. AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
     out.push("it points at the page instead of answering"); }
-  if (addsNothing(d.claims, d.actionType, p.evidence)) out.push("every claim stands only on this page's own words, so a reader already on the page learns nothing: add a checked fact (a fact- id) or relate this page to another the account owns (an owned-page id)");
+  if (p.treatment === "structural_synthesis" && (d.actionType === "answer_block" || d.actionType === "section") && synthesisTooThin(d.finalCopy)) out.push("this rearranges the page into one more paragraph: a synthesis owes a direct answer and then the items, meanings or comparison the reader came for, each on its own line");
+  if (addsNothing(d.claims, d.actionType, p.evidence, p.treatment)) out.push("every claim stands only on this page's own words, so a reader already on the page learns nothing: add a checked fact (a fact- id) or relate this page to another the account owns (an owned-page id)");
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
   if (!(d.actionType in FIELD)) { // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of an anchor nobody will use blocked every description on the account.
     if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
@@ -230,8 +230,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
   // WORD CONTAINMENT IS NOT GROUNDING, AND IT REFUSED EVERY DRAFT BEACON EVER WROTE (Codex, 2026-08-23). The two gates that stood here demanded every content word of the copy appear LITERALLY in the cited evidence, so finished work was refused over "reader", "start", "here", "say", "reason", "looking", "group" and "accessory": no sentence a person would write can pass one, and none did across four live dispatches. WHAT THEY PROTECTED IS KEPT, aimed at what actually harms a reader: a page that never mentions Cyrus the Great or Ferdowsi got copy asserting both, and that card reached a paying customer. A fabricated fact wears a NAME. ON FILE MEANS ON FILE, never the claims the writer declared: a corpus carrying the writer's own sentences lets a fabrication ground itself by being asserted twice, which is how the claim graph passed "Cyrus the Great". Meaning is judged by the evaluator that reads every claim against the evidence it names.
-  const onFile = `${corpus} ${stored} ${Object.values(p.evidence).join(" ")} ${p.trackedQuestion ?? ""}`; const invented_names = unheldNames(onFile, d.finalCopy);
-  if (invented_names.length > 0) out.push(`its copy names ${invented_names.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and nothing on file about this page mentions them`);
+  const onFile = `${corpus} ${stored} ${Object.values(p.evidence).join(" ")} ${p.trackedQuestion ?? ""}`;
   return [...new Set(out)];
 }
 
@@ -260,16 +259,23 @@ export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, j
 
 /** THE STORED FACTS THIS PAGE'S EDIT IS CHECKED AGAINST, each under an id the drafter is handed and the  deliverable must name back. Nothing here is fetched: it is the snapshot's own capture and this card's own evidence, so "the evidence supports this" is a lookup rather than a belief. */
 function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[], siblings: ReadonlyMap<string, OwnedPageBody> = new Map(), facts: readonly FactCheck[] = []): SourcePacket {
-  const evidence: Record<string, string> = {};
-  if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
+  const evidence: Record<string, string> = {}; if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
   (page.content?.outline ?? []).slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   // THE SIX PASSAGES MOST ABOUT THIS CARD'S QUESTION, in page order, never simply the first six the crawler stored: a claim can only cite words the packet carries, and the words that ground an answer about "persian rugs known for" live wherever the page talks about it, not necessarily in its opening.
   const qTokens = new Set(topicTokens(`${card.primaryQuery} ${card.evidence.query ?? ""}`));
   const scored = (body?.passages ?? []).map((t, i) => ({ t, i,
     score: topicTokens(t).filter((w) => qTokens.has(w)).length }));
-  const picked = scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6)
-    .sort((a, b) => a.i - b.i);
-  (picked.length > 0 ? picked : scored.slice(0, 6)).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
+  // A BODY EDIT GETS THE PAGE IN ORDER, NOT THE SIX PASSAGES THAT REPEAT THE QUESTION. Scoring by query overlap
+  // hands over the passages that talk ABOUT the topic and drops the ones that CONTAIN the answers: on
+  // /funny-farsi-phrases it kept the intro and the FAQ and dropped "Chert o Pert Meaning: nonsense or gibberish",
+  // "Khar means donkey" and every other gloss, so the writer produced a list of phrases with no meanings and said
+  // "listed here as a slang phrase" instead. For copy that lands in the body the page is the evidence base, so it
+  // arrives whole in document order under a character budget; a field edit still gets the six most relevant.
+  const body_edit = card.recommendedChange.kind !== "existing_edit" || card.recommendedChange.field === "section" || card.recommendedChange.field === "answer_block";
+  if (body_edit) { let room = PAGE_COPY_BUDGET, n = 0;
+    for (const x of scored) { if (room <= 0) break; evidence[`page-copy-${++n}`] = x.t; room -= x.t.length; } }
+  else scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6)
+    .sort((a, b) => a.i - b.i).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
   // WHAT THIS PAGE DOES NOT SAY, FROM PAGES THE SAME ACCOUNT ALREADY OWNS. Every id above is the target page's own words, so a drafter holding only those can write nothing but that page reworded: /iran-flags/iran-islamic-republic-flag-history ranks first for "iran flag before 1979" on 129 words that never name the flag it replaced, and this account's own /iran-flags/pahlavi-iran-flag says exactly what that was. Sibling copy is evidence the reader can check, it costs nothing to read, and citing it is how an internal link earns its place.
   for (const { o } of owned.filter((o) => o.url !== page.url)
     .map((o) => ({ o, n: topicTokens([o.content?.title ?? "", o.content?.h1 ?? "", ...(o.content?.outline ?? [])].join(" ")).filter((w) => qTokens.has(w)).length }))
@@ -278,8 +284,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
       .filter((x) => x.n >= 2 && !CHROME_AT.test(x.t) && x.t.trim().length <= 600).sort((a, b) => b.n - a.n).slice(0, 2))
       evidence[`owned-page ${pathOf(o.url)} #${Object.keys(evidence).length}`] = x.t; }
   const rows = page.search?.topQueries ?? []; // THE PAGE'S OWN DEMAND, off its stored search rows: what it earns (never to be dropped) and how searchers actually phrase it (legal vocabulary, each entry a citable demand-N fact carrying its own numbers).
-  const preserve = [...rows].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query); const units = demandUnitsOf(rows, () => 0);
-  const vocabulary: string[] = [...new Set(units.flatMap((u) => u.vocabulary))].slice(0, 15);
+  const preserve = [...rows].filter((q) => q.clicks > 0).sort((a, b) => b.clicks - a.clicks).slice(0, 10).map((q) => q.query); const units = demandUnitsOf(rows, () => 0); const vocabulary: string[] = [...new Set(units.flatMap((u) => u.vocabulary))].slice(0, 15);
   // A SEARCH THIS PAGE RANKS FOR AND DOES NOT ANSWER IS THE BRIEF, and a brief is not a fact. These used to sit in `evidence` under `demand-*` ids, so a claim could cite one, and one did: /iran-animals shipped "People search animals native to Iran" as copy. Demand chooses the target, the shape and the words a searcher uses. It may never support an assertion, so it is no longer something a claim can name.
   const said = flat(`${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`), owed = (q: string): boolean => !topicTokens(q).every((w) => said.includes(w));
   const unanswered = [...rows].filter((q) => owed(q.query)).sort((a, b) => b.impressions - a.impressions).slice(0, 8)
@@ -289,7 +294,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null, metaDescription: body?.metaDescription ?? page.content?.metaDescription ?? null,
     bodyText: [...(body?.passages ?? []), body?.vocabulary ?? ""].join(" ").replace(CHROME, " "),
     headings: [...(page.content?.outline ?? []), ...(body?.headings ?? [])], evidence, trackedQuestion: card.primaryQuery,
-    ownedPaths: owned.map((o) => pathOf(o.url)), bannedTerms, demand: { preserve, vocabulary, unanswered }, diagnosis: card.evidence.hints };
+    ownedPaths: owned.map((o) => pathOf(o.url)), bannedTerms, demand: { preserve, vocabulary, unanswered }, diagnosis: card.evidence.hints, treatment: card.treatment ?? undefined };
 }
 
 /** The wiring one editor run needs, and nothing about which card asked for it, so a card's own edit and a sibling page's edit are ONE editor rather than two that drift. */
@@ -340,11 +345,9 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     ...(field === "internal_link" && link ? { linkTo: link.to, anchorText: link.anchor } : {}),
   };
   // THE MODEL PROPOSES, CODE VERIFIES. A field edit replaces the page's OWN stored line, and a model that paraphrases or re-spaces it by a character was refused outright. A near miss is RESOLVED to the exact stored form here, so what persists is still character-exact to the page; only a `before` naming something else fails. A NEAR MISS IS PUNCTUATION, NOT DISAGREEMENT. The house rule forbids en dashes, so a model asked to echo a stored line containing one rewrites it ("550-330" for "550\u2013330") and the two strings stop matching. They are compared with dashes and their spacing normalized, and the STORED form is what gets written back.
-  const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-");
-  const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
+  const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-"); const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
   // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for, so the anchor is resolved to that and only an anchor nothing on the page carries is refused below. THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third. THE CTA REPAIR IS DETERMINISTIC AND FREE (Codex, 2026-08-23): the closing line is trimmed when the field still fills, and when too little is left the refusal goes to the PRICED corrective loop like every other lesson, instead of recursively buying a draft the six-unit price never counted.
-  const trimmed = withoutCta(deliverable.finalCopy, field);
-  if (trimmed == null) return refuse("its closing line asks the reader to read the page and too little is left without it", { reasons: [NO_CTA] });
+  const trimmed = withoutCta(deliverable.finalCopy, field); if (trimmed == null) return refuse("its closing line asks the reader to read the page and too little is left without it", { reasons: [NO_CTA] });
   deliverable.finalCopy = trimmed;
   // PLACEMENT IS MECHANICAL, NOT GENERATIVE (Codex, 2026-08-23). The model invented anchors and the live gate refused them ("the place it says it lands is not on the stored page", /iran-flags/achaemenid-empire-flag, 01:30Z). For an answer block CODE chooses the place: the page's own stored H1, else its title, else its first clean stored heading, which is exactly where a summary answer belongs. Whatever the model wrote in the anchor slot is bookkeeping. No trustworthy stored anchor means the candidate stays OWED with that exact reason, never an invented place.
   if (field === "answer_block" && rewrite) {
@@ -358,14 +361,12 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     deliverable.placementAnchor = spot.trim(); }
   const anchor = deliverable.placementAnchor.trim();
   // THE MAIN HEADING IS ALWAYS A FINDABLE PLACE: an anchor that IS the page's clean stored H1 (or title) stands as given, and the glued-sentence remap below never runs on it.
-  const cleanTop = [packet.h1, packet.title].find((x) => x && flat(x) === flat(anchor));
-  if (cleanTop) deliverable.placementAnchor = cleanTop;
+  const cleanTop = [packet.h1, packet.title].find((x) => x && flat(x) === flat(anchor)); if (cleanTop) deliverable.placementAnchor = cleanTop;
   else if (anchor && field !== "answer_block") {
     // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
     const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
       .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
-    if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] });
-    if (cands[0]) deliverable.placementAnchor = cands[0];
+    if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] }); if (cands[0]) deliverable.placementAnchor = cands[0];
   }
   if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
@@ -378,8 +379,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
 
 /** THE STORED WORDS OF ONE PAGE, AS A PACKET. Built off the held body alone, so any page of the account whose copy is on file can be edited on its own evidence rather than only the page a card happens to sit on. */
 function packetForBody(body: OwnedPageBody, query: string, hints: readonly string[], ownedPaths: readonly string[], bannedTerms: readonly string[], demand: SourcePacket["demand"] = { preserve: [], vocabulary: [] }): SourcePacket {
-  const evidence: Record<string, string> = {};
-  if (body.title) evidence["page-title"] = body.title; if (body.h1) evidence["page-h1"] = body.h1;
+  const evidence: Record<string, string> = {}; if (body.title) evidence["page-title"] = body.title; if (body.h1) evidence["page-h1"] = body.h1;
   body.headings.slice(0, 8).forEach((h, i) => { evidence[`page-heading-${i + 1}`] = h; });
   body.passages.slice(0, 6).forEach((t, i) => { evidence[`page-copy-${i + 1}`] = t; });
   hints.slice(0, 5).forEach((h, i) => { evidence[`case-${i + 1}`] = h; });
@@ -423,8 +423,7 @@ const kindFor = (c: ChangeProposal): DraftKind | null => {
 
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, opts: DraftedCopyOptions, kind: DraftKind, siblings: ReadonlyMap<string, OwnedPageBody>, checked: readonly FactCheck[]): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
-  const verifiedFacts = authorized(checked);
-  const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? [], siblings, checked), outline = (page.content?.outline ?? []).slice(0, 8);
+  const verifiedFacts = authorized(checked); const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? [], siblings, checked), outline = (page.content?.outline ?? []).slice(0, 8);
   // THE REFUSAL IS FEEDBACK, NOT ONLY A LOG LINE. The deterministic contract's reasons are exact and repeatable, and a pass that never repeats them to the writer buys the same refusal every time; the last refusal's reasons are kept so ONE bounded second attempt can be told precisely what to fix.
   const lessons: string[] = [];
   const refuse = (why: string, extra: Record<string, unknown> = {}): null => {
@@ -437,8 +436,10 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // A THIN PAGE IS A REASON TO GO AND GET FACTS, NEVER A REASON TO ABANDON THE CHANGE (Codex, 2026-08-23): the material floor that stood here refused /funny-farsi-phrases at $0 over "44 words of material" on a page of 1,222 words with real assistant evidence behind it. What a candidate short of facts needs is the reading that supplies them, and the pass buys page readings for exactly that. Nothing is refused here for being poor, only for being wrong. THE REWRITE TREATMENT IDENTIFIES ITS SECTION OR REFUSES (Codex, 2026-08-23): live, a rewrite_existing_section card still said "A new section ... placed after the H1", because the vocabulary changed and the delivery did not. The stored passage sharing the most topic words with the tracked question IS the section being replaced; a page where none overlaps has no identifiable section, and that is a refusal, never an append.
   let rewrite: { heading: string | null; replaces: string } | null = null;
   // A PAGE THAT ALREADY ANSWERS THE QUESTION IS NOT GIVEN A SECOND ANSWER (Codex, 2026-08-23): /cities was funded add_answer_section and spent six calls and $0.039348 writing a block the evaluator refused because the page's own FAQ already said it. Another answer cannot fix a page that is not being RETRIEVED, and the duplicate is knowable before a cent moves.
-  if (kind === "answer" && card.treatment === "add_answer_section" && Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-")).some(([, t]) => topicTokens(t).filter((w) => new Set(topicTokens(card.primaryQuery)).has(w)).length >= 3))
-    return refuse("this page already answers this question in its own copy, so another section would duplicate it: the work is making the answer reachable and liftable, not writing it again");
+  const carriesMaterial = Object.entries(packet.evidence).filter(([id]) => id.startsWith("page-copy-")).some(([, t]) => topicTokens(t).filter((w) => new Set(topicTokens(card.primaryQuery)).has(w)).length >= 3);
+  // A PAGE THAT ALREADY HOLDS THE MATERIAL IS THE SYNTHESIS CASE, NOT A REFUSAL. /funny-farsi-phrases carries the phrases and lacks the meanings and the shape; the refusal it used to get said the work was "making the answer reachable and liftable, not writing it again" and then declined to do it. That work is a typed treatment now: reorganise what the page already proves into the answer the search wanted.
+  // EITHER TREATMENT ON A PAGE THAT ALREADY HOLDS THE MATERIAL IS A SYNTHESIS. Scoped to add_answer_section alone it never fired for /funny-farsi-phrases, whose card is a rewrite: with every gloss on the page in hand ("Chert o Pert Meaning: nonsense or gibberish") it still returned "one of the page's listed slang or funny phrases" on every line, because nothing told it the job was the meanings.
+  if (kind === "answer" && carriesMaterial && (card.treatment === "add_answer_section" || card.treatment === "rewrite_existing_section")) packet.treatment = "structural_synthesis";
   if (kind === "answer" && card.treatment === "rewrite_existing_section") {
     const q = new Set(topicTokens(card.primaryQuery));
     // THE TARGET IS THE PAGE'S OWN WORDS, VERBATIM (Codex, 2026-08-23). Stripping markers out of the target made the operator instruction unfindable ("bottom of page 12" is ordinary English, and taking it out leaves words no Ctrl-F will match), so the marker is ignored by the COMPARISON instead, on both sides. And the strongest candidate is chosen FIRST and then proved present: filtering before ranking silently retargeted the rewrite at a weaker passage with nothing said.
@@ -463,6 +464,10 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ...(kind === "link" ? [`Write ONE sentence that reads naturally in this page's body and contains the exact phrase "${card.primaryQuery}". Those words become a link to ${dest}. Say only what the evidence ids above carry.`] : []),
     ...(kind === "answer" ? [
       // WHAT EACH ROLE IS FOR, SAID ONCE. Types decide what evidence means; this prose only names the job. The long list of incident rules that stood here (banned adjectives, verbatim word matching, register words, the 80-word floor) policed the shape of a sentence and never whether it said anything, and it produced copy that quoted search volumes back at the reader.
+      ...(packet.treatment === "structural_synthesis" ? [
+        "THIS IS A SYNTHESIS. Everything you need is already on this page and you may build the whole answer from `page-*` ids. What the page lacks is the SHAPE: answer the question in one sentence, then give the reader the items, meanings, definitions or comparison it came for, each on its own line.",
+        "EXPLAIN EACH ITEM, NEVER ITS PLACE ON THE PAGE. \"Topoli: one of the page's listed slang phrases\" tells a reader nothing; \"Topoli: means chubby, said affectionately, usually to children\" is the answer. The `page-copy-*` ids carry those explanations in the page's own words - the glosses, the literal translations, the usage notes - so read them and use them. A phrase, name or term without what it MEANS is not an answer, and no line may describe the page, the list or where something is shown.",
+      ] : []),
       "ADD WHAT THIS PAGE DOES NOT SAY. `page-*` ids are what the page already has: context, never material to reword. `fact-*` ids are checked statements with a real source and quotation, and they are the ONLY ids that may support a new factual claim. `owned-page` ids are other pages this account owns: use them to tell pages apart and to link, never as proof of a new fact.",
       "The searches this page fails and the reason it was chosen are given to you as TARGETING. They set the subject, the shape and the searcher's own wording. They are not evidence, they are not ids, and no sentence may mention searching, search volume, queries, ranking or this page itself.",
       "Answer the question directly in the first sentence, then give the reader what the question actually wants: the examples, the definition, the comparison, the sequence, or the list with the one fact that makes each item worth reading. A list of names with no meanings is not an answer.",
@@ -473,9 +478,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     ] : []),
     ...(kind === "title" || kind === "h1" ? (() => {
       // THE GATE'S OWN ARITHMETIC, SAID TO THE WRITER BEFORE IT WRITES: the exact words of the current line that earning searches carry (each must survive the rewrite), and the exact words the account bans.
-      const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-      const earning = new Set(packet.demand.preserve.flatMap(wordsOf)); const held = kind === "title" ? packet.title : packet.h1;
-      const keep = [...new Set(wordsOf(held ?? ""))].filter((w) => earning.has(w));
+      const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3); const earning = new Set(packet.demand.preserve.flatMap(wordsOf)); const held = kind === "title" ? packet.title : packet.h1; const keep = [...new Set(wordsOf(held ?? ""))].filter((w) => earning.has(w));
       return [`Rewrite the line, but every one of these words must still appear in it, spelled as given: ${keep.join(", ") || "(none)"}. Add the higher-demand phrase alongside them; NEVER replace them with it. No word may appear twice: write ONE natural line a person would publish, never a comma list of search phrasings.${packet.bannedTerms.length > 0 ? ` These words are banned and must not appear at all: ${packet.bannedTerms.join(", ")}.` : ""}`];
     })() : []),
     "Every claim you make must name the ids above that carry it. Write only what those words already show about this page. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused.",
@@ -497,7 +500,9 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
   { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now,
     // THE SOURCE IS THE SOURCE, NEVER THE SITE ITSELF. This passed each owned URL as `verified: true` with the whole proposed paragraph as that page's claim, which says "this new copy is supported because another Iranopedia page exists" and would carry an existing error across the site. Owned pages are context for differentiation and linking. Only a checked fact whose own source was read may authorize an assertion, and it comes with that source's real URL and quotation.
-    sources: verifiedFacts.map((f) => ({ url: f.sources[0]!.url, verified: true, claim: f.proposed ?? f.current, excerpt: f.sources[0]!.says })) });
+    sources: verifiedFacts.flatMap((f, i) => deliverable.claims.some((c) => c.supportedBy.includes(`fact-${i + 1}`))
+      ? f.sources.filter((x) => AUTHORITATIVE_KIND.has(x.kind)).map((x) => ({ url: x.url, verified: true, claim: f.proposed ?? f.current, excerpt: x.says }))
+      : []) });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   // THE PROMOTION IS THE VERDICT, NOT A HABIT (operator, 2026-08-17; reshaped Codex, 2026-08-23): the ONE evaluator reads every round's copy with the adversary's own standards, its objections are fed back, and the canon's deterministic house rules run last, free. Any hold is a blocking finding with its sentence on the card. Unaffordable or unreadable means NOT promoted, never promoted unread.
   const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length;
@@ -511,18 +516,12 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
 
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
 function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
-  const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
-  const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null;
-  if (!row) return [];
-  const ranked = new Set(row.organic.map((o) => canonicalUrlKey(o.url))), mine = canonicalUrlKey(page.url);
-  const seen = new Map<string, { label: string; on: Set<string> }>();
+  const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query; const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null; if (!row) return [];
+  const ranked = new Set(row.organic.map((o) => canonicalUrlKey(o.url))), mine = canonicalUrlKey(page.url); const seen = new Map<string, { label: string; on: Set<string> }>();
   for (const w of snapshot.research?.winningPages ?? []) {
-    const key = canonicalUrlKey(w.url);
-    if (key === mine || !ranked.has(key) || !w.extract) continue;
+    const key = canonicalUrlKey(w.url); if (key === mine || !ranked.has(key) || !w.extract) continue;
     for (const h of w.extract.headings) {
-      const label = h.replace(/\s+/g, " ").trim();
-      if (!label || label.length > 60 || words(label) > MAX_HEADING_WORDS || FURNITURE.test(label) || UNSAFE.test(label)) continue;
-      const at = label.toLowerCase(), cur = seen.get(at) ?? { label, on: new Set<string>() };
+      const label = h.replace(/\s+/g, " ").trim(); if (!label || label.length > 60 || words(label) > MAX_HEADING_WORDS || FURNITURE.test(label) || UNSAFE.test(label)) continue; const at = label.toLowerCase(), cur = seen.get(at) ?? { label, on: new Set<string>() };
       cur.on.add(w.domain); seen.set(at, cur);
     }
   }
@@ -540,18 +539,23 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
   // ONE bounded body read for the pass: the stored copy of exactly the pages about to be drafted, never the site.
   const drafting = cards.filter((c) => kindFor(c) != null)
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u).slice(0, MAX_DRAFTS);
-  // AND THE PAGES THAT HOLD WHAT THOSE PAGES DO NOT SAY. Same one bounded read, widened to the account's own nearest pages by the card's question, because a drafter given only the page it is rewriting can only reword it.
+  // AND THE PAGES THAT HOLD WHAT THOSE PAGES DO NOT SAY, INSIDE THE READ'S OWN BOUND. The reader refuses the WHOLE
+  // request when it is asked for more pages than its bound, and returns an empty map rather than a short one, so
+  // widening this list past that bound did not add siblings: it silently removed every target page's body. Every
+  // draft since then was written from titles and headings alone, which is why /funny-farsi-phrases listed eight
+  // phrases and could not give one meaning while every gloss sat in the body it never received. Targets first,
+  // siblings only into the room that is left.
   for (const c of cards.filter((c) => kindFor(c) != null).slice(0, MAX_DRAFTS)) {
-    const q = new Set(topicTokens(c.primaryQuery)), self = pageFor(opts.snapshot, c)?.url;
+    if (drafting.length >= BODY_READ_BOUND) break; const q = new Set(topicTokens(c.primaryQuery)), self = pageFor(opts.snapshot, c)?.url;
     for (const o of opts.snapshot.ownedPages.filter((o) => o.url !== self)
       .map((o) => ({ o, n: topicTokens([o.content?.title ?? "", o.content?.h1 ?? "", ...(o.content?.outline ?? [])].join(" ")).filter((w) => q.has(w)).length }))
-      .filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 3).map((x) => x.o.url))
-      if (!drafting.includes(o)) drafting.push(o); }
+      .filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 2).map((x) => x.o.url))
+      if (!drafting.includes(o) && drafting.length < BODY_READ_BOUND) drafting.push(o); }
   const bodies = drafting.length > 0 ? await loadOwnedPageBodies(opts.tenantId, drafting).catch(() => new Map<string, OwnedPageBody>()) : new Map<string, OwnedPageBody>();
   // ONE read of the fact engine for the pass, grouped by the page each statement is about.
-  const factsByPath = new Map<string, FactCheck[]>();
-  for (const f of await readFactChecks(opts.tenantId).catch(() => [] as FactCheck[])) {
-    const held = factsByPath.get(f.page); if (held) held.push(f); else factsByPath.set(f.page, [f]); }
+  // AN UNREADABLE FACT STORE IS NOT AN EMPTY ONE: swallowing the error made "nobody checked this page" and "I could not look" the same answer, and the second one may never authorize copy or refuse it.
+  const readFacts = await readFactChecks(opts.tenantId).then((r) => ({ ok: true as const, rows: r })).catch(() => ({ ok: false as const, rows: [] as FactCheck[] })); const factsByPath = new Map<string, FactCheck[]>();
+  for (const f of readFacts.rows) { const held = factsByPath.get(f.page); if (held) held.push(f); else factsByPath.set(f.page, [f]); }
   for (const card of cards) {
     const slug = slugOf(card), wants = kindFor(card); const page = wants ? pageFor(opts.snapshot, card) : null;
     if (!page) { out.push(card); continue; }
@@ -560,12 +564,10 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
     // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own. OUT OF TIME IS NOT OUT OF MONEY: a card the drive can no longer start is left exactly as its producer minted it, so it is owed rather than half-bought.
 
-    const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
-    if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
+    const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS); if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!, bodies, factsByPath.get(card.pagePath ?? "") ?? []) : null;
     // WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop).
-    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card)));
-    const drafted = done?.d;
+    if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card))); const drafted = done?.d;
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;
       out.push({ ...card, researchOnly: false,
@@ -639,12 +641,8 @@ type HeldPage = { title: string | null; h1: string | null; metaDescription: stri
 
 /** WHY BANKED ATOMIC COPY MAY NOT BE PRESERVED, or empty. Banking skips the drafter AND every gate, so copy accepted under an older boundary was served on for ever while the boundary moved under it: identity alone decided, and identity says nothing about whether the words still stand. The packet is rebuilt from what the ROW ITSELF banked (its claims and the exact words behind each id) plus the page as this pass holds it, and every deterministic rule is asked again on the evidence the copy actually leans on. No provider, no fresh read, and NO RE-JUDGING: the prior reading of sense stands while the material identity does. A row that banked no copy or no provenance answers empty, because there is nothing here to re-read; whether such a row may be preserved at all is preferFinished's question. */
 function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null, preserve: readonly string[] = []): string[] {
-  const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? [];
-  if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return [];
-  const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
-  const out: string[] = [], field = c.field as EditorDeliverable["actionType"];
-  const unknown = [...new Set(claims.flatMap((x) => [...x.supportedBy]))].filter((id) => !evidence[id]);
-  if (unknown.length > 0) out.push(`the evidence its claims name is not banked beside them: ${unknown.slice(0, 3).join(", ")}`);
+  const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? []; if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return []; const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
+  const out: string[] = [], field = c.field as EditorDeliverable["actionType"]; const unknown = [...new Set(claims.flatMap((x) => [...x.supportedBy]))].filter((id) => !evidence[id]); if (unknown.length > 0) out.push(`the evidence its claims name is not banked beside them: ${unknown.slice(0, 3).join(", ")}`);
   // THE BANKED ROW'S OWN DEMAND FACTS stand in for live search rows, so a re-read never refuses vocabulary the original packet legitimately granted (the demand-gated banned-term exception included).
   const bankedVocab = facts.filter((f) => f.id.startsWith("demand-")).map((f) => (/"([^"]+)"/.exec(f.fact)?.[1] ?? "")).filter(Boolean);
   const packet: SourcePacket = { targetUrl: p.pageUrl ?? p.pagePath ?? "", title: held?.title ?? null, h1: held?.h1 ?? null, metaDescription: held?.metaDescription ?? null,
@@ -652,13 +650,10 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
     demand: { preserve, vocabulary: bankedVocab } };
   // A BANKED TITLE OR HEADING IS RE-READ AGAINST WHAT THE PAGE EARNS TODAY, exactly as a fresh draft is: the girl-names rewrite that dropped "List" was banked under a generation with no earning gate and stayed visible for exactly that reason. Same rule, same words-as-spelled comparison, run on the banked strings.
   if (preserve.length > 0 && (field === "title" || field === "h1") && held != null) {
-    const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
-    const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after)); const line = field === "title" ? held.title : held.h1;
-    const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t));
-    if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
+    const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3); const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after)); const line = field === "title" ? held.title : held.h1;
+    const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t)); if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
   }
-  const inventedNames = unheldNames(`${facts.map((f) => f.fact).join(" ")} ${claims.map((x) => x.text).join(" ")} ${(held?.outline ?? []).join(" ")} ${held?.title ?? ""}`, c.after);
-  if (inventedNames.length > 0) out.push(`its copy names ${inventedNames.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and nothing on file about this page mentions them`);
+
   out.push(...rereadableRefusals(c.after, packet));
   // WORD CONTAINMENT WAS DELETED FROM THE EDITOR AND SURVIVED HERE (Codex, 2026-08-23), so a rule no fresh draft is held to went on destroying banked work: the second finished /funny-farsi-phrases answer was retired over the ordinary word "evidence". What it was protecting is kept in the only form that survives a paraphrase: a claim whose cited evidence is ABOUT SOMETHING ELSE ENTIRELY. Support that was reworded still passes; support that was swapped for a different reading does not, and no banked row can argue from something nobody banked.
 
@@ -668,8 +663,7 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   // A LINK IS ONE SENTENCE, filed under `section` for the store's sake. Its id still says what it is, and re-reading it against section's forty word floor would withdraw every finished link sentence on the sweep.
   const band = p.id.endsWith("::internal_link") ? "internal_link" as const : field; const [lo, hi, unit] = BAND[band], n = unit === "c" ? c.after.trim().length : words(c.after);
   if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
-  if (band !== "internal_link" && (field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering");
-  if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
+  if (band !== "internal_link" && (field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering"); if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
   const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription }; // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
   if (held && field in line && c.before != null && (line[field] == null || flat(c.before) !== flat(line[field]!))) out.push("the line it says it replaces is not the one this page carries");
   return [...new Set(out)];
@@ -679,22 +673,18 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
 export function staleCopyReasons(p: ChangeProposal, bodies: ReadonlyMap<string, OwnedPageBody>, bannedTerms: readonly string[], page?: HeldPage | null, strict = false,
   /** THE WORDS THIS PAGE IS PAID FOR TODAY, from the caller's own live search rows. Banked titles and headings are re-read against them, so a rewrite that drops an earning word cannot outlive the generation whose gate it predates. Absent = the caller holds no rows, and the check is skipped rather than guessed. */
   preserve: readonly string[] = []): string[] {
-  const parts = p.bundle?.components ?? [];
-  if (parts.length === 0) return strict && (!p.claims?.length || !p.supportFacts?.length) ? ["this copy carries no record of what it stands on, so it is held rather than promoted"] : bankedCopyReasons(p, bannedTerms, page ?? null, preserve);
-  const held = [...bodies.values()], owned = held.map((b) => pathOf(b.url)), out: string[] = [];
-  const bodyFor = (page: string): OwnedPageBody | null => held.find((b) => pathOf(b.url).toLowerCase() === page.toLowerCase() || canonicalUrlKey(b.url) === canonicalUrlKey(page)) ?? null;
+  const parts = p.bundle?.components ?? []; if (parts.length === 0) return strict && (!p.claims?.length || !p.supportFacts?.length) ? ["this copy carries no record of what it stands on, so it is held rather than promoted"] : bankedCopyReasons(p, bannedTerms, page ?? null, preserve);
+  const held = [...bodies.values()], owned = held.map((b) => pathOf(b.url)), out: string[] = []; const bodyFor = (page: string): OwnedPageBody | null => held.find((b) => pathOf(b.url).toLowerCase() === page.toLowerCase() || canonicalUrlKey(b.url) === canonicalUrlKey(page)) ?? null;
   for (const c of parts) {
     const field = FIELD_OF_KIND[c.kind]; if (!field) continue;
     const page = (c.page ?? p.pagePath ?? "").trim(); const body = page ? bodyFor(page) : null; if (!body) { if (strict) out.push(`${page}: the words this change lands on are not in hand, so it is held for the next pass to re-read`); continue; }
     const packet = packetForBody(body, p.primaryQuery, p.evidence.hints, owned, bannedTerms);
     for (const why of rereadableRefusals(c.after, packet)) out.push(`${page}: ${why}`);
     // A PIECE THAT MAKES ITS PAGE LESS DISTINCT among the pages this very change names: the words its own line carried that no sibling carries are why that address exists, and a stored rewrite that dropped one is the defect this bundle shipped. Only asked where the change really spans several pages of this account.
-    const siblingPages = [...new Set(parts.map((x) => x.page).filter((x): x is string => !!x && x !== page))];
-    if (siblingPages.length === 0 || c.before == null) continue;
+    const siblingPages = [...new Set(parts.map((x) => x.page).filter((x): x is string => !!x && x !== page))]; if (siblingPages.length === 0 || c.before == null) continue;
     const siblings = new Set(siblingPages.flatMap((sp) => { const b = bodyFor(sp);
       return b ? topicTokens([b.title ?? "", b.h1 ?? "", ...b.headings.slice(0, 40)].join(" ")) : []; }));
-    const lost = topicTokens(c.before).filter((w) => !siblings.has(w) && !topicTokens(c.after).includes(w));
-    if (lost.length > 0) out.push(`${page}: it drops "${lost[0]}", which none of the other pages in this change cover`);
+    const lost = topicTokens(c.before).filter((w) => !siblings.has(w) && !topicTokens(c.after).includes(w)); if (lost.length > 0) out.push(`${page}: it drops "${lost[0]}", which none of the other pages in this change cover`);
   }
   return [...new Set(out)];
 }

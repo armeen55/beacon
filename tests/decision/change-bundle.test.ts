@@ -584,19 +584,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     /** A NAME NOTHING ON FILE HAS HEARD OF IS REFUSED, AND THE RETRY IS TOLD THE EXACT WORD (Codex, 2026-08-23).
      *  This replaces a word-containment gate that refused ordinary prose; what is checked now is the thing that
      *  actually reaches a reader as a false fact. */
-    it("refuses a name the page's evidence never mentions, and the retry names it as a removal", async () => {
-      const asked: string[] = []; let round = 0;
-      const invented = P1.replace("Persian expression of affection", "phrase coined by Bahram Beyzai");
-      const bad = { ...GOOD, after: `${invented}\n${P2}\n${P3}`, claims: [{ text: invented, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-2"] }, { text: P3, supportedBy: ["page-copy-3"] }] };
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-2"] }, { text: P3, supportedBy: ["page-copy-3"] }] };
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
-        limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
-      const snapshot = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
-        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? bad : good2 }) } as never);
-      expect(asked.length).toBeGreaterThan(1);                          // the first was refused
-      expect(asked.at(-1)!).toMatch(/REMOVE these exact words[^]*"Bahram"/); }); // and the retry was told exactly which word to drop
     /** THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst
      *  defect, and they were being thrown away, so every retry heard only checkbox labels. */
     it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
@@ -733,7 +720,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(RECV)
 
       // AND THE FIRST CARD IS REFUSED A SECOND TIME FOR A SECOND REASON: past the slang it invents, it promises a reader this page "gives brief meanings" and "typical contexts" for those expressions, and the stored page puts those words together nowhere. The third card needs neither list rule; it is caught naming Cyrus and Ferdowsi, two people its page never mentions.
-      .toEqual([["it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is two page elements glued together, which nobody can find on the rendered page", "where it goes is taken from the crawl's own markers, not from the page", "its copy names \"Pedar\", \"Sag\", and nothing on file about this page mentions them"], ["it points at the page instead of answering", "its copy names \"Finglish\", and nothing on file about this page mentions them"], ["where it goes is a paragraph rather than a place on the page", "where it goes is two page elements glued together, which nobody can find on the rendered page", "its copy names \"Iranian\", \"Cyrus\", \"Great\", and nothing on file about this page mentions them"]]) });
+      .toEqual([["it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is two page elements glued together, which nobody can find on the rendered page", "where it goes is taken from the crawl's own markers, not from the page"], ["it points at the page instead of answering"], ["where it goes is a paragraph rather than a place on the page", "where it goes is two page elements glued together, which nobody can find on the rendered page"]]) });
   // THE READY CARD ON THE LIVE ACCOUNT, 2026-08-15: the description sells "modern designs" and the page shows neither. NO DETERMINISTIC RULE CATCHES IT ANY MORE, and this case is kept to say so out loud. It slips a bag-of-words corpus because one stored sentence says "timeless designs" and another says "modern fashion", so every part of the phrase is on file. Reading the page's word ORDER instead does catch it, and was tried on 2026-08-23, and it refused ordinary copy the page prints word for word: a page reading "Persian rugs, carpets and textiles" refuses an answer that says "Persian carpets", because one modifier distributes over three nouns and a contiguous run cannot see that. Refusing finished work is the worse failure of the two, and this file has thrown out a lexical gate for exactly that reason twice before. The evaluator owns the question now, and it demonstrably answers it: on 2026-08-23 it refused a girl-names answer for repeating what the page already said.
   it("does not pretend a deterministic rule can catch a recombined phrase", () => {
     const BODY = "Persian AccessoriesShowcase your heritage with our Persian accessories, featuring timeless designs inspired by Iranian culture and craftsmanship. From stylish Iranian hats to intricately patterned Persian phone cases, each piece blends tradition with modern fashion. Elevate your look and express your love for Iran with unique accessories that stand out!";
@@ -817,15 +804,17 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const dropped = deliverableFailures(d, P).filter((r) => r.includes("and the copy drops it"));
     expect(dropped.length === 0).toBe(shouldPass); });
 
-  /** A CAPITAL LETTER AFTER A BULLET, A DASH OR A COMMA IS GRAMMAR, NOT A NAME (Codex, 2026-08-23): production
-   *  blocked /iran-animals/persian-wolf over the ordinary word "Look" opening a list item, at four calls and
-   *  $0.024776. Both directions are pinned, because loosening this must not let a fabricated name through. */
+  /** THE CAPITAL-LETTER NAME CHECK IS GONE, and this pins that it stays gone for the ordinary-word cases it kept
+   *  refusing. It blocked /iran-animals/persian-wolf over "Look" opening a list item, and in three consecutive
+   *  live drafting runs on 2026-08-24 it refused "Key", "BCE The" and "Earliest" - three ordinary English words,
+   *  three whole pages lost. Whether a claim is entailed by its evidence is a question about meaning, and the
+   *  evaluator reads every claim against the quoted evidence for exactly that. A spelling rule cannot ask it. */
   it.each([
     ["a dash-led clause", "The Persian wolf ranges across Iran - Look for it in the highlands.", []],
     ["a bulleted list", "Where to see it:\n- Look in the highlands\n- Look at dawn", []],
     ["a clause after a comma", "If you want to see one, Look at dawn.", []],
-    ["a name the page never mentions", "The Persian wolf was described by Cyrus the Great.", ["Cyrus", "Great"]],
-  ])("reads %s correctly", (_what, copy, expected) => {
+    ["a capitalised word the page never carries", "The Persian wolf was described by Cyrus the Great.", []],
+  ])("never refuses %s on spelling alone", (_what, copy, expected) => {
     const P = { targetUrl: "https://www.iranopedia.com/w", title: "Persian Wolf", h1: "Persian Wolf", metaDescription: null, headings: [],
       bodyText: "The Persian wolf ranges across Iran and the highlands.", evidence: { "page-copy-1": "The Persian wolf ranges across Iran and the highlands." },
       trackedQuestion: "persian wolf", ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] } } as unknown as Parameters<typeof deliverableFailures>[1];
@@ -836,23 +825,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     if (expected.length === 0) expect(named).toEqual([]);
     else for (const name of expected) expect(named.join(" ")).toContain(`"${name}"`); });
 
-  it("refuses a name nothing on file has heard of, whatever a judge says about the copy", async () => {
-    const E = { "page-title": "Iranopedia x Tavan Designs Persian Shoes | Iranopedia", "page-h1": "Iranopedia x TavanDesigns Persian Shoes", "page-heading-1": "Love \"Eshgh\" Persian Calligraphy High Tops" };
-    const P = { targetUrl: "https://www.iranopedia.com/tavan-designs-iranopedia-shoes", title: E["page-title"], h1: E["page-h1"], metaDescription: null, headings: [E["page-heading-1"]],
-      bodyText: "Love \"Eshgh\" Persian calligraphy high tops and white attar low tops.", evidence: E, trackedQuestion: "persian shoes", ownedPaths: [], bannedTerms: [],
-      demand: { preserve: [], vocabulary: [] } } as unknown as Parameters<typeof acceptDeliverable>[1];
-    const yes = async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "" } as never);
-    const meta = (claims: Array<{ text: string; supportedBy: string[] }>, copy: string) => ({ actionType: "meta" as const, targetUrl: P.targetUrl,
-      placementAnchor: "the page's description field", beforeText: null, naturalHeading: null, evidenceIdsUsed: ["page-title"], claims, finalCopy: copy,
-      uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "click rate", supportFacts: [] } as unknown as Parameters<typeof acceptDeliverable>[0]);
-    const REAL = [{ text: "Love \"Eshgh\" Persian calligraphy high tops", supportedBy: ["page-heading-1"] }];
-    // A FABRICATED MAKER, on a page that never names one: refused however warmly the reader speaks of the copy.
-    const invented = await acceptDeliverable(meta([...REAL, { text: "The shoes were made by Farhad Moshiri", supportedBy: ["page-title"] }],
-      "Love \"Eshgh\" Persian calligraphy high tops made by Farhad Moshiri."), P, yes);
-    expect(invented.join(" ")).toContain('its copy names "Farhad", "Moshiri", and nothing on file about this page mentions them');
-    // AND ORDINARY PROSE IS LEFT ALONE: the words a person writes between the facts are not claims about anything.
-    const plain = await acceptDeliverable(meta(REAL, "Love \"Eshgh\" Persian calligraphy high tops, made for a reader looking to start a collection and wear the words they grew up hearing."), P, yes);
-    expect(plain).toEqual([]); });
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
     // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
@@ -1024,7 +996,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const finished = "The finished cities section, with the word Farsi the searchers themselves use.";
     store.rows.set(CITIES, heldRow({ copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Cities", placed after "Cities of Iran"' },
-      claims: [{ text: finished, supportedBy: ["card-1"] }], supportFacts: [{ id: "card-1", fact: finished }] }));
+      claims: [{ text: finished, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: finished }] }));
     acct.profile = { trustedSourceDomains: { value: [] }, constraints: { value: { bannedTerms: ["Farsi"] } }, name: { value: "Fixture" } };
     // the re-minted BRIEF, exactly the live shape: same page, same stamps, same diagnosis, no drafting of its own
     await runWith(incoming({ treatment: "add_answer_section", researchOnly: true, status: "needs_review",
@@ -1048,8 +1020,8 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
       limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
         "it tells a reader this page offers \"habitats\", and no claim on this card carries it"],
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Untouched", placed after "Untouched heading"' },
-      claims: [{ text: finished, supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: finished }, { id: "card-2", fact: "The page's Untouched heading introduces the list." }] }));
+      claims: [{ text: finished, supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "page-copy-1", fact: finished }, { id: "page-copy-2", fact: "The page's Untouched heading introduces the list." }] }));
     await runWith(incoming());
     const out = store.rows.get(OTHER)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
@@ -1063,17 +1035,17 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
    *  feature. Pasting it costs the operator the ranking the card was bought to win. It keeps every word and it
    *  stops being paste-ready. */
   it("holds back a ready row that today's rules refuse, without losing a word of it", async () => {
-    const stuffed = "Persian girl names here include Afsaneh, Afsoon and Aida.\nAfsaneh: Goddess, divine and strong.\nAfsoon: Charming, enchanting, and alluring.\nAida: Radiance and eternal beauty.\nThe list was compiled by Bahramgur Nikzad, who is named nowhere on this page.";
+    const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
     store.rows.set(CITIES, heldRow({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: stuffed, where: 'A new section headed "Names", placed after "Names heading"' },
-      claims: [{ text: "Persian girl names here include Afsaneh, Afsoon and Aida.", supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: "Persian girl names here include Afsaneh, Afsoon and Aida. Afsaneh: Goddess, divine and strong. Afsoon: Charming, enchanting, and alluring. Aida: Radiance and eternal beauty." },
-        { id: "card-2", fact: "The page's Names heading introduces the list." }] }));
+      claims: [{ text: "Persian girl names here include Afsaneh, Afsoon and Aida.", supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "page-copy-1", fact: "Persian girl names here include Afsaneh, Afsoon and Aida. Afsaneh: Goddess, divine and strong. Afsoon: Charming, enchanting, and alluring. Aida: Radiance and eternal beauty." },
+        { id: "page-copy-2", fact: "The page's Names heading introduces the list." }] }));
     await runWith(incoming({ pagePath: "/elsewhere", pageUrl: "https://fixture-content.example/elsewhere", id: "fixture-tenant::/elsewhere::existing_edit::ai_answer_gap" }));
     const out = store.rows.get(CITIES)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed); // every word kept
     expect(out.status).toBe("needs_review");
-    expect(out.limitations.join(" ")).toContain("nothing on file about this page mentions them"); });
+    expect(out.limitations.join(" ")).toContain("outside the"); });
 
   /** AND ON A DAY WHEN NOTHING EARNS AN ACTION, WHICH IS THE DAY IT MATTERS MOST. A quiet pass returns before the
    *  editor ever runs, and the sweep sat behind that return: live, the stuffed answer survived a pass that rewrote
@@ -1081,13 +1053,13 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
    *  the NORMAL case, so a sweep only ordinary days reach is a sweep that runs exactly when it is not needed. */
   it("re-reads stored rows on a day nothing earns an action", async () => {
     const OTHER = "fixture-tenant::/quiet-page::existing_edit::ai_answer_gap";
-    const stuffed = "Persian girl names here include Afsaneh, Afsoon and Aida.\nAfsaneh: Goddess, divine and strong.\nAfsoon: Charming, enchanting, and alluring.\nAida: Radiance and eternal beauty.\nThe list was compiled by Bahramgur Nikzad, who is named nowhere on this page.";
+    const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
     store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/quiet-page", pageUrl: "https://fixture-content.example/quiet-page",
       pageLabel: "Quiet", status: "ready", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: stuffed, where: 'A new section headed "Names", placed after "Names heading"' },
-      claims: [{ text: "Persian girl names here include Afsaneh, Afsoon and Aida.", supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: "Persian girl names here include Afsaneh, Afsoon and Aida. Afsaneh: Goddess, divine and strong. Afsoon: Charming, enchanting, and alluring. Aida: Radiance and eternal beauty." },
-        { id: "card-2", fact: "The page's Names heading introduces the list." }] }));
+      claims: [{ text: "Persian girl names here include Afsaneh, Afsoon and Aida.", supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "page-copy-1", fact: "Persian girl names here include Afsaneh, Afsoon and Aida. Afsaneh: Goddess, divine and strong. Afsoon: Charming, enchanting, and alluring. Aida: Radiance and eternal beauty." },
+        { id: "page-copy-2", fact: "The page's Names heading introduces the list." }] }));
     vi.resetModules();
     vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
     const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
@@ -1095,7 +1067,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     await run(TENANT, { complete: seam, ...OPTS });
     const out = store.rows.get(OTHER)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed);
-    expect([out.status, out.limitations.join(" ").includes("nothing on file about this page mentions them")]).toEqual(["needs_review", true]); });
+    expect([out.status, out.limitations.join(" ").includes("outside the")]).toEqual(["needs_review", true]); });
 
   /** AND IT DOES NOT RELEASE WHAT A MODEL LOOKED AT AND REFUSED. The release strips the gate's own lowercase
    *  lines, so a hold written in lowercase was being DELETED rather than obeyed, and the fitness check then read
@@ -1107,8 +1079,8 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const row = (lim: string[]) => heldRow({ id: JUDGED, pagePath: "/judged", pageUrl: "https://fixture-content.example/judged",
       pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", limitations: lim,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: words, where: 'A new section headed "Judged", placed after "Judged heading"' },
-      claims: [{ text: words, supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: words }, { id: "card-2", fact: "The page's Judged heading introduces the list." }] });
+      claims: [{ text: words, supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "page-copy-1", fact: words }, { id: "page-copy-2", fact: "The page's Judged heading introduces the list." }] });
     // 1. a model's own objection holds, and its words stay on the card
     store.rows.set(JUDGED, row(["the evaluator's exact objection: it only repeats what the page already says"]));
     await runWith(incoming());
@@ -1140,7 +1112,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
 
 describe("finished copy survives a pass that cannot redraft", () => {
   const finished = (over: Partial<ChangeProposal> = {}) => prop({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O",
-    diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["card-1"] }], supportFacts: [{ id: "card-1", fact: "f" }],
+    diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "f" }],
     recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The finished words, one item per line.", where: 'A new section headed "H", placed after "x"' },
     evidence: { query: "rain barrel sizing", hints: ["original hint wording"], evidenceRefCount: 1 }, ...over });
   const brief = (over: Partial<ChangeProposal> = {}) => prop({ status: "needs_review", researchOnly: true, copyStamp: "T|H|D|O",

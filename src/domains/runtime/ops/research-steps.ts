@@ -240,14 +240,17 @@ export const defaultSteps: ResearchCycleSteps = {
     if (after >= READY_STOCK_TARGET) return mark("target_reached", after, persisted, fingerprint, fresh);
     // ONLY A JOB'S OWN RECEIPT MAY WRITE ITS PAGE OFF, and only the two answers that actually settle it: finished work exists, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a page never reached all leave it owed. Reading a single "calls were charged" number as "every funded page was attempted" is what let one out-of-quota call write off four pages nobody ever asked about (Codex, 2026-08-22).
     // A KEY IS SETTLED WHEN THERE IS NOTHING LEFT TO DO FOR IT UNDER THIS EVIDENCE: a change was saved, a reading was banked, or one of Beacon's own gates refused it.
-    // A DRAFT LEFT IN REVIEW IS NOT A SETTLED CANDIDATE. `review_saved` counted as done, so seven weak drafts were written off as handled and every later drive walked past them: the day could reach `candidates_exhausted` with Ready still short, and "run it again" could never fix anything. A draft holding an objective defect is work still owed, and the objection is already on the row for the redraft to read. Review is for taste, not for Beacon's own unfinished homework.
-    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal").map((r) => r.key);
+    // A DRAFT LEFT IN REVIEW IS NOT SETTLED THE FIRST TIME, AND IS NOT PURSUED FOR EVER EITHER. Counting `review_saved` as done wrote seven weak drafts off as handled and every later drive walked past them. Never counting it starves the queue the other way: one stubborn page would take the top slot on every dispatch. So it settles on the SECOND attempt under the same manifest, which buys exactly one corrective retry with the objection already on the row, and then preserves the best draft and moves to the next candidate. It becomes eligible again when the fingerprint changes, which it does when the evidence, the basis, the drafting policy or the writer contract changes.
+    const triedBefore = new Set(seen?.tried ?? []);
+    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal"
+      || (r.outcome === "review_saved" && triedBefore.has(r.key))).map((r) => r.key);
     const attempted = [...new Set([...fresh, ...settled])];
     // A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names
     // spent seven calls and came back transiently blocked, and on the next drive it was top-ranked again and took the
     // whole box, so the page behind it was unreached for a sixth dispatch. It stays owed and stays fundable; it simply
     // ranks behind work nobody has tried yet.
-    const triedNow = out.paid.receipts.filter((r) => r.outcome === "retryable_blocked" && (r.providerCalls ?? 0) > 0).map((r) => r.key);
+    // A REVIEW SAVE COUNTS AS AN ATTEMPT, which is what makes the retry above bounded: the first one is remembered here and ranks behind work nobody has tried, and the second settles the candidate instead of taking the top slot for ever.
+    const triedNow = out.paid.receipts.filter((r) => ((r.outcome === "retryable_blocked" || r.outcome === "review_saved") && (r.providerCalls ?? 0) > 0)).map((r) => r.key);
     const tried = [...new Set([...(fingerprint === (seen?.fingerprint ?? fingerprint) ? seen?.tried ?? [] : []), ...triedNow])].filter((k) => !attempted.includes(k));
     // A FUNDED PAGE THAT WAS NEVER REACHED IS OWED FIRST, NOT LAST: it is simply absent from `attempted`, so the
     // next continuation ranks it exactly where its impact puts it, which is where the strongest work belongs.
