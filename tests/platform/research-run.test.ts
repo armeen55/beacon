@@ -986,10 +986,10 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       expect([last!.outcomes!.readySaved, last!.outcomes!.evidenceBanked, last!.outcomes!.refused, last!.outcomes!.stuck.join(" ").includes("the closing line tells the reader to read the page")]).toEqual([0, 1, 1, true]);
       // 7. AND A DRAFTING-POLICY CHANGE REOPENS WHAT THE OLD POLICY SETTLED, the same day: a page written off because the old allowance ran out mid-deliverable says nothing about the new one, so it is asked again rather than skipped.
       const { DRAFT_BUDGET } = await import("@/domains/decision/draft-budget"); expect(last!.fingerprint).toContain(`::p${DRAFT_BUDGET.POLICY}::`);
-      const stale = { fingerprint: last!.fingerprint.replace(`::p${DRAFT_BUDGET.POLICY}::`, "::pr0c3::"), attempted: ["/g"] };
-      M.ready = 0; M.declared = ["/g"]; M.out = [{ key: "/g", outcome: "produced" }];
-      const reopened = await live.replenishReady(T, new Date(NOW), stale);
-      expect([reopened!.ready, reopened!.reason]).toEqual([1, "made_progress"]); // /g was settled under the OLD policy and is funded again under the new one
+      // The two pages this matters for by name, under the EXACT policy they were attempted on: `w4r2c6` scored a rewrite target against thousand-character crawler chunks that matched nothing, so both were written off against a target that did not exist. Bumping the policy is what lets a funded pass reach them again instead of answering "already tried those" and spending the proof somewhere else.
+      const stale = { fingerprint: last!.fingerprint.replace(`::p${DRAFT_BUDGET.POLICY}::`, "::pw4r2c6::"), attempted: ["/basic-persian-phrases", "/funny-farsi-phrases"] };
+      M.ready = 0; M.declared = ["/basic-persian-phrases", "/funny-farsi-phrases"]; M.out = M.declared.map((key) => ({ key, outcome: "produced" }));
+      const reopened = await live.replenishReady(T, new Date(NOW), stale); expect([reopened!.reason, reopened!.ready > 0, DRAFT_BUDGET.POLICY]).toEqual(["made_progress", true, "w5r2c6"]); // settled under the OLD policy, funded again under this one
       // 8. THE LEDGER'S OWN ANSWER RIDES BESIDE THE RECEIPTS, both directions. A world that moved more than the
       // receipts explain is REPORTED as unreconciled, never patched. (The COMPLETENESS of a receipt is proved
       // against the REAL producer in its own test below; a hand-built receipt here could only prove this file's
