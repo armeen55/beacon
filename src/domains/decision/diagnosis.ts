@@ -257,7 +257,7 @@ const RULES: Rule[] = [
       const absent = [...absentHeadings, ...absentEntities];
       return absent.length === 0
         ? { fired: false, reason: "this page already covers everything the winning pages agree on" }
-        : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, RECEIPT.winnersHeading, RECEIPT.copy],
+        : { fired: true, action: null, evidenceKeys: [RECEIPT.winners, ...(absentHeadings[0] ? [RECEIPT.cover(absentHeadings[0])] : []), RECEIPT.copy],
           payload: { cause: "incomplete_coverage", absentHeadings, absentEntities },
           explanation: `The pages that win this subject agree on ${num(shared.length)} things to cover and this page carries none of ${num(absent.length)} of them: ${list(absent)}.` };
     },

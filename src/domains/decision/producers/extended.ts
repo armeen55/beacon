@@ -13,7 +13,7 @@ import { topicTokens } from "@/domains/evidence/relevance-gate";
 import { readFactChecks, VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { classifyResult } from "@/domains/evidence/serp-shape"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { BundleComponent } from "../contracts";
-import type { CauseFinding } from "../diagnosis";
+import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../diagnose";
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 import { produceDifferentiation } from "./differentiate";
 /** Two links is the whole budget, and a rebuild is earned by causes agreeing, never by one loud one. */
@@ -459,7 +459,7 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
   const owed = planned.length - drafted.length; // sections asked for and not yet written
   // FINISHED SECTIONS SHIP. A rebuild that stopped part way was withheld WHOLE, so paid finished copy sat invisible behind a refusal for as long as one section kept failing. What is written leaves as pasteable ADDITIONS, the remainder is named out loud, and nothing here is paid for twice next pass.
   if (owed > 0) { if (drafted.length === 0) return refuse(`None of the ${count(planned.length)} sections this rebuild needs could be written this pass, so nothing is handed over. Ask again and it starts where it stopped.`);
-    return { components: drafted.map((d) => ({ kind: "section_add" as const, label: `Add the section: ${d.asked}`, before: null, after: d.text, evidenceKeys: keys, risk: "review" as const,
+    return { components: drafted.map((d) => ({ kind: "section_add" as const, label: `Add the section: ${d.asked}`, before: null, after: d.text, evidenceKeys: [...keys, RECEIPT.cover(d.asked)], risk: "review" as const,
       where: "a new section on the page, under its own heading", objective: `Cover ${d.asked}, which the pages winning "${ctx.primary}" cover and this page does not.`,
       mechanism: `The full rebuild still owes ${count(owed)} ${owed === 1 ? "section" : "sections"} (${planned.filter((h) => !drafted.some((d) => d.asked === h)).join(", ")}). These are the ones already written; the rest costs nothing a second time next pass.`,
       measurementPlan: `Clicks, views and average position for "${ctx.primary}", read at 7, 14, 28 and 56 days after you publish it, against what this page does today.` })), refusal: null };
@@ -486,7 +486,7 @@ export async function produceFullRewriteRecommendation(ctx: ProducerCtx, causes:
       before: null,
       after,
       preserves,
-      evidenceKeys: keys,
+      evidenceKeys: [...keys, ...drafted.map((d) => RECEIPT.cover(d.asked))], // every section names the reading that authorized it, so a rebuild the receipt cannot back fails the check every bundle already runs
       risk: "review",
       where: "the whole page, from the first line down",
       objective: `Make this ${shape} for "${ctx.primary}", instead of fixing ${count(structural.length)} separate things on a page built for something else.`,

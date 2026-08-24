@@ -36,6 +36,8 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
   const pages = inScope.map((path) => ({ path, body: bodyFor(path) }))
     .filter((p): p is { path: string; body: OwnedPageBody } => p.body?.completeness === "complete");
   if (pages.length !== inScope.length || pages.length < 2) return null;
+  // A HUB AND ITS OWN CHILD ARE NOT RIVALS: one address nesting inside another is a page covering a subject and a page answering one part of it, and a hub earns its head term BY listing what it links to. Reading that as a split settled it wrong twice over: the child out-clicked the hub, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words, while the hub's roster of its children's names filled `siblings` with every word the child was distinct for, emptying the guard below. The ancestor owns the broad search, its descendants stay on their own subject, and a hub never votes on what its own child is distinct for.
+  const nests = (a: string, b: string): boolean => a !== b && b.startsWith(a === "/" ? a : `${a}/`), hub = pages.map((p) => p.path).find((a) => pages.some((b) => nests(a, b.path))) ?? null, owner = hub ?? keep;
   // THE VERDICT LEDGER. Every named address starts here owing differentiation; a page the editor cannot honestly
   // improve is REWRITTEN to keep_as_is with the reason, never removed. The list is what completeness reads.
   const verdicts = new Map<string, { page: string; verdict: "differentiate" | "keep_as_is"; because: string }>(
@@ -58,7 +60,7 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
         // "persian girl names": the card would have cost the operator the very clicks it was measured on. The
         // page the account's own figures prove ahead KEEPS the search and says what else it covers; only the
         // pages behind it move aside, which is the whole point of settling a split without moving an address.
-        brief: `Google serves ${count(pages.length)} pages of this site for "${ctx.primary}" and they are not duplicates, so each one has to say what it alone covers. THIS page covers ${subject}. The others are: ${others(path)}. ${field === "answer_block" ? `Write the opening block for the top of this page, under a short heading a reader would look for, saying exactly what this page covers` : `Write the one line that names exactly what this page covers`}, in a reader's words, so somebody who wanted one of the other pages can tell immediately. ${path === keep ? `This page is the one your own figures show winning "${ctx.primary}", so KEEP those words in it and add what only this page has.` : `Keep this page clearly narrower than "${ctx.primary}", which ${keep} owns, but never drop a word this page's own subject needs.`} Say only what this page's own stored words above already show.`,
+        brief: `Google serves ${count(pages.length)} pages of this site for "${ctx.primary}" and they are not duplicates, so each one has to say what it alone covers. THIS page covers ${subject}. The others are: ${others(path)}. ${field === "answer_block" ? `Write the opening block for the top of this page, under a short heading a reader would look for, saying exactly what this page covers` : `Write the one line that names exactly what this page covers`}, in a reader's words, so somebody who wanted one of the other pages can tell immediately. ${path === owner ? `This page is the one that owns "${ctx.primary}"${hub === path ? ", because every other page here sits underneath it" : ", by your own figures"}, so KEEP those words in it and add what only this page has.` : `Keep this page clearly narrower than "${ctx.primary}", which ${owner} owns, and say the one thing this page is about. NEVER drop the words that make it that page: its era, its dates, its named subject.`} Say only what this page's own stored words above already show.`,
         // NEVER MY OWN FIGURES. A receipt fact is a number ABOUT the page (clicks, views), and handing them over
         // put "41 clicks from 31,346 views" among the claims of a line somebody publishes. Only the structural
         // reason the addresses may not move goes in; everything else the drafter sees is the page's own words.
@@ -72,15 +74,14 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       // page's own line carries that NO sibling in the cluster carries are the reason this address exists, so a
       // rewrite that drops one narrows the page off its own subject and makes the overlap worse. /persian-names
       // lost "Last Names", the single thing it covered and its siblings did not, on a card sold as settling a split.
-      const siblings = new Set(pages.filter((x) => x.path !== path)
+      const siblings = new Set(pages.filter((x) => x.path !== path && !nests(x.path, path))
         .flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...x.body.headings.slice(0, 40)].join(" "))));
       const lost = topicTokens(done.before ?? "").filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
       if (lost.length > 0) { log.info("[differentiate] a piece would have made its page less distinct", { page: path, field, dropped: lost.slice(0, 3), after: done.after.slice(0, 90) }); continue; }
       // AND IT CARRIES THE PAGE'S OWN SUBJECT, not merely whatever its old line said: the check above reads `before`, so a page whose line was ALREADY generic may be
       // rewritten more generic still. The page headed "Islamic Republic of Iran Flag (1979-Current)" was handed "Iran Flag History: Meaning, Colors & Full Timeline" and went on competing with /iran-flags for the very search this card exists to settle.
       const distinct = topicTokens(subject).filter((w) => !siblings.has(w)), carries = new Set(topicTokens(done.after));
-      if (distinct.length > 0 && !distinct.some((w) => carries.has(w))) {
-        log.info("[differentiate] a piece carries none of its page's own subject", { page: path, field, subject, after: done.after.slice(0, 90) }); continue; }
+      if (distinct.length > 0 && !distinct.some((w) => carries.has(w))) { log.info("[differentiate] a piece carries none of its page's own subject", { page: path, field, subject, after: done.after.slice(0, 90) }); continue; }
       const label = field === "title" ? "Page title" : field === "h1" ? "Page heading" : "Opening lines";
       components.push({
         kind: field === "title" ? "title" : field === "h1" ? "h1" : "opening_answer",

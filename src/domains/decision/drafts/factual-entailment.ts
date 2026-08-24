@@ -170,8 +170,7 @@ export function extractCapitalizedSpans(text: string): string[] {
   // the site does not print "No Achaemenid", though it prints Achaemenid on every line. A sentence-initial
   // span is checked from its SECOND word, so the real name is what has to be found and a genuinely invented
   // one still is. Nothing is loosened mid-sentence, where a capital does carry a claim.
-  // THE SAME PRINCIPLE FINISHES THE JOB ON A LONE WORD: a single sentence-initial span has no capital except the sentence's own, so it is dropped, not looked up
-  // ("Common", "Distinct", "Key" each cost a deliverable). A list line and a bullet open a sentence too; mid-sentence a lone capital carries a claim and is still checked.
+  // THE SAME PRINCIPLE FINISHES THE JOB ON A LONE WORD: a single sentence-initial span has no capital except the sentence's own, so it is dropped, not looked up ("Common", "Distinct", "Key" each cost a deliverable). A list line and a bullet open a sentence too; mid-sentence a lone capital carries a claim and is still checked.
   const initial = (i: number): boolean => i === 0 || /(?:[.!?:]["')\]]?\s+|\n\s*(?:[-*•]\s+)?)$/.test(scanned.slice(0, i));
   // A NAME DOES NOT RUN ACROSS A LINE BREAK: `\s+` swallowed it, so "...to Iran\nThese are..." was reported as one invented entity, `Iran These`, and refused a page.
   const spans = [...scanned.matchAll(/\b[A-Z][a-zA-Z'-]*(?:[ \t]+[A-Z][a-zA-Z'-]*){0,3}\b/g)].map((m) =>
@@ -228,8 +227,7 @@ export function entityGrounded(entity: string, haystackLower: string): boolean {
   const words = lower
     .split(/[\s‐-―-]+/)
     .filter((w) => w.length > 2 && !GENERIC_CAPITALIZED.has(w));
-  // WHAT IS LEFT AFTER THE GENERIC WORDS IS THE NAME, AND IT IS ASKED ABOUT RATHER THAN REFUSED: requiring two survivors refused "Common Persian" on a page printing
-  // Persian on every line, the filter having left exactly the word that carries the claim. Nothing left at all means furniture ("Top Picks"), which is not a name.
+  // WHAT IS LEFT AFTER THE GENERIC WORDS IS THE NAME, AND IT IS ASKED ABOUT RATHER THAN REFUSED: requiring two survivors refused "Common Persian" on a page printing Persian on every line, the filter having left exactly the word that carries the claim. Nothing left at all means furniture ("Top Picks"), which is not a name.
   if (words.length === 0) return true;
   return words.every((w) => haystackHasWord(w, haystackLower));
 }

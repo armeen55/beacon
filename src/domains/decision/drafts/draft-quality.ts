@@ -533,8 +533,7 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
   // A FIELD SUMMARISES THE PAGE, SO ITS FACTS COME FROM THE PAGE. Comparing only against the line being replaced
   // makes any figure a "new" fact the moment a generic description is improved: /iran-animals/asiatic-cheetah was
   // held for "a new fact with no cited authoritative source" over "Iran's national animal is the Asiatic cheetah",
-  // a sentence its own stored page carries word for word. What is new is what the PAGE does not say. Only the matched fact is looked for, never every word of the
-  // line, because requiring the whole sentence verbatim refuses ordinary paraphrase around a fact the page does carry. A fact the page never states still needs one.
+  // a sentence its own stored page carries word for word. What is new is what the PAGE does not say. Only the matched fact is looked for, never every word of the line, because requiring the whole sentence verbatim refuses ordinary paraphrase around a fact the page does carry. A fact the page never states still needs one.
   const carried = (t: string): boolean => { const body = (input.pageBodyText ?? "").replace(/\s+/g, " ").toLowerCase();
     const facts = t.match(new RegExp(SPECIFIC_FACT.source, "gi")) ?? []; return body.length > 0 && facts.length > 0 && facts.every((f) => body.includes(f.replace(/\s+/g, " ").toLowerCase())); };
   const metaField = input.field === "meta" || input.field === "title" || input.field === "h1";

@@ -49,8 +49,8 @@ export const RECEIPT = {
   links: "copy-links",
   winners: "pattern",
   winnersGap: "gap1",
-  winnersHeading: "common1",
   winnersOpening: "opening",
+  cover: (heading: string): string => `common:${heading.trim().toLowerCase().replace(/\s+/g, "-").slice(0, 60)}`, // ONE SECTION OF A REBUILD NAMES THE ONE WINNER READING THAT AUTHORIZED IT. `winnersHeading` covers the FIRST common heading only, so a rebuild citing it declared nothing about the other five it wrote: every section rode in on the cause-level keys, which are always on file, and a rebuild whose headings came from no pattern at all passed the receipt check. Keyed by the heading's own words, so both sides derive the same id from the same string.
 } as const;
 
 /** One result exactly as the results page displayed it. */

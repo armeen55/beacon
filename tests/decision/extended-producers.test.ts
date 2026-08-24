@@ -8,6 +8,8 @@ import { effortMinutesFor, fieldForComponent, type ProducerCtx } from "@/domains
 import { produceConsolidation, produceFullRewriteRecommendation, produceInternalLinks, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
+import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { RECEIPT } from "@/domains/decision/diagnose";
 const TENANT = "fixture-tenant";
 const QUERY = "rain barrel sizing";
 const PAGE_URL = "https://fixture-content.example/rain-barrels";
@@ -21,6 +23,9 @@ const PATTERN: WinningPattern = { archetype: "informational_guide", disagreement
   commonEntities: [{ entity: "Roof area", seenOn: [0] }, { entity: "Downspout diverter", seenOn: [0, 1] }],
   questionsAnswered: ["What size rain barrel do I need?"], openingPattern: "They answer the question in the first line.",
   ownedGaps: [{ gap: "None of this page covers overflow", seenOn: [0] }], publishers: ["a.example", "b.example", "c.example"] };
+/** WHAT THE WINNERS WERE READ TO COVER, as receipt lines. produce-bundle writes one of these per common heading and per question, and a rebuild cites the one behind each section it writes. */
+const COVERS = [...PATTERN.commonHeadings.map((h) => h.heading), ...PATTERN.questionsAnswered]
+  .map((heading) => ({ key: RECEIPT.cover(heading), kind: "winning_page" as const, fact: `Every one of the pages that win "${QUERY}" covers ${heading}.`, observedAt: null }));
 const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel sizes"], ["/rain-barrels", "this page"],
   ["https://other.example/partner", "our partner"], ["/contact", "read more"]].map(([href, anchorText]) => ({ href: href!, anchorText: anchorText! }));
 // The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins); barrel-sizes and roof-area-calculator are already linked; contact is linked and off topic; careers is unlinked and off topic.
@@ -51,7 +56,7 @@ const whole = (refuseAt = -1): ProducerCtx["draft"] => { let n = 0; return { int
 const FOUR = ["How much water a roof collects", "Choosing a barrel size", "Storm overflow", "Roof area by pitch"];
 const bundleOf = (components: BundleComponent[]): ChangeBundle => ({ objective: "Close the gap on the one search this page is losing.",
   metric: "Clicks over 28 days.", scope: { queries: [QUERY], prompts: [] }, components, alternatives: [], risks: [], confidenceReasons: [],
-  receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null },
+  receipt: { items: [...KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), ...COVERS], missing: [], freshestObservedAt: null },
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
 /** THE PAGE'S OWN WORDS AND THE EVIDENCE, exactly as produce-bundle hands them to a component: receipt lines, the outline, the winners' whole reading and this page's own subjects and link words. A thing I read is not invented. */
 const NOW = new Date("2026-07-25T00:00:00.000Z");
@@ -124,6 +129,29 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // The refusal stands on the REAL defect. It no longer also names "Point": a lone capital opening a sentence is the
     // sentence's capital, not a name, and looking it up refused ordinary copy on live pages ("Common", "Distinct").
     expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, false]); });
+  /** A HUB AND ITS OWN CHILD ARE NOT A SPLIT SETTLED BY CLICKS. Live, /iran-flags/iran-islamic-republic-flag-history out-clicked its own hub /iran-flags, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words; the hub's roster of its children's names then filled the sibling set with every word the child was distinct for, so the guard that should have caught it computed an EMPTY distinct set and passed. Beacon handed over "Iran Flag: Meaning, Colors, and Full History Timeline" for a page whose own heading reads "Islamic Republic of Iran Flag (1979-Current)", making the two pages compete harder for the search the card exists to settle. Nothing here turns on a word list; it turns on one address nesting inside another. */
+  it("never broadens a child onto its own hub's search", async () => {
+    const HUB = "https://fixture-content.example/rain-barrels", KID = "https://fixture-content.example/rain-barrels/steel-barrels";
+    const body = (over: Partial<OwnedPageBody>): OwnedPageBody => ({ ...ctxOf().body!, completeness: "complete" as const, ...over } as OwnedPageBody);
+    // The hub lists what it links to, so its headings PRINT the child's own subject. That is a hub doing its job, not a rival covering the child's ground.
+    const bodies = new Map([["fixture-content.example/rain-barrels", body({ url: HUB, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "Steel Rain Barrels", "Wooden Rain Barrels"] })],
+      ["fixture-content.example/rain-barrels/steel-barrels", body({ url: KID, title: "Steel Rain Barrels", h1: "Steel Rain Barrels (Galvanized, 2 Finishes)", headings: ["Steel Rain Barrels (Galvanized, 2 Finishes)"] })]]);
+    // The drafter offers each page the BROAD line, which is exactly what the live model returned once the brief told the child it owned the search.
+    const broad = async (i: { body: OwnedPageBody }) => ({ before: i.body.title, after: "Rain Barrels: Sizes, Materials & Full Buying Guide", anchor: "top", heading: null, minutes: 5 });
+    const out = await produceConsolidation(ctxOf({ heldBodies: bodies, draft: { ...ctxOf().draft, pageField: broad },
+      finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID],
+        comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID }) }));
+    // The child is never handed a line that drops what makes it that page, however many clicks it has.
+    const onKid = (out.components ?? []).filter((c) => c.page === "/rain-barrels/steel-barrels");
+    expect(onKid.map((c) => c.after)).not.toContain("Rain Barrels: Sizes, Materials & Full Buying Guide");
+    // And the decision is stated for BOTH addresses rather than one being dropped, so the operator reads what happened to each.
+    expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"]));
+    // AND A LINE THAT KEEPS THE CHILD'S OWN SUBJECT IS ACCEPTED, so this refuses BROADENING and not the page. The only difference between the two runs is what the drafter offered.
+    const narrow = async (i: { body: OwnedPageBody }) => ({ before: i.body.title, after: "Steel Rain Barrels: Galvanized Finishes, Sizes & Care", anchor: "top", heading: null, minutes: 5 });
+    const kept = await produceConsolidation(ctxOf({ heldBodies: bodies, draft: { ...ctxOf().draft, pageField: narrow },
+      finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID],
+        comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID }) }));
+    expect((kept.components ?? []).some((c) => c.page === "/rain-barrels/steel-barrels" && c.after === "Steel Rain Barrels: Galvanized Finishes, Sizes & Care")).toBe(true); });
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
     const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] })); expect(nowhere.components).toHaveLength(0);
@@ -234,12 +262,16 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
     // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
-    // A KNOWN, DELIBERATE GAP, recorded rather than hidden: on receipt lines alone this rebuild is NOT refused. It used
-    // to be, but only because "Choosing" is the first word of a heading line and the proper-noun scanner read that
-    // capital as a name. That same accident refused ordinary copy in production, so the scanner now skips a lone
-    // sentence-opening capital. Whether a rebuild's headings are grounded in the winners' observed pattern is a real
-    // question, but it is a question about the REBUILD's evidence, not about proper nouns, and nothing asks it today.
-    const narrow = validate(many.components, RECEIPT_ONLY); expect([narrow.verdict, narrow.factViolations]).toEqual(["ready", []]);
+    // ON RECEIPT LINES ALONE A REBUILD IS REFUSED, AND FOR THE RIGHT REASON. This used to be caught only because
+    // "Choosing" is the first word of a heading line and the proper-noun scanner read that capital as a name, which
+    // is the same accident that refused ordinary copy on live pages. Now every section DECLARES the winner reading
+    // that authorized it, so a receipt that never read those pages cannot back the sections it is being asked to
+    // ship, and the check every bundle already runs says so. Nothing here turns on how a word is spelled.
+    const bare = { ...bundleOf(many.components), receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null } };
+    const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });
+    expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence I cannot show you, so I am not putting it in front of you."), narrow.factViolations]).toEqual(["rejected", true, []]);
+    // and the SAME components pass the moment the receipt carries the readings they name, so this refuses a missing reading and never the copy.
+    expect(validate(many.components, RECEIPT_ONLY).verdict).toEqual("ready");
     // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
     const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
     expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]); expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);

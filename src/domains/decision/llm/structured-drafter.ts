@@ -802,6 +802,8 @@ const OPENING_ANSWER_CLAUSE =
   "Open with the direct answer to the search in the first one or two sentences, naming the exact subject, then follow the required shape the directive above gives. " +
   "Never open with a dictionary definition, never defer (\"it varies\", \"check elsewhere\"), and state only what the evidence and the page's own sections below already support.";
 
+// APPENDED ONLY FOR `meta`, as the opening-answer clause is appended only for `answer_block`. A description names what the page IS ABOUT and must never advertise the page's own furniture: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page" told a shopper nothing about the shirt, and its own caveat admitted no shipping answer was stored. Naming the subject is right for every page kind, so it is not conditioned on one.
+const META_SUBJECT_CLAUSE = ' DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE. Say what it is and what is true of it: for an item, its name and then its real attributes (what it is made of, how it looks, its colour, its cut, its size, what it is for); for a subject, the specific answer the page gives. Take those only from the page\'s own stored words handed to you. NEVER describe the page\'s structure or its sections: no "FAQs", no "frequently asked questions", no shipping, returns, delivery or policy topics, no "on this page", "here you will find", "learn more", and no naming of a question the page asks. If the stored words give you no real attribute, describe the subject plainly and stop; a short true line beats a long one made of furniture. ';
 /** Draft a schema-valid AtomicEditDraft (title/meta) for one existing-page Move. */
 export async function draftAtomicEditStructured(
   input: AtomicEditStructuredInput,
@@ -815,7 +817,8 @@ export async function draftAtomicEditStructured(
 ): Promise<StructuredDraftResult<AtomicEditDraft>> {
   // R16 injection firewall: untrusted crawled text is stripped of instruction-shaped lines before it enters the prompt.
   const currentValue = sanitizeNullableEvidence(input.currentValue);
-  const outline = sanitizeEvidenceTexts(input.outline);
+  // A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT: `Page covers:` renders the stored headings verbatim, so on a page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping, returns and waterproofing, and it sold those. A heading shaped as a question is the page ASKING something, not being about it. Every other field keeps the whole outline.
+  const outline = sanitizeEvidenceTexts(input.outline).filter((h) => input.field !== "meta" || !h.trim().endsWith("?"));
   const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
   const grounded = [
     input.query,
@@ -853,7 +856,7 @@ export async function draftAtomicEditStructured(
   const result = await callStructuredLLM({
     kind: "atomic_edit",
     tenantId: input.tenantId,
-    system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE : "") + fewShots,
+    system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE : input.field === "meta" ? META_SUBJECT_CLAUSE : "") + fewShots,
     user,
     grounded,
     projectedCostUsd: 0.02,

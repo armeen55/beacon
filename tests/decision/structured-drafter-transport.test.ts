@@ -6,7 +6,7 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async (usd: number) => { BILLED.usd.push(usd); },
 }));
-import { callStructuredLLM, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
+import { callStructuredLLM, draftAtomicEditStructured, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
 const VALID_ATOMIC_EDIT = {
@@ -59,3 +59,19 @@ describe("structured-drafter strict transport", () => {
     expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]); const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
     expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); }); });
+
+/** A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT. `Page covers:` renders the stored headings verbatim, so on a product page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping and returns, and it sold those: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page". A heading shaped as a question is the page ASKING something, not being about it. Only a description drops them; every other field still reads the whole outline. */
+describe("a description names the subject, never the page's own furniture", () => {
+  const ask = async (field: "meta" | "title") => { let seen = { system: "", user: "" };
+    const capture: CompleteFn = async (r) => { seen = { system: r.system, user: r.user }; return { error: "refusal", retryable: false }; };
+    await draftAtomicEditStructured({ query: "shir o khorshid shirt", pageLabel: "Shir o Khorshid Shirt", field, currentValue: null, tenantId: "t",
+      outline: ["Shir o Khorshid Vertical Stripe Shirt", "Does this ship internationally?", "What is the return policy?", "Cotton, mid-weight, regular fit"] }, { complete: capture });
+    return seen; };
+  it("keeps the questions out of a meta and leaves every other field alone", async () => {
+    const meta = await ask("meta"), title = await ask("title");
+    expect(meta.user).toContain("Cotton, mid-weight, regular fit"); // the real attribute survives
+    expect(meta.user).not.toMatch(/ship internationally|return policy/); // the question rail never becomes the subject
+    expect(meta.system).toContain("DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE");
+    expect(title.user).toContain("Does this ship internationally?"); // a title still reads the whole outline
+    expect(title.system).not.toContain("DESCRIBE THE THING THE PAGE IS ABOUT"); });
+});

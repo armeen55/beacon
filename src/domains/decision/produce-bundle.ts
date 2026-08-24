@@ -178,7 +178,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     const inv = mine.investigation; const p = mine.decision.pattern ?? null;
     if (p) {
       add(RECEIPT.winners, "winning_page", `The ${p.winners} pages that win "${primary}" side by side, and they agree on ${p.commonHeadings.length} ${p.commonHeadings.length === 1 ? "section" : "sections"} to cover and ${p.commonEntities.length} ${p.commonEntities.length === 1 ? "thing" : "things"} to name.`, null);
-      const head = p.commonHeadings[0]; if (head) add(RECEIPT.winnersHeading, "winning_page", `Every one of those pages covers ${head.heading}.`, null);
+      for (const t of [...p.commonHeadings.map((x) => x.heading), ...p.questionsAnswered].map((s) => s.trim()).filter(Boolean)) add(RECEIPT.cover(t), "winning_page", `Every one of the pages that win "${primary}" covers ${t}.`, null);
       const gap = p.ownedGaps[0]; if (gap) add(RECEIPT.winnersGap, "winning_page", `${gap.seenOn.length} of them do something this page does not: ${gap.gap}`, null);
       const opening = (p.openingPattern ?? "").trim(); if (opening) add(RECEIPT.winnersOpening, "winning_page", `They all open the same way: ${opening}`, null);
     }
