@@ -205,7 +205,7 @@ const MAX_OWNERSHIP = 3;
  * Strongest split first, bounded, deterministic. No address moves, so the risk is low and the whole change is
  * wording that says which search each page answers.
  */
-export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKeyOf: (q: string) => string }): { cards: ChangeProposal[]; covered: Set<string> } {
+export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKeyOf: (q: string) => string }): { cards: ChangeProposal[]; covered: Set<string>; assignable: Set<string> } {
   const groups = new Map<string, { c: Judged; paths: readonly string[]; survivor: string | null; unproven: string[] }>();
   for (const c of w.judged) {
     const p = c.cause.payload;
@@ -217,7 +217,8 @@ export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKey
     const key = w.queryKeyOf(c.query), held = groups.get(key);
     if (!held || c.recoverableClicks > held.c.recoverableClicks) groups.set(key, { c, paths, survivor: p.survivor ? pathOf(p.survivor) : null, unproven: p.comparison.filter((r) => r.clicks == null).map((r) => pathOf(r.url)) });
   }
-  const cards: ChangeProposal[] = [], covered = new Set<string>();
+  // THE SPLITS WHOSE KEEPER THE FIGURES ALREADY NAMED. Those are assignments the editor can write from stored copy; the rest stay reads.
+  const cards: ChangeProposal[] = [], covered = new Set<string>(), assignable = new Set<string>();
   for (const g of [...groups.values()].sort((a, b) => b.c.recoverableClicks - a.c.recoverableClicks
     || (a.c.pageUrl ?? "").localeCompare(b.c.pageUrl ?? "")).slice(0, MAX_OWNERSHIP)) {
     const url = g.c.pageUrl!, own = pageFor(w, url);
@@ -227,8 +228,9 @@ export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKey
       competingPaths: g.paths, survivor: g.survivor, unproven: g.unproven,
       impactScore: g.c.recoverableClicks > 0 ? g.c.recoverableClicks : null }));
     for (const u of g.paths) for (const k of keysOf(u)) covered.add(k);
+    if (g.survivor && g.paths.includes(g.survivor) && pathOf(url) !== g.survivor) assignable.add(cards.at(-1)!.id);
   }
-  return { cards, covered };
+  return { cards, covered, assignable };
 }
 
 /**
@@ -257,7 +259,11 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
     : `Which of them should own it is not decided yet: ${b.unproven.length > 0
       ? `${b.unproven.join(" and ")} ${b.unproven.length === 1 ? "carries" : "carry"} no clicks of ${b.unproven.length === 1 ? "its" : "their"} own for that search on file, so no page here is proven to be the one to keep`
       : "no page here is far enough ahead on both clicks and position for the figures to pick one"}.`;
-  const owed = "Beacon is reading the competing pages before writing the distinct titles and opening lines, so nothing here is an instruction yet.";
+  // A SPLIT WHOSE WINNER IS SETTLED IS AN ASSIGNMENT, NOT A READ. This card carried the highest impact on the account (180, off 30,763 impressions on a 129-word page) and said "nothing here is an instruction yet" while every page it wanted to read was already stored: the read it waited for is the snapshot it was minted from. Once the figures name a keeper, the losing page's job is to stop competing for the head search and own the narrower one it already ranks for, and that is copy the editor writes from stored evidence like any other section. The brief stays research until the editor returns real words, which is what promotes it.
+  const owed = settled && settled !== mine
+    ? `Give ${mine} its own distinct answer so it stops competing with ${settled} for "${b.query}" and owns the narrower search it already ranks for.`
+    : "Beacon is reading the competing pages before writing the distinct titles and opening lines, so nothing here is an instruction yet.";
+
   return {
     ...shell(b, OWNERSHIP_FAMILY, b.impactScore),
     opportunityType: settled ? `Decide "${b.query}": your own figures show ${settled} as the page to keep`

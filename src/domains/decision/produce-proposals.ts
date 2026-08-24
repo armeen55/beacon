@@ -172,6 +172,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   for (const c of factual.cards) jobs.push({ key: page(c), family: "correction_review", impact: worthOf(c.pageUrl ?? c.pagePath), calls: DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)), ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}) });
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to. A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
   const needsDecisions = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]); if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !needsDecisions.has(c.treatment ?? "")));
+  // A SETTLED SPLIT IS WRITING WORK AND IS PRICED WITH THE REST. The account's highest-impact card (180, off a 129-word page shown 30,763 times) reached the customer as "nothing here is an instruction yet" because ownership cards were persisted straight past the editor. The pages it wanted to read are in the same snapshot this pass already holds.
+  if (!quietDay) editorCards.push(...preOwned.cards.filter((c) => preOwned.assignable.has(c.id)));
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
   // THE IDENTITY IS DECLARED ONCE, WITH THE JOB, and every later step READS it (Codex, 2026-08-23): recomputing it from whatever a producer returned is how the lookup asked for changeFamily "bundle" while the bundle saved under its own derived family, two identities for one piece of work that can never match.
   const declaredWorkKey = new Map<string, string>(); for (const j of jobs) if (!declaredWorkKey.has(j.key)) declaredWorkKey.set(j.key, j.workKey ?? j.key);
@@ -324,7 +326,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
     return ranked;
   };
-  const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); } // suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged.
+  const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { if (ownership.assignable.has(card.id) && editorCards.some((e) => e.id === card.id)) continue; proposals.push(card); await persistIfChanged(card); } // suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged.
   const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");  /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
   const withSuggestions = async (strict: ChangeProposal[]): Promise<ProducerRun> => {
     const skip = new Set([...strict.flatMap((p) => [p.id, (p.pagePath ?? "").trim().toLowerCase()]), ...withdrawn]);
@@ -338,9 +340,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // THE PAGES THE BUNDLE DOOR ACTUALLY WALKED THIS PASS. Exempt from every sweep, two refuted "settle which page owns this search" rows outlived their evidence and their page-level suppression hid the real card (operator, 2026-08-17). A bundle may be swept, but ONLY on a page this pass genuinely re-walked: silence about a page nobody looked at proves nothing.
   const doorWalked = new Set<string>();
   const sweepStale = async (runs: readonly ProducerRun[]): Promise<void> => {
-    if (!persist) return;
-    const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]);
-    if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
+    if (!persist) return; const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]); if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
     const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`), ids = new Set(proposals.map((p) => p.id));
     // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence past the paid bound is a real withdrawal; shielding it kept thirty-five stale titles alive for days (operator, 2026-08-17: the cheetah card).
     const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})$`);

@@ -54,7 +54,9 @@ type Factor = Receipt["factors"][number];
  * NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number
  * on the screen is always the change with the most riding on it.
  */
-const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12, treatment: 45 } as const;
+/** WHAT THIS ACCOUNT'S OWN LEDGER SAYS ABOUT KINDS OF WORK, before any single page's readings are deep enough to vote. Across every change this product has measured, the four losses held at high confidence were all thin-lever edits (two descriptions, one title, one schema block) and the one win held at high confidence added a real section to a thin page. Substantive work is therefore the standing bet and a metadata errand has to beat it on audience alone. */
+const THIN_LEVER = new Set(["meta", "title", "title_meta", "schema"]), SUBSTANTIVE = new Set(["answer", "full_rewrite", "new_page", "section"]);
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
@@ -227,7 +229,12 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // AND ONLY ON A PAGE THAT COULD SHOW IT. A family 165 clicks up across seven readings says nothing about a
   // page shown 22 times: that page cannot produce those clicks, so the track record was lifting cards with no
   // audience at all over rebuilds of pages shown thirty thousand times. No audience, no vote.
-  const seen = rode ? history?.get(actionFamilyOf(p.changeFamily)) : undefined;
+  const fam = actionFamilyOf(p.changeFamily);
+  add("treatment", SUBSTANTIVE.has(fam) ? "adding real content to the page is the only kind of change that has won here at high confidence"
+    : THIN_LEVER.has(fam) ? "rewriting a line of metadata is the kind of change that has lost here at high confidence"
+    : "this kind of change has no track record here either way",
+  SUBSTANTIVE.has(fam) ? MAX.treatment : THIN_LEVER.has(fam) ? -MAX.treatment : 0, MAX.treatment);
+  const seen = rode ? history?.get(fam) : undefined;
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
   add("history", !rode ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
     : !votes ? "not enough finished readings of this kind of change here to judge it"
