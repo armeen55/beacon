@@ -46,6 +46,10 @@ const ctxOf = (over: Partial<ProducerCtx> = {}): ProducerCtx => ({ finding: find
     internalLink: async (i) => ({ anchorText: `${i.topic} guide`, linkSentence: `If you are working out ${i.topic}, that page walks through it`, reason: "same subject" }) }, ...over, });
 /** BOTH PAGES AS I CURRENTLY HOLD THEM, by the same canonical address the producer looks them up under. */
 const OTHER_KEY = "fixture-content.example/barrel-sizes";
+const HUB = "https://fixture-content.example/rain-barrels", KID = "https://fixture-content.example/rain-barrels/steel-barrels";
+const nestedBodies = (): Map<string, OwnedPageBody> => { const b = (over: Partial<OwnedPageBody>): OwnedPageBody => ({ ...ctxOf().body!, completeness: "complete" as const, ...over } as OwnedPageBody);
+  return new Map([["fixture-content.example/rain-barrels", b({ url: HUB, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "Steel Rain Barrels", "Wooden Rain Barrels"] })], ["fixture-content.example/rain-barrels/steel-barrels", b({ url: KID, title: "Steel Rain Barrels", h1: "Steel Rain Barrels (Galvanized, 2 Finishes)", headings: ["Steel Rain Barrels (Galvanized, 2 Finishes)"] })]]); };
+const nestedSplit = () => finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID], comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID });
 const BODIES = new Map([["fixture-content.example/rain-barrels", { ...ctxOf().body!, title: "Rain barrel sizing guide", h1: "Rain barrel sizing guide", completeness: "complete" as const }],
   [OTHER_KEY, { ...ctxOf().body!, url: OTHER_URL, title: "Barrel sizes guide", h1: "Barrel sizes guide", headings: ["Barrel sizes"], completeness: "complete" as const }]]);
 /** A drafter that writes every section AND the page's own opening: the only shape a rebuild may ever ship on. */
@@ -131,27 +135,25 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, false]); });
   /** A HUB AND ITS OWN CHILD ARE NOT A SPLIT SETTLED BY CLICKS. Live, /iran-flags/iran-islamic-republic-flag-history out-clicked its own hub /iran-flags, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words; the hub's roster of its children's names then filled the sibling set with every word the child was distinct for, so the guard that should have caught it computed an EMPTY distinct set and passed. Beacon handed over "Iran Flag: Meaning, Colors, and Full History Timeline" for a page whose own heading reads "Islamic Republic of Iran Flag (1979-Current)", making the two pages compete harder for the search the card exists to settle. Nothing here turns on a word list; it turns on one address nesting inside another. */
   it("never broadens a child onto its own hub's search", async () => {
-    const HUB = "https://fixture-content.example/rain-barrels", KID = "https://fixture-content.example/rain-barrels/steel-barrels";
-    const body = (over: Partial<OwnedPageBody>): OwnedPageBody => ({ ...ctxOf().body!, completeness: "complete" as const, ...over } as OwnedPageBody);
-    // The hub lists what it links to, so its headings PRINT the child's own subject. That is a hub doing its job, not a rival covering the child's ground.
-    const bodies = new Map([["fixture-content.example/rain-barrels", body({ url: HUB, title: "Rain Barrels", h1: "Rain Barrels", headings: ["Rain Barrels", "Steel Rain Barrels", "Wooden Rain Barrels"] })],
-      ["fixture-content.example/rain-barrels/steel-barrels", body({ url: KID, title: "Steel Rain Barrels", h1: "Steel Rain Barrels (Galvanized, 2 Finishes)", headings: ["Steel Rain Barrels (Galvanized, 2 Finishes)"] })]]);
     // The drafter offers each page the BROAD line, which is exactly what the live model returned once the brief told the child it owned the search.
     const broad = async (i: { body: OwnedPageBody }) => ({ before: i.body.title, after: "Rain Barrels: Sizes, Materials & Full Buying Guide", anchor: "top", heading: null, minutes: 5 });
-    const out = await produceConsolidation(ctxOf({ heldBodies: bodies, draft: { ...ctxOf().draft, pageField: broad },
-      finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID],
-        comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID }) }));
+    const out = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: broad }, finding: nestedSplit() }));
     // The child is never handed a line that drops what makes it that page, however many clicks it has.
     const onKid = (out.components ?? []).filter((c) => c.page === "/rain-barrels/steel-barrels");
     expect(onKid.map((c) => c.after)).not.toContain("Rain Barrels: Sizes, Materials & Full Buying Guide");
     // And the decision is stated for BOTH addresses rather than one being dropped, so the operator reads what happened to each.
     expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"]));
-    // AND A LINE THAT KEEPS THE CHILD'S OWN SUBJECT IS ACCEPTED, so this refuses BROADENING and not the page. The only difference between the two runs is what the drafter offered.
+    // AND A LINE THAT KEEPS THE CHILD'S OWN SUBJECT IS ACCEPTED, so this refuses BROADENING and not the page: the only difference between the two runs is what the drafter offered.
     const narrow = async (i: { body: OwnedPageBody }) => ({ before: i.body.title, after: "Steel Rain Barrels: Galvanized Finishes, Sizes & Care", anchor: "top", heading: null, minutes: 5 });
-    const kept = await produceConsolidation(ctxOf({ heldBodies: bodies, draft: { ...ctxOf().draft, pageField: narrow },
-      finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [HUB, KID],
-        comparison: [{ url: KID, clicks: 90, impressions: 6000, position: 3 }, { url: HUB, clicks: 20, impressions: 900, position: 9 }], survivor: KID }) }));
+    const kept = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: narrow }, finding: nestedSplit() }));
     expect((kept.components ?? []).some((c) => c.page === "/rain-barrels/steel-barrels" && c.after === "Steel Rain Barrels: Galvanized Finishes, Sizes & Care")).toBe(true); });
+  /** A CARD IS ABOUT ONE PAGE AND ITS CHANGE IS A CHANGE TO THAT PAGE. The row persists ONE recommendedChange taken from the first component while the headline and address come from the page the card is filed on, so a bundle whose only piece was on /iran-flags got STORED under /iran-flags/iran-islamic-republic-flag-history and would have read "Update the title on [the child]" above the hub's broad wording. Live proof of the harm: that exact row sat in production reading "Iran Flag History: Meaning, Colors & Full Timeline" under the child's address. */
+  it("hands over nothing when the only wording that came back is for another page", async () => {
+    const elsewhere = async (i: { body: OwnedPageBody }) => (i.body.url === KID ? { before: i.body.title, after: "Steel Rain Barrels: Galvanized Sizes & Care", anchor: "top", heading: null, minutes: 5 } : null);
+    const out = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: elsewhere }, finding: nestedSplit() }));
+    expect(out.components).toHaveLength(0);
+    expect(out.refusal).toContain("The only wording that came back is for /rain-barrels/steel-barrels, not for this page");
+    expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"])); }); // the other page's decision is still on the record, never silently dropped
   it("refuses honestly when no page of this account is named by the evidence", async () => {
     // No inventory on file at all: nothing to send a reader to, and nothing is invented.
     const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] })); expect(nowhere.components).toHaveLength(0);

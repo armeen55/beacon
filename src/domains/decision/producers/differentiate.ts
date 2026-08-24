@@ -30,7 +30,7 @@ const count = (n: number): string => Math.round(n).toLocaleString("en-US");
 const MAX_DIFFERENTIATED = 4;
 
 export async function produceDifferentiation(ctx: ProducerCtx, named: readonly string[], keep: string,
-  bodyFor: (p: string) => OwnedPageBody | null, why: string): Promise<Produced | null> {
+  bodyFor: (p: string) => OwnedPageBody | null, why: string, self: string): Promise<Produced | null> {
   if (!ctx.draft.pageField) return null;
   const inScope = named.slice(0, MAX_DIFFERENTIATED);
   const pages = inScope.map((path) => ({ path, body: bodyFor(path) }))
@@ -40,8 +40,7 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
   /** A LINE IS READ WITHOUT ITS TRAILING DESCRIPTOR. Any short segment after the last " - " or " | " is site furniture, not the page's subject, and holding a rewrite to it refused correct copy. */
   const trimSuffix = (t: string): string => { const at = Math.max(t.lastIndexOf(" - "), t.lastIndexOf(" | ")); return at > 0 && t.slice(at + 3).trim().split(/\s+/).length <= 3 ? t.slice(0, at) : t; };
   const nests = (a: string, b: string): boolean => a !== b && b.startsWith(a === "/" ? a : `${a}/`), hub = pages.map((p) => p.path).find((a) => pages.some((b) => nests(a, b.path))) ?? null, owner = hub ?? keep;
-  // THE VERDICT LEDGER. Every named address starts here owing differentiation; a page the editor cannot honestly
-  // improve is REWRITTEN to keep_as_is with the reason, never removed. The list is what completeness reads.
+  // THE VERDICT LEDGER: every named address starts here owing differentiation, and a page the editor cannot honestly improve is REWRITTEN to keep_as_is with the reason, never removed. The list is what completeness reads.
   const verdicts = new Map<string, { page: string; verdict: "differentiate" | "keep_as_is"; because: string }>(
     inScope.map((p) => [p, { page: p, verdict: "differentiate" as const, because: `Google serves ${count(inScope.length)} of this site's pages for "${ctx.primary}", and this one has to say what it alone covers.` }]));
   const others = (path: string): string => pages.filter((p) => p.path !== path)
@@ -73,7 +72,7 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       // editor being right. A page that ends up with nothing is DROPPED from the change, checked below.
       if (!done) continue;
       // A PIECE THAT MAKES ITS PAGE LESS DISTINCT IS NOT A DIFFERENTIATION, IT IS THE OPPOSITE: the words this page's line carries that NO sibling carries are the reason this address exists, so dropping one narrows the page off its own subject (/persian-names lost "Last Names", the single thing it covered and its siblings did not).
-      // TWO SETS, because the guards ask different questions. What is uniquely MINE is asked against everything a rival PRINTS, since a word on their page is a real reason it is not mine alone. What makes me WORTH KEEPING is asked against what those rivals ARE, their title and heading only: a hub's h2 list is a ROSTER OF ITS CHILDREN'S NAMES, so reading it as coverage let the hub answer for the child's whole subject and the guard went vacuous on exactly the pair it was needed for.
+      // TWO SETS: what is uniquely MINE is asked against everything a rival PRINTS, since a word on their page is a real reason it is not mine alone; what makes me WORTH KEEPING is asked against what those rivals ARE, their title and heading only, because a hub's h2 list is a ROSTER OF ITS CHILDREN'S NAMES and reading it as coverage let the hub answer for the child's whole subject.
       const rivals = pages.filter((x) => x.path !== path), toks = (deep: boolean): Set<string> => new Set(rivals.flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...(deep ? x.body.headings.slice(0, 40) : [])].join(" "))));
       const siblings = toks(true), own = toks(false);
       const lost = topicTokens(trimSuffix(done.before ?? "")).filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
@@ -101,8 +100,9 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
   const covered = [...new Set(components.map((c) => c.page!))];
   for (const p of inScope) if (!covered.includes(p)) verdicts.set(p, { page: p, verdict: "keep_as_is",
     because: `${p} is left as it is: no wording came back that tells it apart from ${others(p)} without narrowing it off a subject its siblings do not cover.` });
-  if (covered.length === 0) return { components: [], dispositions: [...verdicts.values()],
-    refusal: `Neither ${pages.map((x) => x.path).join(" nor ")} could be given wording that tells it apart from the others without narrowing it off its own subject, so nothing is handed over. Ask again and anything already written costs nothing a second time.` };
+  // A CARD IS ABOUT ONE PAGE, AND ITS CHANGE IS A CHANGE TO THAT PAGE. The row persists ONE `recommendedChange` taken from the FIRST component, while the card's headline and address come from the page it is filed on: a bundle whose only piece was on /iran-flags got stored under /iran-flags/iran-islamic-republic-flag-history and would have read "Update the title on [the child]" above the HUB's broad wording, which is the operator pasting the hub's line onto the child. The card's own page leads, and a bundle with nothing for it is not this card's work however real it is elsewhere.
+  components.sort((a, b) => Number(b.page === self) - Number(a.page === self));
+  if (!covered.includes(self)) return { components: [], dispositions: [...verdicts.values()], refusal: covered.length === 0 ? `Neither ${pages.map((x) => x.path).join(" nor ")} could be given wording that tells it apart from the others without narrowing it off its own subject, so nothing is handed over. Ask again and anything already written costs nothing a second time.` : `The only wording that came back is for ${covered.join(" and ")}, not for this page, so there is nothing here to hand you. This page is left exactly as it is.` };
   return { components, refusal: null, dispositions: [...verdicts.values()], considered: [{ option: "Merge them into one page", reason: why }],
     operatorSteps: [...covered.map((path) => `On ${path}, apply the ${count(components.filter((c) => c.page === path).length)} ${components.filter((c) => c.page === path).length === 1 ? "piece" : "pieces"} above marked for it`),
       // THE PAGES THIS CHANGE DELIBERATELY LEAVES ALONE, said out loud, because a split settled on two of four
