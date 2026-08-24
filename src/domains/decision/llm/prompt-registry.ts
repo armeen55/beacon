@@ -25,7 +25,7 @@ export const PROMPT_REGISTRY = {
   "draft.answer_block": 6,
   // draft.atomic_edit bumped to v2 (2026-08-23, grounded utility): the head clause now names the actual field (an answer block is no longer told it is a title edit) and the intent directive carries the AEO shape vocabulary, so the cache must never serve a v1 answer written under the two-assignments prompt. Previously: stayed at v1 (2026-08-01, V1 Closure); the opening-answer clause is APPENDED only when the field is
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
-  "draft.atomic_edit": 3, // v3 (2026-08-24): a meta carries META_SUBJECT_CLAUSE, so a v2 description written while the FAQ rail counted as the page's subject can never be served under the wording that forbids it.
+  "draft.atomic_edit": 4, // v4 (2026-08-24): a meta carries META_SUBJECT_CLAUSE, which forbids the page's FAQ rail as its subject and requires it to open by naming the thing. No v2/v3 description can be served under wording that forbids what it did.
   "draft.editor_judgement": 1,
   "draft.factual_review": 1,
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and

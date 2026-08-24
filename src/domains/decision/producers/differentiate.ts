@@ -36,7 +36,9 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
   const pages = inScope.map((path) => ({ path, body: bodyFor(path) }))
     .filter((p): p is { path: string; body: OwnedPageBody } => p.body?.completeness === "complete");
   if (pages.length !== inScope.length || pages.length < 2) return null;
-  // A HUB AND ITS OWN CHILD ARE NOT RIVALS: one address nesting inside another is a page covering a subject and a page answering one part of it, and a hub earns its head term BY listing what it links to. Reading that as a split settled it wrong twice over: the child out-clicked the hub, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words, while the hub's roster of its children's names filled `siblings` with every word the child was distinct for, emptying the guard below. The ancestor owns the broad search, its descendants stay on their own subject, and a hub never votes on what its own child is distinct for.
+  // A HUB AND ITS OWN CHILD ARE NOT RIVALS: one address nesting inside another is a page covering a subject and a page answering one part of it, and a hub earns its head term BY listing what it links to. Read as a split it settled wrong: the child out-clicked the hub, so the survivor rule made the CHILD the owner and the brief told it, in those words, to KEEP the broad search. The ancestor owns it instead, however the clicks fall, and its descendants stay on their own subject.
+  /** A LINE IS READ WITHOUT ITS TRAILING DESCRIPTOR. Any short segment after the last " - " or " | " is site furniture, not the page's subject, and holding a rewrite to it refused correct copy. */
+  const trimSuffix = (t: string): string => { const at = Math.max(t.lastIndexOf(" - "), t.lastIndexOf(" | ")); return at > 0 && t.slice(at + 3).trim().split(/\s+/).length <= 3 ? t.slice(0, at) : t; };
   const nests = (a: string, b: string): boolean => a !== b && b.startsWith(a === "/" ? a : `${a}/`), hub = pages.map((p) => p.path).find((a) => pages.some((b) => nests(a, b.path))) ?? null, owner = hub ?? keep;
   // THE VERDICT LEDGER. Every named address starts here owing differentiation; a page the editor cannot honestly
   // improve is REWRITTEN to keep_as_is with the reason, never removed. The list is what completeness reads.
@@ -70,17 +72,15 @@ export async function produceDifferentiation(ctx: ProducerCtx, named: readonly s
       // every address threw away two accepted pieces because the third had nothing to improve, which is the
       // editor being right. A page that ends up with nothing is DROPPED from the change, checked below.
       if (!done) continue;
-      // A PIECE THAT MAKES ITS PAGE LESS DISTINCT IS NOT A DIFFERENTIATION, IT IS THE OPPOSITE. The words this
-      // page's own line carries that NO sibling in the cluster carries are the reason this address exists, so a
-      // rewrite that drops one narrows the page off its own subject and makes the overlap worse. /persian-names
-      // lost "Last Names", the single thing it covered and its siblings did not, on a card sold as settling a split.
-      const siblings = new Set(pages.filter((x) => x.path !== path && !nests(x.path, path))
-        .flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...x.body.headings.slice(0, 40)].join(" "))));
-      const lost = topicTokens(done.before ?? "").filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
+      // A PIECE THAT MAKES ITS PAGE LESS DISTINCT IS NOT A DIFFERENTIATION, IT IS THE OPPOSITE: the words this page's line carries that NO sibling carries are the reason this address exists, so dropping one narrows the page off its own subject (/persian-names lost "Last Names", the single thing it covered and its siblings did not).
+      // TWO SETS, because the guards ask different questions. What is uniquely MINE is asked against everything a rival PRINTS, since a word on their page is a real reason it is not mine alone. What makes me WORTH KEEPING is asked against what those rivals ARE, their title and heading only: a hub's h2 list is a ROSTER OF ITS CHILDREN'S NAMES, so reading it as coverage let the hub answer for the child's whole subject and the guard went vacuous on exactly the pair it was needed for.
+      const rivals = pages.filter((x) => x.path !== path), toks = (deep: boolean): Set<string> => new Set(rivals.flatMap((x) => topicTokens([x.body.title ?? "", x.body.h1 ?? "", ...(deep ? x.body.headings.slice(0, 40) : [])].join(" "))));
+      const siblings = toks(true), own = toks(false);
+      const lost = topicTokens(trimSuffix(done.before ?? "")).filter((w) => !siblings.has(w) && !topicTokens(done.after).includes(w));
       if (lost.length > 0) { log.info("[differentiate] a piece would have made its page less distinct", { page: path, field, dropped: lost.slice(0, 3), after: done.after.slice(0, 90) }); continue; }
       // AND IT CARRIES THE PAGE'S OWN SUBJECT, not merely whatever its old line said: the check above reads `before`, so a page whose line was ALREADY generic may be
       // rewritten more generic still. The page headed "Islamic Republic of Iran Flag (1979-Current)" was handed "Iran Flag History: Meaning, Colors & Full Timeline" and went on competing with /iran-flags for the very search this card exists to settle.
-      const distinct = topicTokens(subject).filter((w) => !siblings.has(w)), carries = new Set(topicTokens(done.after));
+      const distinct = topicTokens(subject).filter((w) => !own.has(w)), carries = new Set(topicTokens(done.after));
       if (distinct.length > 0 && !distinct.some((w) => carries.has(w))) { log.info("[differentiate] a piece carries none of its page's own subject", { page: path, field, subject, after: done.after.slice(0, 90) }); continue; }
       const label = field === "title" ? "Page title" : field === "h1" ? "Page heading" : "Opening lines";
       components.push({
