@@ -12,6 +12,7 @@ import Link from "next/link";
 import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
+import { openHold } from "@/domains/decision/completeness";
 import { pageLabel } from "./changes/types";
 import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
@@ -106,22 +107,23 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         ) : (
           <ul className="list-none space-y-3">
             {readyRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={i + 1} proven review={false} caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={i + 1} ready review={false} caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
         )}
       </section>
 
-      {/* NEEDS YOUR REVIEW: complete copy held for one named judgement. Nothing here records work as done. */}
+      {/* TWO DIFFERENT THINGS WEAR ONE LABEL NO LONGER: a draft Beacon's own gates already refused is NOT waiting on anybody's taste, and calling it "Needs your review" hands a known failure back as if the reader were the missing ingredient. Copy nothing has objected to is the only kind that owes a judgement. Read off the row's own blocking reason, so a card moves the moment its stored reasons change. */}
       {reviewRows.length > 0 ? (
         <section className="space-y-3" data-lane-review="true">
           <p className="text-[14px] font-semibold tabular-nums text-foreground">
-            Needs your review: {reviewRows.length.toLocaleString("en-US")} {reviewRows.length === 1 ? "draft" : "drafts"}
+            {reviewRows.every((p) => openHold(p).faulted) ? `Beacon must improve ${reviewRows.length === 1 ? "this draft" : `these ${reviewRows.length.toLocaleString("en-US")} drafts`}`
+              : `Needs your review: ${reviewRows.length.toLocaleString("en-US")} ${reviewRows.length === 1 ? "draft" : "drafts"}`}
           </p>
           <ul className="list-none space-y-3">
             {reviewRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={i + 1} proven={false} review caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={i + 1} review caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>

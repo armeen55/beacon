@@ -83,6 +83,11 @@ describe("a ranked card explains itself without being opened", () => {
     const held = await renderList(viewOf([proposal()]));
     for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your review", "Why it is held", "moves or hides a page", "2 exact pieces inside"]) expect(held, s).toContain(s);
     for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
+    // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED. The ready lane passed a bare `proven` on every row, so the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all. This row is Ready and has none either, so it may not wear the chip that says its argument was checked outside this account.
+    expect(ready, "proven").not.toContain("Proven"); expect(ready, "tier").toContain("Thin evidence");
+    // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS NOT WAITING ON ANYBODY'S TASTE: it is defective work, and the lane says whose problem it is. The safety hold above still reads "Needs your review", because that one really is the operator's call.
+    const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
+    expect(bad, "fault").toContain("Beacon must improve"); expect(bad, "reason").toContain("it repeats what stays on the page below it");
   });
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));

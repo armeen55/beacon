@@ -28,11 +28,9 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
   low: { intent: "neutral", label: "Low risk" }, medium: { intent: "waiting", label: "Medium risk" },
   high: { intent: "attention", label: "High risk" },
 };
-/** HOW PROVEN THIS EDIT IS, as one ordered tier: 0 cleared every evidence and safety check, 1 has a receipt
- *  citing a live results page or a page that beats you, 2 has neither. The list sorts and filters on the SAME
- *  number the chip renders, so a filter and a chip can never disagree. */
-const evidenceTier = (p: ChangeProposal, proven: boolean): 0 | 1 | 2 =>
-  proven ? 0 : (p.bundle?.receipt.items ?? []).some((i) => i.kind === "serp" || i.kind === "winning_page") ? 1 : 2;
+/** HOW PROVEN THIS EDIT IS, READ OFF ITS OWN EVIDENCE AND NOTHING ELSE: 0 stands on a source outside this account, 1 on a live results page or a page that beats you, 2 on neither. It USED TO TAKE `proven` from the caller and the ready lane passed a bare `proven` on every row, so being FINISHED printed as being PROVED: the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all, its one claim standing on nothing but the page it rewrites. Readiness is a queue fact, evidence is a claim about the world, and one may never be shown as the other. The list sorts on the SAME number the chip renders. */
+const evidenceTier = (p: ChangeProposal): 0 | 1 | 2 => { const k = new Set((p.bundle?.receipt.items ?? []).map((i) => i.kind));
+  return k.has("independent_source") ? 0 : k.has("serp") || k.has("winning_page") || k.has("ai_observation") ? 1 : 2; };
 /** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument
  *  behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. */
 const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Proven" },
@@ -131,8 +129,8 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, proven, review = false, caseLine = null, onAside, onDone, onToast }: {
-  proposal: ChangeProposal; rank: number; proven: boolean;
+export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast }: {
+  proposal: ChangeProposal; rank: number; ready?: boolean;
   /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would
    *  record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander.
    *  A control is a claim that the work is finished, and this stage is the stage where it is not. */
@@ -170,7 +168,7 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
   // and de-slugging a title truncates it at its first slash and eats its punctuation.
   const pageTitle = proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page");
   const secondary = path === pageTitle ? null : path;
-  const tier = evidenceTier(proposal, proven);
+  const tier = evidenceTier(proposal);
   const chip = TIER_CHIP[tier]!;
   // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy
   // box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the
@@ -191,7 +189,7 @@ export function ChangeCard({ proposal, rank, proven, review = false, caseLine = 
   );
 
   return (
-    <li className={`rounded-2xl border bg-surface-raised ${proven ? "border-accent-primary/50" : "border-border"}`}
+    <li className={`rounded-2xl border bg-surface-raised ${ready ? "border-accent-primary/50" : "border-border"}`}
       data-change-card="true">
       {/* THE WHOLE COLLAPSED HEAD IS THE CONTROL, so it is reachable by tab and opens on Enter or Space. */}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
