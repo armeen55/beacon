@@ -81,7 +81,13 @@ const HOSTISH = /\b([a-z][a-z0-9-]{3,})\.(?:com|org|net|io|co|edu|info)\b/gi;
 /** WHAT ONE PAGE ACTUALLY COST, off the gateway's own receipts: real provider calls (a structured call retries once internally, so one logical operation can be two calls) and real dollars. Logical attempt units are budget bookkeeping and are never reported as either (Codex, 2026-08-23: the seven-unit price met a sixteen-call dispatch). */
 /** ONE completed provider result, reported to the page's own allowance, which is the ONE thing every paid family already holds (Codex, 2026-08-23). The editor used to keep a private meter the caller passed in, so the other five families spent real money that no receipt could name; the money surface counts for all of them now. */
 type Allowance = { left: number; record?: (r: unknown) => void };
-const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); }; const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
+const spendOf = (a: Allowance | undefined, r: unknown): void => { a?.record?.(r); }; /** WHETHER A BODY EDIT ADDS ANYTHING, ASKED STRUCTURALLY AND NOT AS A WORD LIST. Every id the packet carries is either the target page's own text (`page-title`, `page-h1`, `page-heading-*`, `page-copy-*`) or Beacon's own analysis of it (`card-*`); the ids that carry information the page does NOT hold are the account's other pages and the searches this page fails. Copy whose every claim rests on the first group cannot be adding a fact the reader could not already get from the page they are standing on, whatever its wording. A description is exempt on purpose: summarising the page IS its job. */
+const OWN_PAGE_ID = /^(?:page-(?:copy|title|h1|heading)|card-)/;
+const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type: string, evidence: Readonly<Record<string, string>>): boolean =>
+  (type === "answer_block" || type === "section") && claims.length > 0
+  && Object.keys(evidence).some((id) => !OWN_PAGE_ID.test(id))
+  && claims.every((c) => c.supportedBy.length > 0 && c.supportedBy.every((id) => OWN_PAGE_ID.test(id)));
+const flat = (s: string): string => s.toLowerCase().replace(/[\s\u00a0]+/g, " ").replace(/[\u201c\u201d]/g, '"').replace(/[\u2019]/g, "'").trim();
 /** THE STORED PAGE AS THE GATE READS IT: crawler markers out, then flattened. The gate matches against a body that had CHROME replaced while the passages handed to the writer never did, so a passage carrying "top of page" (which /funny-farsi-phrases does) could NEVER be found in it: production refused that rewrite with "the words it says it replaces are not on the stored page" over copy taken from the page itself (Codex, 2026-08-23). One normalizer now answers for both sides, so a passage chosen to be replaced passes the exists-on-page check by construction. */
 const storedFlat = (s: string): string => flat(s.replace(CHROME, " "));
 /** THE WHOLE STORED PAGE AS ONE STRING, built in ONE place: the failure this repair exists for was two sides of one comparison disagreeing, and two hand-built haystacks would only wait to disagree again. */
@@ -202,11 +208,11 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   // A REWRITE THAT COMES BACK AS THE LINE ALREADY THERE IS NOT A CHANGE. Case, spacing, dashes and end punctuation are not work: a card asking an operator to replace "(1979-Current) (2 Variations)" with "(1979 - present): 2 variations" is a chore dressed as an edit, and it passed both the deterministic half (the strings differ) and the judge (the copy is fine, and it was never asked whether anything moved).
   const same = (a: string, b: string): boolean => flat(a).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim()
     === flat(b).replace(/[–—-]/g, " ").replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-  if (d.beforeText != null && same(d.finalCopy, d.beforeText)) out.push("it hands back the line the page already carries, re-punctuated, so nothing about the page would change");
-  const [lo, hi, unit] = BAND[d.actionType], n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
+  if (d.beforeText != null && same(d.finalCopy, d.beforeText)) out.push("it hands back the line the page already carries, re-punctuated, so nothing about the page would change"); const [lo, hi, unit] = BAND[d.actionType], n = unit === "c" ? d.finalCopy.trim().length : words(d.finalCopy);
   if (n < lo || n > hi || UNSAFE.test(d.finalCopy)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
   if ((d.actionType === "answer_block" || d.actionType === "section") && SELF_POINTER.test(d.finalCopy)) { // A LINK IS CHECKED AS A LINK: the destination has to be a page this account actually owns, and the words on it have to be in the sentence being pasted. AN ANSWER MAY NOT BE ABOUT THE PAGE. Only for copy that lands in the body; a description IS about the page.
     out.push("it points at the page instead of answering"); }
+  if (addsNothing(d.claims, d.actionType, p.evidence)) out.push("every claim it makes stands on this page's own words, so a reader already on the page learns nothing new: build it from the searches this page does not answer and from the account's other pages");
   out.push(...rereadableRefusals(d.finalCopy, p, d.naturalHeading));
   if (!(d.actionType in FIELD)) { // A FIELD EDIT HAS NO ANCHOR TO JUDGE (2026-08-22): a title, heading or description replaces its own field, so whatever the model wrote in the anchor slot is bookkeeping, and refusing a finished description over the SHAPE of an anchor nobody will use blocked every description on the account.
     if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
@@ -220,8 +226,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
   // WORD CONTAINMENT IS NOT GROUNDING, AND IT REFUSED EVERY DRAFT BEACON EVER WROTE (Codex, 2026-08-23). The two gates that stood here demanded every content word of the copy appear LITERALLY in the cited evidence, so finished work was refused over "reader", "start", "here", "say", "reason", "looking", "group" and "accessory": no sentence a person would write can pass one, and none did across four live dispatches. WHAT THEY PROTECTED IS KEPT, aimed at what actually harms a reader: a page that never mentions Cyrus the Great or Ferdowsi got copy asserting both, and that card reached a paying customer. A fabricated fact wears a NAME. ON FILE MEANS ON FILE, never the claims the writer declared: a corpus carrying the writer's own sentences lets a fabrication ground itself by being asserted twice, which is how the claim graph passed "Cyrus the Great". Meaning is judged by the evaluator that reads every claim against the evidence it names.
-  const onFile = `${corpus} ${stored} ${Object.values(p.evidence).join(" ")} ${p.trackedQuestion ?? ""}`;
-  const invented_names = unheldNames(onFile, d.finalCopy);
+  const onFile = `${corpus} ${stored} ${Object.values(p.evidence).join(" ")} ${p.trackedQuestion ?? ""}`; const invented_names = unheldNames(onFile, d.finalCopy);
   if (invented_names.length > 0) out.push(`its copy names ${invented_names.slice(0, 3).map((t) => `"${t}"`).join(", ")}, and nothing on file about this page mentions them`);
   return [...new Set(out)];
 }
@@ -231,9 +236,7 @@ const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|lea
 export function withoutCta(copy: string, type: EditorDeliverable["actionType"]): string | null {
   // LIST-SHAPED COPY IS READ BY ITS LINES (review, 2026-08-22): with line breaks preserved, the closing CTA is a whole last LINE and the space-suffixed boundaries below never see it, while the " - " boundary would amputate the meaning off an honest "phrase - meaning" list item. Multi-line copy therefore drops a CTA last line whole and keeps every list separator; the single-line path is byte for byte what it was.
   if (copy.includes("\n")) {
-    const lines = copy.trim().split("\n");
-    if (!CTA_TAIL.test(lines[lines.length - 1]!.trim().replace(/^[.;!?\s-]+/, ""))) return copy;
-    const kept = lines.slice(0, -1).join("\n").trim(), [lo0, , unit0] = BAND[type];
+    const lines = copy.trim().split("\n"); if (!CTA_TAIL.test(lines[lines.length - 1]!.trim().replace(/^[.;!?\s-]+/, ""))) return copy; const kept = lines.slice(0, -1).join("\n").trim(), [lo0, , unit0] = BAND[type];
     return kept && (unit0 === "c" ? kept.length : words(kept)) >= lo0 ? kept : null;
   }
   // A CLAUSE IS A CLOSING LINE TOO. Cut only on a full stop and the same instruction came back joined on with a dash or a semicolon ("- click to read the focused account"), which is the identical filler wearing different punctuation. THE CUT LEAVES A SENTENCE, NEVER A STUB: whatever the join was, what is left ends its own line.
