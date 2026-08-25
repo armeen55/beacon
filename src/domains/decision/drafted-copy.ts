@@ -610,6 +610,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts: D
                 : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
                   `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
                   "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
+        ...(done!.d.softFailures?.length ? { faults: [...done!.d.softFailures] } : {}), // TYPED, so whose problem this row is survives any rewording of the sentence that says it
         limitations: [...card.limitations, ...(done!.d.softFailures ?? []), ...drafted.uncertaintyOrOmitted, meta
           ? "This line is written off the page's own title, headings and stored copy as last read, so check it still describes the page before you publish it."
           : title

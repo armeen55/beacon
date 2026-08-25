@@ -90,7 +90,8 @@ export function selectDeepCandidates(input: {
     const competing = splitPayload && splitPayload.cause === "cannibalization" ? splitPayload.competingPaths : [];
     doors.push({ pageUrl: split.pageUrl, door: "cannibalization", unit: "clicks", strength: clicksOf(split), volume: 0,
       evidence: { ...NO_IDENTITY, query: split.query!, competingUrls: [...competing] },
-      entry: `${LEAD} ${num(competing.length || 2)} of your own pages come up for "${split.query}" and this one is the strongest of them, about ${num(clicksOf(split))} clicks short.` });
+      // NO CAUSAL NUMBER ON A SPLIT: `clicksOf` is a MODELLED gap between this page's click rate and what its positions usually earn, a fact about CTR and not about the split, and not one word of it is demonstrated lift from the wording this card proposes. Printed as "about 176 clicks short" beside a title change it reads as a promise the evidence never made. The split's own reason is the split.
+      entry: `${LEAD} ${num(competing.length || 2)} of your own pages come up for "${split.query}" and this one is the strongest of them, so Google is choosing between them every time somebody searches it.` });
   }
 
   // DOOR 4: A PAGE THAT HAS FALLEN, read off the candidate's own recorded gap, so the day a producer can prove a fall this door opens on its own. The door is wired to the evidence, not to a hope.

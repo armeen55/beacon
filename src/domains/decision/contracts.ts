@@ -215,9 +215,7 @@ export function dangerousComponents(components: readonly BundleComponent[]): Bun
 /** One piece of canonical evidence the bundle used, in plain English. `key` is stable within the bundle and cited by BundleComponent.evidenceKeys; `fact` carries no raw id; `observedAt` null = undated aggregate. */
 export type BundleEvidenceItem = {
   key: string;
-  // `independent_source` is evidence from OUTSIDE this account: a dictionary, an encyclopedia, a scholarly
-  // reference. It exists because a factual correction stands on the source that contradicts the page, and
-  // filing that under `page_extract` told the operator the check came from the page being corrected.
+  // `independent_source` is evidence from OUTSIDE this account: a dictionary, an encyclopedia, a scholarly reference. It exists because a factual correction stands on the source that contradicts the page, and filing that under `page_extract` told the operator the check came from the page being corrected.
   kind: "gsc_demand" | "keyword" | "serp" | "ai_observation" | "winning_page" | "page_extract" | "competitor" | "internal_link" | "diagnosis" | "independent_source";
   fact: string;
   observedAt: string | null;
@@ -276,6 +274,7 @@ export type ChangeProposal = {
   confidence: ProposalConfidence;
   /** Honest caveats carried WITH the proposal: the draft's own risks, any validator caution, the "no baseline yet" note. */
   limitations: string[];
+  /** WHAT BEACON'S OWN GATES SAID IS WRONG WITH THIS COPY, typed and separate from the caveats that merely ride along. Whose problem a held row is must never be guessed from the shape of an English sentence: a reworded refusal would silently change the owner. Absent on a row stored before this field existed, which reads honestly as "nothing typed" rather than "nothing wrong". */ faults?: readonly string[];
   evidence: ProposalEvidence;
   /** Honest value sizing for the ranker (may be null, never fabricated). */
   impactScore: number | null;
@@ -284,18 +283,10 @@ export type ChangeProposal = {
   demandImpressions90d?: number | null;
   /** THE AI SIDE OF THIS CHANGE, IN ITS OWN UNITS, never converted into pretend clicks: how many stored answers to its question exist, the share that credit this site, how many rival domains those answers cite instead, and the Google audience of the page the work lands on as the honest weight. Absent on a card no stored answer is behind. */
   aiImpact?: { answers: number; mentionRate: number; citedRivals: number; audienceWeight: number | null;
-    /** RECURRENCE, never row totals: distinct reporting days, engines and parent questions behind the claim,
-     *  the answers that actually reported sources (the honest denominator), how often this site was read and
-     *  passed over, and the AI stage the case is in. Absent on rows minted before 2026-08-19. */
+    /** RECURRENCE, never row totals: distinct reporting days, engines and parent questions behind the claim, the answers that actually reported sources (the honest denominator), how often this site was read and passed over, and the AI stage the case is in. Absent on rows minted before 2026-08-19. */
     days?: number; engines?: number; prompts?: number; reportedAnswers?: number; retrievedNotCited?: number;
     stage?: "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "own_not_in_reported_sources" | "owned_mentioned_not_cited" | "citations_unreported"; };
-  /** THE EXACT AI SCOPE a shipment must remeasure: prompt ids, engines and the fan-out cluster this change
-   *  targets, preserved through Mark implemented instead of flattened into ten strings.
-   *  `caseKey` is the CANONICAL CASE IDENTITY ("fanout:<key>" or "prompt:<id>"): every surface joins a search
-   *  to its Change on this and never on wording that merely resembles it. `fanouts` carries every exact
-   *  variant. `observationIds` is durable membership: the answers this claim was actually minted from, so a
-   *  retired or reworded question cannot strand its own measurement. Added fields are optional so every row
-   *  already on file still decodes. */
+  /** THE EXACT AI SCOPE a shipment must remeasure: prompt ids, engines and the fan-out cluster this change targets, preserved through Mark implemented instead of flattened into ten strings. `caseKey` is the CANONICAL CASE IDENTITY ("fanout:<key>" or "prompt:<id>"): every surface joins a search to its Change on this and never on wording that merely resembles it. `fanouts` carries every exact variant. `observationIds` is durable membership: the answers this claim was actually minted from, so a retired or reworded question cannot strand its own measurement. Added fields are optional so every row already on file still decodes. */
   aiScope?: { caseKey?: string; promptIds: string[]; promptVersions?: number[]; engines: string[];
     models?: string[]; modes?: string[]; fanoutKey?: string; fanouts: string[]; observationIds?: string[]; stage: string };
   /** The deep copy-ready form (Slice 7). Absent on atomic proposals and pre-bundle rows; ONE decoder serves both. */
@@ -416,6 +407,7 @@ export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   riskLevel: z.enum(["low", "medium", "high"]),
   confidence: z.enum(["high", "medium", "low"]),
   limitations: z.array(z.string()),
+  faults: z.array(z.string()).optional(),
   evidence: z.object({ query: z.string(), hints: z.array(z.string()), evidenceRefCount: z.number() }),
   impactScore: z.number().nullable(),
   upsidePerMonth: z.number().nullable(),

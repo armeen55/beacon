@@ -31,10 +31,9 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
 /** HOW PROVEN THIS EDIT IS, READ OFF ITS OWN EVIDENCE AND NOTHING ELSE: 0 stands on a source outside this account, 1 on a live results page or a page that beats you, 2 on neither. It USED TO TAKE `proven` from the caller and the ready lane passed a bare `proven` on every row, so being FINISHED printed as being PROVED: the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all, its one claim standing on nothing but the page it rewrites. Readiness is a queue fact, evidence is a claim about the world, and one may never be shown as the other. The list sorts on the SAME number the chip renders. */
 const evidenceTier = (p: ChangeProposal): 0 | 1 | 2 => { const k = new Set((p.bundle?.receipt.items ?? []).map((i) => i.kind));
   return k.has("independent_source") ? 0 : k.has("serp") || k.has("winning_page") || k.has("ai_observation") ? 1 : 2; };
-/** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument
- *  behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. */
-const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Proven" },
-  { intent: "measuring", label: "Early evidence" }, { intent: "waiting", label: "Thin evidence" }];
+/** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. WHERE THE ARGUMENT COMES FROM, NEVER WHETHER IT WORKED. "Proven" said a source had been collected and let a reader hear that every claim was checked and the change would land; neither follows, and proof is something Results earns AFTER a measurement. These name the provenance and stop. */
+const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Source-backed" },
+  { intent: "measuring", label: "Search-results-backed" }, { intent: "waiting", label: "Page-only" }];
 
 /** Today, in the operator's words, for the sentence a just-finished card prints. */
 const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
@@ -110,10 +109,7 @@ function statsOf(p: ChangeProposal): { value: string; label: string }[] {
   ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
 }
 
-/** WHO IS ABOVE HIM TODAY, in the receipt's own words. The winning-page, competitor and results-page facts already
- *  open with the site's own domain, and the ones that read a page carry what it runs; this lifts the first fact that
- *  actually names a site and says it once, loudly, instead of leaving it folded inside the checks list. Nothing is
- *  invented: a receipt with no domain in it gets no line at all. */
+/** WHO IS ABOVE HIM TODAY, in the receipt's own words. The winning-page, competitor and results-page facts already open with the site's own domain, and the ones that read a page carry what it runs; this lifts the first fact that actually names a site and says it once, loudly, instead of leaving it folded inside the checks list. Nothing is invented: a receipt with no domain in it gets no line at all. */
 function beatenBy(b: ChangeBundle | undefined): string | null {
   const named = (b?.receipt.items ?? [])
     .filter((i) => i.kind === "winning_page" || i.kind === "competitor" || i.kind === "serp")
@@ -131,13 +127,9 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
 
 export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast }: {
   proposal: ChangeProposal; rank: number; ready?: boolean;
-  /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would
-   *  record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander.
-   *  A control is a claim that the work is finished, and this stage is the stage where it is not. */
+  /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander. A control is a claim that the work is finished, and this stage is the stage where it is not. */
   review?: boolean;
-  /** What Decision concluded about the search this change answers, in its own words, read off the ONE case
-   *  file Visibility reads. Null when the change answers no tracked search, or when that file could not be
-   *  read: neither of those is a verdict, and neither is printed as one. */
+  /** What Decision concluded about the search this change answers, in its own words, read off the ONE case file Visibility reads. Null when the change answers no tracked search, or when that file could not be read: neither of those is a verdict, and neither is printed as one. */
   caseLine?: string | null;
   onAside: (id: string) => void; onDone: (id: string) => void; onToast: (text: string) => void;
 }) {
@@ -157,9 +149,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const reason = (bundle?.confidenceReasons[0] ?? bundle?.receipt.items[0]?.fact ?? "").trim();
   const strongest = reason && reason !== body.trim() && reason !== primaryAction(proposal).trim() ? reason : null;
   const checks = bundle?.receipt.items.map((it) => it.fact) ?? (proposal.evidence?.hints ?? []);
-  // ONE NUMBER PER STEP, AND NO BLANK ROWS. Producers write steps both ways ("1. Open the editor" and "Open the
-  // editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a
-  // step that came through empty printed a bare "1." with nothing after it.
+  // ONE NUMBER PER STEP, AND NO BLANK ROWS. Producers write steps both ways ("1. Open the editor" and "Open the editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a step that came through empty printed a bare "1." with nothing after it.
   const steps = (proposal.operatorSteps ?? []).map((s) => (s ?? "").replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean);
   // THE PAGE, SAID THE WAY A PERSON SAYS IT. The headline was the raw slug ("/famous-iranian-comedians"), which
   // is a file name; the address itself stays underneath, where an address belongs.
@@ -170,10 +160,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const secondary = path === pageTitle ? null : path;
   const tier = evidenceTier(proposal);
   const chip = TIER_CHIP[tier]!;
-  // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy
-  // box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the
-  // completeness boundary keeps a card that tells the operator to go and write the work out of the queue
-  // entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
+  // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the completeness boundary keeps a card that tells the operator to go and write the work out of the queue entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
   const merge = isConsolidation(proposal);
   const recordDone = () => { setDone(true); onDone(proposal.id); };
   // A DRAFT IS SHOWN WITH THE REASON IT IS HELD, IN THE WORDS ALREADY STORED ON IT, and the reason decides what
