@@ -68,6 +68,13 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after "([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
   if (anchor && !(p.supportFacts ?? []).some((f) => f.fact.toLowerCase().includes(anchor.slice(0, 60)))) hard.push(MISPLACED);
+  // TWO THINGS A CARD MAY NEVER CLAIM, asked HERE because this runs on every stored row every time one is read: the banked re-read only reaches rows a pass actually re-produces, so a row nothing funded kept
+  // whatever a past generation decided. (1) A CLAIM ABOUT THE WORLD NEEDS A SOURCE and this page is not one: "Iran's national animal is the Asiatic cheetah" is a claim about a COUNTRY, authoritative sources
+  // confirm the cheetah is critically endangered and survives only in Iran without establishing that, and a `fact-` id is the only support from outside the page. (2) A SPLIT MAY NOT PROMISE CLICKS: a modelled
+  // CTR gap says what a page's positions usually earn, never what this wording recovers, so "about 176 clicks short" beside a title change is a promise the evidence never made.
+  const says = c.kind === "existing_edit" ? c.after : "";
+  if (/\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(says) && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-")))) hard.push("It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.");
+  if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "")) hard.push("Its reason promises clicks a wording change has never been shown to recover, so it is held until the ownership work it belongs to is finished.");
   if (dangerousComponents(p.bundle?.components ?? []).length > 0) hard.push("This one moves or hides a page, so it takes the deliberate confirmation on its own page rather than a plain yes.");
   const said = [...new Set([...hard, ...faults])];
   return { lane: p.researchOnly === true || gaps.some((g) => NOT_WRITTEN.test(g)) ? "research" : "review",
