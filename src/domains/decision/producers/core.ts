@@ -266,7 +266,7 @@ const rankingLoss: Producer = async (ctx) => {
       : mineNames ? "This page already names the search in its opening words, exactly as the pages above it do."
         : "The pages above this one do not agree on opening by answering the search, so its opening is not what cost it the position." });
   // 6. NOTHING THE EVIDENCE CAN PICK BETWEEN. Name the ONE read that settles it and hand over nothing else.
-  const unread = (ctx.ahead ?? []).find((a) => !a.wordCount);
+  const unread = (ctx.ahead ?? []).find((a) => !a.wordCount && a.unreadable !== true); // a robots-blocked winner can never be read, so requiring it would mint the same impossible acquisition forever
   // THE REQUIREMENT IS DECIDED HERE, WHERE THE MISSING READING IS KNOWN, and never inferred from the sentence below.
   const requirement = unread
     ? { kind: "competitor_page" as const, query: ctx.primary, url: unread.url, reasonCode: "winner_unread" }

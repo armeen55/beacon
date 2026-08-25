@@ -92,7 +92,8 @@ export type ProducerCtx = {
   /** WHO IS ABOVE THIS PAGE on the results page for its own search, in rank order, each carrying its words when
    *  they are on file and nulls when they are not. A fall is explained by what moved past it, so a page nobody
    *  has read is a NAMED, buyable hole rather than a shrug. Empty means no results page for that exact search. */
-  ahead?: readonly { url: string; domain: string; rank: number; wordCount: number | null; headings: string[]; openingSample: string | null }[];
+  ahead?: readonly { url: string; domain: string; rank: number; wordCount: number | null; headings: string[]; openingSample: string | null;
+    /** The read of this page was refused with an answer that is FINAL (the publisher's robots said no). A hole that can never be filled is not a reading to require: the requirement mint skips it, or an unreadable winner at position 2 re-mints the same impossible acquisition on every pass forever. */ unreadable?: boolean }[];
   /** The receipt facts, in plain English, as the drafter's grounding. */
   receiptFacts: string[];
   readiness: EvidenceReadiness;

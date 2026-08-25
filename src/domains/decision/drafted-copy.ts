@@ -183,6 +183,11 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
     : `it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check"); if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
+  // A CLAIM MUST CITE THE EVIDENCE THAT CARRIES IT, checked HERE and not only on the banked re-read: the same drift test ran only after landing, so a draft whose writer mis-aimed its ids (the Topoli gloss cited under another phrase's chunk) was accepted, saved Ready, and demoted by the next pass's re-read. Asymmetric gates are how work lands and then dies; the refusal at draft time is a lesson the retry can fix by re-aiming the id.
+  const adrift0 = d.claims.find((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w)); if (mine.length < 4) return false;
+    const its = new Set(topicTokens(x.supportedBy.map((id) => p.evidence[id] ?? p.evidence[id.replace(/-\d+$/, "")] ?? "").join(" ")));
+    return mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
+  if (adrift0) out.push(`the claim "${adrift0.text.slice(0, 60)}" cites evidence that is about something else: name the id whose words actually carry it`);
   // WHAT IS BEING REPLACED HAS TO EXIST, or the operator is told to swap words the page does not have, and the swap deletes whatever is truly there. A FIELD IS ITS OWN PLACE. A title, a heading and a description are lines the page already HAS, so what they replace is the stored FIELD and where they land IS that field, never a string inside the body copy. Checked against the body they were refused every single time: a description is not printed in a page's own words, so no real description edit could ever finish. Copy that lands in the body still owes a real anchor in it.
   const FIELD: Partial<Record<EditorDeliverable["actionType"], string | null>> = { title: p.title, h1: p.h1, meta: p.metaDescription };
   if (d.actionType in FIELD) {
@@ -379,7 +384,6 @@ function packetForBody(body: OwnedPageBody, query: string, hints: readonly strin
     bodyText: [...body.passages, body.vocabulary].join(" ").replace(CHROME, " "),
     headings: body.headings, evidence, trackedQuestion: query, ownedPaths, bannedTerms, demand };
 }
-
 /** ONE FINISHED FIELD ON ONE PAGE OF THIS ACCOUNT, or nothing. Telling sibling pages apart is ONE decision on several addresses, so every address is written through the SAME editor against ITS OWN stored body: same drafter, same deterministic checks, same judge. A refusal anywhere leaves the bundle unfinished, which is what completeness already demands of a change that names more than one page. */
 export async function draftFieldForPage(input: { field: EditorField; body: OwnedPageBody; query: string;
   brief: string; evidenceHints: readonly string[]; ownedPaths: readonly string[]; minutes: number },
@@ -395,7 +399,6 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
   return done && { before: done.beforeText, after: done.finalCopy, anchor: done.placementAnchor,
     heading: done.naturalHeading, minutes: done.implementationMinutes };
 }
-
 /** THE FINISHED BLOCK EACH FAMILY OWES, so a producer's brief and the editor that completes it agree by construction: a missing description gets its line, an answer gap and a thin page get their section, a duplicated heading gets its own H1, and a link brief gets the one sentence that carries the link. A family off this map is a family the editor does not finish. */
 type DraftKind = "description" | "answer" | "h1" | "link" | "title";
 const KIND_OF_SLUG: Partial<Record<string, DraftKind>> = { missing_description: "description", ai_answer_gap: "answer",
@@ -412,7 +415,6 @@ const kindFor = (c: ChangeProposal): DraftKind | null => {
   if (slug === "demand_recovery") return c.diagnosisCause == null ? null
     : c.recommendedChange.kind === "existing_edit" && c.recommendedChange.field === "title" ? "title" : "answer";
   return KIND_OF_SLUG[slug] ?? null; };
-
 /** ONE FINISHED EDIT for one page, or nothing: the description under its title, or the answer a page owes. The drafter is handed the page's own stored words under named ids and must hand back the whole homework; the deterministic half of the editor contract reads it against the packet, the judge reads it for sense, and the one canon validator reads the copy last. Anything short of all three leaves the producer's card. */
 async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, opts: DraftedCopyOptions, kind: DraftKind, siblings: ReadonlyMap<string, OwnedPageBody>, checked: readonly FactCheck[]): Promise<{ d: EditorDeliverable; ready: boolean } | null> {
   const verifiedFacts = authorized(checked, body?.contentHash ?? null, opts.basis ?? null); const packet = packetFor(card, page, body, opts.snapshot.ownedPages, opts.bannedTerms ?? [], siblings, checked, opts.basis ?? null), outline = (page.content?.outline ?? []).slice(0, 8);
@@ -520,7 +522,6 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
   return { d: deliverable, ready };
 }
-
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
 function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query; const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null; if (!row) return [];
@@ -535,7 +536,6 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
   return [...seen.values()].filter((h) => h.on.size >= AGREEING_WINNERS)
     .sort((a, b) => b.on.size - a.on.size || a.label.localeCompare(b.label)).slice(0, MAX_HEADINGS).map((h) => h.label);
 }
-
 /** The same cards, with words wherever this pass could honestly put them. Never adds, drops or reorders a card. Fail-soft: anything that does not land leaves the producer's own card intact. */
 export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: DraftedCopyOptions): Promise<ChangeProposal[]> {
   const opts: DraftedCopyOptions = { ...opts0, resolved: opts0.resolved ?? new Map() }; // ONE resolution ledger for the pass, so the typed-debt stamping below always has the map the drafting wrote into

@@ -819,3 +819,19 @@ describe("canonical bundle status", () => {
     const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
     expect(q.ready.some((p) => p.id === row.id)).toBe(false); }); // demoted in the store AND off the ready lane: no split brain
 });
+// ── the sweep's thin-coverage rule and the synthesis charter agree ─────────────
+describe("a synthesis replacement is not demoted for standing on the page's own words", () => {
+  const COPY = "Funny Persian phrases are everyday slang and insults, and the clearest examples are the playful ones that follow, each carrying the meaning a reader needs to use it well in ordinary conversation with friends and family members across generations of speakers.";
+  const row = (where: string, id: string): ChangeProposal => baseProposal({ id, pagePath: "/funny", pageUrl: "https://fixture-outdoors.example/funny", basis: "basis_test::d8",
+    changeFamily: "section", primaryQuery: "funny persian phrases", status: "ready",
+    claims: [{ text: COPY, supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: `${COPY} the anchor heading stays here` }],
+    recommendedChange: { kind: "existing_edit", field: "section", before: "old passage", after: COPY, where } });
+  it("the replace-marked row stays ready while the add-shaped twin is demoted with a typed fault", async () => {
+    reset(SEEN());
+    const keep = row('Replaces the existing passage under "Popular Phrases"', "fixture-tenant::/funny::existing_edit::ai_answer_gap");
+    const demote = row('A new section headed "Meanings", placed after "the anchor heading"', "fixture-tenant::/funny2::existing_edit::engine_followup");
+    env.store = new Map([[keep.id, keep], [demote.id, { ...demote, pagePath: "/funny2", pageUrl: "https://fixture-outdoors.example/funny2" }]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
+    expect(env.store.get(keep.id)!.status).toBe("ready"); // the synthesis charter: its whole gain is FORM, so the page's own words are its legal ground
+    expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("learns nothing new")]); });
+});

@@ -124,34 +124,28 @@ describe("middleware account injection — one login, one account, fail-closed",
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-mine" }];
     const first = await updateSession(makeRequest("/changes")); const signed = cookieValue(first, "beacon_acct");
     expect(signed, "a resolved account must be signed onto the session").toBeTruthy();
-
     supabaseState.tenantHangs = true; // the pool is starved from here on
     const headers = { cookie: `beacon_acct=${signed}` }; const warm = await updateSession(makeRequest("/changes", { headers }));
     expect(warm.status).toBe(200); expect(injectedTenant(warm)).toBe("tenant-mine");
-
     const post = new NextRequest(new URL("/changes", "https://beacon-bice.vercel.app"), { method: "POST", headers }); const acted = await updateSession(post);
     expect(acted.status).toBe(200); expect(acted.headers.get("location"), "a Mark done POST must never be redirected to /login").toBeNull();
     expect(injectedTenant(acted)).toBe("tenant-mine");
-
     // A cookie signed for somebody else is not an account: it falls through to the database like any miss.
     supabaseState.user = { id: "user-2" };
     supabaseState.tenantHangs = false;
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-theirs" }];
     expect(injectedTenant(await updateSession(makeRequest("/changes", { headers })))).toBe("tenant-theirs");
   }, 15_000);
-
   it("with no signed account, a page reloads itself once and only the second failure reaches login, carrying where they were going", async () => {
     supabaseState.user = { id: "user-1" };
     supabaseState.tenantQueryThrows = true;
     const first = await updateSession(makeRequest("/changes", { headers: { accept: "text/html" } })); expect(first.status).toBe(200);
     expect(first.headers.get("location"), "the first failure must not verdict the account").toBeNull(); expect(await first.text()).toContain("reloads by itself");
     expect(cookieValue(first, "beacon_acct_retry")).toBe("account_check_failed");
-
     const second = await updateSession(makeRequest("/changes", { headers: { accept: "text/html", cookie: "beacon_acct_retry=account_check_failed" } })); expect(second.status).toBeGreaterThanOrEqual(300);
     const location = second.headers.get("location") ?? ""; expect(location).toContain("error=account_check_failed");
     expect(location, "re-login must not also cost them the page they wanted").toContain("next=%2Fchanges");
   }, 15_000);
-
   it("never strands a session it refused: login, the error page and sign out all stay reachable, and only /api/cron is machine exempt", async () => {
     supabaseState.user = { id: "user-none" }; // signed in, no membership: the one state that can trap somebody
     for (const p of ["/login", "/login?error=no_account", "/auth/signout", "/api/cron/warm"]) {

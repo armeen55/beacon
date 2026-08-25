@@ -579,7 +579,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const P1 = "Jeegareto bokhoram is a Persian expression of affection that literally means I want to eat your liver, said warmly to loved ones and close family members across generations of Persian speakers.", P2 = "Moosh bokhoradet is a playful Persian phrase meaning may a mouse eat you, used for something small and cute, and it is one of the most common terms of endearment parents say to children.", P3 = "Pedar sag literally means dog father and is used as a playful insult between close friends rather than a serious offence, usually said with a smile in casual conversation.";
     const BODY = { url: "https://www.iranopedia.com/funny-farsi-phrases", title: "Funny Farsi Phrases" as string | null, h1: "Funny Farsi Phrases" as string | null, metaDescription: null, vocabulary: "", headings: ["Playful Persian expressions"], passages: ["Playful Persian expressions", P1, P2, P3] }; // a real crawl streams the heading INTO the body, which is what makes a section cuttable
     const GOOD = { field: "answer_block", before: null, rationale: "grounded", ...TAIL, after: `${P1}\n${P2}\n${P3}`, naturalHeading: "Playful expressions and their meanings",
-      claims: [{ text: P1, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-2"] }, { text: P3, supportedBy: ["page-copy-3"] }] };
+      claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] }; // ids aimed at the chunks that CARRY each claim: page-copy-1 is the heading passage, and citing it for P1 is the exact mis-aim the draft-time drift gate now refuses
     const OKJ = { pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true };
     const drive = (value: Record<string, unknown>, body = BODY) => draftFieldForPage({ field: "answer_block" as const, body: body as never, query: "funny persian phrases meanings",
       brief: "Add a section that answers the question. Place it directly under the heading and answer directly.", evidenceHints: [], ownedPaths: ["/funny-farsi-phrases"], minutes: 5 },
@@ -591,7 +591,9 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     /** A NAME NOTHING ON FILE HAS HEARD OF IS REFUSED, AND THE RETRY IS TOLD THE EXACT WORD (Codex, 2026-08-23). This replaces a word-containment gate that refused ordinary prose; what is checked now is the thing that actually reaches a reader as a false fact. THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK (Codex, 2026-08-23): the notes name the single worst defect, and they were being thrown away, so every retry heard only checkbox labels. */
     it("feeds the evaluator's exact objection into the retry, in its own words", async () => {
       const asked: string[] = []; let judged = 0;
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-heading-1"] }, { text: P2, supportedBy: ["page-heading-1"] }, { text: P3, supportedBy: ["page-heading-1"] }] };
+      const { canonicalUrlKey: ck2 } = await import("@/domains/evidence/snapshot");
+      bodyStore.map = new Map([[ck2(BODY.url), BODY]]); // the body chunks must exist for the claims to aim at, or the deterministic gates refuse before the judge is ever reached
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
         limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
@@ -604,7 +606,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
       expect(asked.length).toBeGreaterThan(1); // the first verdict refused, so the writer was asked again
-      expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); });
+      expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); bodyStore.map = null; });
     /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor
      *  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page
      *  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with
@@ -626,7 +628,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
       const asked: string[] = []; let round = 0;
       // the packet keeps only the passages that overlap this card's question, so the fixture cites the one it is sure of
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-1"] }, { text: P2, supportedBy: ["page-copy-1"] }, { text: P3, supportedBy: ["page-copy-1"] }] };
+      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["page-copy-1"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases",
@@ -654,7 +656,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-heading-1"] }, { text: P2, supportedBy: ["page-heading-1"] }, { text: P3, supportedBy: ["page-heading-1"] }] };
+      const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: rewritten }) } as never);
@@ -687,7 +689,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: TWO.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
       const run = async (copy: string, refusals?: Map<string, string>) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never, refusals,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
-        complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-heading-1"] }] } }) } as never);
+        complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
       // A summary that restates nothing below lands, as a REPLACEMENT: the section was found, which is the only state in which the synthesis flag is now set.
       const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
       expect((ok[0]!.recommendedChange as { where?: string }).where).toBe('Replaces the existing passage under "Playful Persian expressions"');
@@ -1217,6 +1219,15 @@ describe("typed refusal contract", () => {
     const worse = prop({ ...banked, faults: undefined, limitations: [], recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Second generation words that must not land." } });
     const out = preferFinished(worse, banked); // same workKey, same stamp, a READY predecessor: the banked words stand, and so must Beacon's own typed statement of their defect
     expect([(out.recommendedChange as { after: string }).after, out.faults]).toEqual(["The finished words that already passed every gate and were kept.", [FAULT]]); });
+  it("a claim citing evidence about something else is refused AT DRAFT TIME, not only on the banked re-read", () => {
+    const P = { targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "T", metaDescription: null, bodyText: "Topoli means chubby or plump and is usually affectionate. Gooz means fart and dismisses something as trivial.",
+      headings: [], trackedQuestion: "funny persian phrases", ownedPaths: [], bannedTerms: [], demand: { preserve: [], vocabulary: [] },
+      evidence: { "page-copy-1": "Gooz means fart and people use it informally to dismiss something as trivial." } } as never;
+    const d = { actionType: "answer_block", targetUrl: "https://www.iranopedia.com/x", placementAnchor: "T", beforeText: null, naturalHeading: "Meanings", evidenceIdsUsed: ["page-copy-1"],
+      uncertaintyOrOmitted: [], implementationMinutes: 5, measurementTarget: "citations", supportFacts: [],
+      claims: [{ text: "Topoli means chubby or plump, usually affectionate, often said to children and small pets", supportedBy: ["page-copy-1"] }],
+      finalCopy: "Topoli means chubby or plump, and Persian speakers usually say it affectionately to children, close friends, and even small pets in everyday joking conversation at home." } as never;
+    expect(deliverableFailures(d, P).join(" ")).toContain("cites evidence that is about something else"); }); // the mis-aimed id is a lesson the retry fixes, never a landing that dies on the next pass
   it("an adds-nothing refusal mints a typed serp requirement instead of retrying forever", async () => {
     const owed: Array<{ key: string; kind: string; reasonCode: string }> = [];
     const PAGE = "https://www.iranopedia.com/funny-farsi-phrases";

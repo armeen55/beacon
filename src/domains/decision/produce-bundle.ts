@@ -169,8 +169,10 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
   // WHO IS ABOVE THIS PAGE ON THAT RESULTS PAGE, in rank order, each joined to its own read where one exists. A
   // page with no read carries nulls rather than being dropped, because the hole IS the finding a fall needs.
   const extracts = new Map(read.map((w) => [canonicalUrlKey(w.url), w.extract!] as const));
+  // A PUBLISHER'S FINAL NO IS A FACT ABOUT THE HOLE, carried so no producer requires a reading that can never be made: reddit at position 2 is robots-blocked, and without this flag the requirement mint named it on every pass forever.
+  const finalNo = new Set((research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
   const ahead: Receipt["ahead"] = [...(serps[0]?.organic ?? [])].sort((a, b) => a.rank - b.rank).filter((o) => owned == null || o.rank < owned.rank).slice(0, MAX_AHEAD)
-    .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)); return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null }; });
+    .map((o) => { const x = extracts.get(canonicalUrlKey(o.url)); return { url: o.url, domain: o.domain, rank: o.rank, wordCount: x?.wordCount ?? null, headings: [...(x?.headings ?? [])], openingSample: x?.openingSample ?? null, ...(finalNo.has(canonicalUrlKey(o.url)) ? { unreadable: true } : {}) }; });
 
   const links = [...snapshot.internalLinkOpportunities].filter((l) => l.fromUrl === page.url && onTopic(l.anchor)).sort((a, b) => byText(a.toUrl, b.toUrl)).slice(0, 3);
 

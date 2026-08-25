@@ -17,7 +17,6 @@ const snap = (research: FunnelResearchEvidence = emptyResearchEvidence(), over: 
 const won = (domain: string, query: string, rank: number) => ({ kind: "serp_organic" as const, query, promptId: null, promptText: null, engine: null, rank, citedUrl: `https://${domain}/a`, observedAt: FRESH, modelServed: null });
 const page = (domain: string, appearances: ReturnType<typeof won>[], extra: Record<string, unknown> = {}) => ({ url: `https://${domain}/a`, domain, engines: [], examplePrompts: [], extract: null, appearances, ...extra });
 const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: QUERY, searchVolume: 4400, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: 600 }];
-
 describe("what a domain that keeps showing up actually is", () => {
   // ONE case per group, in the order the rules fire: facts about the domain first, then what the evidence says it does to you. A stranger reading `why` learns what to do about it.
   const TABLE: [string, ReturnType<typeof sig>, CompetitorKind][] = [
@@ -52,7 +51,6 @@ describe("what a domain that keeps showing up actually is", () => {
     expect(classifyDomain("seen-once.example", sig({ competingQueries: 1, aiCitations: 1 })).kind).toBe("irrelevant_unknown");
   });
 });
-
 /** The same evidence seen four ways: a case-wide domain look saying rival.example ranks for FOUR keywords, two winning-page sightings of it, an AI block citing source.example twice, and the answer analysis counting that same source three times. */
 const LANDSCAPE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(),
   caseCompetitors: [{ caseId: "c1", keywordsAsked: 6, domains: [{ domain: "rival.example", avgPosition: 3, rating: null, keywordsCount: 4 }], observedAt: FRESH, receipt: "r1", served: "cache" }],
@@ -60,11 +58,9 @@ const LANDSCAPE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(),
   serpEvidence: [{ query: QUERY, observedAt: FRESH, organic: [], paa: [], related: [], aiMode: [],
     aiOverview: [{ url: "https://source.example/x", domain: "source.example", title: null }, { url: "https://source.example/y", domain: "source.example", title: null }] }] });
 const ANALYSIS = { competitors: [{ url: "https://source.example/x", domain: "source.example", citationCount: 3, distinctPrompts: 2, engines: ["chatgpt"], examplePrompts: [] }] };
-
 /** The same rival, with pages I have ALREADY read: the only evidence that can turn a recurring domain into a competitor. */
 const READ = { title: "Rain barrels for sale", h1: "Rain barrels", wordCount: 800, headings: ["Prices", "Delivery"], faqCount: 0, metaDescription: "Buy rain barrels", openingSample: "We sell rain barrels." };
 const INSPECTED = (): FunnelResearchEvidence => ({ ...LANDSCAPE(), winningPages: [page("rival.example", [won("rival.example", QUERY, 1), won("rival.example", "rain barrel sizing", 2)], { extract: READ })] });
-
 describe("the competitor landscape", () => {
   beforeEach(() => STORE.rows.clear());
   it("holds one row per domain and never adds four views of the same evidence together", async () => {
@@ -101,7 +97,6 @@ describe("the competitor landscape", () => {
     expect(rows.find((r) => r.domain === "source.example")).toMatchObject({ kind: "publisher", why: "You set this, so I hold it as a publisher." });
     expect(rows.find((r) => r.domain === "hunch.example")?.evidence.serpAppearances).toBe(0); }); // a pin that silently vanishes is a lie
 });
-
 describe("the corrections box", () => {
   it("reads the three instructions an operator can give", () => {
     const { overrides, errors } = parseCompetitorOverrides("pin fixer.example\nexclude spam.example\nBig.Example is a Publisher\n"); expect(errors).toEqual([]);
@@ -111,7 +106,6 @@ describe("the corrections box", () => {
     expect(errors[0]).toBe('I could not read "beat everyone". Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
     expect(errors[1]).toContain('"over there" is not a domain I can use'); expect(errors[2]).toContain('I do not have a group called "wombat"'); });
 });
-
 describe("a correction survives a save and a reload", () => {
   let row: Record<string, unknown> | null = null;
   beforeEach(() => { row = null; __resetBusinessProfileCacheForTests();
@@ -126,7 +120,6 @@ describe("a correction survives a save and a reload", () => {
     expect(back.filter((c) => !c.domain).map((c) => c.name)).toEqual(["A rival I already knew"]); // a name stays a name; only a row carrying a domain is an instruction
     expect(back.filter((c) => !!c.domain).map((c) => competitorOverrideLine({ domain: c.domain!, action: c.action ?? "pin", kind: c.kind as CompetitorKind })).join("\n")).toBe(typed); });
 });
-
 const ASKED = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: QUERY, engine: "chatgpt", observationMode: "standardized_response",
   modelRequested: null, modelServed: null, observedAt: FRESH, webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries: [], observationId: "obs_p1", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "h1", retrievedResults: null, brandMentions: null, analysis: null }] });
 /** A subject I have genuinely finished investigating: a fresh exact look, priced demand I can trace back to how I found it, an engine I asked, and three separate publishers whose pages I have actually read. */
@@ -138,7 +131,6 @@ function COMPLETE(): EvidenceSnapshot {
     serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: HOSTS.map((domain, i) => ({ rank: i + 1, domain, url: `https://${domain}/a`, title: "Best rain barrel" })) }],
     winningPages: HOSTS.map((d, i) => page(d, [won(d, QUERY, i + 1)], { extract })) }, { keywordDemand: DEMAND });
 }
-
 describe("the one thing worth buying next", () => {
   it("names the exact results page when that is the only thing missing", () => {
     const inv = buildTopicInvestigations(snap(ASKED()))[0]!; expect(inv.exactSerps).toEqual([]);

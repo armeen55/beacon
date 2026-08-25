@@ -33,6 +33,8 @@ const WITHDRAWN_HOLD = /^it tells a reader this page offers .*(?:and no claim on
 const WRITER_CONTRACT = "wc3-section-targets"; // wc3 (2026-08-24): what a rewrite REPLACES changed, so the evidence a stored row was drafted against is not the evidence a row is drafted against now. Identity moves with it, which is what lets banked copy from wc2 be reopened instead of standing on a target that never existed.
 const OWN_PAGE_EVIDENCE = /^(?:page-(?:copy|title|h1|heading)|card-)/; // the ids that carry the target page's own words and Beacon's own analysis of it, as opposed to the account's other pages and the searches this one fails
 const thinCoverage = (r: ChangeProposal): boolean => r.recommendedChange.kind === "existing_edit" && (r.recommendedChange.field === "section" || r.recommendedChange.field === "answer_block")
+  // A REPLACEMENT IS THE SYNTHESIS CASE AND ITS CHARTER IS TO STAND ON THE PAGE'S OWN WORDS: the drafter exempts structural synthesis from the information-gain rule for exactly that reason, and this sweep read only the field label, so a synthesis landed Ready and was demoted seconds later by the very rule it was chartered past. The `where` marker is stamped by the ONE place a treatment becomes a placement, so both sides read one fact.
+  && !(r.recommendedChange.where ?? "").startsWith("Replaces the existing passage under")
   && (r.claims ?? []).length > 0 && (r.claims ?? []).every((c) => c.supportedBy.length > 0 && c.supportedBy.every((id) => OWN_PAGE_EVIDENCE.test(id)));
 const NO_BODIES = new Map<string, OwnedPageBody>(); // one bounded inventory page, never the whole site; no page words in hand is a skip, never a failure /** The card families each $0 producer rewrites IN FULL every pass. A family outside its producer's list is somebody else's work and is never swept. `divergence` is listed with nothing writing it any more, and that is the point: it stays under its producer's sweep, so every diagnose-it-yourself card on file is retired the next time that producer finishes. */
 const SUGGESTED_FAMILIES = ["title", "h1", "answer_block", "divergence"] as const; const EXTRA_FAMILIES = ["ai_answer_gap", "engine_followup", "internal_link", "missing_description", "duplicate_heading", "thin_page"] as const;
@@ -429,7 +431,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   }
   const bundleOpts = { complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache, authoritativeSourceDomains: allowlist, technical, curve, bannedTerms }, // ONE bundle per SELECTED page, strongest door first. A bundle REPLACES its own shallow drafts.
     onThrow = (e: unknown): { status: "none"; reason: string; considered?: { option: string; reason: string }[]; requirement?: EvidenceRequirement } => { log.warn("[produce-proposals] bundle threw (fail-soft)", { tenantId, error: e instanceof Error ? e.message : String(e) }); return { status: "none", reason: "threw" }; };
-
   for (const d of deep) {
     // Every page THIS CASE IS ABOUT gets its own words read FIRST, because a stored bundle is re-read against them before it is served again.
     const bodyByUrl = await loadOwnedPageBodies(tenantId, [...new Set([d.pageUrl, ...d.evidence.competingUrls, ...pageKeys(d.pageUrl).map((k) => judged.get(k)?.cause.payload).flatMap((c) => c?.cause === "cannibalization" ? c.competingPaths : [])])]).catch(() => null);
@@ -465,7 +466,6 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     for (const k of pageKeys(d.pageUrl)) bundledNow.add(k); if (path) bundledNow.add(path);
     await persistAndFile(proposal, DRAFT_BUDGET.keyOf({ pageUrl: d.pageUrl })); enteredBy.set(d.pageUrl, d.entry);
   }
-
   // THE FIELD DRAFTS COME AFTER THE WHOLE-PAGE REWRITES, and for a page the deep door selected they are its FALLBACK rather than a second purchase: the page declared ONE allowance, the rewrite spends first, and a rewrite that did not land leaves what is left to the one-field edit. Drafting the field edit first and rewriting over it, which is how this ran, paid for the same page twice and threw one of the two away.
   let noDraft = 0;
   for (const input of inputs) {

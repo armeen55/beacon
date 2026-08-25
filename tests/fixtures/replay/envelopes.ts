@@ -17,7 +17,6 @@ export const OBSERVED_AT = "2026-07-20T09:00:00.000Z";
 /** The bounded envelope the money core caches: status + ONE task carrying a result array. */
 const envelope = (result: unknown[], id = "fx-task"): ProviderEnvelope =>
   ({ status_code: 20000, status_message: "Ok.", cost: 0, tasks: [{ id, status_code: 20000, status_message: "Ok.", cost: 0, result }] });
-
 // ── the ChatGPT consumer look (llm_scraper task_get/advanced) ────────────────
 /** Field names anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/task_get/advanced
  *  on 2026-07-31: the result carries `sources` (CITED), `search_results` (RETRIEVED, type
@@ -55,7 +54,6 @@ export function scraperAnswer(over: ScraperOver = {}): ProviderEnvelope {
     se_results_count: (over.searchResults ?? RETRIEVED_ONLY)?.length ?? 0,
   }]);
 }
-
 // ── the standardized ask (llm_responses task_get / live) ─────────────────────
 export type LlmOver = { model?: string; webSearch?: boolean | null; text?: string; fanOut?: string[] | null; annotations?: { title: string; url: string }[] };
 /** ONE shape for chatgpt, claude, gemini and perplexity: they differ in the REQUEST, never the response.
@@ -79,7 +77,6 @@ export function llmAnswer(over: LlmOver = {}): ProviderEnvelope {
   if (over.fanOut !== null) result.fan_out_queries = over.fanOut ?? ["kite festival opening times"];
   return envelope([result]);
 }
-
 // ── the organic results page (serp/google/organic task_get/advanced) ─────────
 export type SerpOver = { keyword?: string; ownedTitle?: string; ownedUrl?: string; organic?: Record<string, unknown>[]; aiOverview?: boolean };
 const organicRow = (rank: number, url: string, title: string) =>
@@ -110,7 +107,6 @@ export function serpOrganic(over: SerpOver = {}): ProviderEnvelope {
       { type: "ai_overview_reference", source: "Wikipedia", domain: "wikipedia.example", url: "https://wikipedia.example/wiki/Kite_festival", title: "Kite festival" }] }] });
   return envelope([{ keyword: over.keyword ?? GAP_QUERY, type: "organic", se_domain: "google.com", location_code: 2840, language_code: "en", items_count: blocks.length, items: blocks }]);
 }
-
 // ── keyword batches (dataforseo_labs ranked_keywords / keyword_overview) ─────
 export type KeywordOver = { keyword?: string; volume?: number | null; difficulty?: number | null; intent?: string | null; trend?: { year: number; month: number; volume: number | null }[] | null; rankedUrl?: string | null; rankedRank?: number | null };
 /** A TWELVE-month trend, with one unknown month left null: "unknown" is not "zero searches". */
@@ -129,7 +125,6 @@ export function keywordBatch(rows: KeywordOver[] = []): ProviderEnvelope {
   }));
   return envelope([{ se_type: "google", target: SITE, location_code: 2840, language_code: "en", total_count: items.length, items_count: items.length, offset: 0, items }]);
 }
-
 // ── the page-by-page comparison (dataforseo_labs page_intersection) ──────────
 export type IntersectionRow = { keyword: string; volume?: number | null; intent?: string | null; slots: Record<number, { url: string; rank: number }> };
 export function pageIntersection(rows: IntersectionRow[]): ProviderEnvelope {
@@ -140,7 +135,6 @@ export function pageIntersection(rows: IntersectionRow[]): ProviderEnvelope {
     intersection_result: Object.fromEntries(Object.entries(r.slots).map(([slot, v]) => [slot, { type: "organic", rank_group: v.rank, rank_absolute: v.rank + 1, url: v.url, title: null }])),
   })) }]);
 }
-
 // ── a competitor page body (on_page/content_parsing/live) ────────────────────
 export type PageBodyOver = { title?: string; h1?: string; paragraphs?: string[]; headings?: string[]; hasTable?: boolean };
 export function competitorPageBody(over: PageBodyOver = {}): ProviderEnvelope {

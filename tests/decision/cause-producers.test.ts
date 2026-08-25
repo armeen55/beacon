@@ -204,6 +204,11 @@ describe("a page that slipped down the results", () => {
     // THE CARD SURVIVES THE EVIDENCE ARRIVING: it is gated on there being no card for this page, never on nobody having bought that search's results page.
     const cards = researchingCards({ tenantId: TENANT, now: NOW, basis: null, pages: [page()], judged: [{ cause: FELL, recoverableClicks: 240, pageUrl: URL, query: "rain barrel sizing", gap: "recent_decline" }], queryKeyOf: (q) => q, skip: new Set<string>(), serpQueryKeys: new Set(["rain barrel sizing"]), blocked: new Map([[URL, { reason: out.reason, considered: out.considered }]]) });
     expect([cards.length, cards[0]!.recommendedChange, cards[0]!.limitations[0], cards[0]!.operatorSteps![0]]).toEqual([1, { kind: "existing_edit", field: "section", before: null, after: out.reason }, "Nothing here is ready to paste: this card is research, not an edit.", out.reason]); });
+  it("never requires a reading of a robots-blocked winner: the requirement moves to the next unread page instead of minting the same impossible acquisition forever", async () => {
+    const RES2 = { ...RES, winningPages: [{ url: "https://gardenguide.example/a", domain: "gardenguide.example", engines: [], examplePrompts: [], appearances: [], extract: null,
+      readOutcome: { state: "robots_blocked" as const, at: "2026-07-01T00:00:00.000Z", retryAfter: "2036-07-01T00:00:00.000Z" } }] };
+    const out = await produceBundleForSnapshot(snapshot({ research: RES2 as never }), { ...OPTS, complete: seam(), door: DOOR, decline: DECLINE }); expect(out.status).toBe("none"); if (out.status !== "none") return;
+    expect(out.requirement).toEqual({ kind: "competitor_page", query: "rain barrel sizing", url: "https://waterwise.example/b", reasonCode: "winner_unread" }); });
   it("writes the subject the winning pages agree on rather than refusing the fall, and the rejected levers travel with it", async () => {
     const out = await fall({ coverage: decided(pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }] })) }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return;
     expect([out.proposal.diagnosisCause, out.proposal.bundle!.components.map((c) => c.kind)]).toEqual(["ranking_loss", ["section_add"]]);
