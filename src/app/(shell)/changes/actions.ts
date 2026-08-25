@@ -131,12 +131,16 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
   }
 }
 
-/** What the press says about the reading it just started, and nothing when the reading is simply running. Recorded is recorded in every case. */
-function measurementNote(state: MeasurementState): string | undefined {
+/** What the press says about the reading it just started. THE HEALTHY PATH NAMES THE DATE: "Marked done" with no
+ *  promise left the operator with no idea when anything would come back, and the one question after applying a
+ *  change is "when do I hear whether it worked" (blind customer review, 2026-08-25). The first proof window is
+ *  7 days and search data trails the live site by about 3 more, so the date is day 10, on Results. */
+function measurementNote(state: MeasurementState): string {
   if (state === "insufficient_comparison") return "Recorded. Too few pages on your site can be fairly compared against this one yet, so the reading starts as soon as enough of them have search data.";
   if (state === "measurement_unavailable") return "Recorded. Your search data could not be read just now, so the reading starts as soon as it can be.";
   if (state === "verification_needed") return "Recorded. The page is checked next, and the reading starts from what is found there.";
-  return undefined;
+  const lands = new Date(Date.now() + 10 * 86_400_000).toLocaleDateString("en-US", { month: "long", day: "numeric" });
+  return `Recorded, and the page is being watched. The first reading lands on Results around ${lands}; search data takes a few days to catch up with the live site.`;
 }
 
 /** Record that the operator applied a change. THE CLAIM STARTS THE CHECK AND NEVER ENDS IT: whatever arrives here, the Shipment is written with no verification on it, so Beacon still reads the live page itself. */
