@@ -127,6 +127,9 @@ function isMatureWon(record: ShippedChangeRecord, now: Date): boolean {
  * Read every mature, cleanly-won shipped change for this tenant, extract the before/after text + structural features, and persist the top MAX_PER_FAMILY
  * per actionFamily (newest ship first). Idempotent - re-running against the same ledger yields the same stored rows. Fail-soft: any error is swallowed and logged; callers never need a try/catch of their own.
  */
+/** A recorded shipment whose own text still carries blanks: the words on the page are not the words on file, so it teaches nothing. */
+const UNRECORDED = /\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/;
+
 export async function harvestWinners(
   tenantId: string,
   opts: { now?: Date } = {},
@@ -137,10 +140,14 @@ export async function harvestWinners(
     const records = await loadShippedChanges();
     const won = records.filter((r) => isMatureWon(r, now));
 
+    // A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS TAUGHT NOTHING, because those are not the words that went live. /tabriz and /isfahan were shipped as "<City> has a population of NUMBER as of
+    // YEAR (SOURCE)." and the operator filled the blanks by hand, so the ledger holds a template and the page holds the real line. Left in, the template becomes a WinnerExample and this product starts
+    // teaching itself to write blanks; it also classifies as prose_other while its filled-in twin /shiraz classifies as stat_first, so one intended change lands in two pattern cells. Out until the
+    // published wording is recorded, which is a fact about the RECORD and not a judgement about the change.
     const byFamily = new Map<ExperimentFamily, WinnerExample[]>();
     for (const r of won) {
       const afterText = (r.after ?? "").trim();
-      if (afterText === "") continue; // nothing to learn from - honest skip, no fabrication
+      if (afterText === "" || UNRECORDED.test(afterText)) continue; // nothing to learn from - honest skip, no fabrication
       const family = actionFamilyOf(r.actionType);
       const example: WinnerExample = {
         tenantId,
@@ -285,7 +292,7 @@ async function loadPatternAggregateWithRows(
     const rows: TaggedShippedRow[] = [];
     records.forEach((r, i) => {
       const afterText = (r.after ?? "").trim();
-      if (afterText === "") return; // nothing to classify - honest skip
+      if (afterText === "" || UNRECORDED.test(afterText)) return; // nothing to classify - honest skip
       const verdict = decidedVerdictOf(reads[i]);
       if (verdict == null) return; // pending / confounded / thin - excluded from the tally
       rows.push({

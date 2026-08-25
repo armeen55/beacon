@@ -89,6 +89,7 @@ async function familyHistoryFor(tenantId: string): Promise<Map<string, { reading
   if (!ledger) return out;
   const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
   for (const r of ledger) {
+    if (/\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/.test(r.after ?? "")) continue; // A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS IS NOT WHAT WENT LIVE: /tabriz and /isfahan hold "population of NUMBER as of YEAR (SOURCE)" while the pages hold real figures the operator typed, so the ledger's copy is a template and it votes on nothing until the published wording is recorded
     const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= SETTLED_WINDOW_DAYS)
       .sort((a, b) => b.day - a.day)[0];
     if (!read) continue;

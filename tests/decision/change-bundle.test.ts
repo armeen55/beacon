@@ -697,6 +697,28 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(dup[0]!.limitations ?? [])).toContain("it repeats what stays on the page below it");
       bodyStore.map = null;
     });
+    /** A REFUSAL MUST PRODUCE BETTER WORK, NOT ANOTHER GUESS. Two things were missing from every corrective round: the ASSIGNMENT was passed on the first call only, so rounds two and three were asked to fix "it repeats what stays on the page below it" without being told what stays or even that this was a replacement, while the gate that refused them kept asking; and nothing ever said what to ADD, because the searches this page is shown for and does not answer were computed on the packet and read by nothing at all. */
+    it("tells a corrective round what it is replacing and what to add", async () => {
+      const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
+      const Q3 = "Chert o Pert means nonsense or gibberish in everyday Persian conversation between close friends.";
+      bodyStore.map = new Map([[canonicalUrlKey(BODY.url), { ...BODY, headings: ["Playful Persian expressions", "More playful expressions"],
+        passages: ["Playful Persian expressions", P1, "More playful expressions", P2, P3, Q3] }]]);
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
+        limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite it." } });
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: ["Playful Persian expressions"] },
+        search: { topQueries: [{ query: "what do persian insults mean", clicks: 0, impressions: 900, position: 14 }] } }], research: {}, sources: [], scope: { tenantId: TENANT } };
+      const seen: string[] = [];
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "n" }) as never,
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async (r: { user: string }) => { seen.push(r.user); return { value: { ...GOOD, after: `${P2}\n${P3}\n${Q3}` } }; } } as never);
+      expect(seen.length).toBeGreaterThan(1); // round one is refused for restating what stays below; the round after it is told BOTH the assignment and the search this page owes
+      const retry = seen[seen.length - 1]!;
+      expect(retry).toContain("You are REWRITING the existing section");
+      expect(retry).toContain("what do persian insults mean");
+      expect(retry).not.toContain("REMOVE these exact words"); // the inverted clause is gone, not repaired
+    });
     /** A CRAWLER BLOB IS NOT A SECTION (Codex, 2026-08-23, from the first live Ready change). The first change this campaign produced told the operator to paste five lines over a thousand-character passage opening "top of pagePopular Persian(Farsi) Insults..." that ran from the page intro through a "Shop Now" block into two entries. Nobody can find that string, and following it would delete real content. Such a passage is refused as a target, and the refusal names the work that IS available. */
     it("refuses to aim a rewrite at a crawler blob, and says the work is a new section instead", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
@@ -798,11 +820,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const WRONG = "the line it says it replaces is not the one this page carries", blk = (o: Record<string, unknown>) => deliverableFailures({ ...D, actionType: "answer_block", beforeText: null, finalCopy: BODY, ...o } as never, P)[0];
     expect([deliverableFailures(D, P), deliverableFailures(T, P), deliverableFailures({ ...D, beforeText: "a description this page never carried" }, P)[0], deliverableFailures({ ...T, beforeText: "A title this page never carried" }, P)[0],
       deliverableFailures({ ...D, claims: [{ text: "Cyrus raised it himself", supportedBy: ["made-up-7"] }] }, P)[0], blk({ naturalHeading: "What the reliefs show", placementAnchor: "a heading nowhere on the page" }), blk({ naturalHeading: P.trackedQuestion, placementAnchor: "ancient reliefs and inscriptions" })]).toEqual([[], [], WRONG, WRONG, "it names evidence that is not on file: made-up-7", "the place it says it lands is not on the stored page", "its heading is the tracked question said back word for word"]); });
-  // THE HALLUCINATION THAT AUTHENTICATED ITSELF, on the live account's own stored page evidence, and with a judge that says yes to all seven of its rulings. The coverage graph carried the writer's own claim text, so a sentence and the claim declaring it were one string: a claim naming a real evidence id, repeated word for word in ordinary prose, cleared every check because the word was in the claim. Each claim is now read against the quoted facts IT names, with itself taken out of the corpus, and the refusal is DETERMINISTIC, so the permissive judge below is never asked. THE LIVE ROW IS HERE TOO: the one ready card on the account (2026-08-15) declared "The page includes Love Eshgh black and white variants" against four headings and one body excerpt that name the shoes and never say the page includes anything, and it is refused for exactly that word. A paraphrase made of the quoted facts' own content words still passes.
-  /** FINISHED WORK IS NEVER DESTROYED BY A SOFT RULE (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer was
-   *  drafted, saved Ready at 20:33:38, and overwritten by its own research brief at 20:33:39, because a re-read
-   *  applied the banned-word rule without the searcher-vocabulary exemption the editor had honoured. Soft reasons
-   *  DOWNGRADE finished copy to a review draft carrying the reason; only the four hard classes retire it. */
+  // THE HALLUCINATION THAT AUTHENTICATED ITSELF, on the live account's own stored page evidence, and with a judge that says yes to all seven of its rulings. The coverage graph carried the writer's own claim text, so a sentence and the claim declaring it were one string: a claim naming a real evidence id, repeated word for word in ordinary prose, cleared every check because the word was in the claim. Each claim is now read against the quoted facts IT names, with itself taken out of the corpus, and the refusal is DETERMINISTIC, so the permissive judge below is never asked. THE LIVE ROW IS HERE TOO: the one ready card on the account (2026-08-15) declared "The page includes Love Eshgh black and white variants" against four headings and one body excerpt that name the shoes and never say the page includes anything, and it is refused for exactly that word. A paraphrase made of the quoted facts' own content words still passes. FINISHED WORK IS NEVER DESTROYED BY A SOFT RULE (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer was drafted, saved Ready at 20:33:38, and overwritten by its own research brief at 20:33:39, because a re-read applied the banned-word rule without the searcher-vocabulary exemption the editor had honoured. Soft reasons DOWNGRADE finished copy to a review draft carrying the reason; only the four hard classes retire it.
   it("classifies the live destruction reason as soft, and every one of the four hard classes as hard", () => {
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("it uses words this account does not publish: Farsi")).toBe(false); // the exact live reason: SOFT
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("its copy is 68 long, outside the 80 to 150 this field takes, or carries something nobody can paste")).toBe(false);
@@ -812,9 +830,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       'its copy names "Cyrus", and nothing on file about this page mentions them', "it names evidence that is not on file: owned_snapshot"])
       expect(DRAFT_BUDGET.HARD_REFUSAL.test(hard)).toBe(true); });
 
-  /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and
-   *  $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE"
-   *  never carried. Real qualifiers must still be enforced, so both directions are pinned. */
+  /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE" never carried. Real qualifiers must still be enforced, so both directions are pinned. */
   it.each([
     ["from 550 BCE to 330 BCE", "The empire ran 550-330 BCE.", true],
     ["550 BCE to 330 BCE", "The empire ran 550-330 BCE.", true],
@@ -978,11 +994,7 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
 
 /** FINISHED COPY SURVIVES EVERYTHING BUT A MATERIAL CHANGE (operator, 2026-08-22): a paused $0 pass reworded its generator's prose and DESTROYED the one Ready change in production. Identity is material now, and a genuine replacement of finished words stamps an inspectable retirement receipt. */
 
-/** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed
- *  technical_reachability ("copy is premature until reachability work is done") while its old finished section
- *  draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep
- *  the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing
- *  treatments away from the editor was also the only path that persisted them outside quiet days. */
+/** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed technical_reachability ("copy is premature until reachability work is done") while its old finished section draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing treatments away from the editor was also the only path that persisted them outside quiet days. */
 describe("a changed treatment retires the copy it makes premature, on any kind of day", () => {
   const CITIES = `${TENANT}::/cities::existing_edit::ai_answer_gap`;
   const heldRow = (over: Partial<ChangeProposal> = {}) => prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
@@ -1010,10 +1022,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("reachability first");
     expect([out.researchOnly, out.status === "ready", out.evidence.hints.some((h) => h.includes("reports reading"))]).toEqual([true, false, true]);
   });
-  /** FINISHED WORK SURVIVES A SOFT RE-READ AS REVIEW WORK (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer
-   *  was saved Ready and destroyed back to its own brief ONE SECOND later, because the re-mint's re-read applied the
-   *  banned-word rule without the exemption the editor had honoured. Soft reasons keep the words, at review, with
-   *  the reason on the card; only the four hard classes still retire copy. */
+  /** FINISHED WORK SURVIVES A SOFT RE-READ AS REVIEW WORK (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer was saved Ready and destroyed back to its own brief ONE SECOND later, because the re-mint's re-read applied the banned-word rule without the exemption the editor had honoured. Soft reasons keep the words, at review, with the reason on the card; only the four hard classes still retire copy. */
   it("keeps finished copy through a soft re-read failure, downgraded to review with the reason, never the brief", async () => {
     const finished = "The finished cities section, with the word Farsi the searchers themselves use.";
     store.rows.set(CITIES, heldRow({ copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", primaryQuery: "cities of iran",
@@ -1029,10 +1038,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.status).toBe("needs_review");                              // downgraded, visible in the Review lane
     expect(out.limitations.join(" ")).toContain("does not publish");      // with the reason on the card
     expect(out.previousCopy).toBeUndefined(); });                         // nothing was retired, because nothing was lost
-  /** AND IT REACHES THE ROWS THIS PASS NEVER WORKS. The three live answers were held on pages the day's manifest
-   *  had already spent on, so no later pass re-read them and the correction never arrived: a row is only re-read
-   *  when its own page comes back up. This one is stored for a page nothing in the pass touches, and it is still
-   *  released. Reaching only what a pass happens to work IS the defect. */
+  /** AND IT REACHES THE ROWS THIS PASS NEVER WORKS. The three live answers were held on pages the day's manifest had already spent on, so no later pass re-read them and the correction never arrived: a row is only re-read when its own page comes back up. This one is stored for a page nothing in the pass touches, and it is still released. Reaching only what a pass happens to work IS the defect. */
   it("releases a held row on a page this pass never touches", async () => {
     const OTHER = "fixture-tenant::/untouched::existing_edit::ai_answer_gap";
     const finished = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
@@ -1064,10 +1070,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.status).toBe("needs_review");
     expect(out.limitations.join(" ")).toContain("outside the"); });
 
-  /** AND ON A DAY WHEN NOTHING EARNS AN ACTION, WHICH IS THE DAY IT MATTERS MOST. A quiet pass returns before the
-   *  editor ever runs, and the sweep sat behind that return: live, the stuffed answer survived a pass that rewrote
-   *  fifteen other rows, because the one branch it took never reached the re-read. A stocked queue makes quiet days
-   *  the NORMAL case, so a sweep only ordinary days reach is a sweep that runs exactly when it is not needed. */
+  /** AND ON A DAY WHEN NOTHING EARNS AN ACTION, WHICH IS THE DAY IT MATTERS MOST. A quiet pass returns before the editor ever runs, and the sweep sat behind that return: live, the stuffed answer survived a pass that rewrote fifteen other rows, because the one branch it took never reached the re-read. A stocked queue makes quiet days the NORMAL case, so a sweep only ordinary days reach is a sweep that runs exactly when it is not needed. */
   it("re-reads stored rows on a day nothing earns an action", async () => {
     const OTHER = "fixture-tenant::/quiet-page::existing_edit::ai_answer_gap";
     const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
@@ -1086,10 +1089,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed);
     expect([out.status, out.limitations.join(" ").includes("outside the")]).toEqual(["needs_review", true]); });
 
-  /** AND IT DOES NOT RELEASE WHAT A MODEL LOOKED AT AND REFUSED. The release strips the gate's own lowercase
-   *  lines, so a hold written in lowercase was being DELETED rather than obeyed, and the fitness check then read
-   *  a row the hold had already been erased from. An evaluator's refusal is not a deterministic one: a model read
-   *  the copy and said what was wrong with it, and no re-read of rules can answer that. Only a fresh draft can. */
+  /** AND IT DOES NOT RELEASE WHAT A MODEL LOOKED AT AND REFUSED. The release strips the gate's own lowercase lines, so a hold written in lowercase was being DELETED rather than obeyed, and the fitness check then read a row the hold had already been erased from. An evaluator's refusal is not a deterministic one: a model read the copy and said what was wrong with it, and no re-read of rules can answer that. Only a fresh draft can. */
   it("leaves a row a model refused where the model put it", async () => {
     const JUDGED = "fixture-tenant::/judged::existing_edit::ai_answer_gap";
     const words = "The judged page's section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, under a heading a reader would look for.";
@@ -1155,9 +1155,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS): { key: string; family: string; impact: number; calls: number; blocked?: string } => ({ key, family, impact, calls });
   const plan = (jobs: ReturnType<typeof job>[], over: Partial<Parameters<typeof DRAFT_BUDGET.plan>[0]> = {}) => DRAFT_BUDGET.plan({ jobs, candidates: 2, calls: 30, ...over });
   const SMALLS = ["/a", "/b", "/c", "/d"].map((k, i) => job(k, "field_draft", 40 - i)), BUNDLE = job("/bundle", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS);
-  /** A KNOWN-DEAD JOB TAKES NO SLOT, AND AN UNREACHED ONE DOES NOT HOLD ONE FOREVER (Codex, 2026-08-23). Both
-   *  were live defects on one dispatch: three of five slots came back unreached while cheaper completable work
-   *  went unfunded, and the same pages would have been funded first again on the next drive. */
+  /** A KNOWN-DEAD JOB TAKES NO SLOT, AND AN UNREACHED ONE DOES NOT HOLD ONE FOREVER (Codex, 2026-08-23). Both were live defects on one dispatch: three of five slots came back unreached while cheaper completable work went unfunded, and the same pages would have been funded first again on the next drive. */
   it("declares a blocked job with its own reason and funds it never, so the money walks to the next one that can finish", () => {
     const b = plan([{ ...job("/measuring", "editor", 90), blocked: "a change on this page is already being measured, so a second one cannot be saved until that finishes" },
       job("/live", "editor", 40), job("/next", "editor", 30)], { candidates: 1 });

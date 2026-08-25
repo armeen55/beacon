@@ -56,7 +56,7 @@ type Factor = Receipt["factors"][number];
  */
 const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12, treatment: 45 } as const;
 /** WHAT THIS ACCOUNT'S OWN LEDGER SAYS ABOUT KINDS OF WORK, before any single page's readings are deep enough to vote. Across every change this product has measured, the four losses held at high confidence were all thin-lever edits (two descriptions, one title, one schema block) and the one win held at high confidence added a real section to a thin page. Substantive work is therefore the standing bet and a metadata errand has to beat it on audience alone. */
-const THIN_LEVER = new Set(["meta", "title", "title_meta", "schema"]), SUBSTANTIVE = new Set(["answer", "full_rewrite", "new_page", "section"]);
+const THIN_LEVER = new Set(["meta", "title", "title_meta", "schema"]), SUBSTANTIVE = new Set(["answer", "full_rewrite", "new_page", "section", "content"]); // "content" is what actionFamilyOf returns for section and section-family, so every deep body rebuild this kernel produces scored ZERO treatment while the metadata card beside it took the full -45: the reward for substantive work reached only answer_block and new_page, and a bundle that rewrites a page was ranked as if nobody knew what it was
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
