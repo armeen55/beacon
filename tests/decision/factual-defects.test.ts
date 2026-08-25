@@ -1,5 +1,4 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-
 const checks = vi.hoisted(() => ({ rows: [] as unknown[] }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/lib/llm-call-cache", () => ({ readLlmCallCache: async () => null, writeLlmCallCache: async () => {}, llmCallCacheKey: () => "k", recentLlmCallTexts: async () => [] }));
@@ -7,20 +6,16 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>();
   return { ...real, readFactChecks: async () => checks.rows };
 });
-
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
   loadOwnedPageBodies: async () => new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]) }));
-
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_DEFECTS.review;
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
-
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
 const LIVE_HASH = pageHashOf(["Persian female names", "Afsaneh means Goddess, divine and strong."].join("\n"));
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
-
 const check = (over: Record<string, unknown> = {}) => ({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
   pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: 3,
@@ -30,7 +25,6 @@ const check = (over: Record<string, unknown> = {}) => ({
     { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
   agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
   checkedAt: "2026-08-17T00:00:00.000Z", ...over });
-
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; });
   it("mints the same card twice from the same banked checks, so a pass never overwrites the last one", async () => {
@@ -81,7 +75,6 @@ describe("a page's own statements against their sources", () => {
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0);
   });
 });
-
 describe("a correction bundle survives the round trip", () => {
   it("decodes back out of the store, so a new receipt kind can never make a ghost row", async () => {
     const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
@@ -90,7 +83,6 @@ describe("a correction bundle survives the round trip", () => {
     const back = deserializeChangeProposal(serializeChangeProposal(card)); expect(back?.bundle?.receipt.items[0]!.kind).toBe("independent_source");
   });
 });
-
 /** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22): a clean reviewed bundle arrives ready; one failed component is held WITH its reason and never erases the valid ones; an unaffordable review promotes nothing and says why. `complete` is the gateway's own test seam. */
 describe("the correction bundle is reviewed by Beacon itself", () => {
   const three = () => { checks.rows = [check(), check({ subject: "Bahar", current: "Spring wind.", proposed: "Spring, the season, in Persian." }),

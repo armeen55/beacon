@@ -607,6 +607,32 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: good2 }) } as never);
       expect(asked.length).toBeGreaterThan(1); // the first verdict refused, so the writer was asked again
       expect(asked.at(-1)).toContain("the evaluator's exact objection: the opening sentence answers a different question than the reader asked"); bodyStore.map = null; });
+    /** ACQUISITION REACHES THE WRITER, OR IT ONLY REOPENED THE WORK. A competitor page read for this job's own search changed the job's evidence identity, reopened it, and was then withheld from the packet, so the writer reran on the same information and earned the same refusal. The extract arrives as `rival-*` BRIEFING: what is missing and how the winning answer is shaped, and the one class no claim may ever stand on. */
+    it("hands the writer the winner acquired for this job's search, withholds it when nothing was acquired, and refuses copy that stands on a rival", async () => {
+      const RIVAL_COPY = "Persian idioms rarely translate literally, so each phrase below is given with the meaning a speaker actually intends when saying it.";
+      const winner = { url: "https://rival.example/persian-idioms", domain: "rival.example", engines: ["chatgpt"], examplePrompts: [], appearances: [{ query: "funny persian phrases" }],
+        extract: { title: "Persian Idioms", h1: null, wordCount: 2400, headings: ["Literal translation versus meaning", "When to say each one"], faqCount: 6, entityNames: ["Tehran slang"], openingSample: "Persian idioms rarely translate literally.", hasList: true } };
+      const withWinner = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" },
+        research: { serpEvidence: [{ query: "funny persian phrases", organic: [{ rank: 1, url: winner.url }] }], winningPages: [winner] } };
+      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", limitations: [],
+        evidence: { query: "funny persian phrases", hints: [P1], evidenceRefCount: 1 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+      const run = async (snap: unknown, value: Record<string, unknown>) => { const asked: string[] = [];
+        await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
+          budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+          complete: async ({ user }: { user: string }) => (asked.push(user), { value }) } as never); return asked.join(" "); };
+      const seen = await run(withWinner, GOOD);
+      expect(seen).toContain("rival-1"); // the acquisition reached the packet
+      expect(seen).toContain("Literal translation versus meaning"); // and as the SUBJECT this page is missing, not as prose to reword
+      expect(seen).toContain("rival.example"); // carrying its own address, so the writer knows whose page it is
+      const blind = await run({ ...withWinner, research: {} }, GOOD);
+      expect(blind).not.toContain("rival-1"); // the same job with nothing acquired is handed nothing
+      const refusals = new Map<string, string>(); // and a claim standing on that rival is refused: its words are not checked evidence
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: withWinner as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals,
+        budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+        complete: async () => ({ value: { ...GOOD, after: RIVAL_COPY, claims: [{ text: RIVAL_COPY, supportedBy: ["rival-1"] }] } }) } as never);
+      expect([...refusals.values()].join(" ")).toContain("stands on a rival"); });
     /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor
      *  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page
      *  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with

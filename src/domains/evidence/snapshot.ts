@@ -9,7 +9,6 @@ import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 /** The six mandatory sources. `native_ai` may fail soft / stay dormant when creds/config are absent, but its slot is ALWAYS present so its absence is honest and visible rather than a silent gap. */
 export type EvidenceSourceKind = "gsc" | "ga4" | "wix" | "clarity" | "dataforseo" | "native_ai";
-
 export const MANDATORY_SOURCES: readonly EvidenceSourceKind[] = [
   "gsc",
   "ga4",
@@ -18,10 +17,8 @@ export const MANDATORY_SOURCES: readonly EvidenceSourceKind[] = [
   "dataforseo",
   "native_ai",
 ] as const;
-
 /** fresh — data present and within its freshness window. stale — data present but older than its window (usable, flagged). empty — reader ran clean but returned nothing (no rows yet). failed — reader threw / errored (a real failure, NOT the same as empty). dormant — source intentionally not configured (native AI with no creds). */
 export type SourceStatus = "fresh" | "stale" | "empty" | "failed" | "dormant";
-
 export type SourceFreshness = {
   source: EvidenceSourceKind;
   status: SourceStatus;
@@ -32,16 +29,13 @@ export type SourceFreshness = {
   /** One plain sentence for a customer-facing "why is this blank" line. */
   note: string;
 };
-
 // ── per-owned-page evidence (GSC + GA4 + Wix + Clarity + AI joined by URL) ────
-
 export type OwnedQuerySignal = {
   query: string;
   impressions: number;
   clicks: number;
   position: number | null;
 };
-
 export type OwnedPageContent = {
   title: string | null;
   metaDescription: string | null;
@@ -62,7 +56,6 @@ export type OwnedPageContent = {
   /** Where the read of this page actually landed. Absent on captures taken before it was recorded. */
   finalUrl?: string | null;
 };
-
 export type OwnedPageSearch = {
   clicks90d: number;
   impressions90d: number;
@@ -70,7 +63,6 @@ export type OwnedPageSearch = {
   position90d: number;
   topQueries: OwnedQuerySignal[];
 };
-
 export type OwnedPageEngagement = {
   sessions28d: number;
   engaged28d: number;
@@ -78,7 +70,6 @@ export type OwnedPageEngagement = {
   /** Real GA4 revenue $, or null when unknown (never 0-for-unknown). */
   revenueUsd: number | null;
 };
-
 export type OwnedPageFriction = {
   sessions: number;
   rageClicks: number;
@@ -88,7 +79,6 @@ export type OwnedPageFriction = {
   /** Composite friction score (rage + dead + 2×scriptErrors), for ranking. */
   frictionScore: number;
 };
-
 export type OwnedPageEvidence = {
   /** Canonicalized owned page URL (the join key). */
   url: string;
@@ -99,9 +89,7 @@ export type OwnedPageEvidence = {
   /** AI citations of THIS owned page. `count` is DISTINCT ANSWERS that credited it, never repeats inside one. */
   aiCitations: { count: number; distinctPrompts: number; engines: string[] };
 };
-
 // ── competitor evidence (native AI + SERP citations) ─────────────────────────
-
 export type CompetitorEvidence = {
   url: string;
   domain: string;
@@ -112,9 +100,7 @@ export type CompetitorEvidence = {
   engines: string[];
   examplePrompts: string[];
 };
-
 // ── demand: keyword volume + AI-answer questions ─────────────────────────────
-
 export type KeywordDemandSignal = {
   query: string;
   /** Monthly search volume, or null when unknown (never guessed). */
@@ -127,7 +113,6 @@ export type KeywordDemandSignal = {
   /** GSC impressions when this query is a real owned/served term, else null. */
   gscImpressions: number | null;
 };
-
 export type QuestionDemandSignal = {
   question: string;
   /** Distinct (prompt, engine) pairs that produced this question — the weight. */
@@ -644,10 +629,44 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
   const qk = canonicalQueryKey(primaryQuery ?? "");
   const serp = qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
     .map((s) => [s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url)]) : [];
-  const serpUrls = new Set(qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
-    .flatMap((s) => s.organic.map((o) => canonicalUrlKey(o.url))) : []);
-  const winners = snapshot.research.winningPages.filter((w) => serpUrls.has(canonicalUrlKey(w.url)))
+  const winners = jobWinners(snapshot.research, primaryQuery)
     .map((w) => [canonicalUrlKey(w.url), w.extract ? [w.extract.wordCount, w.extract.headings.length] : null])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   return createHash("sha256").update(JSON.stringify({ pages, serp, winners })).digest("hex").slice(0, 16);
+}
+
+/** THE PAGES ACQUIRED FOR ONE JOB'S OWN SEARCH, by the two ways a page is ever acquired for it: it ranks on that
+ *  exact search's results page, or an assistant answering that exact search cited it. The appearance half used to be
+ *  missing here, so a winner read BECAUSE an assistant cited it never moved the job's identity and never reopened the
+ *  work it was read for. ONE rule, read by the identity above and by the brief below, so what reopens a job is exactly
+ *  what its writer is then handed. Deterministic and order-free. */
+function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string) {
+  const qk = canonicalQueryKey(primaryQuery ?? ""); if (!qk) return [];
+  const ranked = new Set((research.serpEvidence ?? []).filter((s) => canonicalQueryKey(s.query) === qk)
+    .flatMap((s) => (s.organic ?? []).map((o) => canonicalUrlKey(o.url))));
+  return (research.winningPages ?? [])
+    .filter((w) => ranked.has(canonicalUrlKey(w.url)) || (w.appearances ?? []).some((a) => canonicalQueryKey(a.query ?? "") === qk))
+    .sort((a, b) => canonicalUrlKey(a.url).localeCompare(canonicalUrlKey(b.url)));
+}
+
+/** WHAT THE PAGES THAT WIN THIS SEARCH COVER AND THE OWNED PAGE DOES NOT, off the reads already paid for. Acquisition
+ *  banked these extracts and nothing ever handed them to the writer, so a refusal for restating the page reopened the
+ *  job and bought the same answer again. This is BRIEFING and never proof: it names the subjects, the questions and the
+ *  entities that are missing and the shape the winning answer takes, each against its source address. A factual
+ *  assertion still owes the fact-check path. Pure, deterministic, and empty when nothing was acquired for this search. */
+export function jobComparison(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">,
+  primaryQuery: string, ownedText: string, ownedHeadings: readonly string[], max = 3): string[] {
+  const said = new Set(topicTokens(`${ownedText} ${ownedHeadings.join(" ")}`));
+  const fresh = (xs: readonly string[], n: number) => [...new Set(xs.map((x) => x.replace(/\s+/g, " ").trim()))]
+    .filter((x) => x.length > 2 && x.length <= 120 && topicTokens(x).some((w) => !said.has(w))).slice(0, n);
+  return jobWinners(research, primaryQuery).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max).map((w) => {
+    const e = w.extract!, heads = fresh(e.headings, 8), subjects = heads.filter((h) => !h.endsWith("?")), questions = heads.filter((h) => h.endsWith("?")), entities = fresh(e.entityNames ?? [], 8);
+    if (subjects.length + questions.length + entities.length === 0) return "";
+    const shape = [`${e.wordCount} words`, e.faqCount > 0 ? `${e.faqCount} question entries` : "", e.hasList ? "a list" : "", e.hasTable ? "a table" : ""].filter(Boolean).join(", ");
+    return [`${w.domain || domainOf(w.url)} answers this search in ${shape} at ${w.url}.`,
+      subjects.length > 0 ? `It covers, and this page does not: ${subjects.join("; ")}.` : "",
+      questions.length > 0 ? `It answers: ${questions.join("; ")}.` : "",
+      entities.length > 0 ? `It names: ${entities.join(", ")}.` : "",
+      e.openingSample ? `It opens: "${e.openingSample.trim().slice(0, 320)}"` : ""].filter(Boolean).join(" ");
+  }).filter(Boolean);
 }

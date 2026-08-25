@@ -1,17 +1,14 @@
 /** Update data with NOTHING connected (V1 closure, launch blocker 13). The action used to return the moment it found zero third-party connectors, which skipped everything Beacon gathers for itself: the extra reading of today's AI answers was requested only by accounts that happened to have Google. An account running on Beacon's own research now gets the same native work, and one honest line about it. */
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-
 type Verdict = { granted: boolean; reason: string; due: { promptId: string }[] };
 const GRANTED: Verdict = { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] };
 const REFUSED: Verdict = { granted: false, due: [], reason: "I still owe today's one reading on 11 question and engine pairs, and an extra read before that is done would tilt today's average. I finish today's round first, then a second read is worth taking." };
 const CALLS = vi.hoisted(() => ({ extraSample: 0, warm: 0, synced: 0, connected: false, extraDays: [] as string[],
   verdict: { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] } as Verdict }));
-
 const sync = vi.hoisted(() => async () => { CALLS.synced += 1; return { synced: true, rows_upserted: 4 }; });
 vi.mock("@/lib/connectors/gsc/sync-search-analytics", () => ({ syncGscSearchAnalyticsForTenant: sync }));
 vi.mock("@/lib/connectors/ga4/sync-url-traffic", () => ({ syncGa4UrlTrafficForTenant: sync }));
 vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({ syncClarityDailyMetricsForTenant: sync }));
-
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-native" }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/connector-store", () => ({
@@ -31,15 +28,12 @@ vi.mock("@/domains/runtime", () => ({
   finalizeFreeSurfaces: async () => { CALLS.warm += 1; },
   recordSourceRefresh: async () => {},
 }));
-
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { refreshAllConnectedDataNow } from "@/app/(shell)/settings/connectors/actions";
 import { RefreshResultList } from "@/components/today/refresh-my-data-button";
-
 beforeEach(() => { CALLS.extraSample = 0; CALLS.warm = 0; CALLS.synced = 0; CALLS.connected = false; CALLS.verdict = GRANTED; CALLS.extraDays = []; });
 afterEach(() => { vi.useRealTimers(); });
-
 describe("Update data with no third-party connection", () => {
   it("still asks for the extra AI reading and warms what the operator is about to look at", async () => {
     await refreshAllConnectedDataNow(); expect(CALLS.extraSample).toBe(1);
