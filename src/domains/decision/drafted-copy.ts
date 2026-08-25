@@ -10,7 +10,7 @@ import { DRAFT_BUDGET } from "./draft-budget"; import { AI_CASE_COPY } from "./p
 type DraftBudget = ReturnType<typeof DRAFT_BUDGET.plan>;
 /** How many drafted blocks one pass buys, descriptions and answers together; past it, the honest note. Raised 5 to 8 with the pool below (operator, 2026-08-22, "unleash the guardrails"): five slots were fully occupied by the hardest cards every pass, so the completable descriptions behind them never got a body. */
 const MAX_DRAFTS = 5; const META_MIN = 110, META_MAX = 165; // what Google shows of a description before it cuts, and the floor under a line worth pasting
-const ANSWER_MIN = 30, ANSWER_MAX = 180; // A SANITY BOUND, NEVER A TARGET (Codex, 2026-08-23): the universal 80-word floor refused a 72-word rewrite, a 69-word flag answer, a 68-word wolf answer and a 44-word phrase answer across four live dispatches and told the writer to pad rather than answer, when a strong 35 to 70 word answer beats an artificial 80-word one. The floor catches only copy too thin to stand alone; completeness is judged by the reader that follows
+const ANSWER_MIN = 15, ANSWER_MAX = 180; // A SANITY BOUND, NEVER A TARGET (Codex, 2026-08-23; lowered again 2026-08-25): the 80-word floor refused four real answers, and then the 40-word section floor refused a complete, grounded 39-word Kerman answer over ONE word, which is a constant judging completeness it cannot see. The floor now catches only pathological output (empty or a bare fragment); whether an answer is COMPLETE is the evaluator's question, asked with the page in hand
 /** A HINT THAT DESCRIBES THE PAGE IS NOT MATERIAL FOR WRITING ABOUT ITS SUBJECT: "holds 196 words of copy", "is shown 8,898 times in 90 days", "returns a normal response and zero readable words". They are the diagnosis that raised the card, and a writer cannot build a sentence about Persian wolves out of them. */
 /** The evidenceRefs vocabulary, which is NOT the grounding-id vocabulary: a claim that cites one of these has mixed up the two, and the refusal says so in those words rather than reporting a missing fact. */
 const SOURCE_KIND = new Set(["gsc", "ga4", "clarity", "dataforseo", "competitor_teardown", "owned_snapshot", "fanout"]);
@@ -64,7 +64,7 @@ type JudgeVerdict = { pageFit: boolean; claimsEntailed: boolean; usefulAndNatura
 type JudgeFn = (d: EditorDeliverable, p: SourcePacket) => Promise<JudgeVerdict | null>;
 /** WHAT ONE ACTION TYPE MAY WEIGH: characters for a line that replaces a field, words for a block of copy. */
 const BAND: Record<EditorDeliverable["actionType"], [number, number, "c" | "w"]> = { title: [20, 70, "c"], h1: [10, 90, "c"],
-  meta: [META_MIN, META_MAX, "c"], answer_block: [ANSWER_MIN, ANSWER_MAX, "w"], section: [40, 400, "w"], internal_link: [8, 90, "w"] };
+  meta: [META_MIN, META_MAX, "c"], answer_block: [ANSWER_MIN, ANSWER_MAX, "w"], section: [ANSWER_MIN, 400, "w"], internal_link: [8, 90, "w"] };
 /** COPY THAT POINTS AT THE PAGE INSTEAD OF ANSWERING. Deleted in the editor pass on the theory a judge would  read for this; the judge then passed "This page lists hello, goodbye, thank you" for a page listing no such  phrase, and "See the headings below for each example" as an answer. It is cheap, it is exact, and it is back. An ANSWER is the words a reader needs, never a description of where those words live. */
 const SELF_POINTER = /\b(?:covered|described|explained|shown|listed)\s+(?:in|on|here)\b|\bthis (?:guide|page|article)\b|\bsee the\b|\bsections?\s+(?:below|above)\b|\bheadings?\s+below\b/i;
 /** WHAT THE COPY ASSERTS, READ OFF THE COPY. The gate used to check only the claims the WRITER chose to declare,  so an assertion nobody declared was never checked at all: a description promised visitors could "filter by  type, color, or region" on a page whose stored words carry no such control, declared none of it, and shipped. Replaces a phrase list ("this page lists|contains|shows...") that could only ever catch the sentences somebody  had thought of. TWO STRUCTURES, both about MEMBERSHIP and neither about any particular wording: a coordinated list says its members exist, and the object of an enumerating preposition says the page offers that thing. */
@@ -369,8 +369,9 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
   if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }
   const read = await acceptDeliverable(deliverable, packet, opts.judge ?? evaluator(opts.tenantId, opts.now, opts.attempts)), refused = read.reasons;
-  // A LAST round failing only SOFT rules hands the complete draft back as REVIEW work with its notes, rather than discarding a paid answer over style (Codex, 2026-08-23). EXCEPT THE INFORMATION-GAIN CLASS: copy that adds nothing is not made useful by a human look, and softening it into review is exactly how a known-defective draft was handed back as if taste were the missing ingredient while the acquisition that would fix it was never minted. A gain refusal falls through to the refusal path, where it resolves to the typed reading it needs or settles as typed debt.
-  if (refused.length > 0 && lastRound && softOnly(refused) && !read.gain) return { ...deliverable, softFailures: refused.slice(0, 4) };
+  // A LAST round failing only SOFT rules hands the complete draft back as REVIEW work with its notes, rather than discarding a paid answer over style (Codex, 2026-08-23). EXCEPT THE INFORMATION-GAIN CLASS: copy that adds nothing is not made useful by a human look, and softening it into review is exactly how a known-defective draft was handed back as if taste were the missing ingredient while the acquisition that would fix it was never minted. A gain refusal falls through to the refusal path, where it resolves to the typed reading it needs or settles as typed debt. ONE EXCEPTION INSIDE THE EXCEPTION: a refusal whose ONLY gain line is "repeats what stays below" on a REPLACEMENT is a page-structure fact, not an evidence gap. No acquisition can stop a liftable one-block answer duplicating entries that remain in their own sections underneath; the honest deliverable is a CONSOLIDATION (replace the passage AND absorb the duplicated entries), which the caller shapes from these soft notes, so it survives here instead of minting acquisitions that cannot change the page's shape.
+  const gainLines = refused.filter((r) => GAIN.LINES.has(r)), consolidation = gainLines.length > 0 && gainLines.every((r) => r === GAIN.REPEATS_BELOW) && rewrite != null;
+  if (refused.length > 0 && lastRound && softOnly(refused) && (!read.gain || consolidation)) return { ...deliverable, softFailures: refused.slice(0, 4) };
   if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), gain: read.gain, resolution: read.resolution, held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120), copy: deliverable.finalCopy.slice(0, 200), claims: deliverable.claims.map((c) => `${c.text} <- ${c.supportedBy.join(",")}`).slice(0, 4) });
   return deliverable;
 }
@@ -565,7 +566,6 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
     // ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own. OUT OF TIME IS NOT OUT OF MONEY: a card the drive can no longer start is left exactly as its producer minted it, so it is owed rather than half-bought.
-
     const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS); if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!, bodies, factsByPath.get(card.pagePath ?? "") ?? []) : null;
     // WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop).
@@ -573,6 +573,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
     if (drafted) {
       const dest = link ? linkDestOf(card) : null;
       const shape = meta || h1 || title ? "field" : link ? "link" : card.treatment === "rewrite_existing_section" && drafted.beforeText != null ? "replace" : "add"; // THE ONE PLACE A TREATMENT BECOMES A PLACEMENT: `where` and the operator steps were two hand-copied ternaries keyed on the same boolean twenty lines apart, honest only while they agreed by hand.
+      // A REPLACEMENT WHOSE ONLY REMAINING FAULT IS DUPLICATING WHAT STAYS BELOW IS A CONSOLIDATION, not a rewrite to retry: the one liftable block AND the removal of the entries it absorbs are ONE change, said on the card, so the operator makes the page say it once instead of receiving the same rewrite forever while acquisitions that cannot change the page's shape are bought around it.
+      const consolidate = shape === "replace" && (done!.d.softFailures ?? []).includes(GAIN.REPEATS_BELOW);
       out.push({ ...card, researchOnly: false,
         // FINISHED WORK IS READY WORK. Copy that cleared the drafter, the deterministic editor contract, the judge and the canon validator is not something waiting on a human look, and leaving it at `needs_review` put it in the same lane, with the same Copy and Mark done, as a card nobody wrote.
         status: done!.ready ? "ready" : card.status,
@@ -586,7 +588,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
           where: shape === "field" ? null : shape === "link"
             ? `One sentence placed after "${drafted.placementAnchor}", with "${card.primaryQuery}" linked to ${dest ?? "the page it names"}`
             : shape === "replace"
-              ? `Replaces the existing passage under "${drafted.placementAnchor}"`
+              ? consolidate ? `Replaces the existing passage under "${drafted.placementAnchor}" and absorbs the duplicated entries below it` : `Replaces the existing passage under "${drafted.placementAnchor}"`
               : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
         // AND THE CARD SAYS WHICH WORK THIS IS, IN THE SAME WORD THE PLACEMENT USED. A rewrite that could not find its passage kept its treatment and rendered the ADD shape, so the card told the operator to start a new section straight after the very section it was written to replace: a restructure shipping as a duplicate. An addition that arrived this way is judged as one, owing information the page does not carry, rather than waved through on the synthesis exception a replacement earns.
         ...(card.treatment === "rewrite_existing_section" && shape !== "replace" ? { treatment: "add_answer_section" as const } : {}),
@@ -606,7 +608,9 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
                 "Mark it done here and the position gets read again"]
               : shape === "replace"
                 ? [`Open the site editor on ${card.pagePath}`, `Find the passage beginning "${drafted.beforeText!.slice(0, 80)}" under "${drafted.placementAnchor}"`,
-                  "Replace that passage with the copy above, exactly as written", "Mark it done here and the next answers get checked against it"]
+                  "Replace that passage with the copy above, exactly as written",
+                  ...(consolidate ? ["Remove each entry below that this section now covers, so the page says it once"] : []),
+                  "Mark it done here and the next answers get checked against it"]
                 : [`Open the site editor on ${card.pagePath}`, `Find "${drafted.placementAnchor}" on the page`,
                   `Start a new section straight after it, with the heading "${drafted.naturalHeading ?? ""}"`,
                   "Paste the answer above as that section's opening, exactly as written", "Mark it done here and the next answers get checked against it"],
@@ -643,12 +647,10 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
   log.info("[drafted-copy] paid work this pass", { tenantId: opts.tenantId, ...budget.spent(), callsLeft: Math.max(0, budget.calls.left) });
   return out;
 }
-
 /** THE FIELD a stored component replaces, where it replaces one at all. */
 const FIELD_OF_KIND: Partial<Record<string, EditorField>> = { title: "title", h1: "h1", meta: "meta", opening_answer: "answer_block" };
 /** The target page as the pass already holds it, never a fresh read: its four stored fields. */
 type HeldPage = { title: string | null; h1: string | null; metaDescription: string | null; outline?: readonly string[] | null };
-
 /** WHY BANKED ATOMIC COPY MAY NOT BE PRESERVED, or empty. Banking skips the drafter AND every gate, so copy accepted under an older boundary was served on for ever while the boundary moved under it: identity alone decided, and identity says nothing about whether the words still stand. The packet is rebuilt from what the ROW ITSELF banked (its claims and the exact words behind each id) plus the page as this pass holds it, and every deterministic rule is asked again on the evidence the copy actually leans on. No provider, no fresh read, and NO RE-JUDGING: the prior reading of sense stands while the material identity does. A row that banked no copy or no provenance answers empty, because there is nothing here to re-read; whether such a row may be preserved at all is preferFinished's question. */
 function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], held: HeldPage | null, preserve: readonly string[] = []): string[] {
   const c = p.recommendedChange, claims = p.claims ?? [], facts = p.supportFacts ?? []; if (c.kind !== "existing_edit" || p.researchOnly === true || claims.length === 0 || facts.length === 0) return []; const evidence: Record<string, string> = {}; for (const f of facts) evidence[f.id] = f.fact;
@@ -663,10 +665,8 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
     const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3); const earning = new Set(preserve.flatMap(wordsOf)), after = new Set(wordsOf(c.after)); const line = field === "title" ? held.title : held.h1;
     const dropped = [...new Set(wordsOf(line ?? ""))].filter((t) => earning.has(t) && !after.has(t)); if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on today`);
   }
-
   out.push(...rereadableRefusals(c.after, packet));
   // WORD CONTAINMENT WAS DELETED FROM THE EDITOR AND SURVIVED HERE (Codex, 2026-08-23), so a rule no fresh draft is held to went on destroying banked work: the second finished /funny-farsi-phrases answer was retired over the ordinary word "evidence". What it was protecting is kept in the only form that survives a paraphrase: a claim whose cited evidence is ABOUT SOMETHING ELSE ENTIRELY. Support that was reworded still passes; support that was swapped for a different reading does not, and no banked row can argue from something nobody banked.
-
   const adrift = claims.filter((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w)), its = new Set(topicTokens(x.supportedBy.map((id) => evidence[id] ?? "").join(" ")));
     return mine.length >= 4 && mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
   if (adrift.length > 0) out.push(`the evidence "${adrift[0]!.text.slice(0, 60)}" names is about something else entirely, so this copy argues from support nobody banked`);

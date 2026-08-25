@@ -4,10 +4,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-const calls = vi.hoisted(() => ({ continues: [] as number[], refreshes: 0, paused: [] as boolean[], setOk: true }));
+const calls = vi.hoisted(() => ({ continues: [] as number[], refreshes: 0, paused: [] as boolean[], setOk: true, more: true }));
 vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   refreshAllConnectedDataNow: async () => ({ ranAt: "2026-08-02T00:00:00.000Z", results: [] }),
-  continueResearchNow: async (hop: number) => { calls.continues.push(hop); return { hop: hop + 1, more: true }; },
+  continueResearchNow: async (hop: number) => { calls.continues.push(hop); return { hop: hop + 1, more: calls.more }; },
 }));
 vi.mock("@/app/(shell)/settings/actions", () => ({
   setResearchPausedNow: async (paused: boolean) => { calls.paused.push(paused); return { ok: calls.setOk }; } }));
@@ -37,12 +37,12 @@ beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REA
 afterEach(async () => { await unmount(); });
 
 describe("Update data is one recovery press", () => {
-  it("asks for exactly ONE continuation per press, whatever the server says is still owed", async () => {
-    // THE DEFECT THIS PINS. The press used to drive an eight-hop client loop, because nothing else finished the day. The fixture answers `more: true` every time: a loop would show up here as 8.
+  it("continues while the server says more is owed, and stops the moment it says otherwise", async () => {
+    // THE DEFECT THIS PINS, reversed on 2026-08-25: one hop of six left five sixths of the day owed while the button reported the same success either way. The SERVER still owns the bound (the fixture's `more: true` is capped by the client at six asks, the server's own per-day allowance), and a server that answers `more: false` ends the press at once.
     const el = await mount(<RefreshMyDataButton connectedCount={2} />); const button = el.querySelector("button")!;
-    await press(button); expect(calls.continues).toEqual([0]);
-    // And a second press is still one continuation, not a fresh loop.
-    await press(button); expect(calls.continues).toEqual([0, 0]);
+    await press(button); expect(calls.continues).toEqual([0, 1, 2, 3, 4, 5]); // more:true throughout: the press works the day down to the server's own ceiling
+    calls.continues.length = 0; calls.more = false;
+    await press(button); expect(calls.continues).toEqual([0]); // nothing more owed: one ask, immediate stop
   });
   it("says what it does in ONE short sentence, and never that research needs this button or an open tab", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />); const copy = el.textContent ?? "";

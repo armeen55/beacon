@@ -3,7 +3,7 @@ import "server-only";
 /**
  * answer-readback - READING THE STORED AI ANSWERS BACK. Collection buys the answers, this reads them: ONE strict structured call reads a BATCH of stored answers (what each said, who it named, what it left out), A FEW BATCHES AT A TIME, and Evidence persists one reading per observation. IT COSTS NOTHING WHEN NOTHING CHANGED, a call fires only on a piece nobody has read yet, and A LONG ANSWER IS READ WHOLE, IN PIECES, ACROSS AS MANY PASSES AS IT TAKES: split on its own paragraph breaks, every piece keyed `id#part`, merged into ONE stored reading beside a COVERAGE CHECKPOINT naming which pieces of which answer hash are in it. Until every piece is accounted for that reading carries a deliberately different hash, so the row stays due and the next pass resumes at the first unread piece. EVERY READING IS GROUNDED IN ITS OWN ANSWER: each returned item is re-checked against the exact text it was read from and a failing item is dropped alone with the number named, because one batch grounded as a single body of text let a number only answer A contained validate a fabricated claim about answer B. EVERY PIECE THIS PASS SENDS COMES BACK SETTLED: merged, or dropped with its reason, and a piece never sent is owed.
  *
- * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass ALTERNATES, on a clock of its own, between the OLDEST day that still owes one across a ROTATING lookback of THE LAST 26 WEEKS (182 days) and the newest the recent week owes, never the run's own day and never a fixed recent week, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher happened to match. AND EVERY PASS ACCOUNTS FOR ITS OWN DAY: see AnalysisPassReceipt, where every answer taken on lands in exactly one named bucket. Runtime orchestrates, and Evidence never imports Decision.
+ * WHOSE FAILURE WAS IT DECIDES EVERYTHING, AND ONLY A RECEIPT SETTLES (see ReadFailure below, which names all seven). A call that returned no body leaves nothing stored and the answers due, and the pass STOPS there rather than fanning one throttled batch into fifteen more calls; anything that RETURNED settles every answer it covered, permanently, for that hash, after dropping to ONE CALL PER PIECE first so the readings themselves still land. EVERYTHING PURCHASED IS OWED A READING: a pass ALTERNATES, on a clock of its own, between the OLDEST day that still owes one ANYWHERE IN THE STORE (one indexed row) and the newest the recent week owes, never the run's own day and never a fixed recent week, because today's fresh debt kept that week busy and permanently abandoned everything behind it. THE DETERMINISTIC VERDICT IS NEVER THE MODEL'S TO REFUSE: every answer this pass settles carries mentioned true OR false, off the answer's own words and the addresses it credited, and `matchedBy` says which found it, so Visibility divides by every answer read rather than by the ones the matcher happened to match. AND EVERY PASS ACCOUNTS FOR ITS OWN DAY: see AnalysisPassReceipt, where every answer taken on lands in exactly one named bucket. Runtime orchestrates, and Evidence never imports Decision.
  */
 
 import { loadBrandIdentity, type BrandIdentity } from "@/domains/account/brand-identity";
@@ -47,11 +47,9 @@ const ANSWERS_PER_BATCH = 5, BATCH_CONCURRENCY = 3, BATCH_CALLS_PER_PASS = 8, MA
  *  millisecond of remainder used to run three more minutes past it and past the run LEASE behind it, which is how the other door reclaims a run whose reading is still in flight and buys the same wave a second time.
  *  So no call opens without a whole reasoning call's worth of budget left, and a batch is handed the SMALLER of its own timeout and what remains, which the transport enforces: what it abandons is owed, not billed. */
 const BATCH_ANSWER_CHARS = 5_000, BATCH_ANALYSIS_COST_USD = 0.05, ANSWER_ANALYSIS_COST_USD = 0.01, BATCH_TIMEOUT_MS = 180_000, SINGLE_TIMEOUT_MS = 90_000, ANALYSIS_PASS_BUDGET_MS = 150_000;
-/** WHICH DAY A PASS READS, and the honest bound on how far back it can see. Seven days ending today was a PERMANENT ABANDONMENT: today keeps producing fresh debt, so that window was never quiet and an answer bought
- *  eight days ago could never be reached again however many passes ran. A pass now reads at most TWO lean windows, the seven days the clock has ROTATED to and the recent seven, and ALTERNATES between the oldest day
- *  either still owes and the newest the recent seven owes. The rotation moves every hour and wraps at LOOKBACK_WINDOWS, so EVERY ONE OF THE 26 WINDOWS COMES ROUND ONCE EVERY 26 HOURS and takes an oldest turn while
- *  it is open: no age band inside 182 days is unselectable, and each visit reads the oldest day that window still owes rather than all seven at once, so a deep band drains over as many rotations as it has owing days.
- *  The per-pass cost stays two lean projections and one day of rows. An answer older than 182 days is never read back: that is the bound I state rather than hide. `dayMinus` is `day` less n days as a label, taken at noon so no daylight-saving edge can move it. */ const READBACK_WINDOW_DAYS = 7, LOOKBACK_WINDOWS = 26, WINDOW_ROTATION_MS = 3_600_000;
+/** WHICH DAY A PASS READS. The oldest day still owing a reading anywhere in the store is ONE indexed row now, so the 26-window rotation that made each older band reachable one hour in twenty-six is deleted: an
+ *  oldest turn (half-hour parity) drains the oldest debt wherever it is, a newest turn keeps the recent week current, and no purchased answer is ever out of reach of the very next pass. `dayMinus` is `day` less n
+ *  days as a label, taken at noon so no daylight-saving edge can move it. */ const READBACK_WINDOW_DAYS = 7, WINDOW_ROTATION_MS = 3_600_000;
 const dayMinus = (day: string, n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 /** THE RESUME CHECKPOINT, stored beside the reading. `read` are the pieces merged into it, `dropped` those
@@ -99,7 +97,8 @@ export function selectAnalysisTargets(rows: readonly AnalyzableObservation[], ma
  *  planner, the due-work probe and this pass can never disagree about what is finished. */
 function dueForAnalysis(rows: readonly AnalyzableObservation[]): readonly AnalyzableObservation[] {
   return rows.filter((r) => Boolean(r.id) && Boolean(r.answerText) && Boolean(r.answerHash))
-    .filter((r) => !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysisHash, answerHash: r.answerHash }));
+    .filter((r) => !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysisHash, answerHash: r.answerHash }))
+    .sort((a, b) => a.id.localeCompare(b.id)); // STABLE, OLDEST-LEANING ORDER: the store hands rows back newest first, so a day still filling drained from the top and its morning answers were perpetually deferred behind its evening ones
 }
 
 /** ONE PIECE of one answer as a call sees it: the row, the question it answered, the exact text this piece was read from (the only text it may be checked against, which is what makes per answer grounding possible),
@@ -169,6 +168,8 @@ type AnalysisDeps = {
   readObservations?: (tenantId: string, opts: { day?: string }) => Promise<readonly AnalyzableObservation[]>;
   /** Which recent days still owe a reading, oldest first, off the CHEAPEST projection there is (identity, status and the two settlement hashes, never the answer text or the journey): a whole-window read of full rows is megabytes an account per pass and is the shape that has timed a statement out here. */
   unreadDays?: (tenantId: string, fromDay: string, toDay: string) => Promise<readonly string[]>;
+  /** The oldest reporting day ANYWHERE in the store that still owes a reading, as one indexed row, or null when nothing is owed. */
+  oldestUnreadDay?: (tenantId: string) => Promise<string | null>;
   persist?: (tenantId: string, observationId: string, analysis: Record<string, unknown>, analysisHash: string) => Promise<void>;
   analyze?: (input: { tenantId: string; question: string; engine: string; answerText: string; brand: string }) => Promise<AnswerAnalysis | ReadFailure | null>;
   /** ONE call over many pieces. Returns a reading per piece key, or WHY the whole call produced none. Null is
@@ -280,21 +281,17 @@ export async function runAnswerAnalyses(tenantId: string, day: string, deps: Ana
     const ev = await evidenceObservations(), seen = await ev.readAiObservations(t, { fromDay: from, toDay: to, projection: "outcome" });
     return [...new Set(seen.filter((r) => r.status === "observed" && r.answer_hash != null
       && !ev.isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null })).map((r) => r.reporting_day))].sort(); });
-  // ACROSS THE STORE, NOT ACROSS ONE WEEK. Two lean window reads at most (the seven days the rotation points at, then the recent seven); which of the days they
-  // name this pass actually reads is decided just below. BOTH reads failing falls back to the run's own day, which is what it always did when blind.
-  const nowMs = deps.now ?? Date.now(), back = READBACK_WINDOW_DAYS * (Math.floor(nowMs / WINDOW_ROTATION_MS) % LOOKBACK_WINDOWS);
-  // WHICH KIND OF TURN THIS IS, ON A CLOCK OF ITS OWN: half-hour parity, never the window index's. LOOKBACK_WINDOWS is 26 and therefore EVEN, so `tick % 26` carries tick's own parity and reading the turn off it meant
-  // only ODD multiples of seven ever opened on a turn that could take the older day: ages 14-20, 28-34 and every even band to 168-174, 84 of the 182 days, were unreachable forever. Passes run about half an hour apart, so an independent half-hour parity gives every hourly window one oldest turn and one newest turn while it is open.
+  const oldestUnreadDay = deps.oldestUnreadDay ?? (async (t: string) => {
+    const ev = await evidenceObservations();
+    return (await ev.readAiObservations(t, { unreadOnly: true, oldestFirst: true, limit: 1, projection: "outcome" }))[0]?.reporting_day ?? null; });
+  // ACROSS THE STORE, DIRECTLY. The rotation that stood here made each older seven-day band reachable roughly one hour in twenty-six, so 616 purchased answers sat unread across eleven days while the clock walked its wheel. The oldest debt is now ONE indexed row (the unreadOnly partial index), and the recent week keeps its own probe so today never starves: an oldest turn drains the oldest owed day anywhere in the store, a newest turn keeps current answers current.
+  const nowMs = deps.now ?? Date.now();
   const oldestTurn = Math.floor(nowMs / (WINDOW_ROTATION_MS / 2)) % 2 === 1;
-  const owed: string[] = []; let looked = false;
-  let recent: string[] = [];
-  for (const n of back === 0 ? [0] : [back, 0]) {
-    const to = dayMinus(day, n);
-    const seen = await unreadDays(tenantId, dayMinus(to, READBACK_WINDOW_DAYS - 1), to).catch(() => null);
-    if (seen != null) { looked = true; owed.push(...seen); if (n === 0) recent = [...seen]; } }
-  // BOUNDED FAIRNESS, NOT NEWEST-WINS. Taking the newest owed day in the recent week meant a day still taking answers in outranked every older debt forever: 140 arrive daily, one pass reads at most 40, so today was never
-  // quiet and 12 August's 140 answers sat unread with no pass able to reach them. THE POLICY: an oldest turn reads the OLDEST owed day either window holds and a newest turn the newest in the recent week, so current answers stay current and old debt drains on a guaranteed share of the passes rather than on whatever today leaves over. Either turn falls back to the other's day when its own has nothing owing.
-  const older = [...owed].sort()[0], newer = [...recent].sort().at(-1), reading = (looked ? (oldestTurn ? older ?? newer : newer ?? older) : null) ?? day, // the day this pass actually reads, named by every line below rather than the run's own
+  let looked = false, recent: string[] = [];
+  const seen = await unreadDays(tenantId, dayMinus(day, READBACK_WINDOW_DAYS - 1), day).catch(() => null);
+  if (seen != null) { looked = true; recent = [...seen]; }
+  const older = await oldestUnreadDay(tenantId).catch(() => null); if (older != null) looked = true;
+  const newer = [...recent].sort().at(-1), reading = (looked ? (oldestTurn ? older ?? newer : newer ?? older) : null) ?? day, // the day this pass actually reads, named by every line below rather than the run's own
     rows = await readObservations(tenantId, { day: reading }).catch(() => null);
   if (rows == null || rows.length === 0) return READ_NOTHING;
   const budget = deps.max ?? MAX_ANALYSES_PER_PASS, targets = selectAnalysisTargets(rows, budget);

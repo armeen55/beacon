@@ -14,7 +14,6 @@ import { type FunnelPair, type FunnelSerp, type FunnelState } from "./state";
 import { type FunnelResearchEvidence, type ObservationMode, type ResearchEngine } from "./research-evidence";
 import { isCurrent } from "@/domains/evidence/freshness";
 import { basisFromCursor, beginCycle, CONFLICT_DETAIL, interp, type Interp, modeOf, NO_BASIS_DETAIL, pauseDetail, resolveDeps, round, save, type SaveCtx, sha16, StateConflictError, track, type FunnelDeps, type ResolvedDeps } from "./shared";
-
 // blocked = a HELD refusal at zero further spend; it ALWAYS pauses the run, so prefer the boundary's own detail.
 const blockedNote = (r: Interp) => r.detail || pauseDetail("blocked", "");
 // ── B3: prompt observation ──────────────────────────────────────────────────
@@ -34,7 +33,6 @@ const OBSERVABLE = new Set<string>(ENGINES);
  *  and one pass inside its deadline, and it is what the page reader already uses. The per-engine ceilings above
  *  still decide WHICH readings are asked; this only decides how many of them wait at the same time. */
 const ASK_AT_ONCE = 4;
-
 /** Each capability gets EXACTLY its documented ask: ChatGPT llm_responses web_search only (live o4-mini rejected force, 40501); Claude force + country; Gemini web_search only; perplexity none; the scraper is KEYWORD-based.
  *  The plan's reporting day and a deliberate second slot ride ALONGSIDE that ask: the registry keys on them
  *  and no builder emits them, so tomorrow's reading and a second sample are genuinely new questions to the  provider instead of a $0 replay of the answer already in the one-day cache. */
@@ -429,7 +427,10 @@ export function serpAnalysisUnit(deps: FunnelDeps = {}, priorityQueries: string[
         }
       }
 
-      state.serps.queries = serps.slice(0, SERP_ROWS_KEPT); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
+      // CARRY THE PAID RECEIPTS, NOT JUST THE AGENDA. A posted task's cacheKey lives ONLY on this row: rebuilding the list from the current agenda dropped any posted query that churned out of it, and the paid task sat pending in the cache with nothing ever able to collect it until the 30 day expiry recycled the money. A dropped row that is still `posted` rides along until it is collected, exactly as winning-pages carries unexpired read outcomes.
+      const kept = new Set(serps.map((s) => s.query));
+      const carried = state.serps.queries.filter((s) => s.status === "posted" && s.cacheKey != null && !kept.has(s.query));
+      state.serps.queries = [...serps, ...carried].slice(0, SERP_ROWS_KEPT + carried.length); state.serps.analyzed = serps.filter((s) => s.status === "done").length;
       await save(d, tenantId, basis, state, ctx);
       if (blockedDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: blockedDetail }; // a held refusal OUTRANKS the done arithmetic and every unavailable count
       if (limitDetail) return { status: "failed", cursor, progress: serpProgress(state), detail: limitDetail }; // today's ceiling: everything already collected is saved, the rest stays owed and costs nothing to resume

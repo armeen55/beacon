@@ -68,10 +68,10 @@ const NO_CHECKS = { done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 
  *  reporting what people did once they had already arrived, and letting either open work by itself woke the whole run for a number no decision rests on.
  *  The refresh step still pulls EVERY connected source whenever a pass runs for any other reason, so nothing goes unrefreshed. Only the trigger narrows. */
 const DUE_TRIGGER_PROVIDERS = ["google_gsc"] as const;
-/** How many reporting days back the unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the readback
- *  reads one day of it), and a test pins both to the same first day so the two can never drift apart. The probe ALSO asks the same hourly-rotating older
- *  window the readback reads, because a quiet account with only old debt would otherwise never open the pass that reaches it. */
-const UNREAD_WINDOW_DAYS = 7, UNREAD_LOOKBACK_WINDOWS = 26, UNREAD_ROTATION_MS = 3_600_000;
+/** How many reporting days back the recent unread-answer probe looks, held identical to answer-readback's own window (the probe opens the pass, the
+ *  readback reads one day of it). Older debt is ONE indexed existence read over everything before that window, so an account whose only debt is old
+ *  still opens the pass that drains it on every probe, not one hour in twenty-six. */
+const UNREAD_WINDOW_DAYS = 7;
 
 /** The account's CURRENT onboarding basis: the one fingerprint every derived read and write
  *  is scoped to. Null = not resolvable, which is a stop, never a default. */
@@ -138,9 +138,9 @@ async function pagesAwaitCrawl(tenantId: string, now: Date): Promise<boolean> {
  *  the pass it opens reads ONE day of it. Lean projection on purpose (identity, status, the two settlement hashes; never the answer text or the
  *  journey). Free, and it calls nothing. */
 async function answersAwaitAnalysis(tenantId: string, fromDay: string, toDay: string): Promise<boolean> {
-  const { isAnalysisSettled, readAiObservations } = await import("@/domains/evidence");
-  return (await readAiObservations(tenantId, { fromDay, toDay, projection: "outcome" })).some((r) => r.status === "observed"
-    && r.answer_hash != null && !isAnalysisSettled({ analysis: r.analysis, analysisHash: r.analysis_hash ?? null, answerHash: r.answer_hash ?? null }));
+  // ONE indexed existence row, not a paged window walk: the unreadOnly filter rides the partial index, so this probe is lean over ANY range, which is what lets probeUnread ask about the whole store instead of a rotating band.
+  const { readAiObservations } = await import("@/domains/evidence");
+  return (await readAiObservations(tenantId, { fromDay, toDay, projection: "outcome", unreadOnly: true, limit: 1 })).length > 0;
 }
 
 /** THE CANONICAL SETTLED-ANALYSIS FINGERPRINT RIGHT NOW, computed over EXACTLY the rows the harvest consumes:
@@ -166,17 +166,16 @@ async function consumedAnalyses(tenantId: string, basis: string): Promise<string
   return data == null ? null : ((data as { wm: string | null }).wm ?? null);
 }
 
-/** The unread probe over BOTH windows the readback reads: the recent seven days, and the hourly-rotating
- *  older seven wrapping at 26 weeks (answer-readback's own formula), so old debt on an otherwise quiet
- *  account still opens the pass that reaches it. Two lean reads, short-circuiting on the first hit. */
-async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, nowMs: number, day: string): Promise<boolean> {
+/** The unread probe over BOTH ranges the readback reads: the recent seven days, then EVERYTHING OLDER in one
+ *  indexed existence read. The hourly rotation that stood here made each older band reachable roughly one hour
+ *  in twenty-six, so an account with only old debt looked quiet on most probes and the pass that would drain it
+ *  never opened. Two lean reads, short-circuiting on the first hit. */
+async function probeUnread(ask: (t: string, from: string, to: string) => Promise<boolean>, tenantId: string, _nowMs: number, day: string): Promise<boolean> {
   // Day labels move by plain label arithmetic anchored at noon UTC, the readback's own method, so a
   // daylight-saving edge can never make the probe and the reader disagree about a window's first day.
   const minus = (n: number): string => new Date(Date.parse(`${day}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
   if (await ask(tenantId, minus(UNREAD_WINDOW_DAYS - 1), day)) return true;
-  const back = UNREAD_WINDOW_DAYS * (Math.floor(nowMs / UNREAD_ROTATION_MS) % UNREAD_LOOKBACK_WINDOWS);
-  if (back === 0) return false; // the rotated window IS the recent one this hour
-  return ask(tenantId, minus(back + UNREAD_WINDOW_DAYS - 1), minus(back));
+  return ask(tenantId, minus(365), minus(UNREAD_WINDOW_DAYS));
 }
 
 /** How many CONNECTED trigger sources are past their sync SLA right now. A READ THAT FAILED IS NOT A FRESH SOURCE: this swallowed its own failure per

@@ -248,6 +248,9 @@ export async function transitionProposalToImplemented(tenantId: string, id: stri
   if (!shipmentId.trim()) { log.error("[proposal-store] nothing is marked done without the record that is measuring it", { tenantId, id }); return false; }
   const proposal = await loadChangeProposal(tenantId, id);
   if (!proposal) return false;
+  // THE SHIP DOOR RE-ASKS THE ONE COMPLETENESS QUESTION. It used to trust the stored `ready` stamp, so a row stamped by an older pass shipped unexamined: "Shiraz has a population of NUMBER as of YEAR (SOURCE)." went live, was verified on the page, and was banked as a WIN that then taught the ranker. A deliverable with a gap is not implementable, whatever the stamp says.
+  const gaps = deliverableGaps(proposal);
+  if (gaps.length > 0) { log.error("[proposal-store] this change is not finished enough to mark done", { tenantId, id, gap: gaps[0] }); return false; }
   if (proposal.kind === "new_page" && !liveUrl?.trim()) {
     log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it", { tenantId, id }); return false; }
   return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed";

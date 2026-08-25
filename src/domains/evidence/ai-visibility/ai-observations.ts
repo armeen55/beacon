@@ -168,7 +168,11 @@ const STAMP_COLUMNS = "id,prompt_id,prompt_version,engine,reporting_day,requeste
 export async function readAiObservations(
   tenantId: string,
   opts: { day?: string; fromDay?: string; toDay?: string; promptId?: string; id?: string; limit?: number;
-    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" | "fanout" | "scoped" } = {},
+    slot?: number; after?: { at: string; id: string } | null; projection?: "full" | "outcome" | "overview" | "list" | "stamp" | "fanout" | "scoped";
+    /** ONLY rows whose reading is still owed (analysis null, status observed), riding the partial index, so an existence probe or an oldest-debt pick is ONE indexed row instead of paging a window. Narrower than isAnalysisSettled by design: a part-read row does not pin the probe, and the day-level read still applies the full rule. */
+    unreadOnly?: boolean;
+    /** Oldest reporting day first (for picking the oldest owed debt). Incompatible with `after` paging; callers pass limit 1. */
+    oldestFirst?: boolean } = {},
 ): Promise<AiObservationRecord[]> {
   const whole = opts.day !== undefined || opts.fromDay !== undefined || opts.toDay !== undefined;
   const want = Math.min(Math.max(1, Math.floor(opts.limit ?? (whole ? MAX_ROWS : 500))), MAX_ROWS);
@@ -184,6 +188,7 @@ export async function readAiObservations(
     if (opts.day) q = q.eq("reporting_day", opts.day);
     if (opts.fromDay) q = q.gte("reporting_day", opts.fromDay);
     if (opts.toDay) q = q.lte("reporting_day", opts.toDay);
+    if (opts.unreadOnly) q = q.is("analysis", null).eq("status", "observed"); // the ix_ai_observations_unanalyzed partial index carries exactly this shape
     if (opts.promptId) q = q.eq("prompt_id", opts.promptId);
     // The slot is asked for HERE: filtering it afterwards spends every page on samples the caller drops.
     if (opts.slot !== undefined) q = q.eq("sample_slot", opts.slot);
@@ -196,8 +201,9 @@ export async function readAiObservations(
       q = q.or(`requested_at.lt."${after.at}",and(requested_at.eq."${after.at}",id.lt."${after.id}")`);
     }
     // Newest first, id breaking every tie: without a unique tiebreaker two rows stamped the same instant
-    // can land on both sides of a page edge, so one is read twice and another never at all.
-    const { data, error } = await q.order("requested_at", { ascending: false }).order("id", { ascending: false }).limit(size);
+    // can land on both sides of a page edge, so one is read twice and another never at all. `oldestFirst` flips the whole order (reporting day leading) for the one-row oldest-debt pick, which never pages.
+    if (opts.oldestFirst) q = q.order("reporting_day", { ascending: true });
+    const { data, error } = await q.order("requested_at", { ascending: opts.oldestFirst === true }).order("id", { ascending: opts.oldestFirst === true }).limit(size);
     if (error) throw new Error(`[ai_observations] read failed: ${error.message}`);
     // On the lean projections the row genuinely has no answer_text and no whole journey; every caller that asks
     // for one reads only the columns it named, which is why it asked for them.

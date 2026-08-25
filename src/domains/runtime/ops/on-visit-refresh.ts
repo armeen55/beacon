@@ -163,7 +163,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
   /** Does THIS turn owe the reading before the phase it resumed into? Only a turn that arrived already inside a long phase, and only when a reading is due. */
   let readBeforePhase = LONG_PHASES.has(run.current_phase) && work.due.includes("analyze_answers");
   /** ONE bounded reading slice per drive, wherever this turn owes it: in front of a long phase it resumed into, on a pass opened to read alone, or straight after a day's collection is BANKED. Worth starting only with room left to store what it buys, so under the floor the debt keeps its place and the next pass reads it. */
-  let slices = 1; const roomToRead = (): boolean => slices > 0 && deadline - nowFn().getTime() >= ANALYSIS_SLICE_MIN_MS;
+  let slices = 3; const roomToRead = (): boolean => slices > 0 && deadline - nowFn().getTime() >= ANALYSIS_SLICE_MIN_MS; // THREE slices, not one: 616 purchased answers sat unread while every drive read at most forty and handed the rest of its clock to phases that buy more. The deadline floor still bounds each slice, so reading can never eat the drive, and a pass with no debt spends nothing
   /** The phase whose attempt already spent its ONE state-conflict retry (never global). */
   let conflictRetried: ResearchPhase | null = null;
 
@@ -260,10 +260,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
       // AND THE DISPATCH GOES AND GETS IT (Codex, 2026-08-23). Storing the requirement, logging it and checking it as a boolean is not acquisition: the reading was never bought, so the next drive drafted from the same missing evidence. The exact search a funded candidate named is fetched HERE, through the transport the funnel already uses, whatever phase set this dispatch opened with. A reading that lands leaves the work resumable; one that does not stays owed with its own receipt and is never called settled.
+      let remaining = [...(r?.evidenceOwed ?? [])]; // the persisted remainder shrinks as needs land: recomputing it from the pre-loop list re-listed the first landed need whenever a pass acquired two
       for (const need of (r?.evidenceOwed ?? []).slice(0, 2)) {
         const got = await steps.acquireEvidence(tenantId, need, basis || null, Math.max(20_000, Math.min(90_000, deadline - nowFn().getTime() - STOP_STARTING_MS))).catch(() => ({ acquired: false, detail: "the acquisition threw" }));
         log.info("[research-run] the exact reading a funded candidate was refused for", { tenantId, key: need.key, kind: need.kind, query: need.query, acquired: got.acquired, detail: got.detail });
-        progress = { ...progress, evidenceOwed: (r?.evidenceOwed ?? []).filter((n) => !(got.acquired && n.key === need.key)) };
+        if (got.acquired) remaining = remaining.filter((n) => n.key !== need.key);
+        progress = { ...progress, evidenceOwed: remaining };
         // WHAT LANDS IS USED AT ONCE. A reading banked and then left until tomorrow is the deadlock with an extra step
         // in it: the same invocation drafts against it, ONCE, and only for the work that asked (Codex, 2026-08-23).
         if (got.acquired) { const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [] },

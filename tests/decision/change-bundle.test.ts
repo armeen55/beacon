@@ -693,10 +693,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       // A summary that restates nothing below lands, as a REPLACEMENT: the section was found, which is the only state in which the synthesis flag is now set.
       const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
       expect((ok[0]!.recommendedChange as { where?: string }).where).toBe('Replaces the existing passage under "Playful Persian expressions"');
-      // The same card, handed the three lines that stay directly below it, is REFUSED for exactly that, and the refusal is not softened into review as a matter of taste: an information-gain failure resolves to its typed next step instead (the typed-refusal-contract suite pins the minting), so the card keeps no duplicated copy at all.
-      const heard = new Map<string, string>(); const dup = await run(`${P2}\n${P3}\n${Q3}`, heard);
-      expect([...heard.values()].join(" ")).toContain("it repeats what stays on the page below it");
-      expect((dup[0]!.recommendedChange as { where?: string }).where).toBeUndefined();
+      // The same card, handed the three lines that stay directly below it, becomes a CONSOLIDATION: no acquisition can stop a liftable one-block answer duplicating entries that remain in their own sections underneath, so the honest deliverable replaces the passage AND absorbs the duplicates, with the removal step on the card and the repeat line as a typed fault.
+      const dup = await run(`${P2}\n${P3}\n${Q3}`);
+      expect((dup[0]!.recommendedChange as { where?: string }).where).toContain("absorbs the duplicated entries below it");
+      expect((dup[0]!.operatorSteps ?? []).join(" ")).toContain("so the page says it once");
+      expect([dup[0]!.status, (dup[0]!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("repeats what stays")]);
       bodyStore.map = null;
     });
     /** A REFUSAL MUST PRODUCE BETTER WORK, NOT ANOTHER GUESS. Two things were missing from every corrective round: the ASSIGNMENT was passed on the first call only, so rounds two and three were asked to fix "it repeats what stays on the page below it" without being told what stays or even that this was a replacement, while the gate that refused them kept asking; and nothing ever said what to ADD, because the searches this page is shown for and does not answer were computed on the packet and read by nothing at all. */

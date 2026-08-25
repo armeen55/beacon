@@ -142,8 +142,9 @@ export function unsettledCause(p: ChangeProposal): string | null {
   const payload = p.causeFinding?.payload;
   const split = payload?.cause === "cannibalization" ? payload : null;
   const named = split ? [...new Set([pathOf(p.pagePath ?? p.pageUrl ?? ""), ...split.competingPaths.map(pathOf)])].filter(Boolean) : [];
-  if (cause === "cannibalization" && named.length > 1) {
-    const written = new Set((p.bundle?.components ?? []).filter((c) => (c.after ?? "").trim().length > 0)
+  // ONLY A CHANGE THAT CLAIMS TO SETTLE THE SPLIT IS HELD TO SETTLING IT WHOLE. A single-page card (an atomic title or description) writes one page BY CONSTRUCTION, so demanding it put words on every competing page held it forever regardless of evidence: the live /persian-female-first-names title sat unreleasable against a two-page split no title can settle. A bundle is the shape that writes on several pages, so the completeness demand binds bundles; an atomic card on a split page falls through to the lever-fits-cause question below, whose hold lifts the day the ownership work settles the split.
+  if (cause === "cannibalization" && named.length > 1 && p.bundle) {
+    const written = new Set((p.bundle.components ?? []).filter((c) => (c.after ?? "").trim().length > 0)
       .map((c) => pathOf(c.page ?? p.pagePath ?? "")));
     const owed = named.filter((n) => !written.has(n));
     if (owed.length === 0) return null;

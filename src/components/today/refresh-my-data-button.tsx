@@ -97,11 +97,16 @@ export function RefreshMyDataButton({
       // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
       // wait on the long half to see the short half.
       router.refresh();
-      // ONE CONTINUATION, ONCE. The press claims the run's lease for itself and does one bounded hop
-      // of whatever is unfinished; the SERVER owns that bound exactly as it did before. It does not
-      // loop, because the day's round no longer depends on this button being pressed enough times.
+      // THE PRESS FINISHES WHAT IS OWED, inside the server's own per-day bound. One hop was pressed, five
+      // sixths of the day's work stayed owed, and the button reported the same success either way: the server
+      // has always answered { hop, more } and the result was discarded. The loop asks while the server says
+      // more is owed and stops the moment it says otherwise or the day's continuation allowance is spent,
+      // so the bound is still the server's, never this component's.
       setResearching(true);
-      await continueResearchNow(0).catch(() => null);
+      for (let hop = 0, more = true; more && hop < 6; hop += 1) {
+        const res2 = await continueResearchNow(hop).catch(() => null);
+        more = res2?.more === true; router.refresh();
+      }
       setResearching(false);
       router.refresh();
     })();

@@ -281,27 +281,28 @@ describe("reading the answers back", () => {
     // AND THE READINGS STILL LAND: singles that answer settle normally, each stamped with its own answer hash, on the very same pass the batch failed.
     expect([(await pass(async () => ({ value: analysis }))).read, saved.every(([, a]) => a.rejected !== true), rows.every((r, i) => isAnalysisSettled({ analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}`, answerHash: r.answerHash }))]).toEqual([3, true, true]);
   });
-  it("reads TODAY before older debt in the same window, and still reaches days the seven day window abandoned forever", async () => {
-    // Seven days ending today is never quiet, because today keeps producing fresh debt, so an answer bought eight days ago could never be reached again however many passes ran and everything older than a week was abandoned permanently. The window ROTATES now, an hour at a time, so the old days come round.
+  it("reads TODAY before older debt, and reaches ANY age of debt directly instead of waiting for a rotation", async () => {
+    // The 26-window rotation made each older band reachable roughly one hour in twenty-six; the oldest debt anywhere is now ONE injected read, so a thirty-day-old answer is the very next oldest turn's work.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
-    const unread = new Set([DAY, back(2), back(8), back(30)]); const asked: string[][] = []; const days: string[] = []; let read = "", passes = 0, widest = 0; const pass = async (now: number) => { const before = asked.length; passes += 1;
-      await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now,
-        unreadDays: async (_t, from, to) => { asked.push([from, to]); return [...unread].filter((d) => d >= from && d <= to).sort(); },
-        readObservations: async (_t, o) => { read = String(o.day); days.push(read); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
-        persist: async () => { unread.delete(read); } });
-      widest = Math.max(widest, asked.length - before); };
-    for (let tick = 0; tick < 30 && unread.size > 0; tick += 1) await pass(tick * 3_600_000);
-    expect([[...unread], days[0], widest, passes < 30]).toEqual([[], DAY, 2, true]); // nothing bought is abandoned, TODAY is read before the older debt in the same window, and the per-pass bound holds: two lean window reads, never a store scan
-  });
-  it("drains old debt at EVERY age while today keeps taking new answers in, so no age band is unreachable and a day that is never quiet starves nothing behind it", async () => {
-    // Newest-owed-wins meant a day still collecting outranked every older debt forever: 140 answers arrive daily and one pass reads at most 40, so today was never quiet and 12 August's 140 answers stayed unreachable. AND THE TURN MUST NOT SHARE THE WINDOW'S CLOCK: 26 windows is an EVEN count, so an hourly parity carried the window index's parity and only odd multiples of seven ever took an oldest turn. Age 15 sits in the 14-20 band, one of the twelve bands (84 of 182 days) that were then unreachable at any number of passes. Half-hour parity is independent, so every window gets an oldest turn while it is the one open.
+    const unread = new Set([DAY, back(2), back(8), back(30)]); const days: string[] = []; let read = "";
+    const pass = async (now: number) => { await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now,
+      unreadDays: async (_t, from, to) => [...unread].filter((d) => d >= from && d <= to).sort(),
+      oldestUnreadDay: async () => [...unread].sort()[0] ?? null,
+      readObservations: async (_t, o) => { read = String(o.day); days.push(read); return [{ ...row("o", `h-${read}`, null, false), day: read }]; },
+      persist: async () => { unread.delete(read); } }); };
+    for (let half = 0; half < 12 && unread.size > 0; half += 1) await pass(half * 1_800_000);
+    expect([[...unread], days[0], days.includes(back(30))]).toEqual([[], DAY, true]); }); // nothing bought is abandoned, TODAY is read first, and the thirty-day debt was reached without any rotation
+
+  it("alternates between today and the OLDEST debt anywhere, so a day that is never quiet starves nothing behind it", async () => {
+    // Newest-owed-wins meant a day still collecting outranked every older debt forever. The policy now: a newest turn keeps today current, an oldest turn drains the oldest owed day wherever it is.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10); const unread = new Set([DAY, back(9), back(15)]), days: string[] = [];
     for (let half = 0; half < 6; half += 1) await runAnswerAnalyses(T, DAY, { readPrompts: async () => null, identity: BRAND, analyzeBatch: readsAll, now: half * 1_800_000,
       unreadDays: async (_t, from, to) => [...unread].filter((d) => d >= from && d <= to).sort(),
+      oldestUnreadDay: async () => [...unread].sort()[0] ?? null,
       readObservations: async (_t, o) => (days.push(String(o.day)), [{ ...row("o", `h-${o.day}`, null, false), day: String(o.day) }]),
       persist: async () => void (days.at(-1) !== DAY && unread.delete(days.at(-1)!)) }); // TODAY is never settled: fresh answers keep arriving all day
-    expect([days, [...unread]]).toEqual([[DAY, DAY, DAY, back(9), DAY, back(15)], [DAY]]); // today stays current on every newest turn, and each window's oldest debt is taken on the oldest turn that window is open for
-  });
+    expect([days, [...unread]]).toEqual([[DAY, back(15), DAY, back(9), DAY, DAY], [DAY]]); }); // today on every newest turn, the oldest debt anywhere on every oldest turn, and a drained store falls back to today
+
   it("opens a call only on a WHOLE call's worth of the deadline it was handed, never on a remainder, and a call abandoned at that deadline settles nothing and claims no spend", async () => {
     // Eight batches at a three minute timeout each, then ten singles, outruns the 300 second request carrying them: that is how ten cron dispatches in a row died at exactly 300 seconds with 140 answers stored and none read.
     const rows = Array.from({ length: 8 }, (_, i) => row(`t${i}`, `ht${i}`, null, false)); let calls = 0, singles = 0, handed = 0;
