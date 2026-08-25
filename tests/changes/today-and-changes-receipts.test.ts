@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
 import type { ChangesView } from "@/app/(shell)/changes-data";
-
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
   return { redirect: redirected, permanentRedirect: redirected, notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
@@ -14,9 +13,7 @@ vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof 
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
-
 // ── Changes: the receipts reach the operator ─────────────────────────────────
-
 const ID = "t::/nowruz-guide::existing_edit::bundle";
 /** Relative to now: a hard-coded reading date is a test that fails on a calendar day nobody chose. */
 const SEEN = new Date(Date.now() - 5 * 86_400_000).toISOString();
@@ -56,12 +53,10 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
 const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low",
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
-
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
   proposals: rows, ready: rows, toDo: [], research: [], aiCases: { state: "read" as const, rows: [] }, summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
-
 async function renderList(view: ChangesView): Promise<string> {
   const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
   return renderToStaticMarkup(createElement(ChangesListClient, { view }));
@@ -73,7 +68,6 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);
 }
-
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
@@ -95,7 +89,6 @@ describe("a ranked card explains itself without being opened", () => {
       "read once and confirm before you make the change"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).not.toContain("changes where the page lives"); // nothing dangerous, no hold
   }); });
-
 describe("a change detail hands over the whole investigation and the controls to act on it", () => {
   beforeEach(() => vi.clearAllMocks());
   it("the investigation carries the cause, what it beat, what would kill it, and what could not be tested", async () => {

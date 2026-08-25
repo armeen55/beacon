@@ -821,6 +821,13 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]);
     expect(await spend(60_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));  // 60 seconds of budget against a clock that moves 20 per reading: the claim lands, the slice does not.
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); }); // handed back, never left leased
+  // THE PUBLISH IS RESERVED, NEVER LEFTOVERS. A drive used to be handed every millisecond that was left, so a tick that worked its whole window reached the republish with nothing to spend and skipped it: the store moved and the customer's Today and Changes kept serving an older release.
+  it("keeps back enough of the dispatch for the customer's release, so research can never eat the publish", async () => {
+    freshRepo(); setAccountStatus(U, "pending_onboarding"); const given: number[] = [];
+    const watch: Partial<ResearchCycleSteps> = { dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }),
+      analyzeAnswers: async (_t, _d, budgetMs) => (given.push(budgetMs), NO_READING) };
+    await runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, ...watch } });
+    expect(given[0]).toBeLessThanOrEqual(200_000); }); // the whole 240 second dispatch minus the reserved publish slice, never the whole of it
   it("cannot double-drive: a duplicate dispatch loses at the lease seam, and a finished day is claimed again by neither", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one candidate, so the refusal is the whole answer
     rows.push(mk({ id: "live", status: "running", lease_owner: "other-dispatch", lease_expires_at: iso(NOW + LEASE) })); expect(await dispatch(NO_PHASE)).toEqual(R());

@@ -26,6 +26,11 @@ const SCHEDULER_BUDGET_MS = 240_000;
  *  operator's own visit. Nothing is claimed instead, and the account is first in line on the next dispatch. */
 const MIN_ACCOUNT_SLICE_MS = 30_000;
 
+/** WHAT THE DISPATCH KEEPS BACK SO THE CUSTOMER SEES THE DAY'S WORK. A zero-dollar release rebuild takes seconds; research
+ *  will always fill whatever it is given, so the publish has to be reserved rather than left over. Enough for the rebuild of
+ *  every account this dispatch touched, and small beside the drive's own window. */
+const PUBLISH_RESERVE_MS = 40_000;
+
 /** What one dispatch actually did. Counts only: no account name, no token, no secret. A THROW IS NOT A DRIVE, AND NEITHER IS A PAUSE. The receipt used to carry one number, `driven`, incremented
  *  inside the very catch block that logged the failure; then it counted every normal return as a success, which a provider wait, a phase pause and a lost lease all are. Each outcome now has its own
  *  name, taken from the DURABLE state the cycle left on the row: `attempted` is how many this dispatch started, `succeeded` is how many landed a completed run, `paused` is how many landed a paused
@@ -166,7 +171,12 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
       continue;
     }
     attempted += 1;
-    const deadline = nowFn().getTime() + Math.min(RESEARCH_CYCLE_DEADLINE_MS, left);
+    // THE PUBLISH IS RESERVED, NEVER LEFTOVERS. A drive was handed every millisecond that was left, so a tick that
+    // worked its whole window reached the republish below with nothing to spend and skipped it, and the customer's
+    // Today and Changes kept serving an older release while the store moved underneath them: rows rewritten at
+    // 06:59 against a release stamped 06:31 (measured, 2026-08-25). This is the same trailing-surface failure the
+    // paused path already fixed, on the SUCCESSFUL path. Research now stops early enough to publish what it found.
+    const deadline = nowFn().getTime() + Math.min(RESEARCH_CYCLE_DEADLINE_MS, Math.max(MIN_ACCOUNT_SLICE_MS, left - PUBLISH_RESERVE_MS));
     // THE RECEIPT IS THE DRIVER'S, NOT THIS LOOP'S. driveClaimed answers with the state it durably left on the
     // row, so a provider wait, a phase pause, a basis it could not read and a lease another instance recovered
     // are each counted as themselves. Only a landed completion is a success.
@@ -192,7 +202,13 @@ export async function runDueAccounts(options: SchedulerOptions = {}): Promise<Sc
   await collectBoughtTasks(); // first the evidence already paid for, so the republish below can use it
   await republishPaused(); // the accounts the claim can never see, and the only work they are owed
   if (claimed === 0) log.info("[research-run] the daily dispatch found nothing owed right now", {});
-  else for (const t of worked) if (nowFn().getTime() < endsAt) await republishStale(t);
-  else log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
+  else {
+    // THE FIRST ACCOUNT WORKED ALWAYS PUBLISHES. The reserve above buys the time, and a drive that overran it by a
+    // second must not be what decides whether the customer sees today's work at all; the rest of the fleet still
+    // yields to the budget. The rebuild is zero-dollar and fail-soft, so the worst case is one slow tick.
+    let first = true;
+    for (const t of worked) { if (!first && nowFn().getTime() >= endsAt) break; first = false; await republishStale(t); }
+    log.info("[research-run] daily dispatch done", { claimed, succeeded, failed, paused });
+  }
   return receipt();
 }

@@ -2,7 +2,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
-
 const calls = vi.hoisted(() => ({ ledger: 0, evidence: 0, surface: 0, failSurface: 0 }));
 const SURFACE = vi.hoisted(() => ({
   schemaVersion: 2 as const, releaseId: "t::r1", tenantId: "t",
@@ -11,7 +10,6 @@ const SURFACE = vi.hoisted(() => ({
     measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null },
   today: { today: {} },
 }));
-
 vi.mock("next/navigation", () => ({ redirect: (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); },
   usePathname: () => "/changes", useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<typeof import("next/server")>("next/server")), after: (fn: () => unknown) => { void fn; } }));
@@ -47,27 +45,22 @@ vi.mock("@/app/(shell)/changes-data", async () => ({
     summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0,
     demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null, surfaceBuilding: false })),
 }));
-
 async function renderSection(): Promise<string> {
   const { ChangesSection } = await import("@/app/(shell)/changes/page");
   return renderToStaticMarkup((await ChangesSection()) as ReactElement);
 }
-
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
   beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
-
   // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted pins here used to hold.
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
     await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
   });
-
   // ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins.
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {
     calls.failSurface = 2;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); const view = await loadChangesView();
     expect([view.releaseUnreadable, view.surfaceBuilding, view.releaseFromMemory]).toEqual([true, false, undefined]);
   }, 15_000);
-
   it("a release that will not answer twice serves the last list this process read, labelled with its age", async () => {
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
     // One good read to remember, then two failures in a row.
