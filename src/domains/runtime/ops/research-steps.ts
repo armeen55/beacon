@@ -46,7 +46,6 @@ const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000;
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
  *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
-
 /** The gsc_backfill_chunk phase outcome. `advanced` = a chunk pulled (or the backfill defensively completed); `no_work` = a benign skip. A real error is a THROW, never a value. */
 type BackfillChunkResult = { kind: "advanced"; complete?: boolean; daysPulled?: number } | { kind: "no_work" };
 
@@ -253,7 +252,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // whole box, so the page behind it was unreached for a sixth dispatch. It stays owed and stays fundable; it simply
     // ranks behind work nobody has tried yet.
     // A REVIEW SAVE COUNTS AS AN ATTEMPT, which is what makes the retry above bounded: the first one is remembered here and ranks behind work nobody has tried, and the second settles the candidate instead of taking the top slot for ever.
-    const triedNow = out.paid.receipts.filter((r) => ((r.outcome === "retryable_blocked" || r.outcome === "review_saved") && (r.providerCalls ?? 0) > 0)).map((r) => r.key);
+    // A CANDIDATE WAITING ON EVIDENCE RANKS BEHIND WORK NOBODY HAS TRIED, exactly as a transient block does: its requirement is minted, the acquisition is in flight, and until the reading lands another draft buys the identical refusal. Left at the top, the two hardest candidates re-took both funded slots on every drive and the completable work behind them was never funded once (live, 2026-08-25: five consecutive dispatches funded the same two evidence_required pages while a candidate one word short of its floor sat unfunded).
+    const triedNow = out.paid.receipts.filter((r) => (r.outcome === "evidence_required" || ((r.outcome === "retryable_blocked" || r.outcome === "review_saved") && (r.providerCalls ?? 0) > 0))).map((r) => r.key);
     const tried = [...new Set([...(fingerprint === (seen?.fingerprint ?? fingerprint) ? seen?.tried ?? [] : []), ...triedNow])].filter((k) => !attempted.includes(k));
     // A FUNDED PAGE THAT WAS NEVER REACHED IS OWED FIRST, NOT LAST: it is simply absent from `attempted`, so the
     // next continuation ranks it exactly where its impact puts it, which is where the strongest work belongs.
