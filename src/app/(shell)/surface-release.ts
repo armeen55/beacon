@@ -185,8 +185,12 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     const { loadShippedChangesForTenant } = await import("@/domains/measurement");
     const ledger = await loadShippedChangesForTenant(tenantId).catch(() => null);
     if (ledger && ledger.length > 0) {
+      // AND A FINISHED READING RETIRES ITS ROW: a settled verdict (won, lost, inconclusive; the lifecycle's own terminal rule) means the
+      // change is no longer in flight, so its row stops counting as pending and its page opens for fresh work. Results keeps the verdict.
       await reconcileImplementedWithoutShipment(tenantId,
-        new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id))).catch(() => []);
+        new Set(ledger.map((r) => r.proposalId).filter((id): id is string => !!id)), 50,
+        new Map(ledger.filter((r) => r.proposalId != null && (r.verdict === "won" || r.verdict === "lost" || r.verdict === "inconclusive"))
+          .map((r) => [r.proposalId as string, r.verdict]))).catch(() => []);
     }
     const computedAt = new Date().toISOString();
     const releaseId = `${tenantId}:${computedAt}`;

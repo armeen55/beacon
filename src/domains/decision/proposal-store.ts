@@ -19,7 +19,7 @@ const LEGACY_TABLE = "move_drafts";
 const LEGACY_KIND = "change_proposal";
 
 /** Why this row is no longer the current answer. Never a status: the stages say where the change stands, this says whether anyone is still being asked. `withdrawn` is Beacon taking a draft back. */
-type TerminalDisposition = "dismissed" | "withdrawn" | "superseded";
+type TerminalDisposition = "dismissed" | "withdrawn" | "superseded" | "settled";
 
 /** saved = a new version is durable. unchanged = the stored row already says this. refused = retired under this basis, evidence unmoved. blocked = it is being measured. failed = the write did not land. */
 type SaveResult = "saved" | "unchanged" | "refused" | "blocked" | "failed";

@@ -3,7 +3,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-
 const calls = vi.hoisted(() => ({ continues: [] as number[], refreshes: 0, paused: [] as boolean[], setOk: true, more: true }));
 vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   refreshAllConnectedDataNow: async () => ({ ranAt: "2026-08-02T00:00:00.000Z", results: [] }),
@@ -12,13 +11,10 @@ vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
 vi.mock("@/app/(shell)/settings/actions", () => ({
   setResearchPausedNow: async (paused: boolean) => { calls.paused.push(paused); return { ok: calls.setOk }; } }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => { calls.refreshes += 1; } }) }));
-
 import { RefreshMyDataButton } from "@/components/today/refresh-my-data-button";
 import { ResearchPause } from "@/app/(shell)/settings/research-pause";
-
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
-
 const mount = async (node: ReactElement): Promise<HTMLDivElement> => {
   host = document.createElement("div"); document.body.appendChild(host);
   const r = createRoot(host); root = r;
@@ -31,11 +27,9 @@ const unmount = async (): Promise<void> => {
   host?.remove(); host = null;
 };
 const press = async (button: HTMLButtonElement): Promise<void> => { await act(async () => { button.click(); }); };
-
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   calls.continues = []; calls.refreshes = 0; calls.paused = []; calls.setOk = true; });
 afterEach(async () => { await unmount(); });
-
 describe("Update data is one recovery press", () => {
   it("continues while the server says more is owed, and stops the moment it says otherwise", async () => {
     // THE DEFECT THIS PINS, reversed on 2026-08-25: one hop of six left five sixths of the day owed while the button reported the same success either way. The SERVER still owns the bound (the fixture's `more: true` is capped by the client at six asks, the server's own per-day allowance), and a server that answers `more: false` ends the press at once.
@@ -51,7 +45,6 @@ describe("Update data is one recovery press", () => {
     expect(copy).not.toMatch(/[–—]/);
   });
 });
-
 describe("the pause switch over daily research", () => {
   it("renders the running state and pauses on press", async () => {
     const el = await mount(<ResearchPause permission="running" />); expect(el.textContent).toContain("Daily research is on."); await press(el.querySelector("button")!);

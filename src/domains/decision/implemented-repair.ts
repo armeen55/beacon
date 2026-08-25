@@ -20,10 +20,18 @@ const lostItsRecord = (at: unknown): string => {
   return `A change marked done on ${day} lost its record; mark it done again when you confirm it is live.`;
 };
 
+/** A FINISHED READING RETIRES THE ROW IT MEASURED. A change marked done stayed "pending verification" forever after its reading settled,
+ *  so eight rows sat frozen: counted as in-flight on every lifecycle line, holding their pages against fresh work, waiting on nothing
+ *  (audit, 2026-08-24). The verdict itself lives on the ledger and Results keeps showing it; this only closes the queue's side of the
+ *  loop, with the receipt on the row saying what the reading said. */
+const settledReceipt = (verdict: string): string =>
+  `The reading finished and the result is on Results: ${verdict === "won" ? "this change won" : verdict === "lost" ? "this change lost" : "no clear winner"}.`;
+
 /** Revert every change this account holds as done that the ledger holds no record for, and hand back the sentences stored. `shipped` is every proposal id the ledger
  *  genuinely has a record for, and THE CALLER READS THE LEDGER: a ledger it could not read must never be passed here as an empty set, because a list nobody could read
- *  is not proof a change has no record. Bounded, and fail-soft per row. */
-export async function reconcileImplementedWithoutShipment(tenantId: string, shipped: ReadonlySet<string>, limit = 50): Promise<string[]> {
+ *  is not proof a change has no record. `finished` maps proposal ids to the settled verdict their reading reached (won, lost, or
+ *  inconclusive, the same terminal rule the measurement lifecycle uses); those rows are retired as settled instead. Bounded, and fail-soft per row. */
+export async function reconcileImplementedWithoutShipment(tenantId: string, shipped: ReadonlySet<string>, limit = 50, finished?: ReadonlyMap<string, string>): Promise<string[]> {
   if (!tenantId) return [];
   const said: string[] = [];
   try {
@@ -35,7 +43,18 @@ export async function reconcileImplementedWithoutShipment(tenantId: string, ship
       return said;
     }
     for (const row of data as Array<{ id: string; payload: unknown; updated_at?: unknown }>) {
-      const proposal = shipped.has(row.id) ? null : deserializeChangeProposal(JSON.stringify(row.payload));
+      if (shipped.has(row.id)) {
+        const verdict = finished?.get(row.id);
+        if (!verdict) continue;
+        // Compare-and-set on the exact state read above, so a concurrent write is never overwritten: a row that moved settles on the next release instead.
+        const { data: done, error: sErr } = await sb.from(PROPOSAL_TABLE)
+          .update({ terminal_disposition: "settled", withdrawn_reason: settledReceipt(verdict), updated_at: new Date().toISOString() })
+          .eq("tenant_id", tenantId).eq("id", row.id).eq("status", "implemented_pending_verification").is("terminal_disposition", null).select("id");
+        if (sErr || !done || done.length === 0) log.error("[implemented-repair] a finished reading could not retire its row", { tenantId, id: row.id, error: sErr?.message ?? "no row" });
+        else log.info("[implemented-repair] a finished reading retired its row", { tenantId, id: row.id, verdict });
+        continue;
+      }
+      const proposal = deserializeChangeProposal(JSON.stringify(row.payload));
       if (!proposal) continue;
       const sentence = lostItsRecord(row.updated_at);
       const payload = JSON.parse(serializeChangeProposal({ ...proposal, status: "needs_review",

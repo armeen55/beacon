@@ -259,6 +259,11 @@ describe("done is only ever reached with a record behind it", () => {
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set<string>())).toEqual([SENTENCE]);
     expect([row.status, row.queue_lane, row.queue_rank]).toEqual(["needs_review", null, null]); // back in the queue, and it earns its position again
     expect([storedNow(row)?.status, storedNow(row)?.limitations[0]]).toEqual(["needs_review", SENTENCE]); });
+  // A FINISHED READING RETIRES THE ROW IT MEASURED. Eight rows sat "pending verification" forever after their readings settled: counted as in-flight, holding their pages against fresh work, waiting on nothing. The verdict stays on the ledger; this closes the queue's side, with the receipt on the row.
+  it("retires a done row whose reading settled, keeps its stage, and says what the reading said", async () => {
+    const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set([DONE_ID]), 50, new Map([[DONE_ID, "won"]]))).toEqual([]);
+    expect([row.status, row.terminal_disposition, row.withdrawn_reason])
+      .toEqual(["implemented_pending_verification", "settled", "The reading finished and the result is on Results: this change won."]); });
   it("leaves a change the ledger really is measuring untouched, never stacks the sentence, and reverts nothing on a read that failed", async () => {
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set([DONE_ID]))).toEqual([]);
     expect([row.status, row.queue_rank]).toEqual(["implemented_pending_verification", 3]);
