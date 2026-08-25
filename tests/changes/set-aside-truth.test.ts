@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElem
 import type { ChangeProposal } from "@/domains/decision";
 import { actionableProposalFailures as failures } from "@/domains/decision/validate-proposal";
 import type { ChangesView } from "@/app/(shell)/changes-data";
-
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
   return { redirect: redirected, permanentRedirect: redirected, notFound: () => { throw new Error("NEXT_NOT_FOUND"); },
@@ -83,7 +82,7 @@ describe("a direct link renders only what the ranked list would, and always land
     shipped.held = [{ proposalId: ID, componentsApplied: [{ id: "0:title", kind: "title", label: "Title" }] }];
     const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal);
     const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
-  /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. */
+  /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts. THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through. THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence. EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21). ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes. Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all. AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon). */
   it("expires the change whose own component cites only cold readings, keeps the one whose readings are current, and ages a change with no receipt on its drafted date", () => {
     const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }; const b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
     const mixed = { ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta" as const, label: "Description", after: "A description", evidenceKeys: ["k2"] }],
@@ -114,11 +113,9 @@ describe("a direct link renders only what the ranked list would, and always land
     const safe = { ...merge, bundle: { ...merge.bundle!, components: [b.components[0]!] } } as ChangeProposal;
     await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
     await link(safe); const wrong = await confirm({ proposalId: safe.id, version: confirmedVersion(safe) });
-    // AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon).
     await link(merge); const ok = await confirm({ proposalId: merge.id, version: confirmedVersion(merge) }), sent = vi.mocked(promote).mock.calls.at(-1);
     expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, vi.mocked(promote).mock.calls.length, sent?.[1], sent?.[2] === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, 1, merge.id, true]); }); });
 describe("an account that skipped the connectors still reaches its own Today", () => {
-  // Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all.
   it("calls an account a demo only when it truly holds nothing, never merely because it connected nothing", async () => {
     const gate = async (repo: () => unknown) => {
       vi.resetModules();
@@ -135,7 +132,6 @@ describe("an account that skipped the connectors still reaches its own Today", (
     vi.resetModules(); }); });
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
-  // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes.
   it("shows every open opportunity with zero ready, never calls a draft finished, and counts the same on both screens", async () => {
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const draft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
     const missing = 'The results page for "iranian comedians" has not been read, and that read is what turns this into exact work.';
@@ -149,7 +145,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
       .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
     expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and preparing rows are their own compact shape
-  // EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21).
   it("shows all 12 preparing opportunities as compact rows with detail links, never as essays and never as Ready", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
@@ -157,7 +152,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Future opportunities (12)"),
       html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
       .toEqual([12, 12, true, false, true, false]); });
-  // THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence.
   it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
     const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
@@ -167,7 +161,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       html.includes("Writing a page-specific description from the stored page."),
       html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")])
       .toEqual([true, true, true, false]); });
-  // THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through.
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;
@@ -178,7 +171,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect([yes.success, no.success, no.error?.includes("not settled"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)])
       .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
-    // The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts.
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],
         summary: { todo: 0, ready: 1, measuring: 0, results: 0 } } as ChangesView,
@@ -210,4 +202,3 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals).toHaveLength(0); }); // a bar I cannot read shows nothing
 });
-

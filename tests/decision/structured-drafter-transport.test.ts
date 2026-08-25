@@ -59,7 +59,6 @@ describe("structured-drafter strict transport", () => {
     expect(cached.status === "drafted" && [cached.cached, cached.costUsd, hit.calls()]).toEqual([true, 0, 0]); const blocked = seam([{ error: "blocked_budget", retryable: false }]);
     const stopped = await callStructuredLLM({ ...REQ, complete: blocked.complete }); // a budget block fired no call
     expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); }); });
-
 /** A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT. `Page covers:` renders the stored headings verbatim, so on a product page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping and returns, and it sold those: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page". A heading shaped as a question is the page ASKING something, not being about it. Only a description drops them; every other field still reads the whole outline. */
 describe("a description names the subject, never the page's own furniture", () => {
   const ask = async (field: "meta" | "title") => { let seen = { system: "", user: "" };

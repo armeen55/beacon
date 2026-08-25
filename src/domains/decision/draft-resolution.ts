@@ -26,32 +26,60 @@ const GAIN_TEXT = {
 } as const;
 GAIN_LINES.add(GAIN_TEXT.ADDS_NOTHING); GAIN_LINES.add(GAIN_TEXT.REPEATS_BELOW); GAIN_LINES.add(GAIN_TEXT.NOT_IMPROVING);
 /** How many surviving entries a replacement must swallow before it is a consolidation rather than a rewrite, how many words an entry owes before its own section may be deleted for it, and how much of what that section says has to survive here. A single incidental mention is not duplication, and naming a term without its meaning does not carry it. */
-const MIN_ABSORBED = 2, MIN_ENTRY_WORDS = 5, KEEPS_MEANING = 0.6;
-/** THE ENTRIES A LIST-SHAPED ANSWER DEFINES, as the term each line is ABOUT: the words before its colon, with any parenthetical (a native spelling, a transliteration) dropped. A term, never a sentence, so a line of ordinary prose contributes nothing. Keyed on letters and digits alone, because "Chert-o-Pert" and "Chert o Pert" are one entry. */
-const entriesOf = (copy: string) => copy.split("\n").map((l) => l.trim()).flatMap((l) => {
-  const at = l.indexOf(":"); if (at <= 0) return [];
-  const subject = l.slice(0, at).replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim(), key = subject.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-  return key.length >= 3 && subject.split(" ").length <= 5 ? [{ subject, key, line: l, words: l.slice(at + 1).trim().split(/\s+/).filter(Boolean).length }] : [];
-});
-/** WHAT A REPLACEMENT WOULD HAND THE READER TWICE, AND WHETHER IT COULD TAKE THOSE SECTIONS WITH IT. `repeats` is the
- *  entries this copy defines that still have their own section below it, asked of the SUBJECT and never the wording:
- *  the test this replaced compared whole lines and demanded every word over three letters already appear below, so one
- *  ordinary novel word ("means", "very", "colorful") cleared a line and a paraphrase cleared all of them, and a live
- *  replacement defining five entries that each kept their section underneath went READY at rank 1. A subject does not
- *  paraphrase. `whole` says the page would lose nothing by the removal: every repeated entry is said here in full, and
- *  most of what its section says survives in this copy. Counting the replacement's own words was not enough, because
- *  "Pedar Sag: a very colorful insult, roughly bastard" is a full sentence and still drops "literally father dog". PURE. */
-function absorption(copy: string, remains: string): { repeats: string[]; whole: boolean } {
-  const flat = remains.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ""); if (flat.length === 0) return { repeats: [], whole: false };
-  const mine = entriesOf(copy).filter((e) => flat.includes(e.key)), lines = remains.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim()).filter(Boolean);
-  const carries = (e: { key: string; line: string; words: number }): boolean => {
-    const said = new Set(topicTokens(e.line));
-    const theirs = lines.filter((t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").includes(e.key)).flatMap((t) => topicTokens(t)).filter((w) => !e.key.includes(w));
-    return e.words >= MIN_ENTRY_WORDS && (theirs.length === 0 || theirs.filter((w) => said.has(w)).length / theirs.length >= KEEPS_MEANING); };
-  const repeats = [...new Map(mine.map((e) => [e.key, e.subject])).values()];
-  return { repeats, whole: repeats.length >= MIN_ABSORBED && mine.every(carries) };
+/** How many surviving sections a replacement must swallow before it is a consolidation rather than a rewrite, and how short a sentence may be before it carries no material claim. */
+const MIN_ABSORBED = 2, MIN_CLAIM_WORDS = 6;
+/** Letters and digits only, so "Chert-o-Pert", "Chert o Pert" and "**Chert-o-Pert**" are one subject and punctuation decides nothing. */
+const flatKey = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+/** THE SUBJECTS THE PAGE ITSELF DECLARES, never a shape guessed out of the copy. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means", or in an ordinary sentence walked straight past it. The page already says what its sections are about, in its own stored headings and in the leading term of its own list items, so those are the subjects and the only question left is whether the replacement says them again. A parenthetical (a native spelling, a transliteration) is stripped, and a heading too long to be a term is not one. */
+const subjectsOf = (text: string, headings: readonly string[]): Array<{ subject: string; key: string }> => {
+  const seen = new Map<string, string>();
+  const take = (raw: string) => { const subject = raw.replace(/\([^)]*\)/g, " ").replace(/[*_`#>\u2022]/g, " ").replace(/\s+/g, " ").trim();
+    const key = flatKey(subject);
+    if (key.length >= 3 && subject.split(" ").length <= 5 && !seen.has(key)) seen.set(key, subject); };
+  for (const h of headings) take(h);
+  // AND THE LIST ITEMS A PAGE WRITES INSTEAD OF HEADINGS, read off whichever separator it happens to use.
+  for (const line of text.split(/\n+/)) { const m = /^\s*(?:[-*\u2022]|\d+[.)])?\s*([^:\u2013\u2014-]{2,60})\s*(?::|\u2013|\u2014|\s-\s)/.exec(line); if (m) take(m[1]!); }
+  return [...seen.entries()].map(([key, subject]) => ({ key, subject }));
+};
+/** THE SENTENCES OF ONE SURVIVING SECTION THAT SAY SOMETHING: what would be lost if that section were deleted. */
+const claimsOf = (section: string): string[] => section.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
+  .filter((t) => t.split(/\s+/).filter(Boolean).length >= MIN_CLAIM_WORDS);
+/** WHAT A REPLACEMENT WOULD HAND THE READER TWICE, AND WHETHER IT COULD TAKE THOSE SECTIONS WITH IT.
+ *  `repeats` is the subjects the PAGE declares that still stand below this copy and that this copy names again, asked of
+ *  the subject and never of the wording, because a subject does not paraphrase and punctuation is not structure.
+ *  `whole` is the authorization to tell an operator to DELETE those sections, and it is a claim question, not a
+ *  similarity score: a 60 percent token overlap once passed a replacement that dropped "literally father dog", so every
+ *  material sentence of every absorbed section must be carried here, and the first one that is not is named in `missing`
+ *  so the card can say what it would have destroyed. Overlap can find candidates; it may never authorize Ready. PURE. */
+function absorption(copy: string, remains: string, headings: readonly string[] = []): { repeats: string[]; whole: boolean; missing?: string } {
+  if (remains.trim().length === 0) return { repeats: [], whole: false };
+  const said = flatKey(copy), below = flatKey(remains);
+  // A subject counts only where the page still carries it BELOW this copy and this copy names it again.
+  const all = subjectsOf(remains, headings).filter((s) => below.includes(s.key));
+  const live = all.filter((s) => said.includes(s.key));
+  const repeats = live.map((s) => s.subject);
+  if (repeats.length < MIN_ABSORBED) return { repeats, whole: false };
+  // The words this copy devotes to one subject: its own line where it writes lines, else the whole copy.
+  const mineFor = (key: string): string => copy.split(/\n+/).find((l) => flatKey(l).includes(key)) ?? copy;
+  // THE SECTION THAT WOULD BE DELETED FOR IT: from where the page names that subject to where it names the next one, off
+  // the page's own units. Anything looser reads a neighbour's sentences as this subject's and refuses a sound removal.
+  const marks = remains.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim()).filter(Boolean);
+  const startOf = (key: string): number => marks.findIndex((t) => flatKey(t).includes(key));
+  // EVERY subject the page still carries bounds a section, not only the ones this copy absorbs: taking the last absorbed
+  // subject's section to the end of the page swept in six sections it never claimed and refused a sound removal for them.
+  const edges = [...new Set(all.map((s) => startOf(s.key)).filter((i) => i >= 0))].sort((a, b) => a - b);
+  const starts = live.map((s) => ({ ...s, at: startOf(s.key) })).filter((s) => s.at >= 0).sort((a, b) => a.at - b.at);
+  for (let n = 0; n < starts.length; n += 1) {
+    const here = starts[n]!, stop = edges.find((i) => i > here.at) ?? marks.length;
+    const mine = new Set(topicTokens(mineFor(here.key))), own = new Set(topicTokens(here.subject));
+    for (const claim of claimsOf(marks.slice(here.at, stop).join(" "))) {
+      const material = topicTokens(claim).filter((w) => !own.has(w));
+      const lost = material.filter((w) => !mine.has(w));
+      if (material.length > 0 && lost.length > 0) return { repeats, whole: false, missing: `${here.subject}: ${claim.slice(0, 90)}` };
+    }
+  }
+  return { repeats, whole: true };
 }
-
 /** THE DETERMINISTIC RESOLUTION LADDER for an information-gain refusal, cheapest defensible first. By the time
  *  this runs the two $0 rungs are spent: a real replace target already became a structural synthesis upstream,
  *  and every authorized stored fact was already in the packet the refused rounds drafted from. What remains is
@@ -72,7 +100,6 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   if (factsBanked === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
-
 /** THE PAGE'S OWN WORDS THAT WOULD STILL STAND UNDER AN EDIT: everything after the passage it replaces. Empty where nothing is replaced or the body is not on file, so the duplication reading above asks nothing rather than guessing. PURE. */
 const surviving = (passages: readonly string[], before: string | null): string => {
   const whole = passages.join(" "), replaced = (before ?? "").trim(); if (replaced.length < 20) return "";

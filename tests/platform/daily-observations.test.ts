@@ -292,7 +292,6 @@ describe("reading the answers back", () => {
       persist: async () => { unread.delete(read); } }); };
     for (let half = 0; half < 12 && unread.size > 0; half += 1) await pass(half * 1_800_000);
     expect([[...unread], days[0], days.includes(back(30))]).toEqual([[], DAY, true]); }); // nothing bought is abandoned, TODAY is read first, and the thirty-day debt was reached without any rotation
-
   it("alternates between today and the OLDEST debt anywhere, so a day that is never quiet starves nothing behind it", async () => {
     // Newest-owed-wins meant a day still collecting outranked every older debt forever. The policy now: a newest turn keeps today current, an oldest turn drains the oldest owed day wherever it is.
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10); const unread = new Set([DAY, back(9), back(15)]), days: string[] = [];
@@ -302,7 +301,6 @@ describe("reading the answers back", () => {
       readObservations: async (_t, o) => (days.push(String(o.day)), [{ ...row("o", `h-${o.day}`, null, false), day: String(o.day) }]),
       persist: async () => void (days.at(-1) !== DAY && unread.delete(days.at(-1)!)) }); // TODAY is never settled: fresh answers keep arriving all day
     expect([days, [...unread]]).toEqual([[DAY, back(15), DAY, back(9), DAY, DAY], [DAY]]); }); // today on every newest turn, the oldest debt anywhere on every oldest turn, and a drained store falls back to today
-
   it("opens a call only on a WHOLE call's worth of the deadline it was handed, never on a remainder, and a call abandoned at that deadline settles nothing and claims no spend", async () => {
     // Eight batches at a three minute timeout each, then ten singles, outruns the 300 second request carrying them: that is how ten cron dispatches in a row died at exactly 300 seconds with 140 answers stored and none read.
     const rows = Array.from({ length: 8 }, (_, i) => row(`t${i}`, `ht${i}`, null, false)); let calls = 0, singles = 0, handed = 0;

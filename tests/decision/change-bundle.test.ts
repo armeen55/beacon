@@ -706,60 +706,82 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(add[0]!.treatment === "rewrite_existing_section").toBe(JSON.stringify(arc).includes("Replaces the existing passage"));
       bodyStore.map = null;
     });
-    /** WHAT A READER GETS TWICE IS THE SUBJECT, AND A SUBJECT DOES NOT PARAPHRASE. The duplication test compared whole lines and demanded EVERY word over three letters already appear below, so one ordinary novel word ("means", "very", "colorful") cleared a line and a paraphrase cleared all of them: live, a /funny-farsi-phrases replacement defined five entries that each kept their own section underneath, scored zero of six lines, and went READY at rank 1 telling the operator to replace the introduction and nothing else. The entries the copy defines are matched against the sections that survive, and repeating them has exactly two honest endings: stop repeating them, or CARRY them and take them off the page in the same change. */
-    it("holds paraphrased repetition, lands a summary that repeats nothing, and lets a complete consolidation name its removals", async () => {
+    /** WHAT A READER GETS TWICE IS THE SUBJECT, AND THE PAGE ALREADY SAYS WHAT ITS SUBJECTS ARE. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means" or in an ordinary sentence walked past it, and a live replacement scored ZERO of six lines and went READY at rank 1 while all five entries kept their sections underneath. The page's own stored headings are the subjects; the only question is whether the replacement says them again, however it writes them. */
+    it("catches a repeated subject in any formatting, and lets only a claim-preserving consolidation name its removals", async () => {
       const { canonicalUrlKey: ck3 } = await import("@/domains/evidence/snapshot");
-      const ENTRIES = ["Pedar Sag Meaning: literally father dog, a harsh insult used between close friends as a joke, said with a smile.",
-        "Topoli Meaning: chubby, an affectionate nickname used for children and pets in everyday Persian speech.",
-        "Gooz Meaning: fart, used casually to call something worthless or beneath discussion among friends."];
-      const PAGE = { ...BODY, headings: ["Playful Persian expressions", "Entries"], passages: ["Playful Persian expressions", P1, "Entries", ...ENTRIES] };
+      // The page as production stores it: every entry is its own H2, exactly like /funny-farsi-phrases.
+      const H = ["Playful Persian expressions", "Pedar Sag (پدر سگ)", "Topoli (تپلی)", "Gooz (گوز)", "Bikhial (بی‌خیال)", "Boro Baa Baad (برو با باد)", "Chert-o-Pert (چرت و پرت)", "Olagh (الاغ)", "Divooneh (دیوانه)"];
+      const SECTIONS = ["Pedar Sag (پدر سگ)", "Literally father dog, a harsh insult close friends trade as a joke.",
+        "Topoli (تپلی)", "Chubby, an affectionate nickname for children and pets.",
+        "Gooz (گوز)", "Fart, used casually to call something worthless.",
+        "Bikhial (بی‌خیال)", "Forget it, said to let a thing go.",
+        "Boro Baa Baad (برو با باد)", "Go with the wind, told to somebody who should leave.",
+        "Chert-o-Pert (چرت و پرت)", "Nonsense, used to dismiss foolish talk.",
+        "Olagh (الاغ)", "Donkey, said of somebody being slow-witted.",
+        "Divooneh (دیوانه)", "Crazy, used warmly for somebody acting wild."];
+      const PAGE = { ...BODY, headings: H, passages: ["Playful Persian expressions", P1, ...SECTIONS] };
       bodyStore.map = new Map([[ck3(BODY.url), PAGE]]);
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
-      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: PAGE.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
+      const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 900, title: BODY.title, h1: BODY.h1, outline: H }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
       const run = async (copy: string) => (await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never))[0]!;
-      // PARAPHRASED repetition: not one line shares every word with what stays below, and all three entries still have their own sections. It is duplication, and it may not wear Ready.
-      const para = await run("Pedar Sag (پدر سگ): a very colorful insult, roughly \"bastard\", though lighter among close friends.\nTopoli (تپلی): means \"chubby\", usually affectionate and often said to children or pets.\nGooz (گوز): means \"fart\", used informally for something trivial or unimportant.");
-      expect(para.status).not.toBe("ready");
-      expect((para.faults ?? []).join(" ")).toContain("repeats what stays");
-      // A SUMMARY that repeats no entry is finished work: it says what the section is for and leaves the entries to do their own job.
+      // FIVE WAYS TO WRITE THE SAME DUPLICATION, and punctuation decides none of them: colon, em dash, hyphen, bullet, bold-then-means, and ordinary prose.
+      const shapes: Array<[string, string]> = [
+        ["colon", "Pedar Sag (پدر سگ): a colourful insult.\nTopoli (تپلی): an affectionate word.\nGooz (گوز): a dismissive word."],
+        ["em dash", "Pedar Sag — a colourful insult.\nTopoli — an affectionate word.\nGooz — a dismissive word."],
+        ["hyphen", "Pedar Sag - a colourful insult.\nTopoli - an affectionate word.\nGooz - a dismissive word."],
+        ["bullets", "• Pedar Sag, a colourful insult.\n• Topoli, an affectionate word.\n• Gooz, a dismissive word."],
+        ["bold means", "**Pedar Sag** means a colourful insult.\n**Topoli** means an affectionate word.\n**Gooz** means a dismissive word."],
+        ["prose", "Speakers reach for Pedar Sag when they want to sting, soften it with Topoli for a child, and wave a thing away with Gooz when it hardly matters at all."]];
+      for (const [shape, copy] of shapes) {
+        const r = await run(copy);
+        expect([shape, r.status]).not.toEqual([shape, "ready"]);
+        expect([shape, (r.faults ?? []).join(" ")]).toEqual([shape, expect.stringContaining("repeats what stays")]);
+      }
+      // A SUMMARY that names no surviving subject is finished work.
       const sum = await run("Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.");
       expect([sum.status, (sum.recommendedChange as { where?: string }).where]).toEqual(["ready", 'Replaces the existing passage under "Playful Persian expressions"']);
-      // A COMPLETE consolidation carries every entry in full, so the page loses nothing: it is Ready, it NAMES what comes off the page, and the operator can do the whole thing in one pass.
-      const whole = await run("Pedar Sag (پدر سگ): literally father dog, a harsh insult used between close friends as a joke, said with a smile.\nTopoli (تپلی): chubby, an affectionate nickname used for children and pets in everyday Persian speech.\nGooz (گوز): fart, used casually to call something worthless or beneath discussion among friends.");
+      // NEAR-COMPLETE IS NOT COMPLETE: this carries almost all of Pedar Sag and drops "literally father dog", so deleting that section would take the literal meaning off the page.
+      const lossy = await run("Pedar Sag (پدر سگ): a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
+      expect(lossy.status).not.toBe("ready");
+      expect((lossy.operatorSteps ?? []).join(" ")).not.toContain("Delete the sections below for");
+      // COMPLETE: every material sentence of every absorbed section survives here, so the removal is safe and the card NAMES it.
+      const whole = await run("Pedar Sag (پدر سگ): literally father dog, a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
       expect(whole.status).toBe("ready");
-      expect((whole.recommendedChange as { where?: string }).where).toContain("Pedar Sag, Topoli, Gooz");
       expect((whole.operatorSteps ?? []).join(" ")).toContain("Delete the sections below for Pedar Sag, Topoli, Gooz");
-      // AN INCOMPLETE consolidation names the entries and drops their meanings, so deleting those sections would delete the meanings off the page. It stays review work.
-      const thin = await run("Pedar Sag (پدر سگ): see below.\nTopoli (تپلی): see below.\nGooz (گوز): see below.");
-      expect(thin.status).not.toBe("ready");
-      expect((thin.operatorSteps ?? []).join(" ")).not.toContain("Delete the sections below for");
       bodyStore.map = null; });
-    /** THE DEFICIT IS FINISHED CHANGES OWED, NEVER CANDIDATES ALLOWED. Funding `min(deficit, 5)` meant a queue one row short attempted exactly ONE page, whatever it turned out to be: a refusal ended the drive and the work behind it was never reached, while a filled shortfall still walked on. Walk past a refusal; stop buying the moment the target lands. */
-    it("walks past a refusal to the next candidate, and stops spending the moment the shortfall is filled", async () => {
-      const asked: string[] = [];
-      const cardFor = (path: string) => prop({ id: `${TENANT}::${path}::existing_edit::missing_description`, pagePath: path, pageUrl: `https://www.iranopedia.com${path}`,
-        changeFamily: "meta", status: "needs_review" as const, researchOnly: false, primaryQuery: "persian rugs", limitations: [],
-        evidence: { query: "persian rugs", hints: ["a hint"], evidenceRefCount: 1 },
-        recommendedChange: { kind: "existing_edit" as const, field: "meta" as const, before: null, after: "Write a description." } });
-      const paths = ["/a", "/b", "/c"], cards = paths.map(cardFor);
-      const snap = { ownedPages: paths.map((x) => ({ url: `https://www.iranopedia.com${x}`, content: { wordCount: 400, title: `T${x}`, h1: `H${x}`, outline: ["Sec"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const META = { ...GOOD, actionType: "meta", field: "meta", after: "Persian rugs explained simply: what the knots, dyes and regional patterns actually tell you before you buy one.", claims: [{ text: "Persian rugs differ by knot, dye and region.", supportedBy: ["page-title"] }] };
-      const run = async (readyTarget: number, refuseFirst: boolean) => { asked.length = 0; let n = 0;
-        await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(), readyTarget,
-          judge: async () => (refuseFirst && ++n === 1 ? ({ ...OKJ, wouldHandToCustomer: false } as never) : (OKJ as never)),
-          budget: DRAFT_BUDGET.plan({ jobs: paths.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90 }),
-          complete: async ({ user }: { user: string }) => (asked.push(user), { value: META }) } as never); return asked.length; };
-      // A refusal does not end the drive: with changes still owed the pass walks on and reaches every funded candidate.
-      const walked = await run(9, true);
-      expect(walked).toBeGreaterThan(1);
-      expect(walked).toBeGreaterThanOrEqual(3); // every funded candidate was reached, not stranded behind the first refusal
-      // And nothing is bought once the shortfall is filled: a pass owing nothing spends nothing, however many candidates the plan funded.
-      expect(await run(0, false)).toBe(0); });
+    /** THE DEFICIT IS FINISHED CHANGES OWED, NEVER CANDIDATES ALLOWED, AND ONLY THE STORE SAYS WHAT LANDED. Funding `min(deficit, 5)` meant a queue one row short attempted exactly ONE page, whatever it turned out to be. Counting what the pass WROTE was the next mistake: a Ready row the store then refuses, holds or loses puts nothing in front of an operator, so a drive that stopped for it spent money and added no change. The editor counts nothing of its own now; it settles each finished card through the caller and asks the shared budget whether anything is still owed. */
+    it("walks past work the store would not keep, and stops only once a Ready row durably landed", async () => {
+      const { canonicalUrlKey: ck4 } = await import("@/domains/evidence/snapshot");
+      const PATHS = ["/a", "/b", "/c"], URL_OF = (x: string) => `https://www.iranopedia.com${x}`;
+      const body = (x: string) => ({ url: URL_OF(x), title: `Phrases ${x}`, h1: `Phrases ${x}`, metaDescription: null, vocabulary: "", headings: ["Overview"], passages: ["Overview", P1] });
+      bodyStore.map = new Map(PATHS.map((x) => [ck4(URL_OF(x)), body(x)]));
+      const cards = PATHS.map((x) => prop({ id: `${TENANT}::${x}::existing_edit::ai_answer_gap`, pagePath: x, pageUrl: URL_OF(x),
+        changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
+        limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
+        recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the overview." } }));
+      const snap = { ownedPages: PATHS.map((x) => ({ url: URL_OF(x), content: { wordCount: 400, title: `Phrases ${x}`, h1: `Phrases ${x}`, outline: ["Overview"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT } };
+      const SUMMARY = "Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.";
+      const run = async (readyTarget: number, settled: boolean) => { const asked: string[] = [];
+        const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
+          judge: async () => OKJ as never, settle: async () => settled,
+          budget: DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90, readyTarget }),
+          complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
+        return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
+      // Owing nothing, the shared manifest funds nothing: no family draws, whatever it was going to write.
+      expect((await run(0, true)).asked).toBe(0);
+      // One owed and the store KEEPS the first one: the pass stops there and never buys the other two.
+      const landed = await run(1, true);
+      expect(landed.asked).toBe(1);
+      // One owed and the store keeps NOTHING: the same copy is written and the shortfall still stands, so the walk carries on to every remaining candidate instead of closing on work nobody can act on.
+      const lost = await run(1, false);
+      expect(lost.asked).toBe(3);
+      expect(lost.ready).toBe(3); // it really did write finished copy each time; what it never got was a row the store kept
+      bodyStore.map = null; });
     /** THE SYNTHESIS QUESTION IS ASKED AFTER THE SECTION IS FOUND, AND A REPLACEMENT MAY NOT RESTATE WHAT STAYS BELOW IT. The structural_synthesis assignment sat ABOVE the block that computes `rewrite`, reading a variable still initialised to null, so the condition was false on every card ever drafted and the instruction reached the evaluator exactly ZERO times: a correctly targeted rewrite was then judged by the standard written for a brand-new section. And once it does arrive, "the page already holds this" stops being a refusal, so the copy has to be held to something else: only the named passage goes, and repeating the detail still printed underneath hands the reader the same thing twice. Live, /funny-farsi-phrases replaced a content-free intro with six definitions that all remain in their own sections directly below. */
     it("tells the evaluator this is a synthesis, and refuses copy that repeats what stays below", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
@@ -995,8 +1017,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
   const EV = "Each order earns store credit toward the next tote.";
   const TOTES = "Every order earns store credit toward the next red tote; each order earns store credit toward the next red tote.";
   const PK = { targetUrl: "https://fixture-content.example/totes", title: "Totes", h1: "Totes", metaDescription: null, headings: [], bodyText: EV, evidence: { "page-copy-1": EV }, trackedQuestion: null, ownedPaths: ["/totes"], bannedTerms: [] };
-  // A CLAIM WORD THAT ONLY SPELLS ITSELF INSIDE AN EVIDENCE WORD IS NOT SUPPORT. "The evidence carries this" was asked with String.includes, so evidence reading "credit" was held to carry copy saying "red": a colour nobody ever observed, published as a fact about a customer's product. EXACT NORMALIZED TOKEN MEMBERSHIP, singular and plural counted as one word, and nothing here is a claim about meaning: the judge stays the only reader of that, and the faithful paraphrase pinned above still passes.
-  // THE YES NAMES EVERYTHING THE OPERATOR READ. The stamp used to fold the copy, the pieces, their destinations and their grades and nothing else, so fourteen material things on the screen a person confirms could be rewritten under a stamp that still matched: the line being replaced, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reason a page is left alone, every claim, the ids it stands on, the exact quoted words behind them, the readings, the days they were taken, what could not be checked, and what would overturn the diagnosis. Every one of them moves the version now; the ranking, the clock and the measurement figures do not, because none of them is the change.
+  // A CLAIM WORD THAT ONLY SPELLS ITSELF INSIDE AN EVIDENCE WORD IS NOT SUPPORT. "The evidence carries this" was asked with String.includes, so evidence reading "credit" was held to carry copy saying "red": a colour nobody ever observed, published as a fact about a customer's product. EXACT NORMALIZED TOKEN MEMBERSHIP, singular and plural counted as one word, and nothing here is a claim about meaning: the judge stays the only reader of that, and the faithful paraphrase pinned above still passes. THE YES NAMES EVERYTHING THE OPERATOR READ. The stamp used to fold the copy, the pieces, their destinations and their grades and nothing else, so fourteen material things on the screen a person confirms could be rewritten under a stamp that still matched: the line being replaced, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reason a page is left alone, every claim, the ids it stands on, the exact quoted words behind them, the readings, the days they were taken, what could not be checked, and what would overturn the diagnosis. Every one of them moves the version now; the ranking, the clock and the measurement figures do not, because none of them is the change.
   it("mints a different version for everything material on the screen, and the same one for everything that is not", () => {
     const piece = comp({ kind: "consolidation", risk: "dangerous", label: "Merge the two pages", page: "/a", before: "Comedians", after: "Iranian Comedians: the 12 names people search",
       redirectTo: "https://fixture-content.example/keep", preserves: { keeps: ["the photo gallery"], losses: [{ what: "the old address", why: "it forwards now" }] } });
@@ -1040,8 +1061,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
       .toEqual([[], [], "the figure's own sentence says international, and the copy drops it",
         'the evidence "Every order earns store credit toward the next pair" names is about something else entirely, so this copy argues from support nobody banked',
         "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
-  // A WORD IS THE WORD IT IS. The fold that made "showcase" and "showcases" one token also made "rate" and "rat" one, so evidence about a rat was read as carrying copy about a rate, in both directions. Only the tokenizer's own over-trim is repaired now.
-  // THE THREE LANES, AND THE ONE DEMOTION THAT KEEPS THE WORK. Nothing written is research; exact copy owing only a look is a draft a person may approve; copy whose placement nobody can re-check is a draft nobody may approve, and its words, claims and evidence are untouched by the demotion.
+  // A WORD IS THE WORD IT IS. The fold that made "showcase" and "showcases" one token also made "rate" and "rat" one, so evidence about a rat was read as carrying copy about a rate, in both directions. Only the tokenizer's own over-trim is repaired now. THE THREE LANES, AND THE ONE DEMOTION THAT KEEPS THE WORK. Nothing written is research; exact copy owing only a look is a draft a person may approve; copy whose placement nobody can re-check is a draft nobody may approve, and its words, claims and evidence are untouched by the demotion.
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
     const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: BODY, where: 'A new section headed "Sizing", placed after "The studio cuts every barrel."' };
@@ -1181,8 +1201,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     store.rows.set(JUDGED, row(["this one still needs a cited authoritative source before it is paste-ready"]));
     await runWith(incoming());
     expect(store.rows.get(JUDGED)!.status).toBe("needs_review");
-    // 3. BOTH rules withdrawn today release the row, because withdrawing a rule and not naming its receipt
-    //    strands every row it held with an objection nothing stands behind and no way back but a redraft
+    // 3. BOTH rules withdrawn today release the row, because withdrawing a rule and not naming its receipt strands every row it held with an objection nothing stands behind and no way back but a redraft
     for (const gone of ["it tells a reader this page offers \"habitats\", and no claim on this card carries it",
       "it tells a reader this page offers \"wool rugs\", and this page never puts those words together"]) {
       store.rows.set(JUDGED, row([gone]));

@@ -1,4 +1,4 @@
-/** A SLOW READ IS NOT AN OUTAGE, AND A RETRY IS NOT A SECOND CONNECTION. Two promises this screen makes when its sources are struggling: every lane read runs once per account per process no matter how many requests race into it (the retry that used to pile a second read onto a starved pool), and a release blob that will not answer serves the last list this process actually read, with its age, instead of a retry spinner over a list the operator already had. */
+/** A SLOW READ IS NOT AN OUTAGE, AND A RETRY IS NOT A SECOND CONNECTION. Two promises this screen makes when its sources are struggling: every lane read runs once per account per process no matter how many requests race into it (the retry that used to pile a second read onto a starved pool), and a release blob that will not answer serves the last list this process actually read, with its age, instead of a retry spinner over a list the operator already had. One good read to remember, then two failures in a row. ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins. THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted pins here used to hold. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
@@ -51,11 +51,9 @@ async function renderSection(): Promise<string> {
 }
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
   beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
-  // THE LEDGER AND DECAY LANES LEFT THIS SCREEN (operator, 2026-08-21): Results owns measurement and the watched pages, so a Changes visit no longer buys either read at all, which is the strongest form of the one-read promise the two deleted pins here used to hold.
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
     await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
   });
-  // ORDER MATTERS HERE: this case must run before anything remembers a release, because "nothing to fall back to" is exactly the state it pins.
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {
     calls.failSurface = 2;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); const view = await loadChangesView();
@@ -63,7 +61,6 @@ describe("a struggling source costs one read, and a list already in hand beats a
   }, 15_000);
   it("a release that will not answer twice serves the last list this process read, labelled with its age", async () => {
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
-    // One good read to remember, then two failures in a row.
     await loadChangesView();
     calls.surface = 0;
     calls.failSurface = 2;

@@ -130,8 +130,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
     // and the gate is live: the instruction tail this used to carry is still refused, twice over
     const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
-    // The refusal stands on the REAL defect. It no longer also names "Point": a lone capital opening a sentence is the
-    // sentence's capital, not a name, and looking it up refused ordinary copy on live pages ("Common", "Distinct").
+    // The refusal stands on the REAL defect. It no longer also names "Point": a lone capital opening a sentence is the sentence's capital, not a name, and looking it up refused ordinary copy on live pages ("Common", "Distinct").
     expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, false]); });
   /** A HUB AND ITS OWN CHILD ARE NOT A SPLIT SETTLED BY CLICKS. Live, /iran-flags/iran-islamic-republic-flag-history out-clicked its own hub /iran-flags, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words; the hub's roster of its children's names then filled the sibling set with every word the child was distinct for, so the guard that should have caught it computed an EMPTY distinct set and passed. Beacon handed over "Iran Flag: Meaning, Colors, and Full History Timeline" for a page whose own heading reads "Islamic Republic of Iran Flag (1979-Current)", making the two pages compete harder for the search the card exists to settle. Nothing here turns on a word list; it turns on one address nesting inside another. */
   it("never broadens a child onto its own hub's search", async () => {
@@ -263,10 +262,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // A SECTION IS NEVER DROPPED IN SILENCE: unnamed is refused, and naming it is what makes the same copy shippable
     const silent = validate([{ ...c, preserves: { keeps: [], losses: [] } }]);
     expect([silent.verdict, silent.reasons.some((r) => r === 'The rebuild drops "Barrel sizes" and never says why, so I am not putting it in front of you.')]).toEqual(["rejected", true]);
-    // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention
-    // ON RECEIPT LINES ALONE A REBUILD IS REFUSED, AND FOR THE RIGHT REASON. This used to be caught only because "Choosing" is the first word of a heading line and the proper-noun scanner read that capital
-    // as a name, the same accident that refused ordinary copy on live pages. Now every section DECLARES the winner reading that authorized it, so a receipt that never read those pages cannot back the
-    // sections it is asked to ship, and the check every bundle already runs says so. Nothing here turns on how a word is spelled.
+    // the winners' reading grounds the sections it quotes: on receipt lines alone, a true second section reads as invention ON RECEIPT LINES ALONE A REBUILD IS REFUSED, AND FOR THE RIGHT REASON. This used to be caught only because "Choosing" is the first word of a heading line and the proper-noun scanner read that capital
+    // as a name, the same accident that refused ordinary copy on live pages. Now every section DECLARES the winner reading that authorized it, so a receipt that never read those pages cannot back the sections it is asked to ship, and the check every bundle already runs says so. Nothing here turns on how a word is spelled.
     const bare = { ...bundleOf(many.components), receipt: { items: KEYS.map((key) => ({ key, kind: "gsc_demand" as const, fact: FACTS[0]!, observedAt: null })), missing: [], freshestObservedAt: null } };
     const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });
     expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence I cannot show you, so I am not putting it in front of you."), narrow.factViolations]).toEqual(["rejected", true, []]);

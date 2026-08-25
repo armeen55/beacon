@@ -1,6 +1,5 @@
 /** GSC Proof ledger, server-action gating. Measurement mutations are ACCOUNT-OWNER-ONLY (2026-07-23 account-isolation contraction): the record / recompute actions must never run their heavy GSC reads or writes unless the authenticated user owns the current account, and no environment flag can grant it. The server-only deps are mocked so this is a fast behavioural test of the gate. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
 const { ownerFlag, mocks } = vi.hoisted(() => ({
   ownerFlag: { value: true },
   mocks: {

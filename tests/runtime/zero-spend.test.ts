@@ -2,7 +2,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
 import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
-
 const fetchSpy = vi.spyOn(globalThis, "fetch");
 afterEach(() => { fetchSpy.mockClear(); });
 describe("inside a no-spend scope nothing is bought, and nothing pretends it failed", () => {

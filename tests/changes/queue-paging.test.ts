@@ -1,12 +1,8 @@
-/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as the store's own rows and stamped by the real ranking writer; the list then hands over every one exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking replaced underneath the operator restarts honestly, a retired or already-implemented row never reaches a pre-ship lane, the canonical current read is no longer capped at 500, and Today still takes only three. */
+/** THE RANKED QUEUE IS UNLIMITED AND IT PAGES IN THE DATABASE (blocker 3). 501 current changes are seeded as the store's own rows and stamped by the real ranking writer; the list then hands over every one exactly once, each request reads ONE bounded page and never the queue or the release blob, a ranking replaced underneath the operator restarts honestly, a retired or already-implemented row never reaches a pre-ship lane, the canonical current read is no longer capped at 500, and Today still takes only three. the lane riding beside each id, and lands the surface blob. An error leaves EVERY half untouched. The database's side of the release: one transaction that validates the expected prior (null means "no release on file", exactly like the live plpgsql), clears this account, stamps ONE global ordinality with */
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
-
 const db = vi.hoisted(() => ({ rows: [] as Row[], legacy: [] as Row[], reads: [] as number[], basis: "b1" as string | null, stampFails: false }));
 const client: Record<string, unknown> = {
-  // The database's side of the release: one transaction that validates the expected prior (null means "no
-  // release on file", exactly like the live plpgsql), clears this account, stamps ONE global ordinality with
-  // the lane riding beside each id, and lands the surface blob. An error leaves EVERY half untouched.
   rpc(name: string, a: { p_tenant_id: string; p_release: string; p_ids: string[]; p_lanes: string[]; p_expected_prior?: string | null; p_content?: unknown[] }) {
     if (db.stampFails) return Promise.resolve({ data: null, error: { message: "the ranking did not stamp" } });
     if (name === "publish_customer_release") {
@@ -67,7 +63,7 @@ const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id:
   status: p.status, terminal_disposition: null, superseded_by: null, proposal_version: 1,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: `2026-07-30T00:00:${String(p.impactScore).padStart(4, "0")}Z`, ...over });
 const ALL = Array.from({ length: N }, (_, i) => proposal(i));
-/** The fixture ranking, written straight onto the fake rows: production stamps ONLY through the atomic release now. */
+/** The fixture ranking, written straight onto the fake rows: production stamps ONLY through the atomic release now. FAILURE DIRECTION TWO: a prior this build never read is a conflict, not a licence. A null expectation over a live release (the failed-read shape) and a stale expectation both abort BEFORE any write. FAILURE DIRECTION ONE: the transaction refuses, and NEITHER the ranking nor the surface moves. THE COMMIT: one call, both halves land, and the committed id is the one every surface pages under. out on `stampRows` for the ONE transaction that commits ranking and surface together. THE BUILD IS PURE (Codex, 2026-08-23): the old shape stamped the ranking mid-build, so a build that later failed had already replaced the live order. The release on file is still rel-1, and the whole order rides ONE id and ONE ready count reach both surfaces: a navigation can never answer this twice. A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY, and once this process has read one it is not an outage either: the release read is retried on its own short deadline and then falls back to the last one that landed, so neither screen paints "putting your ranked changes together for the first time", "nothing needs a decision today", or an outage over a list it is holding. The genuinely memory-free case (nothing to fall back to) is pinned in tests/changes/read-resilience. A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit: the number the operator reads may only FALL as I learn, never climb back. The release blob has no way to say "put aside", so Today counted a dismissed row while Changes (reading the database) had already dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, under ONE release id and ONE count, with no operator action. */
 async function stamp(release: string, rows: Array<{ id: string; lane: string }> = ALL.map((p) => ({ id: p.id, lane: "ready" }))) {
   for (const r of db.rows) if (r.tenant_id === T) { r.queue_lane = null; r.queue_rank = null; }
   rows.forEach((x, i) => { const r = db.rows.find((y) => y.tenant_id === T && y.id === x.id); if (r) { r.queue_lane = `${release}::${x.lane}`; r.queue_rank = i + 1; } });
@@ -76,13 +72,11 @@ beforeEach(async () => {
   db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
   await stamp("rel-1"); });
 describe("Today and Changes answer one question once", () => {
-  // The release blob has no way to say "put aside", so Today counted a dismissed row while Changes (reading the database) had already dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, under ONE release id and ONE count, with no operator action.
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
     const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
     expect(changes.summary.ready).toBe(N - 1); });
-  // A LEDGER I COULD NOT READ IS NOT AN EMPTY LEDGER: swallowing the error printed "Measuring 0 · Results 0" on Changes and "Nothing is measuring yet" on Today, the one claim a shipped change disproves. And a count that includes changes I will refuse to hand over is a promise the next press cannot keep, wherever the refusals sit: the number the operator reads may only FALL as I learn, never climb back.
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
@@ -100,7 +94,6 @@ describe("Today and Changes answer one question once", () => {
     for (const i of [1, 2, 30]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i)));
     const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
     expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
-  // A RELEASE I COULD NOT READ IS NOT A COLD START AND IS NOT A CLEAR DAY, and once this process has read one it is not an outage either: the release read is retried on its own short deadline and then falls back to the last one that landed, so neither screen paints "putting your ranked changes together for the first time", "nothing needs a decision today", or an outage over a list it is holding. The genuinely memory-free case (nothing to fall back to) is pinned in tests/changes/read-resilience.
   it("falls back to the last release that landed rather than claiming a cold start or an outage, on Changes and on Today", async () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
@@ -111,30 +104,22 @@ describe("Today and Changes answer one question once", () => {
 describe("one release identity, or no release at all", () => {
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
     const view = await buildChangesViewUncached(T, "rel-9");
-    // ONE id and ONE ready count reach both surfaces: a navigation can never answer this twice.
     expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
-    // THE BUILD IS PURE (Codex, 2026-08-23): the old shape stamped the ranking mid-build, so a build that later
-    // failed had already replaced the live order. The release on file is still rel-1, and the whole order rides
-    // out on `stampRows` for the ONE transaction that commits ranking and surface together.
     expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
       confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null },
       components: [{ kind: "title", label: "Title", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }] } } as Partial<ChangeProposal>);
     db.rows[0]!.payload = JSON.parse(serializeChangeProposal(broken));
     expect((await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows.map((p) => p.id)).not.toContain(broken.id);
-    // THE COMMIT: one call, both halves land, and the committed id is the one every surface pages under.
     const args = (release: string, expectedPrior: string | null) => ({ tenantId: T, expectedPrior, release,
       rows: view.stampRows!, scopeKey: "customer-surface::tenant:fixture", storeName: "customer-surface", content: { releaseId: release } });
     expect(await publishCustomerRelease(args("rel-9", null))).toBe("rel-9");
     const committed = async () => [(await readQueuePage(T, "ready", "b1", 0, 1)).release, (blob.stored as { releaseId?: string } | null)?.releaseId ?? null];
     expect(await committed()).toEqual(["rel-9", "rel-9"]);
-    // FAILURE DIRECTION ONE: the transaction refuses, and NEITHER the ranking nor the surface moves.
     db.stampFails = true;
     await expect(publishCustomerRelease(args("rel-10", "rel-9"))).rejects.toThrow("could not commit");
     expect(await committed()).toEqual(["rel-9", "rel-9"]);
     db.stampFails = false;
-    // FAILURE DIRECTION TWO: a prior this build never read is a conflict, not a licence. A null expectation over
-    // a live release (the failed-read shape) and a stale expectation both abort BEFORE any write.
     await expect(publishCustomerRelease(args("rel-10", null))).rejects.toThrow("release conflict");
     await expect(publishCustomerRelease(args("rel-10", "rel-7"))).rejects.toThrow("release conflict");
     expect(await committed()).toEqual(["rel-9", "rel-9"]);

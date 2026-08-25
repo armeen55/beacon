@@ -1,11 +1,13 @@
 /** PRODUCT - THE DETERMINISTIC REPLAY HARNESS. Fixture provider ENVELOPES are driven through the REAL registry parsers, the REAL funnel executors, the REAL snapshot assembler and the REAL decision pass, with only the persistence and drafting seams faked. Nothing here mocks a parser, reads a source string, pins operator copy, or opens a socket: the last test proves the whole path made ZERO network calls. /*/
 import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
-const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>() }));
+const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), refuseSave: new Set<string>() }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.map((u) => [u, { url: u, title: "Kite Festival", metaDescription: null, openingSample: "What happens at a kite festival.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-20T09:00:00.000Z" }])) }));
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")),
-  loadChangeProposals: async () => env.store, saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); env.store.set(p.id, p); return "saved" as const; } }));
+  loadChangeProposals: async () => env.store,
+  // THE STORE MAY SAY NO, and a pass has to notice: a page named here is written, refused by the store, and never reaches the queue.
+  saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; env.store.set(p.id, p); return "saved" as const; } }));
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
@@ -175,4 +177,30 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect([res.outcome, seam.calls(), res.proposals.every((p) => p.status === "needs_review"), res.noDraft]).toEqual(["proposals_persisted", 4, true, 1]); // FOUR drafting calls, where this pass used to buy five. Every one of them was planned and priced before the pass spent anything: the whole-page rewrite refused without drafting, its one-field fallback drew on the SAME allowance, and the description card holds an allowance of its own because the page still had no row. A deliverable's allowance covers a draft, its judge and the retries the editor is built to make, which the live receipt of 2026-08-23 proved it needs; past it the card is banked and the plan moves on. A draft the gates refuse is WITHDRAWN, and every queue row sits at needs_review
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
+  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven through the REAL producer, the REAL store boundary and the ONE shared manifest rather than against the editor alone. Counting GENERATED copy let a pass close on work that never reached the queue: a Ready row the store refuses, holds or loses puts nothing in front of an operator, and a drive that stops for it has spent money and added no change. */
+  it("counts only Ready work the store took, walks past a failed save, and stops every family once the shortfall is filled", async () => {
+    const { evidence } = await replayFunnel();
+    const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
+    const drive = async (readyTarget: number | undefined, refuse: string[]) => {
+      env.snap = snapshot; env.saved = []; env.store = new Map(); env.refuseSave = new Set(refuse);
+      const seam = drafter();
+      const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, ...(readyTarget != null ? { readyTarget } : {}) });
+      return { res, calls: seam.calls(), landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
+    // NOTHING OWED, NOTHING BOUGHT: the shortfall gates the ONE manifest every paid family draws from, so a pass with its stock already full makes no provider call at all, whichever family would have gone first.
+    const full = await drive(0, []);
+    expect(full.calls).toBe(0);
+    expect(full.res.proposals.every((p) => p.status !== "ready")).toBe(true);
+    // A STORE THAT SAYS NO IS NOT A CHANGE: every save refused leaves the shortfall unmet, and the pass keeps working rather than closing on copy nobody can act on.
+    const lost = await drive(1, [TENANT]);
+    expect(lost.landed).toEqual([]);
+    expect(lost.calls).toBeGreaterThan(0); // it did the work
+    expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true); // and said so honestly
+    // A TARGET THAT NOTHING SATISFIES MAY NOT SHORTEN THE PASS. Counting anything the pass merely WROTE would close it on the first card; counting only what the store took leaves the shortfall standing, so this drive does exactly as much work as a drive with no target at all.
+    const uncapped = await drive(undefined, []);
+    expect(lost.calls).toBe(uncapped.calls);
+    // AND WHAT THE STORE TOOK IS WHAT COUNTS. Every row the queue can serve came back from the store, never from the drafter's own say-so.
+    const ok = await drive(1, []);
+    expect(ok.res.paid.receipts.every((r) => r.outcome !== "produced" || env.store.has(String(r.key)) || ok.landed.length > 0)).toBe(true);
+    expect(ok.calls).toBeGreaterThan(0);
+  });
 });

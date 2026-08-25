@@ -168,8 +168,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => {
     reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
-    // EVERY FUNDED KEY CARRIES A TRUTHFUL BLOCKER (Codex, 2026-08-23; reversed from "a not_reached row says nothing").
-    // Silence sent the operator looking for money that was never spent, so an unreached page now names why it was
+    // EVERY FUNDED KEY CARRIES A TRUTHFUL BLOCKER (Codex, 2026-08-23; reversed from "a not_reached row says nothing"). Silence sent the operator looking for money that was never spent, so an unreached page now names why it was
     // not reached; only work that PRODUCED says nothing, because there is nothing to explain.
     const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
     expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]);

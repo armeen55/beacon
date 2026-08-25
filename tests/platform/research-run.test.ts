@@ -995,10 +995,8 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       const stale = { fingerprint: last!.fingerprint.replace(`::p${DRAFT_BUDGET.POLICY}::`, "::pw4r2c6::"), attempted: ["/basic-persian-phrases", "/funny-farsi-phrases"] };
       M.ready = 0; M.declared = ["/basic-persian-phrases", "/funny-farsi-phrases"]; M.out = M.declared.map((key) => ({ key, outcome: "produced" }));
       const reopened = await live.replenishReady(T, new Date(NOW), stale); expect([reopened!.reason, reopened!.ready > 0, DRAFT_BUDGET.POLICY]).toEqual(["made_progress", true, "w6r2c6"]); // settled under the OLD policy, funded again under this one
-      // 8. THE LEDGER'S OWN ANSWER RIDES BESIDE THE RECEIPTS, both directions. A world that moved more than the
-      // receipts explain is REPORTED as unreconciled, never patched. (The COMPLETENESS of a receipt is proved
-      // against the REAL producer in its own test below; a hand-built receipt here could only prove this file's
-      // own arithmetic, which is exactly the fiction Codex caught on 2026-08-23.)
+      // 8. THE LEDGER'S OWN ANSWER RIDES BESIDE THE RECEIPTS, both directions. A world that moved more than the receipts explain is REPORTED as unreconciled, never patched. (The COMPLETENESS of a receipt is proved
+      // against the REAL producer in its own test below; a hand-built receipt here could only prove this file's own arithmetic, which is exactly the fiction Codex caught on 2026-08-23.)
       L.seq = [1.0, 1.02]; M.ready = 0; M.declared = ["/h"]; mem = { fingerprint: null, attempted: [] };
       M.out = [{ key: "/h", outcome: "produced", cost: 0.02 }];
       expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.02, delta: 0.02, metered: 0.02, unexplained: 0, reconciled: true });

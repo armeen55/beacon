@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-
 const otp = vi.fn();
 vi.mock("@/lib/auth/supabase-server", () => ({ getSupabaseServerClient: async () => ({ auth: { signInWithOtp: otp } }) }));
 const { sendMagicLink } = await import("@/lib/auth/magic-link");
