@@ -17,7 +17,6 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
     resolveCurrentBasis: vi.fn(),
   },
 }));
-
 vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
   canPublishForCurrentTenant: async () => ownerFlag.value,
@@ -56,10 +55,8 @@ vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
 }));
 // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id and what that row can be fairly compared against; the mark-implemented press consumes it and never decides any of that for itself.
 vi.mock("@/domains/measurement/proof-gsc/record-shipment", () => ({ recordShipment: mocks.recordShipment }));
-
 import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
 import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
-
 const BASIS = "basis_today::d6";
 const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
 /** The change the operator is confirming: a two-component bundle on a page Beacon holds. */
@@ -76,7 +73,6 @@ const proposal = (over: Record<string, unknown> = {}) => ({
       missing: [], freshestObservedAt: new Date(Date.now() - 86_400_000).toISOString() },
     components: [{ kind: "title", label: "Page title", after: null, risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] },
   ...over, });
-
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());
@@ -94,7 +90,6 @@ beforeEach(() => {
   mocks.loadChangeProposal.mockResolvedValue(proposal());
   mocks.transitionProposalToImplemented.mockResolvedValue(true);
 });
-
 describe("recordShippedChangeAction, account-owner gating", () => {
   it("non-owner ⇒ refused even with the operator env flag on, no record written", async () => {
     ownerFlag.value = false;
@@ -142,7 +137,6 @@ describe("recordShippedChangeAction, account-owner gating", () => {
     expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "That change could not be recorded just now. Try it again in a moment." });
   });
 });
-
 describe("recomputeProofLedgerAction, account-owner gating", () => {
   it("non-owner ⇒ refused, nothing recomputed", async () => {
     ownerFlag.value = false;
@@ -150,7 +144,6 @@ describe("recomputeProofLedgerAction, account-owner gating", () => {
     expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
   });
 });
-
 /** THE SHIPMENT TRANSACTION (Phase 6). "Mark implemented" used to flip a status and nothing else, so a change the operator really made left no record of what was applied or where the page stood beforehand. The press now writes a Shipment FIRST and flips SECOND: a crash between them leaves a Shipment nobody flipped, which the next press heals, where the reverse leaves a change marked done that nothing measures. */
 /** The fixture's title piece is GRADED dangerous, so every whole-bundle press carries the deliberate yes: the canonical rule is the risk grade OR the kind, never the four kinds alone. */
 const PRESS = { proposalId: PROPOSAL_ID, destructiveConfirmed: true };
@@ -264,7 +257,6 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);
   });
 });
-
 describe("a new page owes me the address it is live at", () => {
   // A PUBLISH-READY PAGE, because the ADDRESS gate is what is under test: an outline with no copy behind it is refused a step earlier by the completeness boundary.
   const SECTIONS = ["When it runs", "Where to watch", "What to bring"], OPENS = "The kite festival runs the first weekend of April.";

@@ -52,6 +52,19 @@ export type ProducerDraft = {
  *  cause cannot be added without somebody deciding, in code, what it produces or why it produces nothing. */
 export type CauseKey = CauseFinding["cause"];
 
+/** THE ONE EVIDENCE-REQUIREMENT SHAPE, declared once and imported everywhere (it was structurally redeclared in
+ *  three files, which is exactly how two of its kinds shipped with no buyer and the compiler never said so).
+ *  `kind` says what to buy, `query` or `url` says exactly which one. Runtime's acquireEvidence must execute every
+ *  member of this union: its switch is exhaustive, so adding a kind without an acquisition handler fails typecheck. */
+export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string };
+
+/** THE ONE RESOLUTION VOCABULARY for a refused draft, produced by BOTH refusal producers: the deterministic
+ *  drafting gates (which run before any model call and often refuse without one) and the model evaluator reading
+ *  a finished draft. Cheapest defensible first is the caller's rule, not this type's. `none` is what a PASSING
+ *  read carries; a refusal carrying `none` falls to the deterministic ladder rather than being trusted. */
+export type DraftResolution = "none" | "structural_synthesis" | "use_stored_verified_evidence"
+  | "acquire_serp" | "acquire_page_source" | "acquire_competitor_page" | "acquire_factual_source" | "no_valid_treatment";
+
 /** Everything one producer is allowed to read, all of it already paid for by the pass that called it. */
 export type ProducerCtx = {
   finding: CauseFinding;
@@ -89,8 +102,8 @@ export type ProducerCtx = {
 /** What one producer hands back: components that survive the caller's own gates, or one honest sentence
  *  saying why it wrote nothing. Both empty is impossible by construction: no components means a refusal. */
 export type Produced = { components: BundleComponent[]; refusal: string | null;
-  /** THE EXACT READING THIS CAUSE CANNOT BE TREATED WITHOUT, as data (Codex, 2026-08-23). The refusal sentence beside it is for a person; this is for the runtime, which used to recognise "No results page for X is on file" with a regex and therefore never fetched the one thing that would finish the account's strongest page. `kind` says what to buy, `query` or `url` says exactly which one, and `resumeTreatment` says what runs again once it lands. */
-  requirement?: { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; resumeTreatment: string };
+  /** THE EXACT READING THIS CAUSE CANNOT BE TREATED WITHOUT, as data (Codex, 2026-08-23). The refusal sentence beside it is for a person; this is for the runtime, which used to recognise "No results page for X is on file" with a regex and therefore never fetched the one thing that would finish the account's strongest page. */
+  requirement?: EvidenceRequirement;
   /** ONE VERDICT PER PAGE THE FINDING NAMED, stamped before any drafting so an address cannot leave the change
    *  by simply failing to appear in `components`. Carried onto the bundle, where completeness reads it. */
   dispositions?: ChangeBundle["dispositions"];

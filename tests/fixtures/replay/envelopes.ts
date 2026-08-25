@@ -7,7 +7,6 @@
  * Builders, never blobs: each takes overridable fields so one shape serves many cases.
  */
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
-
 export const SITE = "atlaspedia.example";
 export const GAP_QUERY = "kite festival traditions";
 export const GAP_URL = `${SITE}/kite-festival-guide`;
@@ -15,7 +14,6 @@ export const WINNER_QUERY = "paper lantern guide";
 export const RIVAL_A = "https://rival-a.example/kite-festival-traditions";
 export const RIVAL_B = "https://rival-b.example/blog/spring-kites";
 export const OBSERVED_AT = "2026-07-20T09:00:00.000Z";
-
 /** The bounded envelope the money core caches: status + ONE task carrying a result array. */
 const envelope = (result: unknown[], id = "fx-task"): ProviderEnvelope =>
   ({ status_code: 20000, status_message: "Ok.", cost: 0, tasks: [{ id, status_code: 20000, status_message: "Ok.", cost: 0, result }] });

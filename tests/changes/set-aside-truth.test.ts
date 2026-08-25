@@ -24,7 +24,6 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
   // THE ONE DOOR that writes a record, standing in for the real one: it always writes and always answers with the id the flip is required to carry, so there is no press that closes a change no record stands behind. What it can be compared against is pinned in mark-implemented-transaction.
   recordShipment: async (r: unknown) => { shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
-
 const NOW = "basis_now::d4";
 const EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
@@ -43,7 +42,6 @@ const bundled = (basis: string, id = ID): ChangeProposal => ({
 const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], ready: [], toDo: [], research: [], aiCases: { state: "read" as const, rows: [] },
   summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0, demotedStaleBasis, decidedCountCanonical: 0,
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
-
 async function renderDetail(): Promise<string> {
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(ID) }) }) as ReactElement);
@@ -53,7 +51,6 @@ async function renderChanges(view: ChangesView): Promise<string> {
   const { ChangesSection } = await import("@/app/(shell)/changes/page");
   return renderToStaticMarkup(await ChangesSection() as ReactElement);
 }
-
 describe("a direct link renders only what the ranked list would, and always lands somewhere honest", () => {
   beforeEach(() => vi.clearAllMocks());
   /** Serve one stored row at the link and render it. `retired` is what a history-including read finds. */
@@ -120,7 +117,6 @@ describe("a direct link renders only what the ranked list would, and always land
     // AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon).
     await link(merge); const ok = await confirm({ proposalId: merge.id, version: confirmedVersion(merge) }), sent = vi.mocked(promote).mock.calls.at(-1);
     expect([html.includes("Confirm this version"), html.includes("Mark done"), stale.success, stale.error?.includes("rewritten since"), wrong.success, wrong.error?.includes("does not move or hide a page"), ok.success, vi.mocked(promote).mock.calls.length, sent?.[1], sent?.[2] === confirmedVersion(merge)]).toEqual([true, false, false, true, false, true, true, 1, merge.id, true]); }); });
-
 describe("an account that skipped the connectors still reaches its own Today", () => {
   // Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all.
   it("calls an account a demo only when it truly holds nothing, never merely because it connected nothing", async () => {
@@ -137,7 +133,6 @@ describe("an account that skipped the connectors still reaches its own Today", (
     expect([blind.isDemoMode, blind.unreadable]).toEqual([false, true]);
     for (const m of ["@/lib/seed-data.server", "@/lib/connector-store", "@/lib/persistence/repositories"]) vi.doUnmock(m);
     vi.resetModules(); }); });
-
 describe("an empty Changes queue reads as a decision, not an empty screen", () => {
   beforeEach(() => vi.clearAllMocks());
   // ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes.

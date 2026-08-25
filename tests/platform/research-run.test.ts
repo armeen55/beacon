@@ -900,7 +900,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true);
     expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
 });
-
 /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
   const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "target_reached" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
@@ -957,7 +956,6 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       expect(M.calls.length).toBeGreaterThan(1);                             // the day did not close on a count it had not checked
       expect(r!.reason).toBe("target_reached");                              // and it closes on the count it PROVED, after drafting the row the bad one was hiding
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.resetModules(); } });
-
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
   it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
     const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string; why?: string; cost?: number }[], outcome: "proposals_persisted", throws: false }; vi.resetModules();
@@ -1018,12 +1016,11 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       acquireEvidence: async (_t, need, basis) => { asked.push({ kind: need.kind, query: need.query, basis: basis ?? "(none)" }); return { acquired: true, detail: "bought" }; },
       replenishReady: async () => ({ ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const,
         fingerprint: "m1", attempted: [],
-        evidenceOwed: [{ key: "/persian-female-first-names", kind: "serp", query: "persian girl names", reasonCode: "no_exact_serp",
-          resumeTreatment: "deep_bundle", reason: "No results page is on file", workKey: "wk-1" }] }) });
+        evidenceOwed: [{ key: "/persian-female-first-names", kind: "serp" as const, query: "persian girl names", reasonCode: "no_exact_serp",
+          reason: "No results page is on file", workKey: "wk-1" }] }) });
     expect(asked.map((a) => ({ kind: a.kind, query: a.query }))).toEqual([{ kind: "serp", query: "persian girl names" }]); // the EXACT search, not a topic the run picked
     expect(asked[0]!.basis).not.toBe("(none)"); // AND IT CARRIES THE RUN'S BASIS: a null one failed before reading anything
     void rows; });
-
   /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never
    *  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The
    *  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
@@ -1040,7 +1037,6 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(JSON.stringify(rows.at(-1)!.progress?.replenish)).not.toContain("deferred"); // nothing is demoted, ever
     await drive(["/settled"]);
     expect(seen.at(-1)).toEqual(["/settled"]); }); // the next drive is told only what is finished with, so the rest ranks by worth
-
   it("keeps the stock owed across scheduler dispatches until five exist, and closes the day only at the target or on a proven exhaustion", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work");
     const Q = { ready: 0, finishes: true }; // the queue as the store holds it, moved only by the drives below

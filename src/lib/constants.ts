@@ -76,7 +76,6 @@ export type MetricType =
   | "share_of_voice"
   | "average_position"
   | "organic_clicks"
-  | "ai_referrals"
   | "form_submissions";
 
 /** Words that claim THE PRESENT. One owner on purpose: the receipt validator refuses an undated line that says

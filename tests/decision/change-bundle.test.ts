@@ -621,7 +621,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf", family: "editor", impact: 91, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
       expect(asked.length).toBeGreaterThan(0); }); // it was ASKED: the page is thin, which is a reason to find facts
-
     /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted
      *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
@@ -686,15 +685,16 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: TWO.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
-      const run = async (copy: string) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never,
+      const run = async (copy: string, refusals?: Map<string, string>) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never, refusals,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-heading-1"] }] } }) } as never);
       // A summary that restates nothing below lands, as a REPLACEMENT: the section was found, which is the only state in which the synthesis flag is now set.
       const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
       expect((ok[0]!.recommendedChange as { where?: string }).where).toBe('Replaces the existing passage under "Playful Persian expressions"');
-      // The same card, handed the three lines that stay directly below it, is refused for exactly that.
-      const dup = await run(`${P2}\n${P3}\n${Q3}`);
-      expect(JSON.stringify(dup[0]!.limitations ?? [])).toContain("it repeats what stays on the page below it");
+      // The same card, handed the three lines that stay directly below it, is REFUSED for exactly that, and the refusal is not softened into review as a matter of taste: an information-gain failure resolves to its typed next step instead (the typed-refusal-contract suite pins the minting), so the card keeps no duplicated copy at all.
+      const heard = new Map<string, string>(); const dup = await run(`${P2}\n${P3}\n${Q3}`, heard);
+      expect([...heard.values()].join(" ")).toContain("it repeats what stays on the page below it");
+      expect((dup[0]!.recommendedChange as { where?: string }).where).toBeUndefined();
       bodyStore.map = null;
     });
     /** A REFUSAL MUST PRODUCE BETTER WORK, NOT ANOTHER GUESS. Two things were missing from every corrective round: the ASSIGNMENT was passed on the first call only, so rounds two and three were asked to fix "it repeats what stays on the page below it" without being told what stays or even that this was a replacement, while the gate that refused them kept asking; and nothing ever said what to ADD, because the searches this page is shown for and does not answer were computed on the packet and read by nothing at all. */
@@ -770,7 +770,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       d({ P: pk(learn), placementAnchor: "Persian Greetings and Basic Phrases", finalCopy: "Basic Persian phrases for beginners include common greetings, simple everyday sentences, and numbers shown in Finglish so you can speak before learning the script. This page lists hello, goodbye, thank you, pronunciation tips and cultural notes, and recommends gamified lessons to practice these phrases aloud." }),
       d({ P: pk(blob), placementAnchor: blob, finalCopy: "Famous Iranian people in history and today include Cyrus the Great and the poet Ferdowsi, who founded an empire and wrote the epic that carried the Persian language across many centuries of recorded history, verse and memory, and who are named on this timeline among the milestones that shaped Iran." })];
     expect(RECV)
-
       // AND THE FIRST CARD IS REFUSED A SECOND TIME FOR A SECOND REASON: past the slang it invents, it promises a reader this page "gives brief meanings" and "typical contexts" for those expressions, and the stored page puts those words together nowhere. The third card needs neither list rule; it is caught naming Cyrus and Ferdowsi, two people its page never mentions.
       .toEqual([["it points at the page instead of answering", "it uses words this account does not publish: Farsi", "where it goes is two page elements glued together, which nobody can find on the rendered page", "where it goes is taken from the crawl's own markers, not from the page"], ["it points at the page instead of answering"], ["where it goes is a paragraph rather than a place on the page", "where it goes is two page elements glued together, which nobody can find on the rendered page"]]) });
   // THE READY CARD ON THE LIVE ACCOUNT, 2026-08-15: the description sells "modern designs" and the page shows neither. NO DETERMINISTIC RULE CATCHES IT ANY MORE, and this case is kept to say so out loud. It slips a bag-of-words corpus because one stored sentence says "timeless designs" and another says "modern fashion", so every part of the phrase is on file. Reading the page's word ORDER instead does catch it, and was tried on 2026-08-23, and it refused ordinary copy the page prints word for word: a page reading "Persian rugs, carpets and textiles" refuses an answer that says "Persian carpets", because one modifier distributes over three nouns and a contiguous run cannot see that. Refusing finished work is the worse failure of the two, and this file has thrown out a lexical gate for exactly that reason twice before. The evaluator owns the question now, and it demonstrably answers it: on 2026-08-23 it refused a girl-names answer for repeating what the page already said.
@@ -795,7 +794,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // the live anchor, the same anchor with the glue closed up, and an ordinary heading
     expect([at("Iran Wildlife and National Animals  Discover the Animals of Iran"), at("Iran Wildlife and National AnimalsDiscover"), at("Iran Wildlife and National Animals")])
       .toEqual([true, true, false]); });
-
   // THE THREE FINISHED ANSWERS SITTING IN REVIEW ON THE LIVE ACCOUNT AT 21:02Z, 2026-08-23, as fixtures. Every one is accurate, drafted off its own page, and every one was held back by ONE refusal naming a fragment of its own sentence: "with mammals of Iran" and "habitats" are governed by a preposition, "under Shah Abbas I" carries "Shah Sultan Husayn" with it, "symbolizing royal authority" is a participle, and "Persia faced internal decline" is a clause. None of them is a thing a page offers, and the rule that flagged them asked whether the writer had restated each one inside a claim. Three answers, three customers' worth of finished work, one parser.
   it("reads a list member as a thing, never as the sentence around it", () => {
     const CASES = [
@@ -829,7 +827,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       "its copy is blank or still carries a placeholder", "the evidence its claims name is not banked beside them: card-9",
       'its copy names "Cyrus", and nothing on file about this page mentions them', "it names evidence that is not on file: owned_snapshot"])
       expect(DRAFT_BUDGET.HARD_REFUSAL.test(hard)).toBe(true); });
-
   /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE" never carried. Real qualifiers must still be enforced, so both directions are pinned. */
   it.each([
     ["from 550 BCE to 330 BCE", "The empire ran 550-330 BCE.", true],
@@ -845,7 +842,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       finalCopy: copy, uncertaintyOrOmitted: [], implementationMinutes: 2, measurementTarget: "citations", supportFacts: [] } as unknown as Parameters<typeof deliverableFailures>[0];
     const dropped = deliverableFailures(d, P).filter((r) => r.includes("and the copy drops it"));
     expect(dropped.length === 0).toBe(shouldPass); });
-
   /** THE CAPITAL-LETTER NAME CHECK IS GONE, and this pins that it stays gone for the ordinary-word cases it kept refusing. It blocked /iran-animals/persian-wolf over "Look" opening a list item, and in three consecutive live drafting runs on 2026-08-24 it refused "Key", "BCE The" and "Earliest" - three ordinary English words, three whole pages lost. Whether a claim is entailed by its evidence is a question about meaning, and the evaluator reads every claim against the quoted evidence for exactly that. A spelling rule cannot ask it. */
   it.each([
     ["a dash-led clause", "The Persian wolf ranges across Iran - Look for it in the highlands.", []],
@@ -862,7 +858,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const named = deliverableFailures(d, P).filter((r) => r.includes("its copy names"));
     if (expected.length === 0) expect(named).toEqual([]);
     else for (const name of expected) expect(named.join(" ")).toContain(`"${name}"`); });
-
   it("ranks by what is riding on the change, readiness a label and confidence a multiplier, and names a lever for a page losing ground", () => {
     // THE 152-CLICK CLASS. A card whose copy is still owed but whose page has two thousand clicks proven recoverable now LEADS a finished trifle: being unfinished costs a factor named on the receipt, never a flat fine, so the lane label says what is pasteable today and the ORDER says what matters most. The flat 45 this replaces put every big research card behind every three impression description.
     const owed = prop({ id: "owed", pagePath: "/big", impactScore: 2000, demandImpressions90d: 50_000,
@@ -908,7 +903,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
     // A ROW WITH NO DIAGNOSIS AND NO RECEIPT STILL RANKS ON WHAT IS RIDING ON IT, and below a change with thirty three times its proven recovery, whatever stage either is at: worth what its own figures say, never less for its age.
     expect(proposalValueScore(back!)).toBeLessThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });
-
 /** READY INTEGRITY (2026-08-15). Three promises about a change that is allowed to read as ready: every published claim stands on the exact evidence it names, the version an operator confirms names everything they read, and banked words are re-read against today's rules before they are served again. */
 describe("a change earns ready on its own evidence, its whole version, and words that still stand", () => {
   const EV = "Each order earns store credit toward the next tote.";
@@ -943,7 +937,6 @@ describe("a change earns ready on its own evidence, its whole version, and words
       ["the order of the caveats", V({ limitations: reverse(full.limitations) })], ["the order of the support ids", V({ claims: [{ text: "Two pages come up for this search", supportedBy: ["k2", "k1"] }] })],
       ["the order of the readings", R({ items: reverse(deep.receipt.items) })], ["the order of the risks", B({ risks: reverse(deep.risks) })]];
     expect([moved.filter(([, v]) => v === base).map(([k]) => k), same.filter(([, v]) => v !== base).map(([k]) => k)]).toEqual([[], []]); });
-
   // BANKED WORDS ARE RE-READ BEFORE THEY ARE SERVED AGAIN. Preserving finished copy on an unchanged identity skipped every gate it was written under, so a stored ready card outlived both the rules that would refuse it and its own evidence: identity says the page and the argument have not moved, and says nothing about whether the words still stand. The re-read is $0, buys no judging and no fresh reading, and REFUSES rather than repairs: a card it will not preserve goes back through the normal drafting path. What it is not holding it skips, so a page nobody could read this pass costs no copy at all.
   it("will not preserve banked copy today's rules would refuse, or copy whose support moved underneath it", () => {
     const SHIP = "International shipping is available worldwide, with delivery usually between 7-21 business days depending on location."; const CREDIT = "Every order earns store credit toward the next pair at the Tehran studio.";
@@ -973,7 +966,6 @@ describe("a change earns ready on its own evidence, its whole version, and words
       (lost.recommendedChange as { after: string }).after === BODY, lost.claims?.length])
       .toEqual([["review", "review", "research"], [true, false, false], true, true, 1]); });
 });
-
 describe("the AI side ranks on recurrence and stage, never on raw answer totals (AEO reconstruction, 2026-08-19)", () => {
   const aiProp = (id: string, ai: Partial<NonNullable<ChangeProposal["aiImpact"]>> & { answers: number; citedRivals: number }) => prop({ id, impactScore: null, demandImpressions90d: null, aiImpact: { audienceWeight: null, mentionRate: 0, ...ai } });
   it("puts a question asked every day for a week above one asked once with ten times the rows", () => {
@@ -991,9 +983,7 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
     expect(ranked.map((p) => p.id)).toEqual(["passed-over", "never-read"]); // closer to the citation ranks first
   });
 });
-
 /** FINISHED COPY SURVIVES EVERYTHING BUT A MATERIAL CHANGE (operator, 2026-08-22): a paused $0 pass reworded its generator's prose and DESTROYED the one Ready change in production. Identity is material now, and a genuine replacement of finished words stamps an inspectable retirement receipt. */
-
 /** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed technical_reachability ("copy is premature until reachability work is done") while its old finished section draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing treatments away from the editor was also the only path that persisted them outside quiet days. */
 describe("a changed treatment retires the copy it makes premature, on any kind of day", () => {
   const CITIES = `${TENANT}::/cities::existing_edit::ai_answer_gap`;
@@ -1055,7 +1045,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(finished);
     // released, the dead rule's own lowercase receipt gone with the hold, and the reader's caveat still there
     expect([out.status, out.limitations.some((l) => l.startsWith("it tells a reader")), out.limitations.some((l) => l.startsWith("Read off"))]).toEqual(["ready", false, true]); });
-
   /** AND THE SAME SWEEP HOLDS BACK WORK A RULE ADDED TODAY REFUSES. Live and READY on the account at 21:37Z: "Persian girl names here match persian girl names, persian names for girls, persian names girl, persian girls names, persian girl name, and unique persian girl names. People also search persian female names and female persian names." Six of those are one phrase reordered and the next line names a results-page feature. Pasting it costs the operator the ranking the card was bought to win. It keeps every word and it stops being paste-ready. */
   it("holds back a ready row that today's rules refuse, without losing a word of it", async () => {
     const stuffed = "Persian girl names: Afsaneh, Afsoon, Aida.";
@@ -1069,7 +1058,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed); // every word kept
     expect(out.status).toBe("needs_review");
     expect(out.limitations.join(" ")).toContain("outside the"); });
-
   /** AND ON A DAY WHEN NOTHING EARNS AN ACTION, WHICH IS THE DAY IT MATTERS MOST. A quiet pass returns before the editor ever runs, and the sweep sat behind that return: live, the stuffed answer survived a pass that rewrote fifteen other rows, because the one branch it took never reached the re-read. A stocked queue makes quiet days the NORMAL case, so a sweep only ordinary days reach is a sweep that runs exactly when it is not needed. */
   it("re-reads stored rows on a day nothing earns an action", async () => {
     const OTHER = "fixture-tenant::/quiet-page::existing_edit::ai_answer_gap";
@@ -1088,7 +1076,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const out = store.rows.get(OTHER)!;
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toBe(stuffed);
     expect([out.status, out.limitations.join(" ").includes("outside the")]).toEqual(["needs_review", true]); });
-
   /** AND IT DOES NOT RELEASE WHAT A MODEL LOOKED AT AND REFUSED. The release strips the gate's own lowercase lines, so a hold written in lowercase was being DELETED rather than obeyed, and the fitness check then read a row the hold had already been erased from. An evaluator's refusal is not a deterministic one: a model read the copy and said what was wrong with it, and no re-read of rules can answer that. Only a fresh draft can. */
   it("leaves a row a model refused where the model put it", async () => {
     const JUDGED = "fixture-tenant::/judged::existing_edit::ai_answer_gap";
@@ -1118,7 +1105,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     store.rows.set(JUDGED, row(["the operator read this and no claim on this card carries it"]));
     await runWith(incoming());
     expect(store.rows.get(JUDGED)!.status).toBe("needs_review"); });
-
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));
@@ -1126,7 +1112,6 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(store.rows.get(CITIES)!.previousCopy).toBeUndefined();
   });
 });
-
 describe("finished copy survives a pass that cannot redraft", () => {
   const finished = (over: Partial<ChangeProposal> = {}) => prop({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O",
     diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "f" }],
@@ -1149,7 +1134,6 @@ describe("finished copy survives a pass that cannot redraft", () => {
     }
   });
 });
-
 /** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work spent in front of the globally ranked line. These pin the arithmetic and the order. */
 describe("the paid line is compiled, priced and funded ONCE, before a cent is spent", () => {
   const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS): { key: string; family: string; impact: number; calls: number; blocked?: string } => ({ key, family, impact, calls });
@@ -1222,4 +1206,42 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
     expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, DRAFT_BUDGET.DELIVERABLE_CALLS]);
   });
+});
+// ── the typed refusal contract: faults ride preserved copy, and a gain refusal mints the reading it needs ─
+describe("typed refusal contract", () => {
+  it("preservation carries the typed faults with the banked copy it keeps", () => {
+    const FAULT = "it repeats what stays on the page below it, so a reader gets the same thing twice";
+    const banked = prop({ status: "ready", workKey: "wk-1", copyStamp: "the page as it read", faults: [FAULT], limitations: [FAULT],
+      claims: [{ text: "a claim", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "the fact behind it" }],
+      recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "The finished words that already passed every gate and were kept." } });
+    const worse = prop({ ...banked, faults: undefined, limitations: [], recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Second generation words that must not land." } });
+    const out = preferFinished(worse, banked); // same workKey, same stamp, a READY predecessor: the banked words stand, and so must Beacon's own typed statement of their defect
+    expect([(out.recommendedChange as { after: string }).after, out.faults]).toEqual(["The finished words that already passed every gate and were kept.", [FAULT]]); });
+  it("an adds-nothing refusal mints a typed serp requirement instead of retrying forever", async () => {
+    const owed: Array<{ key: string; kind: string; reasonCode: string }> = [];
+    const PAGE = "https://www.iranopedia.com/funny-farsi-phrases";
+    const A1 = "Jeegareto bokhoram is a Persian expression of affection said warmly to loved ones and close family members in everyday conversation.";
+    const A2 = "Moosh bokhoradet is a playful Persian phrase meaning may a mouse eat you, used for something small and cute by parents everywhere.";
+    const A3 = "Pedar sag is used as a playful insult between close friends rather than a serious offence, usually said with a smile.";
+    const body = { url: PAGE, title: "Funny Farsi Phrases", h1: "Funny Farsi Phrases", metaDescription: null, vocabulary: "", headings: ["Playful Persian expressions"], passages: ["Playful Persian expressions", A1, A2, A3], contentHash: null, fetchedAt: null };
+    const sibling = { url: "https://www.iranopedia.com/persian-jokes", title: "Funny Persian Jokes and Phrases", h1: "Funny Persian Jokes and Phrases", metaDescription: null, vocabulary: "", headings: ["Everyday Persian humor"], passages: ["Funny Persian phrases and jokes are collected with their meanings for readers learning everyday Persian humor."], contentHash: null, fetchedAt: null };
+    const { canonicalUrlKey: ck } = await import("@/domains/evidence/snapshot");
+    bodyStore.map = new Map([[ck(PAGE), body], [ck(sibling.url), sibling]]);
+    const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: PAGE,
+      changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", limitations: [],
+      evidence: { query: "funny persian phrases", hints: [], evidenceRefCount: 1 },
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+    const snap = { ownedPages: [
+      { url: PAGE, content: { wordCount: 400, title: "Funny Farsi Phrases", h1: "Funny Farsi Phrases", outline: ["Playful Persian expressions"] }, search: null },
+      { url: sibling.url, content: { wordCount: 300, title: sibling.title, h1: sibling.h1, outline: ["Everyday Persian humor"] }, search: null }],
+      research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+    const draft = { field: "answer_block", before: null, rationale: "grounded", ...TAIL, after: `${A1}\n${A2}\n${A3}`, naturalHeading: "Playful expressions and their meanings",
+      claims: [{ text: A1, supportedBy: ["page-copy-2"] }, { text: A2, supportedBy: ["page-copy-3"] }, { text: A3, supportedBy: ["page-copy-4"] }] };
+    const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW,
+      judge: async () => { throw new Error("the deterministic gate refuses before any judge is paid"); },
+      owe: (key: string, need: { kind: string; reasonCode: string; reason: string }) => owed.push({ key, kind: need.kind, reasonCode: need.reasonCode }),
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      complete: async () => ({ value: draft }) } as never);
+    expect(owed).toEqual([{ key: "/funny-farsi-phrases", kind: "serp", reasonCode: "no_exact_serp" }]); // the smallest correct step, as DATA the runtime executes, never a sentence it parses
+    expect(out[0]!.status).toBe("needs_review"); }); // and the card stays visible, owed, unsettled: acquisition reopens it, never a blind retry
 });

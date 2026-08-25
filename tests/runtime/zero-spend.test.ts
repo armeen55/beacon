@@ -5,7 +5,6 @@ import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
 
 const fetchSpy = vi.spyOn(globalThis, "fetch");
 afterEach(() => { fetchSpy.mockClear(); });
-
 describe("inside a no-spend scope nothing is bought, and nothing pretends it failed", () => {
   it("closes the model door before a client, a schema or a budget is touched", async () => {
     const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
@@ -19,7 +18,6 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     expect(fetchSpy).not.toHaveBeenCalled(); // and it never reached the network to find that out
     if (outcome.kind === "blocked_budget") expect(outcome.reason).toContain("paused");
   });
-
   it("closes the provider door the same way, leaving the work owed rather than failed", async () => {
     const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
     const result = await runWithoutSpending(() => providerCall(
@@ -27,17 +25,14 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     expect(result.state).toBe("capped"); // owed, not failed: a paused day is not an outage
     expect(fetchSpy).not.toHaveBeenCalled();
   });
-
   it("is ambient, so a path nobody remembered to thread the flag through still refuses", async () => {
     const deepInside = async () => ({ refused: spendingRefused() }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
     expect(await deepInside()).toEqual({ refused: false }); // and it never leaks outside its own call stack
   });
-
   it("does not leak across a paid pass that runs after it", async () => {
     await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); }); expect(spendingRefused()).toBe(false);
   });
 });
-
 /** THE ONE GATE IS INSIDE THE BODY all four rebuild doors share, so a fifth door added later inherits it. */
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
@@ -46,7 +41,6 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); },
   });
   const calls = { claims: [] as string[], releases: [] as string[] };
-
   it("overrides the caller's own draft budget, closes every door on the stack, and releases its hold", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
     const seen: Array<{ opts: unknown; refusedInside: boolean }> = [];
@@ -70,7 +64,6 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     expect(calls.releases).toContain("surface-claims:hold-1"); // and freed with ITS OWN token, build or no build
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
   });
-
   it("hands a second instance the release on file instead of building twice", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
     const held = [{ schemaVersion: 2, tenantId: "tenant-fx", computedAt: "2026-08-20T00:00:00.000Z",
@@ -88,7 +81,6 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
   });
 });
-
 /** THE DOORS THEMSELVES READ THE SWITCH, with no scope open at all: a caller added tomorrow inherits it. */
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
@@ -124,7 +116,6 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
     expect(reached || out != null).toBe(true); // it went to work rather than refusing at the boundary
   });
 });
-
 /** ONE REBUILD PER ACCOUNT, DECIDED BY THE DATABASE (reviewer, 2026-08-19): read-check-act is not a claim. */
 describe("two dispatchers cannot both rebuild one account, and only the owner can free the hold", () => {
   type Hold = { content: [{ until: string; owner?: string }] };
@@ -194,7 +185,6 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
 });
-
 /** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a database (reviewer, 2026-08-19). */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
   const hosted = async (impl: () => unknown): Promise<string | null> => {
@@ -213,7 +203,6 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
       update: () => ({ eq: () => ({ lt: () => ({ select: async () => ({ data: null, error }) }) }) }),
     }),
   });
-
   it("refuses when the database client will not start", async () => {
     expect(await hosted(() => { throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set"); })).toBeNull();
   });
@@ -236,7 +225,6 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
   });
 });
-
 /** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
@@ -251,7 +239,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
     try { await fn(await import("@/lib/spend-scope")); }
     finally { process.env.VITEST = prior; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
   };
-
   it("never remembers permission: the switch flipped mid-minute refuses on the very next ask", async () => {
     let paused = false;
     await withRealPausePath(async ({ spendingClosed }) => {
@@ -260,7 +247,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(await spendingClosed("tenant-fx")).toBe(true); // no memo shields the stale grant
     }, { paused: () => paused });
   });
-
   it("remembers only the refusal, so a paused drafting pass reads the switch once, not dozens of times", async () => {
     const count = { n: 0 };
     await withRealPausePath(async ({ spendingClosed }) => {
@@ -268,7 +254,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(count.n).toBe(1); // one read, then the memoized refusal
     }, { paused: () => true, count });
   });
-
   it("lets the verified pause write settle the boundary directly, and a resume clears without granting", async () => {
     const count = { n: 0 };
     await withRealPausePath(async ({ spendingClosed, settleSpendPause }) => {
@@ -280,7 +265,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(count.n).toBe(1); // the grant came from a fresh read, never from the settle
     }, { paused: () => false, count });
   });
-
   it("refuses at BOTH paid doors immediately after the flip, with zero network", async () => {
     let paused = false;
     await withRealPausePath(async () => {
@@ -297,7 +281,6 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
     }, { paused: () => paused });
   });
 });
-
 /** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed as a function nothing called, and paid-for evidence expired provider side. */
 describe("a paused tick collects what was already paid for, free, then republishes", () => {
   it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {

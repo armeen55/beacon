@@ -364,14 +364,12 @@ describe("a settled reading is held still", () => {
     const r = record({ windows: [pinWin(7, 300)] }); const read = readLedger([r], new Date("2026-04-12T00:00:00Z"), "2026-04-10")[0]!;
     expect(pinFor(r, read, "2026-04-10", new Date("2026-04-12T00:00:00Z"))).toBeNull();
   });
-
   it("serves the frozen number and the sentence that matches it, whatever the re-measure now says", () => {
     const drifted = record({ windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1428)] }); const live = readLedger([drifted], AFTER, FINAL)[0]!;
     const pin = pinFor(record(), readLedger([record()], AFTER, FINAL)[0]!, FINAL, AFTER)!; const served = applyPinnedRead(live, pin);
     expect(served.lift).toBe(1040); expect(served.headline).toContain("1040 clicks");
     expect(served.headline).not.toContain("1428");
   });
-
   it("still lets a later change on the same page take shared credit, with the numbers untouched", () => {
     const first = record(), second = record({ id: "shp_2", implementedAt: "2026-04-05T00:00:00.000Z", shippedAt: "2026-04-05T00:00:00.000Z" }); const live = readLedger([first, second], AFTER, FINAL)[0]!;
     const pin = pinFor(first, readLedger([first], AFTER, FINAL)[0]!, FINAL, AFTER)!; const served = applyPinnedRead(live, pin);

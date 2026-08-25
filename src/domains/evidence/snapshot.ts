@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 
-import { anchoredTopicMatch, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
+import { anchoredTopicMatch, canonicalQueryKey, domainOf, templateHeadings, topicTokens, weakAnchorTokens } from "./relevance-gate";
 import type { FunnelResearchEvidence } from "./funnel/research-evidence";
 
 // ── source identity + freshness ──────────────────────────────────────────────
@@ -619,4 +619,35 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     },
   };
   return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
+}
+
+/** THE EVIDENCE IDENTITY OF ONE JOB, not of the account. `snapshot.evidenceHash` folds every owned page's 90-day
+ *  search figures, so folding IT into a per-row work identity re-minted every row on the account whenever any one
+ *  page's ordinary Google numbers wobbled: the "unchanged" short-circuit never fired (4,926 material saves across
+ *  22 live rows), the finished-copy guard failed open because the stored key never matched the incoming one, and
+ *  the deep-bundle reuse gate re-bought twelve-call rewrites it already held. This hash covers exactly what one
+ *  job stands on: the AFFECTED pages' own material slices (the same fields hashSnapshot's `op:` row folds), and
+ *  the research already bought for the job's own search (the exact-query results page, and the winning pages that
+ *  answer it, matched by those organic urls). A sibling page moving does not move it; the job's own page changing,
+ *  its results page landing, or one of its winners being read does, which is what reopens settled work when the
+ *  evidence it was refused for arrives. PAGE SET, NOT ONE PAGE: a bundle writes on siblings, so the caller passes
+ *  every address the job changes and a sibling's drift honestly moves the identity. Deterministic and order-free. */
+export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | "research">, pageKeys: readonly string[], primaryQuery: string): string {
+  const keys = new Set(pageKeys.map((k) => canonicalUrlKey(k)).filter(Boolean));
+  const pages = snapshot.ownedPages.filter((p) => keys.has(canonicalUrlKey(p.url)))
+    .map((p) => [canonicalUrlKey(p.url),
+      p.content ? [p.content.title, p.content.wordCount, p.content.schemaTypes] : null,
+      p.search ? [p.search.clicks90d, p.search.impressions90d, p.search.position90d] : null,
+      p.engagement ? [p.engagement.conversions28d, p.engagement.revenueUsd] : null,
+      p.friction ? [p.friction.frictionScore] : null, p.aiCitations.count])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const qk = canonicalQueryKey(primaryQuery ?? "");
+  const serp = qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
+    .map((s) => [s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url)]) : [];
+  const serpUrls = new Set(qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
+    .flatMap((s) => s.organic.map((o) => canonicalUrlKey(o.url))) : []);
+  const winners = snapshot.research.winningPages.filter((w) => serpUrls.has(canonicalUrlKey(w.url)))
+    .map((w) => [canonicalUrlKey(w.url), w.extract ? [w.extract.wordCount, w.extract.headings.length] : null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return createHash("sha256").update(JSON.stringify({ pages, serp, winners })).digest("hex").slice(0, 16);
 }

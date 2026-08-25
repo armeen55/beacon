@@ -25,14 +25,12 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import * as fx from "../fixtures/replay";
 const { BASIS, GAP_QUERY, GAP_URL, RIVAL_A, SITE, TENANT, TWIN_URL, WINNER_QUERY, WINNER_URL } = fx;
-
 const NOW_MS = Date.parse("2026-07-21T00:00:00.000Z"), NOW = new Date(NOW_MS);
 /** Every socket a replay could reach, in ONE place, for the whole file. */
 const net: string[] = []; let realFetch: typeof fetch;
 beforeAll(() => { realFetch = globalThis.fetch; globalThis.fetch = (async (u: RequestInfo | URL) => { net.push(String(u)); throw new Error("a replay may never reach the network"); }) as typeof fetch; });
 afterAll(() => { globalThis.fetch = realFetch; });
 const parsed = <K extends CapabilityKey>(cap: K, envelope: ProviderEnvelope) => parseCapability(cap, envelope)!;
-
 describe("fixture envelopes drive the REAL registry parsers", () => {
   it("keeps a consumer answer's fan-outs as fan-outs, and its retrieved results out of its citations", () => {
     const a = parsed("llm_scraper_chatgpt", fx.scraperAnswer());
@@ -87,7 +85,6 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     const dark = parsed("onpage_content_parsing", fx.unreadablePageBody()); expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);
   });
 });
-
 const PROMPTS = [{ id: "p1", text: "where can I see a kite festival" }]; // ── the replay through the REAL funnel executors ─────────────────────────────
 /** Runtime's daily plan: the ONLY thing the observation unit will act on. */
 const DUE: DueObservation[] = PROMPTS.flatMap((p) => (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot: 0 as const, day: "2026-07-21" })));
@@ -118,7 +115,6 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   // The snapshot's AI evidence is the canonical record the executors just wrote, mapped by the same pure shape production reads, never the working window.
   return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };
 }
-
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {
   it("lands every fixture shape in the research evidence with its provenance intact", async () => {
     const { evidence, statuses } = await replayFunnel(); expect(statuses).toEqual(["done", "done", "done"]);
@@ -147,13 +143,11 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect(evidence.serpEvidence.slice(0, 2).map((s) => s.query)).toEqual([GAP_QUERY, WINNER_QUERY]); // the declining page's own query is bought first
   });
 });
-
 const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns", confidence: "high", // ── the replay through the REAL decision pass ────────────────────────────────
   rationale: "The stored title is two words and misses the traditions searchers ask about.", risks: ["keep the title readable"],
   evidenceRefs: [{ source: "gsc", detail: "many views for kite festival traditions with a low click rate" }],
   operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" } };
 const drafter = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: EDIT as never }; }, calls: () => n }; };
-
 describe("the replayed evidence reaches the REAL decision kernel", () => {
   it("assembles one snapshot, names the pages that compete with each other, and dates every body it holds", async () => {
     const { evidence } = await replayFunnel();

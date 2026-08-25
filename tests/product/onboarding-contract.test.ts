@@ -303,7 +303,6 @@ describe("onboarding contract (Slice 5)", () => {
     expect(projectTrackedQuestions(rows).active.map((q) => q.id)).toEqual(funnelWay); // what the operator reads is exactly what I check
   });
 });
-
 /** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on  its own account. */
 /** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as a group below. */
 const TOPICS = [
@@ -314,7 +313,6 @@ const FIVE_PER_TOPIC: CompleteFn = async () => ({ value: { groups: TOPICS.map((t
   slug: t.slug, name: `${t.intent} ${t.half} topics`, intent: t.intent,
   prompts: WORDS.slice(0, t.size).map((word) => ({ text: `${t.intent} ${t.half} ${word} question`, recommended: gi < 7 })) })) } });
 const FIRST_SEVEN_TOPICS = TOPICS.slice(0, 7).map((t) => t.slug);
-
 describe("setup and settings surfaces (Phase 8)", () => {
   it("approves 35 grouped questions in ONE action, without the operator reading a single row", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); const built = await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });

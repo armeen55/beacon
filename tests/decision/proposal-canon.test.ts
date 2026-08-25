@@ -85,7 +85,6 @@ describe("rows written after the lifecycle contract", () => {
     db.state.rows.push(row("/a", "ready"), row("/b", "implemented_pending_verification"));
     seedLegacy(proposal({ id: "/legacy-only", pagePath: "/legacy-only" }));
     const queue = await loadChangeProposals(T); expect([[...queue.keys()].sort(), queue.get("/b")!.status]).toEqual([["/a", "/b", "/legacy-only"], "implemented_pending_verification"]); }); });
-
 describe("canonical proposal persistence", () => {
   it("keeps ONE current row per hypothesis: a re-draft supersedes its predecessor, points at it, and carries the next version", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -242,7 +241,6 @@ describe("canonical proposal persistence", () => {
     const back = deserializeChangeProposal(serializeChangeProposal(deep({ bundle: b })));
     expect(back?.bundle?.components.map((c) => [c.anchorAfter, c.redirectTo]))
       .toEqual([["Read the Haft-Seen guide", "https://own.com/haft-seen"]]); }); });
-
 /** THE ONE DOOR TO "DONE", AND THE TRIPWIRE UNDER IT. A change reads done only because a Shipment was written for it first, so the flip demands that record's id and a row marked done that no record points at is a state this product cannot legitimately produce: it is never left silently done, and no record is ever invented for it. */
 describe("done is only ever reached with a record behind it", () => {
   const DONE_ID = `${T}::${PAGE}::existing_edit::title`, SENTENCE = "A change marked done on August 12 lost its record; mark it done again when you confirm it is live.";
@@ -270,7 +268,6 @@ describe("done is only ever reached with a record behind it", () => {
     const stale = done({ limitations: ["A change marked done on August 1 lost its record; mark it done again when you confirm it is live."] }); await reconcileImplementedWithoutShipment(T, new Set<string>());
     expect(storedNow(stale)?.limitations).toHaveLength(1); });
 });
-
 /** STEP TWO OF THE TWO-STEP HOLD IS A COMPARE-AND-SET, NEVER A READ AND A SAVE. The confirmation used to read the row, check the version on the screen against it, and then hand the promoted copy to the ordinary save path, whose own read happens afterwards: a rewrite landing in between was overwritten by the version the operator had been looking at, and that version became ready. Here is that exact interleaving, both ways round. */
 describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
   const mover = () => deep({ status: "needs_review", riskLevel: "high",
@@ -306,7 +303,6 @@ describe("the operator's yes lands on the exact version they read, or on nothing
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
 });
-
 /** APPROVAL REFUSES ON THE FACT, NEVER ON THE SENTENCE DESCRIBING IT. A row whose lever does not treat its own diagnosed cause is refused by `unsettledCause` run directly on the promoted row, even when the stored limitation is worded to clear every phrase the display classifier (HARD_LIMITATION) looks for. */
 describe("a badly classified row cannot be waved through", () => {
   it("refuses promotion on the unsettled cause even though the stored limitation reads as benign", async () => {
@@ -317,7 +313,6 @@ describe("a badly classified row cannot be waved through", () => {
     expect(await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "This change works on something other than how this page opens, which is what this page's own evidence names, so it is held for review rather than handed over as ready to paste." });
     expect(current().find((r) => r.id === held.id)!.status).toBe("needs_review"); }); });
-
 /** PROMOTION FAILS CLOSED WHEN VALIDATION CANNOT RUN: absence of provenance is a refusal at THIS door even where the producer pass legitimately skipped it. */
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
@@ -329,13 +324,11 @@ describe("promotion fails closed when it cannot check its own work", () => {
       components: [{ kind: "title", label: "Page title", before: "Nowruz", after: "Nowruz Traditions", evidenceKeys: ["k1"], risk: "safe", page: PAGE }] } });
     await saveChangeProposal(untethered); const res = await answerReviewedProposal(T, untethered.id, confirmedVersion(untethered), untethered.basis ?? null, PROMOTE);
     expect(res.status).toBe("refused"); expect(res.refusal).toContain("the words this change lands on are not in hand"); }); });
-
 /** THE CANON'S OWN QUALITY STATUS GATES PROMOTION, NOT JUST ITS VERDICT: `needs_review` also covers real work still short of paste-ready (a claim with no source, a fresh number nobody confirmed), and that hold may not be waved through just because it is not the harsher `rejected`. */
 describe("promotion asks the canon's own quality status, not just its verdict", () => {
   const held = (after: string) => deep({ status: "needs_review", bundle: bundle("section"), recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after } });
   it.each([["a specific fact with no cited source (missing_source)", "The official record of Nowruz traditions spans centuries."], ["a fresh count nobody confirmed yet (useful_but_needs_review)", "Nowruz customs span 150+ regional variations."]] as const)("refuses promotion on %s even though the verdict is only needs_review", async (_label, after) => { const row = held(after); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("refused"); });
   it("still promotes the sound row: needs_review only because a human look is owed, and the quality itself is ready", async () => { const row = held("Nowruz Traditions"); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("promoted"); }); });
-
 /** A SPLIT IS SETTLED BY THE PIECES, NOT BY THE FIELD THE FIRST ONE HAPPENS TO USE. A differentiation bundle is filed under its first component's field, so the two-page Iran flag bundle arrived as `title-family`, missed the ownership exception, and a FINISHED ready row was served from the research lane where nobody can act on it: the store said 3 ready and the customer queue showed 2. */
 describe("a bundle that touches both competing pages treats the split", () => {
   it("is not withheld for using a title field on each page", async () => {

@@ -177,48 +177,6 @@ export type Ga4RevenueReportResult =
     };
 
 // ─────────────────────────────────────────────────────────────────────
-// GA4 AI-referral report shapes (2026-07-01, BEACON_500 item 6) - additive.
-// A SEPARATE report from traffic + revenue so an AI-referral failure can
-// never break the proven traffic sync. Grain: (date, pagePath, sessionSource),
-// filtered to AI assistant sources (chatgpt.com, perplexity.ai, ...).
-// ─────────────────────────────────────────────────────────────────────
-
-/**
- * A single narrowed AI-referral row keyed by (date, pagePath, sessionSource).
- * `sessionSource` is GA4's RAW source value; canonical bucketing into
- * source_domain happens at persist time via classifyAiSource.
- */
-export type Ga4AiReferralRow = {
-  /** YYYY-MM-DD UTC. */
-  date: string;
-  /** GA4 pagePath dimension value (path-only). */
-  pagePath: string;
-  /** RAW GA4 sessionSource value (e.g. "chatgpt.com", "m.chatgpt.com"). */
-  sessionSource: string;
-  sessions: number;
-  engaged_sessions: number;
-  /** GA4 keyEvents metric (numeric - GA4 can report fractional key events
-   *  under some counting methods). 0 when absent/unparseable. */
-  key_events: number;
-};
-
-/** Discriminated result for `runGa4AiReferralReport`. Mirrors the traffic union. */
-export type Ga4AiReferralReportResult =
-  | {
-      ok: true;
-      rows: Ga4AiReferralRow[];
-      rowCount?: number;
-      /** true when known-incomplete (MAX_PAGES hit or a later page errored). */
-      truncated?: boolean;
-    }
-  | {
-      ok: false;
-      reason: Ga4FailReason;
-      status?: number;
-      message?: string;
-    };
-
-// ─────────────────────────────────────────────────────────────────────
 // Sitewide sessions report shapes (2026-07-10, Wave 2A) - additive.
 //
 // The TRUE sitewide series. A SEPARATE report from the per-page traffic report:

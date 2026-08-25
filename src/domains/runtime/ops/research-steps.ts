@@ -32,8 +32,10 @@ import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observa
 import { reportingDay } from "@/lib/reporting-day";
 import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, type DuePhase, type DueWork } from "./due-work";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
+import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import type { ResearchPhase } from "../research-run";
-
+/** ONE OWED READING as the receipt carries it: the typed requirement plus whose work asked and why. */
+type OwedReading = EvidenceRequirement & { key: string; reason: string; workKey: string };
 /** Reasons the deep-backfill continuation returns when there is simply nothing to do (no backfill started, already finished, or no synced property yet):
  *  healthy no-ops that advance the phase without a failure. Any OTHER reason is a real error and throws. */
 const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_synced_property", "no_cursor"]);
@@ -41,7 +43,6 @@ const BENIGN_BACKFILL_SKIPS = new Set(["not_started", "already_complete", "no_sy
  *  nothing would find it. The window MOVES now, by a deterministic offset off the clock in id order, wrapping at the end of the fleet, so consecutive dispatches walk the whole list whatever its size with no cursor to persist, no
  *  fleet held in memory and no second scheduler. Still bounded: this is a recovery sweep, not a fleet scan. */
 const RECOVERY_PROBE_ACCOUNTS = 20, PROBE_ROTATION_MS = 3_600_000;
-
 /** The refresh_sources phase outcome: how many sources were attempted, the identities of the ones that actually synced, and the bounded per-source failure detail for the rest. `succeeded` is a list of provider identities (not a
  *  count) so retries can UNION distinct successes rather than double-count them. */
 type RefreshSourcesResult = { attempted: number; succeeded: string[]; failures: Array<{ provider: string; detail: string }> };
@@ -62,9 +63,11 @@ export type ResearchCycleSteps = {
   /** THIS run's investigation, asked for ONCE (Runtime asks Decision, Evidence gets strings and pages). */
   investigationFocus: (tenantId: string, basis: string | null) => Promise<ResearchFocus | null>;
   /** GO AND GET EXACTLY THE READING A FUNDED CANDIDATE WAS REFUSED FOR (Codex, 2026-08-23). Not the ordinary broad
-   *  investigation, which picks its own topic: THIS search, named by the producer that could not proceed without it.
-   *  Returns whether the reading landed, so an unfulfilled requirement stays owed with its own receipt. */
-  acquireEvidence: (tenantId: string, need: { kind: string; query: string; url?: string }, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
+   *  investigation, which picks its own topic: THIS reading, named by the producer or the drafting gate that could
+   *  not proceed without it. EVERY kind the requirement union declares executes here, through machinery that
+   *  already exists, and the switch is exhaustive so a new kind without a handler fails typecheck instead of
+   *  becoming a typed dead end. Returns whether the reading landed, so an unfulfilled requirement stays owed. */
+  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory
@@ -108,7 +111,7 @@ export type ResearchCycleSteps = {
     reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
-    /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[];
+    /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly OwedReading[];
     /** Pages this day spent real calls on that came back transiently blocked: owed, but ranked behind work nobody has tried, so one stubborn candidate cannot re-consume every drive. */ tried?: string[];
     /** WHAT BECAME OF THE FUNDED WORK. `readySaved` counts CHANGES the operator can act on; `evidenceBanked` counts work that succeeded and is not a change. `receipts` is the COMPLETE per-page record (key, treatment, impact, allowance, exact provider attempts, exact cost, outcome, full reason), durable on the run so a later read reconstructs the dispatch without logs. `ledger` is the adjudicator month total read before and after, beside the metered sum, so the receipt reconciles against real money or names the mismatch itself. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
@@ -203,7 +206,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
     const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
     const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
-      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly { key: string; kind: string; query: string; url?: string; reasonCode: string; resumeTreatment: string; reason: string; workKey: string }[]) =>
+      outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly OwedReading[]) =>
       ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
     let proven = before;
@@ -340,17 +343,39 @@ export const defaultSteps: ResearchCycleSteps = {
   // answer through the funnel's own save path, and FAILS CLOSED: an unreadable snapshot or row, or a losing row version, pauses this same phase honestly.
   async reconcileCases(tenantId, basis, plan) { await reconcileCases(tenantId, basis, plan); },
   async investigationFocus(tenantId, basis) { return chooseInvestigation(tenantId, basis).catch(() => null); },
-  // THE ONE ACQUISITION TRANSPORT THE FUNNEL ALREADY USES, pointed at one search instead of a chosen topic.
+  // THE ACQUISITION TRANSPORTS THE FUNNEL ALREADY USES, pointed at exactly the reading a refusal named. EXHAUSTIVE over the requirement union: `serp` buys the results page through the serp unit, `competitor_page` reads the winners of that exact search through the winning-pages unit (the named unread winner is on that results page, so the priority-query read banks its extract), `page_source` re-reads ONE owned page through the same unit's owned-read seat, and `factual_source` runs the existing fact-check pass with the named page put first. No second pipeline, no new provider path, no new table: every branch is machinery that already persists through its own store.
   async acquireEvidence(tenantId, need, basis, budgetMs) {
-    if (need.kind !== "serp" || !need.query.trim()) return { acquired: false, detail: `nothing here can buy a ${need.kind}` };
+    if (!need.query.trim() && !need.url) return { acquired: false, detail: "the requirement names nothing to read" };
     // THE READER NEEDS THE BASIS THE RUN IS WORKING UNDER (Codex, 2026-08-23). A null cursor was handed in, the funnel
     // reads its basis off that cursor, and so every "exact reading" failed before it looked at anything: the one search
     // that finishes the account's strongest page was never fetched, on any dispatch. Runtime already knows the basis.
     if (!basis) return { acquired: false, detail: "this dispatch has no confirmed basis, so nothing can be read against it" };
-    const out = await serpAnalysisUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
-    const done = (out as { status?: string }).status === "done";
-    log.info("[research-run] the exact reading a refused candidate named", { tenantId, query: need.query, status: (out as { status?: string }).status });
-    return { acquired: done, detail: `results page for "${need.query}": ${(out as { status?: string }).status ?? "unknown"}` };
+    const unitStatus = (out: unknown): string => (out as { status?: string }).status ?? "unknown";
+    const landed = (out: unknown): boolean => unitStatus(out) === "done" || unitStatus(out) === "advanced"; // stage one of winning-pages persists its reads and answers `advanced`; both words mean the write landed
+    switch (need.kind) {
+      case "serp": {
+        const out = await serpAnalysisUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, status: unitStatus(out) });
+        return { acquired: unitStatus(out) === "done", detail: `results page for "${need.query}": ${unitStatus(out)}` };
+      }
+      case "competitor_page": {
+        const out = await winningPagesUnit({}, [need.query])(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, query: need.query, url: need.url, status: unitStatus(out) });
+        return { acquired: landed(out), detail: `winning pages for "${need.query}": ${unitStatus(out)}` };
+      }
+      case "page_source": {
+        if (!need.url) return { acquired: false, detail: "a page_source requirement names no page" };
+        const out = await winningPagesUnit({}, [], null, need.url, null)(tenantId, { basis }, budgetMs).catch((e: unknown) => ({ status: "failed" as const, detail: e instanceof Error ? e.message : String(e) }));
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, url: need.url, status: unitStatus(out) });
+        return { acquired: landed(out), detail: `own-page read of ${need.url}: ${unitStatus(out)}` };
+      }
+      case "factual_source": {
+        const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null);
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, url: need.url, banked: out.banked, status: out.status });
+        return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${out.status}, ${out.banked} banked` };
+      }
+      default: { const impossible: never = need.kind; return { acquired: false, detail: `no acquisition handler exists for ${String(impossible)}` }; }
+    }
   },
   async funnelUnit(phase, tenantId, cursor, budgetMs, focus) {
     // An OPEN INVESTIGATION needs BOTH halves: the results page for that exact search AND the pages that win it. The topic is the RUN's, frozen by the caller, never re-picked here: landing a results page closes that search, so a second, independent
@@ -387,7 +412,16 @@ export const defaultSteps: ResearchCycleSteps = {
   // THE PAGE THIS ACCOUNT IS MOST SHOWN FOR, checked against the sources for its own subjects. One page a pass, statements it has not already checked at this version of the page, and every finding banked as a row of its own. Fail-soft by construction:
   // the answer is a count and a reason, never a thrown run. ONE CLAIM, ON A PAGE CHOSEN BY WHAT IS ACTUALLY OWED. Rotation is the point: the first version always took the single most-shown page, so once that page was exhausted every later pass took it
   // again and page two was unreachable (Codex, 2026-08-18). A page is eligible while it has claims not yet current at its CURRENT content hash; the account's oldest-covered eligible page goes first. Fail-soft: a count and a reason.
-  async factCheck(tenantId, budgetMs, renew) {
+  async factCheck(tenantId, budgetMs, renew) { return factCheckPass(tenantId, budgetMs, renew, null); },
+  async surfaceStale(tenantId, nowMs) {
+    const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
+    const surface = await readCustomerSurface(tenantId).catch(() => null);
+    return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); // no saved release yet = a first publish is genuinely due
+  },
+};
+
+/** THE ONE FACT-CHECK PASS, shared by the daily phase (no target: rotation picks the page) and by a `factual_source` acquisition (the named page goes FIRST, because the requirement is that page's owed claims and rotation would spend the pass elsewhere). Same bounds, same stores, same receipts either way. */
+async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null): Promise<{ status: "advanced" | "done" | "failed"; banked: number; pagesComplete: number; failure?: string; reason?: string }> {
     // THE OUTER DEADLINE, NOT AN ALLOWANCE OF ITS OWN: every call inside is bounded by what remains of it.
     const deadlineAt = Date.now() + Math.max(0, budgetMs);
     try {
@@ -400,10 +434,12 @@ export const defaultSteps: ResearchCycleSteps = {
       const held = await facts.readFactChecks(tenantId);
       const coverage = new Map<string, number>();
       for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
-      // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one, then oldest coverage, then audience.
+      // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one, then oldest coverage, then audience. A NAMED TARGET OUTRANKS ROTATION: an acquisition runs for one page's owed claims, and rotation would spend the pass on whichever page the account is most shown for instead.
       const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page));
+      const want = firstPage ? pathOf(firstPage) : null, named = (u: string): number => (want != null && pathOf(u) === want ? 1 : 0);
       const ranked = [...snapshot.ownedPages]
-        .sort((a, b) => (owedPage.has(pathOf(b.url)) ? 1 : 0) - (owedPage.has(pathOf(a.url)) ? 1 : 0)
+        .sort((a, b) => named(b.url) - named(a.url)
+          || (owedPage.has(pathOf(b.url)) ? 1 : 0) - (owedPage.has(pathOf(a.url)) ? 1 : 0)
           || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1)
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
@@ -460,11 +496,4 @@ export const defaultSteps: ResearchCycleSteps = {
       log.warn("[research-steps] the fact check could not run this pass", { tenantId, error: e instanceof Error ? e.message : String(e) });
       return { status: "failed", banked: 0, pagesComplete: 0, failure: "step_error", reason: "the fact check could not run this pass" };
     }
-  },
-  async surfaceStale(tenantId, nowMs) {
-    const { readCustomerSurface, isCustomerSurfaceStale } = await import("@/app/(shell)/surface-release");
-    const surface = await readCustomerSurface(tenantId).catch(() => null);
-    return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); // no saved release yet = a first publish is genuinely due
-  },
-};
-
+}

@@ -12,7 +12,7 @@ import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type Diagn
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
 import type { DecidedTopic } from "./coverage-pass";
 import type { WinningPattern } from "./winning-pattern";
-import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type ProducerCtx, type ProducerDraft } from "./producers/contract";
+import { CORE_PRODUCERS } from "./producers/core"; import { produceFullRewriteRecommendation } from "./producers/extended"; import { effortMinutesFor, fieldForComponent, type EvidenceRequirement, type ProducerCtx, type ProducerDraft } from "./producers/contract";
 import type { ProposeOptions } from "./propose"; import { receiptIntegrityFailures, validateProposal } from "./validate-proposal";
 import { anchoredTopicMatch, canonicalQueryKey, templateHeadings, weakAnchorTokens } from "@/domains/evidence/relevance-gate"; import { demandUnitsOf } from "@/domains/evidence/demand-units"; import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import { answerIntelFacts, answerIntelOf } from "@/domains/evidence/answer-intel";
@@ -21,7 +21,7 @@ import { biggerSearchesLine } from "./suggested-edits"; import { observationJoin
 /** `considered` rides a REFUSAL so the levers a producer weighed reach the research card that replaces it: a card saying only what is missing reads as a shrug beside one that also says what was ruled out. */
 type BundleOutcome = { status: "bundled"; proposal: ChangeProposal } | { status: "none"; reason: string; considered?: { option: string; reason: string }[];
   /** The exact reading this cause cannot be treated without, typed by the producer that discovered it. */
-  requirement?: { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; resumeTreatment: string } };
+  requirement?: EvidenceRequirement };
 
 type Research = EvidenceSnapshot["research"];
 type Observation = Research["aiObservations"][number];

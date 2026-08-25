@@ -8,7 +8,6 @@ import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
 const NOW = new Date("2026-06-01T00:00:00Z");
 const SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
-
 const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({
   day, ran: true, adjustedClicksLift: 40, adjustedCtrLift: 0.02, adjustedPosLift: 0,
   adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,
@@ -38,7 +37,6 @@ const cutOff = evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10");
 /** The signed number a row actually shows, read back out of the string the screen prints. */
 const shown = (s: string | null): number => {
   const m = /^([+-])([\d,]+)/.exec(s ?? ""); return m ? Number(m[2]!.replace(/,/g, "")) * (m[1] === "-" ? -1 : 1) : 0; };
-
 describe("the numbers at the top", () => {
   it("counts only the changes that finished their 28 day read, and adds up the rows on the screen", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: sharedCredit })], NOW);
@@ -163,9 +161,7 @@ describe("what the screen calls the work, and what it will not promise", () => {
     }
     expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);
   });
-
 });
-
 /** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under "Worked" for traffic it never aimed at. */
 describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
@@ -174,7 +170,6 @@ describe("an AI change is judged on the thing it was raised to move", () => {
   // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is still reading rather than a verdict, exactly as a 7 day Google lean is.
   const ai = (direction: "improved" | "worsened" | "no_clear_movement" | "unclear", daysElapsed = 28) =>
     ({ direction, line: "Credited on 6 of the 20 answers that reported their sources, up from 1 of 18 before.", metricLines: [], boundary: null, daysElapsed });
-
   it("files a won citation as a win even while Google has not moved", () => {
     const row = first({ read: flatOnGoogle, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord]).toEqual(["worked", "Worked"]);
     expect(row.yardstick).toBe("Judged on being credited in AI answers");
@@ -195,12 +190,10 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     const declared = first({ judgedMetric: "clicks", ai: ai("worsened") }); expect(declared.group).toBe(first().group);
     expect(declared.yardstick).toBeNull(); // nothing new is claimed on a row judged the old way
   });
-
   /** AND THE REST OF THE ROW GOES WITH IT: the group, the verdict word and the yardstick came off the declared objective while the number, the bar, the sentence and the step still came off Google. */
   const CONTRADICTS = /behind|slid|undo|put the previous|restor|revers|did not clearly move|moved down|lost ground|less often/i;
   const fields = (r: ReturnType<typeof first>) =>
     [r.verdictWord, r.liftLabel ?? "", r.readLabel ?? "", r.pipCaption ?? "", r.happened, r.taught, r.nextStep, ...r.timeline.map((t) => t.label), ...r.caveats];
-
   it("tells one citation win story on every line of the row while Google has not moved", () => {
     const row = first({ read: flatOnGoogle, judgedMetric: "ai_citation", ai: ai("improved") });
     expect([row.group, row.verdictWord, row.liftLabel, row.bar! > 0, row.impressionsLabel]).toEqual(["worked", "Worked", "Credited more often", true, null]);
@@ -247,7 +240,6 @@ describe("an AI change is judged on the thing it was raised to move", () => {
       "Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.", "Add the same kind of section to a similar page."]);
   });
 });
-
 /** THE HEADER IS THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click and no appearances figure, so adding its Google numbers into the totals made a header nobody could reconcile against the list under it. */
 describe("the totals reconcile with what the rows actually show", () => {
   it("leaves an AI-judged row out of the Google money totals, and keeps a click row in", () => {
@@ -258,7 +250,6 @@ describe("the totals reconcile with what the rows actually show", () => {
     expect(withAi.header.clicks).toEqual(clickOnly.header.clicks); expect(withAi.header.appearances).toEqual(clickOnly.header.appearances);
   });
 });
-
 /** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop. RENDERED, never read off the view object: what a customer sees is what is pinned. */
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
@@ -269,7 +260,6 @@ describe("the surface never renders uncertainty as No change", () => {
   const aiRow = (direction: "no_clear_movement" | "mixed" | "unclear", terminal = false) =>
     ({ judgedMetric: "ai_citation" as const, ai: { direction, terminal, daysElapsed: 28, metricLines: [], boundary: null,
       line: terminal ? "Not measurable: where the AI answers stood when this was marked done was not on file." : "No clear movement." } });
-
   it("names each silence as itself, and never as No change", async () => {
     for (const [row, said] of [[aiRow("no_clear_movement"), /No clear movement|no clear movement/],
       [aiRow("mixed"), /Assistants split|assistants split/], [aiRow("unclear", true), /Not measurable/]] as const) {

@@ -269,9 +269,9 @@ const rankingLoss: Producer = async (ctx) => {
   const unread = (ctx.ahead ?? []).find((a) => !a.wordCount);
   // THE REQUIREMENT IS DECIDED HERE, WHERE THE MISSING READING IS KNOWN, and never inferred from the sentence below.
   const requirement = unread
-    ? { kind: "competitor_page" as const, query: ctx.primary, url: unread.url, reasonCode: "winner_unread", resumeTreatment: "deep_bundle" }
+    ? { kind: "competitor_page" as const, query: ctx.primary, url: unread.url, reasonCode: "winner_unread" }
     : (ctx.ahead ?? []).length === 0
-      ? { kind: "serp" as const, query: ctx.primary, reasonCode: "no_exact_serp", resumeTreatment: "deep_bundle" }
+      ? { kind: "serp" as const, query: ctx.primary, reasonCode: "no_exact_serp" }
       : undefined;
   return { components: [], considered, ...(requirement ? { requirement } : {}), refusal: unread
     ? `${unread.domain} sits at position ${unread.rank} for "${ctx.primary}", above this page, and none of its words are on file, so what it does that this page does not cannot be named. Read ${unread.url} and the exact change lands here.`

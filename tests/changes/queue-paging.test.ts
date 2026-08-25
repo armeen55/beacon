@@ -47,14 +47,12 @@ vi.mock("@/lib/persistence/json-store", async () => ({ ...(await vi.importActual
 const ledgerFails = vi.hoisted(() => ({ value: false }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadProofLedgerCached: async () => { if (ledgerFails.value) throw new Error("the ledger did not read"); return []; } }));
-
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement } from "react";
 import { readChangesPage, loadChangesView, buildChangesViewUncached } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
 import { readQueuePage, loadChangeProposals, publishCustomerRelease } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
-
 const T = "acct-a", N = 501;
 const proposal = (i: number, over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${T}::/p${i}::existing_edit::title`, tenantId: T, kind: "existing_edit", pagePath: `/p${i}`,
@@ -68,7 +66,6 @@ const proposal = (i: number, over: Partial<ChangeProposal> = {}): ChangeProposal
 const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id: T, basis: p.basis ?? null,
   status: p.status, terminal_disposition: null, superseded_by: null, proposal_version: 1,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown, updated_at: `2026-07-30T00:00:${String(p.impactScore).padStart(4, "0")}Z`, ...over });
-
 const ALL = Array.from({ length: N }, (_, i) => proposal(i));
 /** The fixture ranking, written straight onto the fake rows: production stamps ONLY through the atomic release now. */
 async function stamp(release: string, rows: Array<{ id: string; lane: string }> = ALL.map((p) => ({ id: p.id, lane: "ready" }))) {
@@ -78,7 +75,6 @@ async function stamp(release: string, rows: Array<{ id: string; lane: string }> 
 beforeEach(async () => {
   db.rows = ALL.map((p) => seed(p)); db.legacy = []; db.reads = []; db.basis = "b1"; db.stampFails = false; blob.stored = null; blob.writeFails = false;
   await stamp("rel-1"); });
-
 describe("Today and Changes answer one question once", () => {
   // The release blob has no way to say "put aside", so Today counted a dismissed row while Changes (reading the database) had already dropped it. Both surfaces read the SAME database-gated lane now, so a dismissal lands on both on the very next render, under ONE release id and ONE count, with no operator action.
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
@@ -112,7 +108,6 @@ describe("Today and Changes answer one question once", () => {
       renderToStaticMarkup(await ChangesSection()).includes("Your saved changes could not be read just now"),
       (await loadTodayView()).today.headerSentence.includes("Your changes could not be read just now")]).toEqual([false, true, false, 0, false, false]);
     releaseFails.value = false; }); });
-
 describe("one release identity, or no release at all", () => {
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
     const view = await buildChangesViewUncached(T, "rel-9");
@@ -144,7 +139,6 @@ describe("one release identity, or no release at all", () => {
     await expect(publishCustomerRelease(args("rel-10", "rel-7"))).rejects.toThrow("release conflict");
     expect(await committed()).toEqual(["rel-9", "rel-9"]);
   }); });
-
 describe("one global rank across every lane", () => {
   it("interleaves research and drafts with ready work by worth, and the stamped lane rides each row", async () => {
     await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
@@ -152,7 +146,6 @@ describe("one global rank across every lane", () => {
     await stamp("rel-1"); // restore the fixture ranking for the suites below
   });
 });
-
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {
     const view = await loadChangesView(); const seen = view.ready.map((p) => p.id);
@@ -185,7 +178,6 @@ describe("the ranked queue pages in the database", () => {
     const view = await loadChangesView(); // the count is the count, and the screen is one page
     expect([view.summary.ready, view.ready.length]).toEqual([N, CHANGES_PAGE_SIZE]); // one page of the one order, all ready in this fixture
     expect(buildTodayViewFromChanges(view).nextOpportunities.map((o) => o.changeId)).toEqual(ALL.slice(0, 3).map((p) => p.id)); }); });
-
 /** THE TWO WRITES END TOGETHER OR NOT AT ALL. The order is stamped inside the build and the release blob is written at the end, so a blob write that failed left the NEW ranking live in the database beside the OLD release: "show more" paged an order the screen above it was never published with. */
 describe("a publish that half landed", () => {
   it("rolls the order back onto the release still serving when the blob does not land", async () => {

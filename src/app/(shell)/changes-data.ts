@@ -9,7 +9,7 @@ import "server-only";
 import { cache } from "react";
 import { after } from "next/server";
 import { currentTenantId } from "@/lib/tenant-context";
-import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis } from "@/domains/decision";
+import { actionableProposalFailures, loadProposalQueue, openHold, queueLaneCounts, readAiCaseDispositions, readQueuePage, resolveCurrentBasis, unsettledCause } from "@/domains/decision";
 import type { AiCaseFile } from "@/domains/decision";
 import type { ChangeProposal } from "@/domains/decision";
 import { loadProofLedgerCached } from "@/domains/measurement";
@@ -113,7 +113,8 @@ export function withCurrentBasisOnly(view: ChangesView, ctx: { tenantId: string;
   const id = new Set(standing.map((p) => p.id));
   const kept = [...view.ready, ...view.toDo, ...(view.research ?? [])].filter((p) => id.has(p.id));
   const research = kept.filter((p) => openHold(p).lane === "research");
-  const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).blocking == null);
+  // THE SAME READY PREDICATE load-proposals applies: status, an open review lane, no blocking hold, AND no unsettled cause. This filter checked three of the four, so a row the queue would never rank Ready could still re-sort into the released ready lane and the two surfaces disagreed by construction.
+  const ready = kept.filter((p) => p.status === "ready" && openHold(p).lane === "review" && openHold(p).blocking == null && unsettledCause(p) == null);
   const toDo = kept.filter((p) => !research.includes(p) && !ready.includes(p));
   // MAX, never a sum: an old-rule release counted rows it also listed, so adding inflates.
   const setAside = Math.max(view.demotedStaleBasis, view.proposals.length - standing.length);

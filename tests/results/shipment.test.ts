@@ -240,7 +240,6 @@ describe("what is still under measurement", () => {
     expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);
   });
 });
-
 /** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
 describe("the measurement pass settles itself, all the way to the screen", () => {
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, failed: 0, outcomes: [], ...over });
@@ -256,7 +255,6 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
     expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
   });
 });
-
 /** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide",
@@ -300,7 +298,6 @@ describe("the recording seam", () => {
     expect((await repair()).measurement).toBe("insufficient_comparison");
   });
 });
-
 /** THE STARTING NUMBERS ARE FROZEN OVER THIS CHANGE'S OWN SEARCHES, at mark time, once: the account-wide day compared an account-wide before against a scope-filtered after, two different measures. */
 describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
   const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";
@@ -341,7 +338,6 @@ describe("the AI baseline is frozen over the change's own scope (AEO reconstruct
     expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
   });
 });
-
 describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
   it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
     const scope = { promptIds: ["p1"], engines: ["chatgpt", "gemini"], fanouts: ["haft seen table items list"], stage: "owned_retrieved_not_cited" };
@@ -353,7 +349,6 @@ describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-
     expect(row.targetQueries).toEqual(["nowruz traditions"]); // and the Google scope is untouched by it
   });
 });
-
 /** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI numbers were captured only where Google already had something to say, so a new or quiet page lost the baseline of exactly the change it existed for. */
 describe("an AI change on a page Google cannot see yet still measures", () => {
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {

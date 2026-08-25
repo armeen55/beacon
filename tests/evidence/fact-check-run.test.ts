@@ -17,10 +17,8 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
       db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },
   };
 });
-
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
-
 const NOW = new Date("2026-08-18T00:00:00.000Z");
 const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." };
 const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
@@ -41,7 +39,6 @@ const row = (over: Partial<FactCheck>): FactCheck => ({ page: "/names", statemen
   confidence: "unsupported", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: pageHashOf(PAGE.body),
   pageLocator: null, sourceReadAt: null, state: "owed", rulesVersion: VERIFICATION_RULES_VERSION, evidenceBasis: "b1", checkedAt: NOW.toISOString(), ...over });
 const reset = () => { db.rows = []; db.owed = []; db.superseded = []; db.reopened = []; db.cov = null; db.writeFails = false; };
-
 describe("the search is the proposition", () => {
   it("the real Ahvaz claim searches the claim, and the type shapes but never erases the assertion", () => {
     const subject = "Ahvaz, Iran", current = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)";
@@ -54,7 +51,6 @@ describe("the search is the proposition", () => {
     expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));
   });
 });
-
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused
@@ -76,7 +72,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");
   });
 });
-
 describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("a page longer than one section is NOT complete after its first chunk", async () => {
     const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
@@ -110,7 +105,6 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
     // not the second encyclopedia that merely ranked next
     expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]); });
 });
-
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
     let units = 0; const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
@@ -135,7 +129,6 @@ describe("one pass, one global claim allowance", () => { beforeEach(reset);
       read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => ({ hold: "capped" }), fetchSource: async () => ({ text: PASSAGE }) });
     expect([out.status, out.failure, out.attempts]).toEqual(["failed", "search_capped", 1]); });
 });
-
 describe("what may authorize replacing published words", () => { beforeEach(reset);
   it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
     const weak = "Afsaneh is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
@@ -174,7 +167,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
     const p = parseCapability("onpage_content_parsing", envelope as never) as { bodyText: string | null; openingSample: string | null; headings: string[] }; const text = [p.bodyText, p.openingSample, ...p.headings].filter(Boolean).join("\n");
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text }) }); expect([text.includes("fable"), (db.rows[0] as FactCheck).confidence]).toEqual([true, "confirmed"]); }); });
-
 describe("a verdict from obsolete rules is not current evidence", () => { beforeEach(reset);
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
     const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
@@ -191,8 +183,6 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
     const settled = await unit({ page, held: [{ ...old, rulesVersion: VERIFICATION_RULES_VERSION }],
       searchSources: async () => { searches += 1; return SOURCE; } });
     expect([db.reopened, searches, settled.status]).toEqual([[], 0, "done"]); }); });
-
-
 describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the organic results the already-paid SERP returned, in order
   const LIVE = { organic: [["www.washingtonpost.com", "washingtonpost.com/a"], ["mashable.com", "mashable.com/a"],
     ["www.newarab.com", "newarab.com/a"], ["www.cnbc.com", "cnbc.com/a"], ["www.globalcitizen.org", "globalcitizen.org/a"],

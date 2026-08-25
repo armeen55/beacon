@@ -61,10 +61,12 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // A RESTARTED LIST SHOWS THE FRESH PAGE AND NOTHING ELSE: rows from a ranking that went away are dropped
   // rather than stacked under the new ones, which is the only way "each change once" survives.
   const raw = useMemo(() => (moved ? more : [...view.proposals, ...more]), [moved, more, view]);
-  // THE STAMPED LANE IS THE ONE SOURCE of what a card may offer; a row the stamp does not know is review.
-  const laneOf = useMemo(() => (p: ChangeProposal): Lane =>
-    moreLanes[p.id] ?? view.laneById?.[p.id] ?? (p.researchOnly === true ? "research" : p.status === "ready" ? "ready" : "todo"),
-    [moreLanes, view]);
+  // THE STAMPED LANE IS THE ONE SOURCE of what a card may offer; a row the stamp does not know asks the SAME servability verdict every other surface asks, never the raw status: `p.status === "ready"` here was the one reader that could render Ready with no hold consulted at all.
+  const laneOf = useMemo(() => (p: ChangeProposal): Lane => {
+    const stamped = moreLanes[p.id] ?? view.laneById?.[p.id]; if (stamped) return stamped;
+    const hold = openHold(p);
+    return hold.lane === "research" ? "research" : p.status === "ready" && hold.blocking == null ? "ready" : "todo";
+  }, [moreLanes, view]);
   const rows = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
   const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);
   const reviewRows = useMemo(() => rows.filter((p) => laneOf(p) === "todo"), [rows, laneOf]);

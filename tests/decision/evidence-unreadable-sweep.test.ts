@@ -155,23 +155,19 @@ describe("a search read that did not answer", () => {
     const asked = env.calls.filter((c) => c.name === "gsc_page_signals_v1").map((c) => JSON.stringify(c.args));
     expect(new Set(asked).size).toBe(1); // one memo slot, not one per caller's clock
   });
-
   it("travels to the snapshot as a FAILED source, never as an empty one", async () => {
     env.rpc = { gsc_page_signals_v1: [{ data: fullPage() }, { error: TIMEOUT }], gsc_page_totals_v1: [{ data: [] }] };
     const snapshot = await loadEvidenceSnapshot(TENANT, { now: new Date("2026-08-12T09:00:00Z") }); expect(snapshot.sources.find((s) => s.source === "gsc")?.status).toBe("failed"); }); });
-
 describe("the sweep only retires what a producer that FINISHED rewrote", () => {
   it("changes nothing at all when the search source failed, so open cards survive", async () => {
     env.snapshot = snapshotWith("failed");
     env.store = new Map([["a", openCard("answer_block")], ["t", openCard("title")]].map(([, p]) => [(p as ChangeProposal).id, p]));
     const out = await produceProposalsForTenant(TENANT); expect(out.outcome).toBe("evidence_unreadable");
     expect(env.withdrawn).toEqual([]); });
-
   it("withdraws nothing when the search source is merely EMPTY: unread is not rewritten", async () => {
     env.snapshot = snapshotWith("empty");
     env.store = new Map([[openCard("title").id, openCard("title")]]);
     await produceProposalsForTenant(TENANT); expect(env.withdrawn).toEqual([]); });
-
   it("withdraws a stale card in its own family once the producer that owns it finished, and never an AI card on a pass whose AI read failed", async () => {
     env.snapshot = snapshotWith("fresh");
     env.aiWindow = "fail"; // the 28-day AI read is down on this pass
@@ -202,7 +198,6 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const wet = await produceProposalsForTenant(TENANT);
     expect(dry.proposals.length).toBe(wet.proposals.length);
     expect(dry.proposals.map(shape)).toEqual(dry.proposals.map((p) => shape(env.saved.get(p.id) ?? p))); }); });
-
 /** A PASS THAT DID NOT BUY MUST NOT TAKE BACK WHAT A PAID PASS BANKED (operator, 2026-08-19). Pausing research now rebuilds the customer surface from stored evidence alone, which is right: a paused account still owes its customer a current list. What it may never do is read its own empty hands as the generator withdrawing its work. "Did not run" is not "rejected its previous work". */
 describe("a zero-spend regeneration is non-destructive", () => {
   it("leaves the operator's open cards exactly where they were, and still publishes", async () => {
@@ -222,7 +217,6 @@ describe("a zero-spend regeneration is non-destructive", () => {
     expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);
   });
 });
-
 /** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable table: the blind instance files nothing and holds its families; the seeing one files durably; and what it filed is what BOTH surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
@@ -248,7 +242,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
   const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({
     tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
-
   it("holds the AI families out of the sweep and files no verdict when the window read fails, while its finished families still answer", async () => {
     env.aiWindow = "fail";
     const run = await runExtras(aiSnapshot()); expect(run.families).not.toContain("ai_answer_gap");
@@ -256,7 +249,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(run.families).toContain("missing_description"); // the pass genuinely ran its $0 work
     expect([env.upserts, env.dispositions.size]).toEqual([0, 0]); // a blind pass writes no verdict
   });
-
   it("files durably on a seeing pass, stands its families back up, and both surfaces render the filed row", async () => {
     env.aiWindow = "fail"; // cold instance one goes blind and files nothing; instance two sees the window
     await runExtras(aiSnapshot());
@@ -270,7 +262,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const onChanges = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pB")?.reason ?? null : null; expect(onVisibility.state).toBe("unreported");
     expect(onVisibility.href).toBeNull(); expect(onChanges).toBe(onVisibility.line);
   });
-
   it("judges and files the AI cases on a QUIET day, through the whole produce pass", async () => {
     env.snapshot = aiSnapshot();
     env.aiWindow = [];
@@ -278,7 +269,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported");
   });
-
   it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {
     env.aiWindow = [];
     await runExtras(aiSnapshot()); // the NEWER pass files (decidedAt = 2026-08-20T09:00Z)
@@ -288,7 +278,6 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(stale.families).not.toContain("engine_followup");
     expect([...env.dispositions.entries()]).toEqual([...standing.entries()]); // the newer verdicts stand untouched
   });
-
   it("files a search a tracked question already asks as covered, a decision with the covering thing named, never silence", async () => {
     // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its OWN prompt never becomes a row: the projection drops the echo at the door.)
     const windowRow = (id: string, promptId: string, promptText: string, fanOuts: string[] | null) => ({

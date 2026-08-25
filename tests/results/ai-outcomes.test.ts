@@ -6,9 +6,7 @@ import { aiBaselineFor, aiOutcomeForShipment, aiOutcomesForShipments } from "@/d
 import type { AiObservationRecord } from "@/domains/evidence/ai-visibility/ai-observations";
 
 const T = "acct-a", SITE = "fixture-outdoors.example";
-
 type RowOver = Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null };
-
 /** One stored observation, in the shape the store actually holds. */
 function row(over: RowOver = {}): AiObservationRecord {
   const { day, mentioned, ...rest } = over;
@@ -25,7 +23,6 @@ function row(over: RowOver = {}): AiObservationRecord {
     analysis, analysis_hash: analysis ? "abc" : null, ...rest, // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial deliberately carries a different hash, which is exactly what keeps it out of every denominator.
   } as AiObservationRecord;
 }
-
 const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
 /** A store that answers like the real one: only the slot and the day range that were ASKED for, a named range read whole, and a fixed count never exceeded. A module that asks for the newest N rows and narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
 const reader = (rows: AiObservationRecord[]) =>
@@ -34,7 +31,6 @@ const reader = (rows: AiObservationRecord[]) =>
       && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay))
       .slice(0, o.limit ?? (o.fromDay || o.toDay ? 40_000 : 500)).map((r) => ({ ...r })));
 const allDays = (report: Awaited<ReturnType<typeof aiOutcomes>>) => report.segments.flatMap((s) => s.days);
-
 describe("the daily AI trend, over stored answers only", () => {
   it("counts the mention rate over the answers actually read, and says null when none were read", async () => {
     const readObservations = reader([
@@ -131,7 +127,6 @@ describe("the daily AI trend, over stored answers only", () => {
     const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day.observed).toBe(1);
   });
 });
-
 describe("the model and mode boundary", () => {
   it("splits the series the day an engine changes model, and names the break", async () => {
     const readObservations = reader([
@@ -169,7 +164,6 @@ describe("the model and mode boundary", () => {
     expect(segments).toHaveLength(2); expect(segments[1].boundary?.[0]).toMatchObject({ fromModel: "gpt-5", toModel: "gpt-6" });
   });
 });
-
 describe("what the AI answers did around one shipped change", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z");
   /** A VERDICT LANDS AT DAY 28 (Codex, 2026-08-21): the mature clock, with the stamp's own 28 days elapsed. */
@@ -343,7 +337,6 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.direction).toBe("no_clear_movement"); // Thirteen days in on a four-answer before side supports no verdict and no movement claim; the zone boundary above is the whole of what this pins.
   });
 });
-
 describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction, 2026-08-19)", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
   const BASE = { implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 0 } } };
@@ -383,7 +376,6 @@ describe("a shipment's typed AI scope is remeasured exactly (AEO reconstruction,
     expect(outcome?.after.checked).toBe(1);
   });
 });
-
 /** THE CHANGE DECLARES ITS OBJECTIVE AND RESULTS JUDGES THAT ONE. Every AI card used to be graded on mentions, so a change raised because the site was read and never credited was banked as a win the moment it was named more often, which is the thing it was already doing. */
 describe("a shipment is judged on the objective it declared (AEO reconstruction, 2026-08-19)", () => {
   const NOW = new Date("2026-07-31T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
@@ -407,7 +399,6 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
   const frozen = (over: Record<string, unknown> = {}) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10,
     citationSample: 40, ownedCiting: 10, rankSum: 40, rankCount: 10, retrievalSample: 40, ownedRetrieved: 10, retrievedNotCited: 10,
     engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"], scopeFingerprint: "fp", ...over } });
-
   it("reports the citation it was aimed at, not the mentions that rose beside it", async () => {
     // Named on every answer since, up from 1 of 4. Credited on 1 of 4, exactly where it started.
     const readObservations = reader(days("2026-07-21", "2026-07-31", (i) => ({ mentioned: true, journey: journeyOf(i === 0 ? ["fixture-outdoors.example"] : ["rival.example"], null) })));
@@ -520,7 +511,6 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.line).toBe("Not measurable: where the AI answers stood when this was marked done was not on file, so what happened since cannot be read as a direction, and a starting point is never rebuilt after the fact. The change itself is recorded.");
   });
 });
-
 /** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The whole table is here, because a sign error hides in the combination nobody wrote. */
 describe("a conversion objective is graded on both halves, each on its own polarity", () => {
   const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example"; // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
@@ -579,7 +569,6 @@ describe("a conversion objective is graded on both halves, each on its own polar
     expect([outcome?.objective, outcome?.retrieval.after.rate, outcome?.direction]).toEqual(["ai_retrieval", 1, "improved"]);
   });
 });
-
 /** THE CONTROLS ARE THE ACCOUNT'S OWN UNAFFECTED QUESTIONS (Codex, 2026-08-21), never bought: their drift comes off the verdict, and two assistants that disagree come back split, never averaged. */
 describe("controls and per-assistant verdicts", () => {
   const NOW28 = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
@@ -595,7 +584,6 @@ describe("controls and per-assistant verdicts", () => {
   const judge = (rows: AiObservationRecord[]) => aiOutcomeForShipment(T,
     { scopeQueries: ["where should I go"], implementedAt: STAMP, shipmentBaseline: HELD }, { readObservations: reader(rows), now: NOW28 });
   const C1 = "an unaffected question", C2 = "another unaffected question", MINE = "where should I go";
-
   it("subtracts the unaffected questions' own drift before calling a verdict", async () => {
     const outcome = await judge([ // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly as much: the world moved, not the change, and the receipt says so.
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
@@ -618,7 +606,6 @@ describe("controls and per-assistant verdicts", () => {
     expect(outcome?.line).toContain("The assistants disagree");
   });
 });
-
 /** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on. Membership is what it must cover; write order is not membership. */
 describe("the identity of the scope a baseline was frozen over", () => {
   const DAY = "2026-07-20";

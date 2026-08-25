@@ -31,7 +31,7 @@ import { proposalFingerprint } from "@/domains/decision/proposal-store"; import 
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
 import { earnsOwnPage, readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals";
 import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison, type WinnerReadOutcome } from "@/domains/evidence/funnel/research-evidence";
-import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import { hashSnapshot } from "@/domains/evidence/snapshot"; import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
 /** A completion fn that replays a fixed queue (last response repeats). The seam returns a PARSED structured VALUE (never text); an error carries its retryability. */
@@ -190,7 +190,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const after = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, retryKeys: [first] });
     expect(after.paid.funded[0]).not.toBe(first);            // the tried page stepped aside for untried work
     expect(after.paid.declared).toContain(first); });        // and is still declared, still owed
-
   it("never lets another diagnosis's bundle stand in for a newly selected job, and files an outcome when it truly is the same work", async () => {
     reset(BOTH());
     const other = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: GAP_URL,
@@ -204,7 +203,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     for (const r of out.paid.receipts) expect(r.why ?? "").not.toContain("no branch of this pass recorded what happened");
     const guide = out.paid.receipts.find((r) => r.key === "/nowruz-guide");
     if (guide) expect(guide.outcome).not.toBe("not_reached"); });
-
   /** SAME PAGE AND SAME CAUSE IS STILL NOT SAME WORK, AND A DRAFT AWAITING REVIEW IS NEVER READY (Codex, 2026-08-23).
    *  Both proved through the REAL producer against the live counterexample: an incomplete title bundle on
    *  /iran-flags/iran-islamic-republic-flag-history answered a newly selected rewrite because both said
@@ -225,7 +223,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(r.why ?? "").not.toContain("answers this exact diagnosis"); // the cause-only sentence is gone with the cause-only rule
     }
     expect(out.paid.receipts.every((r) => (r.why ?? "").length > 0 || r.outcome === "produced")).toBe(true); });
-
   it("stops drafting a page whose deep door named the reading it is missing, instead of spending on a fallback", async () => {
     reset(BOTH());
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
@@ -235,7 +232,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       const spent = out.paid.receipts.find((r) => r.key === owed.key);
       expect(spent?.outcome).toBe("evidence_required");   // the page reports what it needs
     } });
-
   /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that
    *  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one
    *  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */
@@ -256,7 +252,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     // AND THE PASS'S OWN SUM IS THE SUM OF ITS PAGES, which is the number the runtime reconciles against the ledger.
     const total = out.paid.receipts.reduce((a, r) => a + r.costUsd, 0);
     expect(total).toBeCloseTo(spent.reduce((a, r) => a + r.costUsd, 0), 6); });
-
   /** WHAT CANNOT BE DONE IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came
    *  back `not_reached` while completable work below them went unfunded, because a page already carrying a change
    *  under measurement was funded first and skipped later. The fact was on file the whole time. */
@@ -271,7 +266,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(out.paid.receipts.some((r) => r.key === guide)).toBe(false); // so it took no slot and owns no funded receipt
     expect(out.paid.funded).toContain(food);                          // the one slot went to work that can finish
     expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); });
-
   /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a
    *  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder
    *  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.
@@ -406,7 +400,6 @@ describe("a new page needs a positive yes, never just the absence of a no", () =
     const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
   });
 });
-
 describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
   it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
@@ -766,3 +759,63 @@ describe("the click curve is fitted to the account it judges", () => {
     expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 212]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });
+// ── work identity is the JOB'S OWN evidence, never the account's ──────────────
+/** The audited defect this pins: every fixture in this suite hardcodes `evidenceHash: "fixture"`, so an entire
+ *  class of account-wide identity bugs was invisible to the suite BY CONSTRUCTION (627 versions on one live row,
+ *  a finished answer overwritten by a worse redraft, twelve-call rewrites re-bought). These tests use the REAL
+ *  `hashSnapshot`, move an UNRELATED page's Google figures between passes, and hold the identity still. */
+describe("work identity survives unrelated drift and moves with the job's own evidence", () => {
+  const AT = ownedPage("fixture-outdoors.example/hiking-socks", "Hiking Socks", { impressions: 9000, clicks: 700 }, [{ query: "hiking socks", impressions: 9000, clicks: 700, position: 1.2 }]);
+  /** Healthy on every axis (a description on file, clicks at position), so no producer mints work for it: its ONLY role is to drift. */
+  const UNRELATED: OwnedPageEvidence = { ...AT, content: { ...AT.content!, metaDescription: "Socks for hiking, sized and rated for every season." } };
+  const real = (s: EvidenceSnapshot): EvidenceSnapshot => ({ ...s, evidenceHash: hashSnapshot(s) });
+  it("an unrelated page's ordinary Google drift re-mints no identity, re-buys nothing, rewrites no row, and leaves finished copy byte-identical", async () => {
+    reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
+    const first = counting(); const one = await run(first.complete);
+    expect([one.persisted > 0, first.calls() > 0]).toEqual([true, true]);
+    const before = new Map([...env.store].map(([id, p]) => [id, [p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.after : "", p.workKey ?? ""] as const]));
+    const base = env.snap as EvidenceSnapshot;
+    const drifted = real({ ...base, ownedPages: base.ownedPages.map((p) => p.url.includes("hiking-socks")
+      ? { ...p, search: { ...p.search!, clicks90d: p.search!.clicks90d + 37, impressions90d: p.search!.impressions90d + 911 } } : p) });
+    expect(drifted.evidenceHash).not.toBe(base.evidenceHash); // the ACCOUNT hash moved, which is exactly what must no longer matter
+    env.snap = drifted; env.saved = [];
+    const second = counting(); const again = await run(second.complete);
+    expect([again.reused > 0, second.calls(), env.saved.map((p) => p.id)]).toEqual([true, 0, []]); // no redraft, no provider attempt, not one row rewritten
+    for (const [id, [after, workKey]] of before) { const now = env.store.get(id)!;
+      expect([now.recommendedChange.kind === "existing_edit" ? now.recommendedChange.after : "", now.workKey ?? ""]).toEqual([after, workKey]); } });
+  it("the job's OWN page moving does move the identity, so the stored row re-stamps once instead of standing on stale evidence", async () => {
+    reset(real(snap([WEAK, GAP, UNRELATED], looked([["nowruz food traditions", "fixture-outdoors.example/nowruz-food"], ["nowruz traditions", GAP_URL]]))));
+    await run(counting().complete);
+    const guideId = [...env.store.keys()].find((id) => id.includes("/nowruz-guide"))!; const heldKey = env.store.get(guideId)!.workKey!;
+    const base = env.snap as EvidenceSnapshot;
+    env.snap = real({ ...base, ownedPages: base.ownedPages.map((p) => p.url === GAP_URL
+      ? { ...p, search: { ...p.search!, impressions90d: p.search!.impressions90d + 4000, clicks90d: p.search!.clicks90d + 5 } } : p) });
+    env.saved = []; await run(counting().complete);
+    const moved = env.store.get(guideId)!;
+    expect(moved.workKey).not.toBe(heldKey); // the identity follows the job's own evidence
+    expect(env.saved.some((p) => p.id === guideId)).toBe(true); }); // one re-stamp, which is the honest churn a real movement earns
+});
+// ── the re-read sweep reconciles bundles, and the stored status agrees with the rendered lane ─
+describe("canonical bundle status", () => {
+  const BUNDLE = { objective: "Tell the two flag pages apart", metric: "clicks", measurementPlan: "read at 7, 14, 28 days", risks: [], confidenceReasons: ["r"], alternatives: [], scope: { queries: ["iran flag"], prompts: [] },
+    components: [{ kind: "title" as const, label: "Title", before: "Iran Flag", after: "The national flag of Iran, explained", where: null, page: "/flags", risk: "safe" as const, evidenceKeys: [] }],
+    dispositions: [], receipt: { items: [{ key: "k1", kind: "serp" as const, fact: "Observed on the results page for iran flag.", observedAt: "2026-07-20T00:00:00.000Z" }], missing: [], freshestObservedAt: "2026-07-20T00:00:00.000Z" } };
+  const bundleRow = (over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({ id: "fixture-tenant::/flags::existing_edit::title-family", pagePath: "/flags", pageUrl: "https://fixture-outdoors.example/flags",
+    basis: "basis_test::d8", changeFamily: "title-family", status: "ready", bundle: BUNDLE as never,
+    recommendedChange: { kind: "existing_edit", field: "title", before: "Iran Flag", after: "The national flag of Iran, explained" }, ...over });
+  it("a claim rule cannot fire vacuously on a bundle that carries no claims by construction, and the lane agrees with the store", async () => {
+    reset(SEEN()); const row = bundleRow(); env.store = new Map([[row.id, row]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
+    expect(env.store.get(row.id)!.status).toBe("ready"); // the national-symbol rule no longer holds a row that cannot declare claims
+    const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
+    expect(q.ready.some((p) => p.id === row.id)).toBe(true); }); // stored ready = rendered ready: one canonical status
+  it("a REAL blocker demotes the stored bundle with a typed fault, so the store says what every screen shows", async () => {
+    reset(SEEN()); const row = bundleRow({ diagnosisCause: "cannibalization", whyItMatters: "This search comes up about 176 clicks short beside its sibling." });
+    env.store = new Map([[row.id, row]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
+    const now = env.store.get(row.id)!;
+    expect(now.status).toBe("needs_review"); // the sweep no longer skips `row.bundle`, so the verdict is written back
+    expect((now.faults ?? []).some((f) => /promises clicks/.test(f))).toBe(true); // and the reason is TYPED, owned by Beacon, not read back out of prose
+    const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
+    expect(q.ready.some((p) => p.id === row.id)).toBe(false); }); // demoted in the store AND off the ready lane: no split brain
+});

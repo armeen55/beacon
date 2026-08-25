@@ -362,9 +362,10 @@ export type StructuredDraftKind =
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates"
   | "fact_claim_extraction" | "fact_claim_judgement" | "factual_review";
 
-/** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, and the one sentence that decided it. Every field is owed, so a body missing one is a refusal rather than a pass. */
+/** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, the one sentence that decided it, and the TYPED RESOLUTION a refusal owes ("none" on a pass): the smallest correct next step, so the runtime executes data instead of parsing the sentence. Every field is owed, so a body missing one is a refusal rather than a pass. MIRRORED with drafted-copy's JudgeVerdict. */
 const EditorJudgementSchema = z.object({ pageFit: z.boolean(), claimsEntailed: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(),
-  implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300) });
+  implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300),
+  resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });
 
 /** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns
  *  seven booleans and reads zero statements forever (Codex, 2026-08-18). */
