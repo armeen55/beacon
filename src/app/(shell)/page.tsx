@@ -268,6 +268,9 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
                 </p>
                 {edit.paste ? <CopyButton text={edit.after} label="Copy" /> : null}
               </div>
+              {edit.where ? (
+                <p className="text-[12px] leading-relaxed text-muted-foreground" data-top-edit-where="true">Where it goes: {edit.where}</p>
+              ) : null}
             </div>
           ) : edit ? (
             <p className="mt-1 text-[13px] text-muted-foreground">A plan, not a paste. Open it and read the steps before touching anything.</p>

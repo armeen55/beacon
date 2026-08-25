@@ -27,7 +27,7 @@ type TodayView = {
    *  first thing read was reasoning for a thing nobody had been told to do yet. The action comes first now, then
    *  the words on the page and the words to put there; the reason follows. Absent when the top change carries no
    *  line at all, and `paste` is false for a plan that is read rather than pasted. */
-  topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean };
+  topEdit?: { action: string; lead: string; before: string | null; after: string; paste: boolean; where?: string };
   /** The kernel's OWN verdict for pages it judged and declined to change, keyed the same way. Today quotes it instead of a generic "still
    *  checking", so a page it resolved to watch reads as a decision, not silence. */
   declineNotes?: { page: string; note: string }[];
@@ -112,6 +112,8 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
     before: (c.before ?? "").trim() || null,
     after,
     paste: true,
+    // WHERE IT GOES rides the one card the operator is steered to first: the Changes card has always carried it, and the Today card, the single card most operators act from, omitted it, so body copy arrived with no place to put it (blind customer review, 2026-08-25).
+    ...((c.where ?? "").trim() ? { where: c.where!.trim() } : {}),
   };
 }
 
