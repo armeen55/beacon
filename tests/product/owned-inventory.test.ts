@@ -11,7 +11,6 @@ Object.assign(db.client, supabaseFake({ rows: (t) => (t === "owned_pages" ? db.o
   error: (t) => (db.missing === t || db.fails ? { code: db.fails ? "500" : "PGRST205", message: "Could not find the table" } : null),
   same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.url === sent.url,
   insertDefaults: () => ({ ...FRESH, first_seen: new Date().toISOString(), last_seen_in_discovery: new Date().toISOString() }) }));
-
 const T = "tenant-own", OTHER = "tenant-other", NOW = new Date("2026-08-03T00:00:00.000Z"), asked: string[] = [];
 const at = (days: number) => new Date(NOW.getTime() + days * 86_400_000);
 const serve = (map: Record<string, string>) => (async (u: string) => (asked.push(String(u)), map[String(u)] == null
@@ -20,7 +19,6 @@ const urlset = (u: string[]) => `<urlset>${u.map((x) => `<url><loc>${x}</loc></u
 const index = (k: string[]) => `<sitemapindex>${k.map((x) => `<sitemap><loc>${x}</loc></sitemap>`).join("")}</sitemapindex>`;
 const discover = (m: Record<string, string>) => discoverUrls("https://own.com", serve(m), 100, () => NOW.getTime(), NOW.getTime() + 60_000);
 beforeEach(() => { db.owned = []; db.snaps = []; db.missing = ""; db.fails = false; asked.length = 0; });
-
 describe("the owned-page inventory: what the site says it has, and what my read of it found", () => {
   it("follows the Sitemap: directive robots.txt publishes, three levels of index nesting deep, and inventories what it found", async () => {
     const out = await discover({ // the sitemap is at NEITHER conventional path: only the directive finds it
@@ -63,7 +61,6 @@ describe("the owned-page inventory: what the site says it has, and what my read 
     await markBlocked(T, "https://own.com/flaky", 500, at(3)); await markBlocked(T, "https://own.com/flaky", 403, at(4));
     expect((await flaky()).status_reconfirmed_at).toBe(null); }); // a DIFFERENT answer on the second day confirms nothing
 });
-
 describe("evidence - my own page's actual words, read narrowly", () => {
   const long = Array.from({ length: 12 }, (_, i) => `Paragraph ${i + 1}. ${"ordinary prose about this page. ".repeat(8)}`).join(" ") + " The Zephyr Archive opens at dawn.";
   const html = `<html><head><title>Deep</title></head><body><nav>Menu Home About</nav><main>${long.split(". ").map((s) => `<p>${s}.</p>`).join("")}</main><footer>Footer</footer></body></html>`;

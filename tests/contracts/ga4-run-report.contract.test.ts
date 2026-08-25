@@ -1,16 +1,12 @@
 /** N40 contract test - GA4 runReport: a checked-in REAL response body through the ACTUAL narrowing parsers (narrowRunReportRows / narrowRevenueRows), so a silent upstream change fails a named test here instead of surfacing as zero traffic rows. NO live calls. */
-
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
 import { narrowRunReportRows, narrowRevenueRows } from "@/lib/connectors/ga4/data-api";
 import type { Ga4RunReportResponseBody } from "@/lib/connectors/ga4/types";
-
 function fixture<T>(name: string): T {
   return JSON.parse(readFileSync(resolve(__dirname, "fixtures", name), "utf-8")) as T;
 }
-
 describe("GA4 runReport traffic contract", () => {
   const body = fixture<Ga4RunReportResponseBody>("ga4-run-report.json");
   it("parses (date, pagePath) dimensionValues + string metricValues into typed rows", () => {
@@ -39,7 +35,6 @@ describe("GA4 runReport traffic contract", () => {
     expect(narrowRunReportRows(null)).toEqual([]); expect(narrowRunReportRows({} as Ga4RunReportResponseBody)).toEqual([]);
   });
 });
-
 describe("GA4 runReport revenue contract (name-mapped metrics)", () => {
   it("maps metrics BY HEADER NAME so a reordered metric set never misassigns", () => {
     // The fixture deliberately orders headers [transactions, totalRevenue, purchaseRevenue] - not our request order - to pin name-based mapping.

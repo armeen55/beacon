@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { buildFanoutEvidence, ownedPageAiRollup, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";
-
 /** THE ONE DERIVED FAN-OUT PROJECTION (AEO reconstruction, 2026-08-19). Visibility renders it and Decision consumes it off the SAME pure function, so these pins hold both surfaces at once: recurrence is DISTINCT days, assistants and parent questions and never raw rows; a prompt echo is never the assistant's own search; where the site stood is a four-way fact with an honest reporting denominator; and unknown stays unknown, never zero. */
 const SITE = "own.example";
 const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservation => ({
@@ -9,7 +8,6 @@ const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservati
   // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages and which reports what it retrieved, so claims about reading are legal on these rows.
   observationMode: "consumer_search",
   fanOutQueries: ["haft seen set delivery"], citations: [{ url: "https://rival.example/a", domain: "rival.example" }], retrievedResults: null, ...over });
-
 describe("recurrence is distinct days and assistants, never row totals", () => {
   it("counts five same-day same-engine executions as ONE day and ONE assistant, and it is not material", () => {
     const rows = Array.from({ length: 5 }, (_, i) => obs({ observationId: `o${i}` })); const [r] = buildFanoutEvidence(rows, SITE).rows;
@@ -63,7 +61,6 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     expect(rows.map((r) => r.query)).toEqual(["haft seen set delivery"]);
   });
 });
-
 describe("where the site stood is five different worlds, with an honest denominator", () => {
   it("says cited, read and passed over, never you, not credited, or unreported, off the same rows Visibility renders", () => {
     const cited = obs({ citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([cited], SITE).rows[0]!.ownState).toBe("cited");
@@ -94,7 +91,6 @@ describe("where the site stood is five different worlds, with an honest denomina
     const [p] = ownedPageAiRollup(rows, SITE); expect([p!.url, p!.cited, p!.retrieved, p!.retrievedNotCited, p!.engines]).toEqual(["https://own.example/haft-seen", 1, 2, 1, ["chatgpt", "gemini"]]);
   });
 });
-
 /** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never a hardcoded phrase list (Codex, 2026-08-21). */
 describe("the canonical outline arrives without site furniture", () => {
   it("strips a heading printed across the site and keeps every page's own sections", async () => {

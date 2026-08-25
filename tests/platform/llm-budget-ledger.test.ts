@@ -1,7 +1,6 @@
 /** The durable per-account LLM spend writer, as its two PROMISES rather than its row mechanics: money already spent is added to that account's own running total, and a ledger I could not write NEVER blocks or breaks the paid call that already happened. Bad input is refused before the database is touched at all. */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
-
 const db = vi.hoisted(() => ({ readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[], spentToday: 0 }));
 // THE WRITE IS ONE ATOMIC INCREMENT IN THE DATABASE, never a total this process computed. Reading the row, adding the cost here and writing the absolute value back lost one of any two concurrent charges outright, and the cap that fails closed then read a total lower than what was spent. The mock is the RPC, and what it is handed is a DELTA: two charges send two deltas and neither one depends on what the other read.
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => {
@@ -13,9 +12,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: a
     then: (r: (v: unknown) => unknown) => r({ data: [{ spent_usd: db.spentToday }], error: null }) }; return chain; } }),
   isSupabaseConfigured: () => true }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ daily_budget_usd: 1 }) }));
-
 beforeEach(() => { db.readError = null; db.wrote = []; db.tables = []; vi.spyOn(console, "warn").mockImplementation(() => {}); });
-
 describe("the durable per-account LLM spend writer", () => {
   it("adds what was just spent to that account's own running total, opening it when the account has spent nothing yet", async () => {
     await recordSpendSupabase({ tenantId: "acct-a", platform: "perplexity", costUsd: 0.0917, promptCount: 100, chunkCount: 1, runId: "run-x" });
@@ -30,7 +27,6 @@ describe("the durable per-account LLM spend writer", () => {
     "refuses %s before the database is touched at all", async (_name, input) => {
       await recordSpendSupabase(input as Parameters<typeof recordSpendSupabase>[0]); expect(db.tables).toEqual([]); });
 });
-
 describe("one canonical day for money and research", () => {
   it("the ledger day IS the reporting day, including across the seven-hour gap where UTC has already rolled", async () => {
     const { ledgerDay } = await import("@/lib/cost/budget-ledger-supabase"); const { reportingDay } = await import("@/lib/reporting-day");
@@ -52,7 +48,6 @@ describe("one canonical day for money and research", () => {
     db.spentToday = 0;
   });
 });
-
 describe("migration history is immutable", () => {
   it("the applied 2026-08-18 migration keeps its committed bytes and later moves live in their own files", async () => {
     const { readFileSync, existsSync } = await import("node:fs"); const { createHash } = await import("node:crypto");

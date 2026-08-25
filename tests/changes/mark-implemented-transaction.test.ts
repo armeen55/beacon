@@ -1,7 +1,6 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-
 const led = vi.hoisted(() => ({ records: [] as Array<{ id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }>, breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -21,7 +20,6 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
     if (held) return { shipmentId: held.id, measurement: "measuring" };
     led.records.push({ id: `rec-${led.records.length + 1}`, proposalId: f.proposalId, proposalVersion: f.proposalVersion, componentsApplied: f.componentsApplied });
     return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring" }; } }));
-
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const AFTER = "Iranian comedians: the 12 names people actually search for";
 const change = (after = AFTER): ChangeProposal => ({
@@ -37,7 +35,6 @@ const change = (after = AFTER): ChangeProposal => ({
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
 beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
-
 describe("nothing is marked done that no record stands behind", () => {
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");

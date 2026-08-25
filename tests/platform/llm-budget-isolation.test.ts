@@ -1,7 +1,5 @@
 /** Per-account LLM budget isolation (closure, 2026-07-24). The promise: one account's LLM spend can never change another account's remaining budget or cap it, on EITHER layer (per-account file backstop + per-account durable ledger), and no budget operation runs without an explicit account. */
-
 import { describe, expect, it, vi, beforeEach } from "vitest";
-
 // Per-tenant in-memory json-store: rows keyed by the EXPLICIT tenantId option.
 const FILE_ROWS = new Map<string, unknown[]>();
 const readCalls: Array<{ name: string; tenantId?: string }> = [];
@@ -16,7 +14,6 @@ vi.mock("@/lib/persistence/json-store", () => ({
     FILE_ROWS.set(opts.tenantId, rows);
   }),
 }));
-
 // Per-tenant durable ledger seam.
 const DURABLE = new Map<string, number>();
 const durableWrites: Array<{ tenantId: string; costUsd: number }> = [];
@@ -30,12 +27,9 @@ vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
     durableWrites.push({ tenantId: a.tenantId, costUsd: a.costUsd });
   }),
 }));
-
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
-
 const A = "tenant-a";
 const B = "tenant-b";
-
 describe("per-account LLM budget isolation", () => {
   beforeEach(() => {
     FILE_ROWS.clear();

@@ -1,7 +1,6 @@
 /** Four-surface smoke (Core 100K product contract): Today, Changes, Results, Connections each render their frame without throwing, plus the Today claims a stranger reads first (the ready count, the one CTA, the hero chart sentence). Deep behavior lives in the kept behavioral contract suites. */
 import { describe, it, expect, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import type { ReactElement } from "react";
-
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => {
   const redirected = (url: string) => { throw new Error(`NEXT_REDIRECT:${url}`); };
@@ -16,7 +15,6 @@ vi.mock("@/domains/runtime/research-run", () => ({ researchRunStatus: vi.fn(asyn
   phaseLabel: "", stepsDone: 0, stepsTotal: 3, counters: {}, updatedAt: null, completedAt: null })) })); // The smoke suite pins frames; lifecycle gating has its own behavioral tests.
 vi.mock("@/domains/account/lifecycle", () => ({ requireReadyAccount: vi.fn(async () => ({ access: { kind: "ready", account: { status: "active" } } })),
   resolveAccountAccess: vi.fn(async () => ({ kind: "ready", account: { status: "active" } })), AccountUnavailableError: class extends Error {} }));
-
 /** THE LEDGER READ, as its two DIFFERENT answers, driven from THE STORE rather than from a stub of the module that decides. It only ever had one answer: every layer swallowed a failed read into an empty list, so a database outage rendered the one sentence that tells an operator to stop expecting measurement ("No changes are being measured yet") over an account with a full ledger. `ledgerError` is what Supabase hands back; every other table reads clean and empty. */
 vi.mock("next/server", async (orig) => ({ ...(await orig<Record<string, unknown>>()), after: () => {} })); // after() is only legal in a request scope, so the background rebuild it schedules is a no-op here; the RENDER path is what is under test.
 const DB = vi.hoisted(() => ({ ledgerError: null as { code: string; message: string } | null }));
@@ -27,7 +25,6 @@ vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<s
     q.maybeSingle = async () => ({ data: null, error: null });
     q.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => answer().then(res, rej);
     return q; } }) }));
-
 describe("Today renders, and tells the truth about its own queue", () => {
   it.each([["@/app/(shell)/page", ["max-w-3xl", 'aria-label="Loading today"']], ["@/app/(shell)/changes/page", ["Changes", "Finished changes first"]],
     ["@/app/(shell)/results/page", ["Results", "7, 14 and 28 days"]]] as const)("renders the %s frame without throwing", async (mod, claims) => {
@@ -71,7 +68,6 @@ describe("Today renders, and tells the truth about its own queue", () => {
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
     expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
 });
-
 describe("Connectors settings route smoke", () => {
   it("renders the connector page with the shipped cards + the one summary strip", async () => {
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);

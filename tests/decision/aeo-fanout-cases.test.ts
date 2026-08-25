@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vitest";
 import { AI_CASE_COPY, resolveFanoutCase } from "@/domains/decision/producers/ai-cases";
 import { buildFanoutEvidence, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";
-
 const SITE = "own.example";
 const OWN = { url: "https://own.example/haft-seen", domain: "own.example" };
 const RIVAL = { url: "https://rival.example/a", domain: "rival.example" };
@@ -13,10 +12,8 @@ const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservati
 const recurring = (over: Partial<FanoutSourceObservation> = {}) =>
   ["2026-08-01", "2026-08-02", "2026-08-03"].map((reportingDay) => obs({ reportingDay, ...over }));
 const rowOf = (rows: FanoutSourceObservation[]) => buildFanoutEvidence(rows, SITE).rows[0]!;
-
 const spread = () => [obs({ reportingDay: "2026-08-01" }), obs({ reportingDay: "2026-08-02" }),
   obs({ reportingDay: "2026-08-02", engine: "gemini", observationMode: "standardized_response" })];
-
 describe("every material search the assistants ran terminates somewhere a person can see", () => {
   it("reaches an actionable case once a second assistant joins, with no Google query behind it", () => {
     const c = resolveFanoutCase(rowOf(spread()), { pageUrl: "https://own.example/haft-seen", refused: false }); expect([c.state, c.stage]).toEqual(["actionable", "rivals_cited_own_not_retrieved"]);
@@ -82,7 +79,6 @@ describe("every material search the assistants ran terminates somewhere a person
     expect(a.caseKey).not.toBe(other.caseKey);
   });
 });
-
 /** THE BRIEF DERIVES FROM THE ANSWER INTENT AND THE STAGE, NEVER FROM A TOPIC STRATEGY (operator, 2026-08-21): a phrase-page recipe hardcoded in the producer shipped on wildlife and rug cards. */
 describe("no case card carries a content strategy written for another page", () => {
   const { caseCopy, intentOf, readableSubject } = AI_CASE_COPY;

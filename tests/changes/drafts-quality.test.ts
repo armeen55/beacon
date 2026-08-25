@@ -1,18 +1,14 @@
 /** Draft quality gates (the customer-copy floor): every test name states the accept/hold/reject promise it pins, with real prose fixtures as inputs. */
 import { describe, it, expect } from "vitest";
 import { evaluateDraftQuality, evaluateTitleMetaQuality } from "@/domains/decision/drafts/draft-quality";
-
 const NOWRUZ_ANSWER =
   "Nowruz Activities USA refers to community and cultural events held across the United States to observe Nowruz, the Persian New Year, each spring. Local Iranian-American associations in cities such as Los Angeles, Washington, and Houston organize Haft-Seen table displays, traditional Persian music performances, and folk dance shows during the two-week celebration window that follows the spring equinox. Families gather for shared meals, poetry readings, and craft workshops for children, while community centers coordinate a public calendar of events. Many gatherings also host a small Nowruz market selling sweets, herbs, and handmade goods from Persian vendors.";
-
 const NOWRUZ_SOURCE = {
   domain: "britannica.com", verified: true as const, supportingExcerpt: NOWRUZ_ANSWER,
   claim: "Nowruz marks the Persian new year and is celebrated with community gatherings and Haft-Seen displays",
 };
-
 const CHEETAH =
   "Iran's national animal is the Asiatic cheetah, a critically endangered subspecies native to the country's central plateau and its arid steppe grasslands. Conservation programs coordinated by the Department of Environment work to protect the small remaining population across a network of protected reserves and national parks, including Miandasht and Touran. Camera-trap surveys and radio-collar tracking studies help researchers estimate population trends and identify the roads and fences that fragment the cheetah's remaining range. International partners have supported captive-breeding research as a hedge against further decline, though wild recovery remains the primary conservation goal for the coming decade.";
-
 describe("evaluateDraftQuality - answer blocks", () => {
   /** contextTokens are the page's own words, exactly as the producer derives them. */
   it("REJECTS a generic dictionary opening with no context (ab-1: gifts)", () => { const r = evaluateDraftQuality({ contextTokens: ["nowruz"], answer: "A gift is a voluntarily transferred item, service, or gesture given without payment or legally required compensation. Gifts can be tangible or intangible and are exchanged in social, cultural, ceremonial, or commercial contexts. Legal, tax, and ethical considerations can affect gift giving." }); expect(r.status).toBe("generic_rejected"); expect(r.copyAllowed).toBe(false); expect(r.canRegenerate).toBe(true); });

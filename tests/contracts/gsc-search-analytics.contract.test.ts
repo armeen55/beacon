@@ -1,27 +1,22 @@
 /** N40 contract test - GSC searchanalytics.query + sites.list: a checked-in REAL response shape through the ACTUAL client path (injected fetchImpl), so a silent upstream change fails a named test instead of a quietly-empty sync. NO live calls. */
-
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
 import {
   gscSearchAnalyticsQuery,
   gscListSites,
   pickGscPropertyForDomain,
   GSC_SA_ROW_LIMIT,
 } from "@/lib/connectors/gsc/search-analytics";
-
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(resolve(__dirname, "fixtures", name), "utf-8"));
 }
-
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
 }
-
 describe("GSC searchanalytics.query contract", () => {
   it("parses the documented row shape: keys[] in dimension order + 4 numeric metrics", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
@@ -77,7 +72,6 @@ describe("GSC searchanalytics.query contract", () => {
     expect(rows).toEqual([]);
   });
 });
-
 describe("GSC sites.list contract", () => {
   it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
     const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch; const sites = await gscListSites("test-token", { fetchImpl });

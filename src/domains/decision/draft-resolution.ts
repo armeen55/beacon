@@ -8,13 +8,14 @@ import "server-only";
  *  `gainResolution` is the cheapest-defensible-first ladder that turns such a refusal into the smallest correct
  *  typed next step (producers/contract's DraftResolution). */
 
-import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
 
-export const GAIN = {
+const GAIN_LINES = new Set<string>();
+const GAIN_TEXT = {
   ADDS_NOTHING: "every claim stands only on this page's own words, so a reader already on the page learns nothing: add a checked fact (a fact- id) or relate this page to another the account owns (an owned-page id)",
   REPEATS_BELOW: "it repeats what stays on the page below it, so a reader gets the same thing twice",
   TOO_THIN: "this rearranges the page into one more paragraph: a synthesis owes a direct answer and then the items, meanings or comparison the reader came for, each on its own line",
@@ -22,9 +23,34 @@ export const GAIN = {
   /** Membership = the refusal is the gain class. TOO_THIN is deliberately NOT a member: it fires only once the
    *  synthesis path was already chosen, which means the material exists and the defect is SHAPE, exactly what the
    *  corrective retry fixes; no acquisition can make one paragraph into three lines. */
-  LINES: new Set<string>(),
 } as const;
-GAIN.LINES.add(GAIN.ADDS_NOTHING); GAIN.LINES.add(GAIN.REPEATS_BELOW); GAIN.LINES.add(GAIN.NOT_IMPROVING);
+GAIN_LINES.add(GAIN_TEXT.ADDS_NOTHING); GAIN_LINES.add(GAIN_TEXT.REPEATS_BELOW); GAIN_LINES.add(GAIN_TEXT.NOT_IMPROVING);
+/** How many surviving entries a replacement must swallow before it is a consolidation rather than a rewrite, how many words an entry owes before its own section may be deleted for it, and how much of what that section says has to survive here. A single incidental mention is not duplication, and naming a term without its meaning does not carry it. */
+const MIN_ABSORBED = 2, MIN_ENTRY_WORDS = 5, KEEPS_MEANING = 0.6;
+/** THE ENTRIES A LIST-SHAPED ANSWER DEFINES, as the term each line is ABOUT: the words before its colon, with any parenthetical (a native spelling, a transliteration) dropped. A term, never a sentence, so a line of ordinary prose contributes nothing. Keyed on letters and digits alone, because "Chert-o-Pert" and "Chert o Pert" are one entry. */
+const entriesOf = (copy: string) => copy.split("\n").map((l) => l.trim()).flatMap((l) => {
+  const at = l.indexOf(":"); if (at <= 0) return [];
+  const subject = l.slice(0, at).replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim(), key = subject.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  return key.length >= 3 && subject.split(" ").length <= 5 ? [{ subject, key, line: l, words: l.slice(at + 1).trim().split(/\s+/).filter(Boolean).length }] : [];
+});
+/** WHAT A REPLACEMENT WOULD HAND THE READER TWICE, AND WHETHER IT COULD TAKE THOSE SECTIONS WITH IT. `repeats` is the
+ *  entries this copy defines that still have their own section below it, asked of the SUBJECT and never the wording:
+ *  the test this replaced compared whole lines and demanded every word over three letters already appear below, so one
+ *  ordinary novel word ("means", "very", "colorful") cleared a line and a paraphrase cleared all of them, and a live
+ *  replacement defining five entries that each kept their section underneath went READY at rank 1. A subject does not
+ *  paraphrase. `whole` says the page would lose nothing by the removal: every repeated entry is said here in full, and
+ *  most of what its section says survives in this copy. Counting the replacement's own words was not enough, because
+ *  "Pedar Sag: a very colorful insult, roughly bastard" is a full sentence and still drops "literally father dog". PURE. */
+function absorption(copy: string, remains: string): { repeats: string[]; whole: boolean } {
+  const flat = remains.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ""); if (flat.length === 0) return { repeats: [], whole: false };
+  const mine = entriesOf(copy).filter((e) => flat.includes(e.key)), lines = remains.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim()).filter(Boolean);
+  const carries = (e: { key: string; line: string; words: number }): boolean => {
+    const said = new Set(topicTokens(e.line));
+    const theirs = lines.filter((t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").includes(e.key)).flatMap((t) => topicTokens(t)).filter((w) => !e.key.includes(w));
+    return e.words >= MIN_ENTRY_WORDS && (theirs.length === 0 || theirs.filter((w) => said.has(w)).length / theirs.length >= KEEPS_MEANING); };
+  const repeats = [...new Map(mine.map((e) => [e.key, e.subject])).values()];
+  return { repeats, whole: repeats.length >= MIN_ABSORBED && mine.every(carries) };
+}
 
 /** THE DETERMINISTIC RESOLUTION LADDER for an information-gain refusal, cheapest defensible first. By the time
  *  this runs the two $0 rungs are spent: a real replace target already became a structural synthesis upstream,
@@ -34,7 +60,7 @@ GAIN.LINES.add(GAIN.ADDS_NOTHING); GAIN.LINES.add(GAIN.REPEATS_BELOW); GAIN.LINE
  *  banked. All present and still refused is `no_valid_treatment`, typed debt, never a loop. The evaluator's typed
  *  step is honored only where the ladder's own rungs are all present, because the ladder can prove its gaps and
  *  the judge cannot. PURE. */
-export function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, factsBanked: number): { resolution: DraftResolution; need?: EvidenceRequirement } {
+function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, factsBanked: number): { resolution: DraftResolution; need?: EvidenceRequirement } {
   const q = card.primaryQuery, qk = canonicalQueryKey(q);
   if (judge === "no_valid_treatment") return { resolution: "no_valid_treatment" };
   if ((body?.passages ?? []).length === 0) return { resolution: "acquire_page_source", need: { kind: "page_source", query: q, url: page.url, reasonCode: "page_unread" } };
@@ -46,3 +72,13 @@ export function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapsho
   if (factsBanked === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
+
+/** THE PAGE'S OWN WORDS THAT WOULD STILL STAND UNDER AN EDIT: everything after the passage it replaces. Empty where nothing is replaced or the body is not on file, so the duplication reading above asks nothing rather than guessing. PURE. */
+const surviving = (passages: readonly string[], before: string | null): string => {
+  const whole = passages.join(" "), replaced = (before ?? "").trim(); if (replaced.length < 20) return "";
+  const cut = whole.indexOf(replaced.slice(0, 60)); return cut >= 0 ? whole.slice(cut + replaced.length) : "";
+};
+/** ONE public surface for what a draft's gain outcome IS and what to do about it: the refusal lines and their identity
+ *  set, the deterministic next-step ladder, and the duplication reading a replacement is held to. One symbol, because
+ *  every caller that needs one of these needs the others in the same breath. */
+export const GAIN = { ...GAIN_TEXT, LINES: GAIN_LINES, MIN_ABSORBED, resolution: gainResolution, absorption, surviving } as const;

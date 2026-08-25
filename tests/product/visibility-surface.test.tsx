@@ -17,7 +17,6 @@ import { aiView, answerDetail, googleView, type AnswerRow } from "@/app/(shell)/
 import { fanoutDetail } from "@/app/(shell)/visibility/fanout-detail";
 import VisibilityPage from "@/app/(shell)/visibility/page"; import type { ReactElement } from "react";
 import { AiWorkspace } from "@/app/(shell)/visibility/ai-view";
-
 type Day = AiOutcomeReport["segments"][number]["days"][number];
 const day = (d: string, r: number | null, over: Partial<Day> = {}): Day => ({ day: d, observed: 10, analyzed: 10, mentioning: Math.round((r ?? 0) * 10), mentionRate: r,
   citationSample: 8, ownedCiting: 2, ownedCitationRate: 0.25, ownedCitationRank: 1, retrievalSample: 0, ownedRetrieved: 0, retrievedNotCited: 0, retrievedNotCitedRate: null,
@@ -61,7 +60,6 @@ const DAYS = Array.from({ length: 28 }, (_, i) => ({ date: `2026-07-${String(i +
 const google = (over: Partial<Parameters<typeof googleView>[0]> = {}) => googleView({ days: DAYS, rangeDays: 7, metric: "clicks",
   decay: [decay("/nowruz", 20, 60), decay("/haft-seen", 90, 40)], pages: new Map([["/nowruz", { page: "/nowruz", clicks90d: 80, impressions90d: 4000, ctr90d: 0.02, position90d: 9,
     topQueries: [{ query: "nowruz table", clicks: 12, impressions: 900, ctr: 0.013, position: 8.2 }] }]]), ...over });
-
 describe("Visibility is a workspace, and every number on it names what it was counted over", () => {
   beforeEach(() => {
     store.reads.length = 0; store.fetched.length = 0;

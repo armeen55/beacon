@@ -1,11 +1,9 @@
 /** THE CANONICAL DEMAND UNIT: one audience need joined across every stream, disagreements preserved as tensions, lost audiences seeded from history alone, and nothing invented on a stream that is absent. */
 import { describe, expect, it } from "vitest";
 import { canonicalDemandUnits, type CanonicalUnitInputs } from "@/domains/evidence/demand-units";
-
 const at = () => 0.05;
 const base: CanonicalUnitInputs = { pageQueries: [], history: [], windows: { earlyDays: 300, recentDays: 90 },
   keywords: [], serps: [], observations: [], winning: [], expectedCtrAt: at };
-
 describe("one audience need across every stream", () => {
   it("joins queries, history, volume, serp, prompts, fan-outs and winners onto ONE unit and preserves the disagreements", () => {
     const input: CanonicalUnitInputs = { ...base,
@@ -39,7 +37,6 @@ describe("one audience need across every stream", () => {
     expect([u!.label, u!.history!.lostClicksPerMonth, u!.history!.pageSwapped]).toEqual(["iranian recipes", 300, false]); expect([u!.volume, u!.serp, u!.prompts, u!.winningPages]).toEqual([null, null, [], []]);
   });
 });
-
 describe("AI can seed demand, and only exact identity ever joins it (AEO reconstruction, 2026-08-19)", () => {
   const gsc = { pageQueries: [{ page: "https://x.example/girl-names", rows: [{ query: "persian girl names", impressions: 5000, clicks: 300, position: 5 }] }] };
   it("never joins a tracked question onto a unit by shared words alone: the three-token join is deleted", () => {

@@ -122,9 +122,7 @@ export type QuestionDemandSignal = {
   /** Whether an owned page already answers it (best-effort topic match). */
   coverageStatus: "answered" | "unanswered" | "unknown";
 };
-
 // ── derived intelligence (normalized ONCE, not per source) ───────────────────
-
 export type IntentCluster = {
   key: string;
   label: string;
@@ -132,7 +130,6 @@ export type IntentCluster = {
   intent: "informational" | "commercial" | "navigational" | "transactional";
   queries: string[];
 };
-
 export type CannibalizationGroup = {
   query: string;
   /** Two+ owned URLs Google MATERIALLY serves for the same query: self-competition. Exactly the addresses a surface may name, so a count and a list can never disagree. */
@@ -144,13 +141,11 @@ const MIN_SPLIT_IMPRESSIONS = 50, SPLIT_SHARE = 0.05, MAX_SPLIT_PAGES = 6;
 /** The site root, whatever spelling it arrives in. */
 const isHomeUrl = (url: string): boolean => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") === ""; } catch { return false; } };
-
 export type ContentGapKind =
   | "unanswered_question"
   | "missing_schema"
   | "missing_faq"
   | "thin_vs_competitor";
-
 export type ContentGap = {
   kind: ContentGapKind;
   topic: string;
@@ -158,7 +153,6 @@ export type ContentGap = {
   ownedUrl: string | null;
   competitorUrl: string | null;
 };
-
 export type InternalLinkOpportunity = {
   fromUrl: string;
   toUrl: string;
@@ -166,7 +160,6 @@ export type InternalLinkOpportunity = {
   anchor: string;
   reason: string;
 };
-
 // ── the snapshot ─────────────────────────────────────────────────────────────
 
 export type EvidenceSnapshotScope = {
@@ -651,22 +644,29 @@ function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" 
 
 /** WHAT THE PAGES THAT WIN THIS SEARCH COVER AND THE OWNED PAGE DOES NOT, off the reads already paid for. Acquisition
  *  banked these extracts and nothing ever handed them to the writer, so a refusal for restating the page reopened the
- *  job and bought the same answer again. This is BRIEFING and never proof: it names the subjects, the questions and the
- *  entities that are missing and the shape the winning answer takes, each against its source address. A factual
- *  assertion still owes the fact-check path. Pure, deterministic, and empty when nothing was acquired for this search. */
+ *  job and bought the same answer again. This is BRIEFING and never proof: candidate subjects, the questions those pages
+ *  answer, their entities and the shape of the winning answer, each against its source address. A factual assertion still
+ *  owes the fact-check path. WHAT IS MISSING IS ESTABLISHED, NEVER INFERRED FROM ONE WORD: a heading counted as something
+ *  "this page does not cover" whenever a SINGLE token of it was absent, so "When to say each one" read as a gap on a page
+ *  that says exactly that in its own words, and the writer was briefed to add what was already there. A heading is
+ *  candidate material to weigh; it is called missing only where NO meaningful word of it appears on the owned page at all,
+ *  which is the one comparison this function can actually make. Pure, deterministic, empty when nothing was acquired. */
 export function jobComparison(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">,
   primaryQuery: string, ownedText: string, ownedHeadings: readonly string[], max = 3): string[] {
   const said = new Set(topicTokens(`${ownedText} ${ownedHeadings.join(" ")}`));
-  const fresh = (xs: readonly string[], n: number) => [...new Set(xs.map((x) => x.replace(/\s+/g, " ").trim()))]
-    .filter((x) => x.length > 2 && x.length <= 120 && topicTokens(x).some((w) => !said.has(w))).slice(0, n);
+  const clean = (xs: readonly string[], n: number) => [...new Set(xs.map((x) => x.replace(/\s+/g, " ").trim()))]
+    .filter((x) => x.length > 2 && x.length <= 120 && topicTokens(x).length > 0).slice(0, n);
+  const absent = (x: string): boolean => topicTokens(x).every((w) => !said.has(w)); // NO meaningful word of it on the page: the only gap this comparison establishes
   return jobWinners(research, primaryQuery).filter((w) => w.extract && w.extract.wordCount > 0).slice(0, max).map((w) => {
-    const e = w.extract!, heads = fresh(e.headings, 8), subjects = heads.filter((h) => !h.endsWith("?")), questions = heads.filter((h) => h.endsWith("?")), entities = fresh(e.entityNames ?? [], 8);
-    if (subjects.length + questions.length + entities.length === 0) return "";
+    const e = w.extract!, heads = clean(e.headings, 8), questions = heads.filter((h) => h.endsWith("?")), heading = heads.filter((h) => !h.endsWith("?"));
+    const subjects = heading.filter((h) => !absent(h)), missing = heading.filter(absent), entities = clean(e.entityNames ?? [], 8).filter(absent);
+    if (subjects.length + questions.length + missing.length + entities.length === 0) return "";
     const shape = [`${e.wordCount} words`, e.faqCount > 0 ? `${e.faqCount} question entries` : "", e.hasList ? "a list" : "", e.hasTable ? "a table" : ""].filter(Boolean).join(", ");
     return [`${w.domain || domainOf(w.url)} answers this search in ${shape} at ${w.url}.`,
-      subjects.length > 0 ? `It covers, and this page does not: ${subjects.join("; ")}.` : "",
+      missing.length > 0 ? `Nothing on this page mentions: ${missing.join("; ")}.` : "",
+      subjects.length > 0 ? `It also covers, which this page treats in its own words: ${subjects.join("; ")}.` : "",
       questions.length > 0 ? `It answers: ${questions.join("; ")}.` : "",
-      entities.length > 0 ? `It names: ${entities.join(", ")}.` : "",
+      entities.length > 0 ? `It names, and this page does not: ${entities.join(", ")}.` : "",
       e.openingSample ? `It opens: "${e.openingSample.trim().slice(0, 320)}"` : ""].filter(Boolean).join(" ");
   }).filter(Boolean);
 }

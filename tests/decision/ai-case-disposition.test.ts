@@ -1,14 +1,12 @@
 /** ONE CONCLUSION PER SEARCH, WRITTEN DOWN DURABLY, READ BY EVERY SURFACE (terminal closure 2026-08-19; durable 2026-08-21). Two pinned defects: re-deriving from evidence alone put an action button under a refused search; and the blob-store persistence swallowed write failures, emptied on read errors, and let cold instances overwrite each other. The fake below implements the SQL writer's documented semantics from migrations/2026-08-21_ai_case_dispositions.sql byte for byte. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dispositionOf, type AiCaseDisposition } from "@/domains/decision/ai-case-store";
-
 const filed = (over: Partial<AiCaseDisposition> = {}): AiCaseDisposition => ({
   caseKey: "fanout:haft|seen|set", state: "no_page", query: "haft seen set delivery",
   reason: "ran on 4 separate days, and no page of this account is for it yet, so no edit can win it. It is on the list of pages to build.",
   days: 4, engines: 2, parents: 2, executions: 9, decidedAt: "2026-08-19T00:00:00.000Z", ...over });
 const read = (rows: AiCaseDisposition[]) => ({ state: "read" as const, rows });
 const EVIDENCE = { caseKey: "fanout:haft|seen|set", state: "actionable" as const, reason: "ran on 4 separate days, and no assistant reports reading a page of this account for it." };
-
 describe("what a surface shows for one search is decided in one place", () => {
   it("shows the refusal Decision reached, and never an action under it", () => {
     // The evidence alone says actionable. The pass that held the pages says no page here is for it.
@@ -44,7 +42,6 @@ describe("what a surface shows for one search is decided in one place", () => {
     expect(dispositionOf(EVIDENCE, read([filed({ caseKey: "fanout:something|else" })])).state).toBe("actionable");
   });
 });
-
 /** THE TABLE ITSELF, against a fake implementing the SQL writer's documented semantics exactly. */
 const db = vi.hoisted(() => ({
   rows: new Map<string, Record<string, unknown>>(),
@@ -84,12 +81,10 @@ vi.mock("@/lib/persistence/supabase", () => {
       : answered([...db.rows.values()]),
   }) };
 });
-
 describe("the filed verdicts are durable, and two cold instances merge instead of overwriting", () => {
   beforeEach(() => { db.rows.clear(); db.rpcCalls = 0; db.failReads = false; db.failWrites = false; });
   /** One COLD instance: a fresh copy of the module, sharing nothing in-process with the last one. */
   const coldInstance = async () => { vi.resetModules(); return import("@/domains/decision/ai-case-store"); };
-
   it("merges by row across two cold instances: the pass that reached fewer cases erases nothing", async () => {
     const a = await coldInstance();
     expect(await a.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "no_page" }),
