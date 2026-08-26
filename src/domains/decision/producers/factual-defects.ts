@@ -139,7 +139,8 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const path = pathOf(page.url);
       // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats elsewhere on the page is the one to fix, and it must never be the one the cap drops. ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK
       // (Codex, 2026-08-18): an older version, or a source nobody recorded reading, is a finding and never a live instruction.
-      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null })
+      // A MISSING-INFORMATION ROW IS NOT A CORRECTION: it has no current wording, so "X stops stating a meaning its own sources contradict" would name words the page never carried. Those rows are the WRITER'S fact-* evidence; only rows that correct wording the page holds become correction components.
+      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null }).filter((c) => c.current.trim() !== "")
         .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");

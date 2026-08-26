@@ -333,7 +333,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // 5. JUDGE against the passages only.
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
   const verdict = await d.read({ kind: "fact_claim_judgement", system: JUDGE_SYSTEM,
-    user: [`Claim type: ${type}`, `Subject: ${claim.subject}`, `The page says: "${claim.current}"`,
+    // A MISSING PROPOSITION IS RESEARCHED, NOT COMPARED: an owed claim with no current wording is the page's
+    // acknowledged gap (the missing-information loop seeds exactly these), so the judge is asked what the
+    // passages establish about the subject rather than to grade an empty quotation. `proposed` then carries the
+    // researched statement, which is what the writer's fact-* evidence renders.
+    user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
+      claim.current.trim() ? `The page says: "${claim.current}"` : "The page does not answer this yet. From the passages alone, state in `proposed` the accurate, source-supported statement of this subject; if the passages cannot support one, answer unsupported.",
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));

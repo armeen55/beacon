@@ -397,7 +397,7 @@ export function aiView(input: AiInput) {
       omissions: input.intel.omissions.map((s) => ({ text: s.text, basis: `${num(s.prompts)} of the tracked questions` })),
     } : null,
     coverage: [...missing, activity].join(" "), // A COUNT OF DAYS IS NOT A PULSE: it says what was collected, never whether anything is running, so the off switch is read and stands beside it.
-    watermark: `Stored AI answers, through ${dayLabel ?? "a day not yet read"}. Nothing on this page asks an assistant anything: every number is read back off answers already bought.`,
+    watermark: `Stored AI answers, through ${dayLabel ?? "a day not yet read"}. Nothing on this page asks an assistant anything: every number is read back off answers already on file.`,
   };
 }
 /** ONE QUESTION OPENED: every reading on file, per assistant and per day, with the rivals it named, the searches it ran and the pages it credited. The whole of any single run is one click further in. */
@@ -461,7 +461,7 @@ function detailOf(input: AiInput) {
 /** ONE STORED READING, WHOLE and cut nowhere: the complete answer, every search it ran, every page it credited with the part it quoted, every page it read without crediting, both model names, how it was asked, the day, the
  *  instants, the cost and how far it has been read. WHAT THE PROVIDER NEVER REPORTED SAYS SO: "it credited nobody" and "it never said what it used" are different claims. */
 export function answerDetail(
-  r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(), costUsd: number | null = r.costUsd,
+  r: AnswerRow, kindOf: ReadonlyMap<string, CompetitorKind> = new Map(),
 ): string[] {
   const engine = engineName(r.engine), mine = (r.citations ?? []).filter((c) => c.owned).length;
   const own = fanOutsExcluding(r.fanOuts ?? [], [r.promptText]);
@@ -491,9 +491,7 @@ export function answerDetail(
         : r.reading === "checked" ? "This answer was checked for your name and your website address, and nobody has read the rest of it closely."
           : "Nobody has read this answer closely yet, so no claim is made here about who it named.",
     // A ROW WHOSE RECEIPT WAS NEVER PRESERVED IS UNKNOWN, NEVER FREE, and a real charge smaller than a cent says its own size.
-    ...(r.receipt ? [`Stored answer receipt ${receiptTail(r.receipt)}. ${costUsd != null && costUsd > 0
-      ? `It cost ${costUsd < 0.01 ? "under a cent" : `$${costUsd.toFixed(2)}`} to buy once.`
-      : "What it cost was never preserved, so no number is put on it."}`]
+    ...(r.receipt ? [`Stored answer receipt ${receiptTail(r.receipt)}, collected once and reused from storage.`]
       : ["No receipt was kept for the stored answer behind this one."]),
   ];
 }

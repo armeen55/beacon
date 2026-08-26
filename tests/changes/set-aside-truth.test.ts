@@ -97,6 +97,15 @@ describe("a direct link renders only what the ranked list would, and always land
     expect(await link(flat as ChangeProposal)).toContain("data-simple-detail");
     expect(await link(null, bundled(NOW))).toContain("This idea was set aside"); // history, not a page that never was
   });
+  /** THE ONE SERVABILITY VERDICT, ON THE DIRECT LINK TOO. The detail read status and unsettledCause and skipped openHold, so a stored ready row the queue itself demotes (a typed fault carried on the row) rendered Copy and Mark done on its own URL while the list refused to offer it. The list and the detail may never disagree about one row. */
+  it("a ready row the hold blocks exposes neither Copy nor Mark done on its direct link", async () => {
+    const { bundle: _b2, ...flat } = bundled(NOW);
+    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal;
+    const page = await link(held);
+    expect(page).not.toContain(">Copy<");
+    expect(page).not.toContain("Mark done");
+    expect(page).toContain("held"); // the reason renders where the controls were
+  });
   // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of the press, and a stale screen or a hand-made request cannot merge a page on its own say-so.
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];

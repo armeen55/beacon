@@ -16,7 +16,6 @@ export type { ResearchCycleSteps } from "./research-steps";
 import {
   advancePhase,
   claimRun,
-  countContinuationHop,
   finishRun,
   newOwnerToken,
   nextPhase,
@@ -268,9 +267,26 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         progress = { ...progress, evidenceOwed: remaining };
         // WHAT LANDS IS USED AT ONCE. A reading banked and then left until tomorrow is the deadlock with an extra step
         // in it: the same invocation drafts against it, ONCE, and only for the work that asked (Codex, 2026-08-23).
-        if (got.acquired) { const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: mem?.tried ?? [] },
+        if (got.acquired) {
+          // THE PAGE THAT JUST GAINED ITS EVIDENCE IS RETRIED FIRST, not last: `tried` ranks a page behind untried
+          // work while its acquisition is IN FLIGHT, and leaving it there after the reading LANDED handed the very
+          // next drive to unrelated candidates while the newly-informed page waited another day. Its key comes off
+          // the retry list for this same-turn draft, so it ranks by its own impact again.
+          const again = await steps.replenishReady(tenantId, nowFn(), { fingerprint: mem?.fingerprint ?? null, attempted: mem?.attempted ?? [], tried: (mem?.tried ?? []).filter((k) => k !== need.key) },
             nowFn().getTime() + Math.min(deadline - nowFn().getTime(), REPLENISH_BOX_MS) - STOP_STARTING_MS).catch(() => null);
-          if (again) { r = again; log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
+          if (again) { r = again;
+            // A SECOND REQUIREMENT RETURNED BY THE SAME-TURN DRAFT IS KEPT, NEVER LOST: `remaining` was rebuilt only
+            // from the pre-loop list, so a fresh need the redraft minted (the next rung of its ladder) vanished from
+            // the persisted debt and the deadlock reopened one acquisition later. Merge by key, newest wins.
+            const fresh = again.evidenceOwed ?? [];
+            remaining = [...remaining.filter((n) => !fresh.some((f) => f.key === n.key)), ...fresh];
+            // AND THE REDRAFT'S OWN DAY MEMORY PERSISTS, exactly as the pre-acquisition drive's did: assigning `again`
+            // to `r` without writing progress.replenish threw away everything the redraft settled, so the next dispatch
+            // re-funded and re-bought refusals this one already paid for (audit, 2026-08-26).
+            const closed2 = again.reason === "target_reached" || again.reason === "candidates_exhausted" ? again.reason : undefined;
+            progress = { ...progress, evidenceOwed: remaining,
+              replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(closed2 ? { closed: closed2 } : {}), ...(again.outcomes ? { outcomes: again.outcomes } : {}) } };
+            log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
       }
       // AND A READING THAT DID NOT LAND BUYS NOTHING ELSE. Going on to broad keyword or answer work because a
       // requirement happened to be owed is exactly the unrelated spending the stock shortfall exists to prevent.
@@ -456,25 +472,45 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   });
 }
 
-/** How many continuations ONE account may chain in ONE reporting day. BROWSER RECOVERY MACHINERY ONLY: a hop exists so an open tab can finish work the scheduler left, and the daily scheduler never uses one. The bound is the whole safety story: each hop is its own request with its own lease claim, so a closed tab simply stops, and this stops a live one from looping forever on a due list it can never clear. */
-const MAX_CONTINUATIONS = 6;
-
-/** ONE bounded continuation hop, and an honest answer about whether another is owed. The trigger stays what it was: next/after on render, one hop, no unawaited promise living past the response. What is new is that a hop reports back, so the surface that asked for it can ask again while work remains. Each hop is a SEPARATE request that claims the lease for itself, which is why a closed tab stops safely, a reopened one resumes exactly where the row says, and two tabs cannot both advance a run. THE HOP IS NOT THE CLIENT'S TO COUNT. It arrives from the browser, so a caller that kept sending 0 got a fresh allowance every time and the bound bounded nothing. The count is kept on the account's own row, scoped to the reporting day, inherited by every pass that opens that day, and the ceiling is enforced against THAT number; the client's claim is a fallback for the one case where nothing can be counted yet. */
-export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean }> {
-  const claimed = Math.max(0, Math.trunc(hop));
-  if (!tenantId) return { hop: claimed, more: false };
+/** THE OPERATOR'S OWN CYCLE: one press runs the canonical runtime, and the SERVER owns the continuation. The old
+ *  shape ran ONE bounded hop per request, capped six per day, and left the browser looping: closing the tab stopped
+ *  the day's work, and hop seven reported "done" over a queue that was not, which is a completion rule about the
+ *  BROWSER, not the work. One press now drives the same one runtime until nothing durable is due or the press's own
+ *  timebox is spent; each cycle persists its phase durably, so an aborted request never corrupts anything and the
+ *  next press resumes exactly where the store says. NOTHING DUE COSTS NOTHING: the free due-work read answers first,
+ *  so a second same-day press with nothing owed runs no cycle, spends $0 and writes nothing. A press that ends with
+ *  work still due says so honestly (`more: true`, with the blocker), and another immediate press is always allowed:
+ *  waiting on already-requested evidence is a state to report, never a lock. AFTER WORK, ONE PURE RELEASE: when any
+ *  cycle ran, the stored truth is republished once at $0 so the queue the operator reads is the queue the work built. */
+const PRESS_BUDGET_MS = 250_000, PRESS_RESERVE_MS = 25_000;
+export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean; blocker?: string }> {
+  void hop; // the wire shape survives (an old tab may still send it); the server no longer trusts a browser counter
+  if (!tenantId) return { hop: 0, more: false };
   const nowFn = options.now ?? (() => new Date());
-  const counted = await countContinuationHop(tenantId, reportingDay(nowFn().getTime()));
-  const next = counted ?? claimed + 1;
-  if (next > MAX_CONTINUATIONS) {
-    log.debug("[research-run] today's continuation bound is spent; this hop runs nothing", { tenantId, hop: next });
-    return { hop: next, more: false };
+  const endsAt = nowFn().getTime() + PRESS_BUDGET_MS;
+  const readDue = () => (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
+  let cycles = 0, prior = "";
+  let work = await readDue();
+  while (work?.readable && work.due.length > 0 && nowFn().getTime() < endsAt - PRESS_RESERVE_MS) {
+    cycles += 1;
+    await runResearchCycle(tenantId, { ...options, deadlineMs: Math.min(RESEARCH_CYCLE_DEADLINE_MS, endsAt - PRESS_RESERVE_MS - nowFn().getTime()) }).catch((error) => {
+      log.warn("[research-run] operator-cycle pass failed (non-blocking)", { tenantId, pass: cycles, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
+    });
+    const next = await readDue();
+    // NO DURABLE MOVEMENT MEANS STOP, NEVER SPIN: an unchanged due list after a whole pass is a blocker to report
+    // (a foreign lease, a paused account, or evidence already requested and not yet answered), not a loop to buy again.
+    const fp = JSON.stringify(next?.due ?? []);
+    if (fp === prior || fp === JSON.stringify(work.due)) { work = next; break; }
+    prior = JSON.stringify(work.due); work = next;
   }
-  await runResearchCycle(tenantId, options).catch((error) => {
-    log.warn("[research-run] continuation hop failed (non-blocking)", { tenantId, hop: next, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
-  });
-  const work = await (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
-  return { hop: next, more: next < MAX_CONTINUATIONS && !!work?.readable && work.due.length > 0 };
+  if (cycles > 0) {
+    // ONE atomic $0 release after the work, so the surface the press returns to is the surface the work built.
+    const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
+    await refreshCustomerSurface(tenantId, { maxDrafts: 0 }).catch(() => null);
+  }
+  const stillDue = !!work?.readable && (work?.due.length ?? 0) > 0;
+  return { hop: cycles, more: stillDue,
+    ...(stillDue ? { blocker: cycles > 0 ? "waiting on already-requested evidence; press again any time" : "another instance holds this account's research right now; press again in a moment" } : {}) };
 }
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two instances from both advancing the cycle. after() is only valid in a request scope, so tests and scripts get a safe no-op. */

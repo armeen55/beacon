@@ -9,7 +9,7 @@ import "server-only";
  *  typed next step (producers/contract's DraftResolution). */
 
 import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, jobComparison, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
@@ -27,7 +27,7 @@ const GAIN_TEXT = {
 GAIN_LINES.add(GAIN_TEXT.ADDS_NOTHING); GAIN_LINES.add(GAIN_TEXT.REPEATS_BELOW); GAIN_LINES.add(GAIN_TEXT.NOT_IMPROVING);
 /** How many surviving entries a replacement must swallow before it is a consolidation rather than a rewrite, how many words an entry owes before its own section may be deleted for it, and how much of what that section says has to survive here. A single incidental mention is not duplication, and naming a term without its meaning does not carry it. */
 /** How many surviving sections a replacement must swallow before it is a consolidation rather than a rewrite, and how short a sentence may be before it carries no material claim. */
-const MIN_ABSORBED = 2, MIN_CLAIM_WORDS = 6;
+const MIN_ABSORBED = 2, KEEPS_MEANING = 0.75; // deleting a section is destructive, so the bar for "this copy carries it" sits high: three lost words of nine ("literally father dog") is lost meaning, not a paraphrase
 /** Letters and digits only, so "Chert-o-Pert", "Chert o Pert" and "**Chert-o-Pert**" are one subject and punctuation decides nothing. */
 const flatKey = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 /** THE SUBJECTS THE PAGE ITSELF DECLARES, never a shape guessed out of the copy. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means", or in an ordinary sentence walked straight past it. The page already says what its sections are about, in its own stored headings and in the leading term of its own list items, so those are the subjects and the only question left is whether the replacement says them again. A parenthetical (a native spelling, a transliteration) is stripped, and a heading too long to be a term is not one. */
@@ -41,9 +41,18 @@ const subjectsOf = (text: string, headings: readonly string[]): Array<{ subject:
   for (const line of text.split(/\n+/)) { const m = /^\s*(?:[-*\u2022]|\d+[.)])?\s*([^:\u2013\u2014-]{2,60})\s*(?::|\u2013|\u2014|\s-\s)/.exec(line); if (m) take(m[1]!); }
   return [...seen.entries()].map(([key, subject]) => ({ key, subject }));
 };
-/** THE SENTENCES OF ONE SURVIVING SECTION THAT SAY SOMETHING: what would be lost if that section were deleted. */
+/** THE SENTENCES OF ONE SURVIVING SECTION THAT SAY SOMETHING: what would be lost if that section were deleted.
+ *  MATERIAL IS CONTENT, NEVER LENGTH: a word-count floor called "Topoli means chubby" immaterial and licensed
+ *  deleting the one sentence that says what the word means. A sentence is material when it carries two content
+ *  tokens, or any number or date at all. */
 const claimsOf = (section: string): string[] => section.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
-  .filter((t) => t.split(/\s+/).filter(Boolean).length >= MIN_CLAIM_WORDS);
+  .filter((t) => materialTokens(t).length >= 2 || /\d/.test(t));
+/** The tokens a preservation check compares: content words AND every number whole, because topicTokens drops
+ *  tokens under three characters and "42" or "7%" vanishing is exactly how a date or figure stops being material. */
+const materialTokens = (t: string): string[] => [...new Set([...topicTokens(t), ...(t.toLowerCase().match(/\d[\d.,%°:-]*/g) ?? [])])];
+/** WHETHER A SENTENCE SAYS YES OR NO. "X is safe" and "X is not safe" share every content token, so token coverage
+ *  alone calls a contradiction preserved; polarity has to match on its own. */
+const negated = (t: string): boolean => /\b(?:not|never|no|none|cannot|isn't|aren't|won't|don't|doesn't|without)\b/i.test(t);
 /** WHAT A REPLACEMENT WOULD HAND THE READER TWICE, AND WHETHER IT COULD TAKE THOSE SECTIONS WITH IT.
  *  `repeats` is the subjects the PAGE declares that still stand below this copy and that this copy names again, asked of
  *  the subject and never of the wording, because a subject does not paraphrase and punctuation is not structure.
@@ -71,11 +80,16 @@ function absorption(copy: string, remains: string, headings: readonly string[] =
   const starts = live.map((s) => ({ ...s, at: startOf(s.key) })).filter((s) => s.at >= 0).sort((a, b) => a.at - b.at);
   for (let n = 0; n < starts.length; n += 1) {
     const here = starts[n]!, stop = edges.find((i) => i > here.at) ?? marks.length;
-    const mine = new Set(topicTokens(mineFor(here.key))), own = new Set(topicTokens(here.subject));
+    const line = mineFor(here.key), mine = new Set(materialTokens(line)), own = new Set(topicTokens(here.subject));
     for (const claim of claimsOf(marks.slice(here.at, stop).join(" "))) {
-      const material = topicTokens(claim).filter((w) => !own.has(w));
-      const lost = material.filter((w) => !mine.has(w));
-      if (material.length > 0 && lost.length > 0) return { repeats, whole: false, missing: `${here.subject}: ${claim.slice(0, 90)}` };
+      const material = materialTokens(claim).filter((w) => !own.has(w));
+      const kept = material.filter((w) => mine.has(w));
+      // Numbers and dates are material one by one: a claim's figure missing from the copy is lost meaning whatever the
+      // coverage ratio says, and a flipped polarity is a contradiction, never a preservation.
+      const figures = material.filter((w) => /\d/.test(w)), figuresKept = figures.every((w) => mine.has(w));
+      const polarityHolds = negated(claim) === negated(line);
+      if (material.length > 0 && (kept.length / material.length < KEEPS_MEANING || !figuresKept || !polarityHolds))
+        return { repeats, whole: false, missing: `${here.subject}: ${claim.slice(0, 90)}` };
     }
   }
   return { repeats, whole: true };
@@ -88,7 +102,7 @@ function absorption(copy: string, remains: string, headings: readonly string[] =
  *  banked. All present and still refused is `no_valid_treatment`, typed debt, never a loop. The evaluator's typed
  *  step is honored only where the ladder's own rungs are all present, because the ladder can prove its gaps and
  *  the judge cannot. PURE. */
-function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, factsBanked: number): { resolution: DraftResolution; need?: EvidenceRequirement } {
+function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, facts: readonly { subject: string; state?: string }[]): { resolution: DraftResolution; need?: EvidenceRequirement } {
   const q = card.primaryQuery, qk = canonicalQueryKey(q);
   if (judge === "no_valid_treatment") return { resolution: "no_valid_treatment" };
   if ((body?.passages ?? []).length === 0) return { resolution: "acquire_page_source", need: { kind: "page_source", query: q, url: page.url, reasonCode: "page_unread" } };
@@ -97,7 +111,18 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   const extracts = new Set((snapshot.research?.winningPages ?? []).filter((w) => w.extract).map((w) => canonicalUrlKey(w.url)));
   const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url))) ?? null;
   if (unread) return { resolution: "acquire_competitor_page", need: { kind: "competitor_page", query: q, url: unread.url, reasonCode: "winner_unread" } };
-  if (factsBanked === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
+  // THE MISSING INFORMATION ITSELF, once every winner is read: the rivals' own comparison names the subjects
+  // NOTHING on this page mentions, and the deadlock this rung closes is exactly that a rival may identify what
+  // is missing while its copy may support nothing, the fact check re-checked only claims the page ALREADY makes,
+  // and the writer therefore never received one new authorized fact. The requirement carries the missing topic
+  // as the proposition to research, and only a fact banked FOR THAT TOPIC satisfies it: an unrelated stored fact
+  // leaves it standing, which is what `facts` (the authorized rows themselves, not a count) is here to prove.
+  const compared = jobComparison(snapshot.research, q, `${page.content?.title ?? ""} ${(body?.passages ?? []).join(" ")}`, page.content?.outline ?? []);
+  const answered = new Set(facts.map((f) => f.subject.trim().toLowerCase()));
+  const owedTopic = compared.flatMap((c) => c.missing.map((m) => ({ topic: m, url: c.url }))).find((m) => !answered.has(m.topic.trim().toLowerCase()));
+  if (owedTopic) return { resolution: "acquire_factual_source",
+    need: { kind: "factual_source", query: `${owedTopic.topic} ${q}`.slice(0, 120), url: page.url, reasonCode: "missing_information", missingTopic: owedTopic.topic, rivalUrl: owedTopic.url } };
+  if (facts.length === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
 /** THE PAGE'S OWN WORDS THAT WOULD STILL STAND UNDER AN EDIT: everything after the passage it replaces. Empty where nothing is replaced or the body is not on file, so the duplication reading above asks nothing rather than guessing. PURE. */

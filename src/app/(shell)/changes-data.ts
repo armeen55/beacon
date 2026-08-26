@@ -207,7 +207,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
     after(async () => {
       try {
         const { refreshCustomerSurface } = await import("./surface-release");
-        await refreshCustomerSurface(tenantId);
+        await refreshCustomerSurface(tenantId, { maxDrafts: 0 }); // a stale-release rebuild republishes stored truth at $0; it never drafts
       } catch (e) { await recordAppError({ route: "/changes", tenantId, action, ...errorFieldsFrom(e) }); }
     });
 

@@ -637,45 +637,16 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(rows[0]!.progress.state).toMatchObject({ checksDone: 40, checksTotal: 40, checksAnswers: 37, checksUnavailable: 2, checksUnsupported: 1, casesParked: 2, nextDueAt: "2026-08-02T00:00:00.000Z" });  // A pass that closed with nothing owed still says what it checked and when the waiting ends.
     expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW))) .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log)); expect([log, rows.length]).toEqual([["refresh", "backfill", "crawl", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
-  it("chains bounded continuations: it re-schedules only while work is due, and never past the bound", async () => {
-    let hops = 0; const chain = async (due: () => DueWork) => { completedToday(); let hop = 0, ran = 0;
-      while (ran < 12) { const step = await continueResearch(T, hop, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (hops += 1, due()) } });  // Bounded past the ceiling so a regression FAILS instead of looping: the day's hop count terminates it.
-        ran += 1; if (!step.more) return { hop: step.hop, ran }; hop = step.hop; }
-      return { hop, ran } };
-    expect((await chain(() => NOTHING_DUE)).ran).toBe(1); // nothing due after the first hop: no second request is asked for
-    hops = 0; const forever = await chain(() => SOMETHING_DUE); expect([forever.hop, forever.ran]).toEqual([6, 6]); }); // due forever still stops at the bound
-  it("counts overlapping continuation hops once each, never twice as the first", async () => {  // TWO TABS ARE ONE COUNT. Both hops start before either lands and the increment happens where the row is, so they read 1 and 2. Counted in the app, both would read 0 and write 1, and the hop bound would bound nothing.
-    const rows = freshRepo(); const day = today(); rows.push(mk({ id: "r-open", status: "running", started_at: iso() }));
-    const both = await Promise.all([RR.countContinuationHop(T, day), RR.countContinuationHop(T, day)]); expect(both.sort()).toEqual([1, 2]); expect(rows[0]!.progress.continuations).toEqual({ day, count: 2 });
-    expect(await RR.countContinuationHop(T, "2026-08-09")).toBe(1); }); // a new day starts over, never adds on
-  it("carries the day's own state onto the pass it justified: the grant, the ceiling marker, the reading receipt and the decide watermark all survive a new row, and none of them survives the day", async () => {
-    const rows = freshRepo(); const day = today();
-    const dayState = { extraSamples: { day, granted: 1 }, capped: { day, caseIds: ["inv_haft"] },
-      synthesisAttempted: true, decided: { basis: "basis_test", rowVersion: 12 } };
-    rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", progress: dayState })); await run({ dueWork: async () => SOMETHING_DUE });
-    expect([rows.length, rows[1]!.status]).toEqual([2, "completed"]);  // The planner, the case receipt and the watermark all read the LATEST row. Before this, the pass the grant paid for was born blank, so the grant could never be spent and the watermark to close the day was gone.
-    expect(rows[1]!.progress).toMatchObject(dayState); NOW += DAY; await run({ dueWork: async () => SOMETHING_DUE }); // a new reporting day inherits none of it
-    expect([rows.length, rows[2]!.progress.extraSamples, rows[2]!.progress.capped, rows[2]!.progress.synthesisAttempted]) .toEqual([3, undefined, undefined, undefined]); });
-  it("keeps opening passes while work is genuinely due, and refuses the 25th on one day as the absolute runaway stop", async () => {
-    const rows = freshRepo(); const day = today();
-    for (let i = 0; i < 23; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));
-    const twentyFourth = await RR.startExtraPass(T, "tab-24", day); // the day's own stop, above any one door's allowance
-    expect([twentyFourth?.lease_owner, rows.length]).toEqual(["tab-24", 24]); await RR.finishRun(T, twentyFourth!.id, "tab-24", "completed");
-    expect(await RR.startExtraPass(T, "tab-25", day)).toBeNull(); // the honest runaway stop, not a claim that nothing is due
-    expect(rows).toHaveLength(24); });
-  it("holds the VISIT door to eight extra passes a day, so navigating cannot spend the day the scheduler needs", async () => {
-    const rows = freshRepo(); const day = today();
-    for (let i = 0; i < 8; i += 1) rows.push(mk({ id: `p${i}`, status: "completed", completed_at: iso(), current_phase: "done", cycle_key: `${T}:p${i + 1}:${day}` }));  // Every navigation is a chance to open a pass, so this door keeps its own eight; the day's absolute stop is 24.
-    await run({ dueWork: async () => SOMETHING_DUE, refreshSources: async () => { throw new Error("no phase may run"); } }); expect(rows).toHaveLength(8); // the 9th visit-door pass is refused, and nothing ran
-    expect(await RR.startExtraPass(T, "cron", day)).not.toBeNull(); }); // the day itself still has room
-  it("counts continuation hops on the account's own row, so a client that keeps claiming hop 0 is refused once the day's bound is spent", async () => {
-    const rows = completedToday(); let cycles = 0; const seen: Array<{ hop: number; more: boolean }> = [];
-    const steps = { ...BENIGN, dueWork: async () => ({ ...SOMETHING_DUE, due: ["refresh_sources" as const, "daily_observations" as const] }), // a stranded day that owes its sources too, so the pass this hop opens genuinely reaches refresh
-      refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) };
-    for (let i = 0; i < 8; i += 1) seen.push(await continueResearch(T, 0, { now: () => new Date(NOW), steps })); // the same made-up hop, every time
-    expect(seen.map((s) => s.hop)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // the SERVER counts, and the count survives every new pass row
-    expect(seen.map((s) => s.more)).toEqual([true, true, true, true, true, false, false, false]); expect(cycles).toBe(6); // the last two hops ran nothing at all
-    expect(rows[rows.length - 1]!.progress.continuations).toEqual({ day: today(), count: 8 }); });
+  /** ONE PRESS, SERVER-OWNED. The old shape ran one hop per request, capped six per day, and the browser looped: closing the tab stopped the day and hop seven said done over an unfinished queue. The server now drives the one runtime internally; nothing due runs nothing and spends nothing, and a due list a whole pass could not move is a BLOCKER to report, never a loop to buy again. */
+  it("one press: nothing due runs zero cycles, and an immovable due list stops with the waiting blocker instead of spinning", async () => {
+    completedToday(); let asked = 0;
+    const idle = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (asked += 1, NOTHING_DUE) } });
+    expect([idle.hop, idle.more, asked >= 1]).toEqual([0, false, true]); // the free read answered and not one cycle ran
+    let cycles = 0;
+    const stuck = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => SOMETHING_DUE,
+      refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) } });
+    expect([stuck.more, cycles <= 2, typeof stuck.blocker]).toEqual([true, true, "string"]); // still owed, said so, and another press is allowed
+  });
   it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => {
     const rows = completedToday(); const one = await RR.startExtraPass(T, "tab-1", today()); const two = await RR.startExtraPass(T, "tab-2", today()); // the first pass is still open
     expect([one?.lease_owner, two, rows.length]).toEqual(["tab-1", null, 2]); });

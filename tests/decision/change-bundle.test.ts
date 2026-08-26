@@ -6,7 +6,9 @@ import { proposalFingerprint } from "@/domains/decision/proposal-store"; import 
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) })); vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => store.rows, saveChangeProposal: async (p: ChangeProposal) => { store.rows.set(p.id, p); },
   withdrawnProposalIds: async () => new Set<string>(), withdrawChangeProposal: async () => true }));
-vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap })); const bodyStore = vi.hoisted(() => ({ map: null as null | Map<string, unknown> }));
+vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
+const factStore = vi.hoisted(() => ({ rows: [] as unknown[] }));
+vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => ({ ...(await orig<Record<string, unknown>>()), readFactChecks: async () => factStore.rows })); const bodyStore = vi.hoisted(() => ({ map: null as null | Map<string, unknown> }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
   loadOwnedPageBodies: async () => { if (bodyStore.map) return bodyStore.map; throw new Error("no body store in this fixture"); } })); const acct = vi.hoisted(() => ({ profile: null as unknown }));
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => acct.profile ?? null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-content.example", growth_goal: null }), basisTag: () => "basis_test" })); import { produceBundleForSnapshot } from "@/domains/decision/produce-bundle"; import { ledgerProofLine } from "@/domains/decision/changes/lifecycle-counts";
@@ -1359,4 +1361,53 @@ describe("typed refusal contract", () => {
       complete: async () => ({ value: draft }) } as never);
     expect(owed).toEqual([{ key: "/funny-farsi-phrases", kind: "serp", reasonCode: "no_exact_serp" }]); // the smallest correct step, as DATA the runtime executes, never a sentence it parses
     expect(out[0]!.status).toBe("needs_review"); }); // and the card stays visible, owed, unsettled: acquisition reopens it, never a blind retry
+  /** THE MISSING-INFORMATION LOOP, END TO END AT THE DECISION BOUNDARY. The deadlock: a rival identifies what is missing, rival copy may support nothing, the fact check re-checked only claims the page already makes, so the writer never received one new authorized fact and restated the page forever. Now: with every winner read, the refusal resolves to the MISSING TOPIC as a typed factual_source requirement carrying the proposition to research; an UNRELATED stored fact does not satisfy it; and once a fact for that topic is banked, the packet hands it to the writer as fact-* evidence a claim may cite, and the draft that uses it lands Ready. */
+  it("a gain refusal resolves to the rival-identified missing topic, an unrelated fact never satisfies it, and the banked fact reaches the next draft as citable evidence", async () => {
+    const { GAIN } = await import("@/domains/decision/draft-resolution");
+    const { canonicalUrlKey: ck5 } = await import("@/domains/evidence/snapshot");
+    const PAGE_URL = "https://www.iranopedia.com/persian-female-first-names";
+    const body = { url: PAGE_URL, title: "Persian Female Names", h1: "Persian Female Names", metaDescription: null, vocabulary: "",
+      headings: ["Classic names"], passages: ["Classic names", "Darya and Afsaneh are classic Persian names for girls, each carrying its own meaning in everyday use."] };
+    const page = { url: PAGE_URL, content: { wordCount: 300, title: body.title, h1: body.h1, outline: body.headings }, search: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
+    const rival = { url: "https://rival.example/persian-girl-names", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "persian girl names" }],
+      extract: { title: "Persian Girl Names", h1: null, wordCount: 3000, headings: ["Classic names", "Pronunciation guide for parents"], faqCount: 0, entityNames: [], openingSample: "", hasList: true } };
+    const research = { serpEvidence: [{ query: "persian girl names", organic: [{ rank: 1, url: rival.url }] }], winningPages: [rival] };
+    const snapshot = { ownedPages: [page], research, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+    const card = prop({ id: `${TENANT}::/persian-female-first-names::existing_edit::ai_answer_gap`, pagePath: "/persian-female-first-names", pageUrl: PAGE_URL,
+      changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "persian girl names", limitations: [],
+      evidence: { query: "persian girl names", hints: [], evidenceRefCount: 1 },
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+    // 1. MINT: with the results page on file and every winner read, the ladder names the missing topic itself.
+    const step = GAIN.resolution("none", snapshot as never, card, page as never, body as never, []);
+    expect([step.resolution, step.need?.kind, step.need?.missingTopic, step.need?.reasonCode, step.need?.rivalUrl])
+      .toEqual(["acquire_factual_source", "factual_source", "Pronunciation guide for parents", "missing_information", rival.url]);
+    // 2. AN UNRELATED STORED FACT DOES NOT SATISFY IT: the requirement stands until a fact for THIS topic exists.
+    const unrelated = [{ subject: "Darya meaning", state: "checked" }];
+    expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, unrelated).need?.missingTopic).toBe("Pronunciation guide for parents");
+    const answered = [...unrelated, { subject: "Pronunciation guide for parents", state: "checked" }];
+    expect(GAIN.resolution("none", snapshot as never, card, page as never, body as never, answered).need?.missingTopic).toBeUndefined();
+    // 3. THE BANKED FACT REACHES THE WRITER, and a claim citing it (never the rival) lands Ready with exact placement.
+    bodyStore.map = new Map([[ck5(PAGE_URL), body]]);
+    const { VERIFICATION_RULES_VERSION: RULES } = await import("@/domains/evidence/pages/fact-checks");
+    // THE REAL PREIMAGE, not a literal planted on both sides: the fact is authorized only because its stamped hash equals pageHashOf over the stored body's own join, exactly as the bank stamps it. A fixture that fakes both halves is how the dead fact-* channel shipped.
+    const { pageHashOf: hashOf } = await import("@/domains/evidence/pages/fact-check-run");
+    const bodyHash = hashOf([body.title, body.h1, ...body.headings, ...body.passages].filter(Boolean).join("\n"));
+    const FACT = { page: "/persian-female-first-names", statementKey: "missing#1", subject: "Pronunciation guide for parents",
+      current: "", proposed: "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH.",
+      literal: null, usage: null, sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }],
+      agreement: "single_source", confidence: "confirmed", verdict: "undecidable", alsoAt: [], note: "",
+      pageContentHash: bodyHash, pageLocator: "missing", sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: RULES, evidenceBasis: null, checkedAt: NOW.toISOString() };
+    factStore.rows = [FACT];
+    const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name confidently from the first try.";
+    const seen: string[] = [];
+    const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
+        after: NEW_COPY, naturalHeading: "How to pronounce them", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
+    expect(seen.join(" ")).toContain("fact-1: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
+    expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
+    expect(out2[0]!.status).toBe("ready");
+    expect((out2[0]!.recommendedChange as { where?: string }).where).toContain("placed after"); // exact placement on the rendered change
+    bodyStore.map = null; });
 });

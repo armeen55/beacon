@@ -160,14 +160,15 @@ describe("Visibility is a workspace, and every number on it names what it was co
       "https://standards.example/nowruz (standards.example, a source)", 'It quoted this part: "the haft seen table"', "You were named, in place 2 of the answer.",
       "It also read these and credited none of them: https://other.example/x.", "ChatGPT answered with its gpt-x model, though gpt-x-preview was asked for. It was asked directly.",
       "This reading counts for Aug 2. Asked Aug 2 at 4:02 PM UTC, answered Aug 2 at 4:02 PM UTC.", "Every word of this answer has been read closely.",
-      "Stored answer receipt 9f3c1a2b. It cost $0.02 to buy once."]) expect(all, s).toContain(s);
+      "Stored answer receipt 9f3c1a2b, collected once and reused from storage."]) expect(all, s).toContain(s);
     expect(answerDetail(ROW).filter((d) => d.startsWith("https://"))).toHaveLength(16); // every credited page, not a first ten
     expect(all.toLowerCase()).not.toContain('searched for: "where to buy a haft seen set?"'); const quiet = answerDetail({ ...ROW, fanOuts: null, citations: null, retrievedNotCited: null, reading: "unread" }).join("\n");
     for (const s of ["ChatGPT does not report the searches it ran on this path", "so there is no claim that it credited nobody.",
       "ChatGPT does not report the pages it read but did not credit on this path.", "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
     for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
     // A RECEIPT I CANNOT PROVE IS NOT ZERO DOLLARS, and a real charge under a cent is the same lie in miniature.
-    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("What it cost was never preserved"); expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).toContain("It cost under a cent to buy once.");
+    // COST OF GOODS LEFT THE CUSTOMER SURFACE (terminal contract, 2026-08-25): the receipt proves provenance and reuse, and the price of the observation is internal metering the reader never needed. Present or absent, the line reads the same.
+    expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("collected once and reused from storage"); expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).not.toContain("cost");
     expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");
   });
   /** THE REAL SURFACE: it draws off answers already bought, asks no provider anything, and loads a whole answer only for the ONE run a customer opens. */

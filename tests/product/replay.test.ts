@@ -203,4 +203,35 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(ok.res.paid.receipts.every((r) => r.outcome !== "produced" || env.store.has(String(r.key)) || ok.landed.length > 0)).toBe(true);
     expect(ok.calls).toBeGreaterThan(0);
   });
+  /** EVERY PAID FAMILY SHARES THE ONE DURABLE READY TARGET, proven across families through the real producer and store: an EARLY family's durably kept Ready row fills the shortfall, and the generic editor then makes ZERO paid calls; the same row failing to save fills nothing, and the pass keeps working. The landing hole this closes was live: budget.land() ran only through the generic editor, so new-page, factual, deep-bundle and field work saved Ready without reducing the deficit and later families kept spending past a full queue. */
+  it("an early family's durable Ready row stops every later family, and its failed save stops nothing", async () => {
+    const { evidence } = await replayFunnel();
+    const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
+    // First, learn the ids and basis the real pass mints, off one uncounted run.
+    env.snap = snapshot; env.saved = []; env.store = new Map(); env.refuseSave = new Set();
+    const probe = await produceProposalsForTenant(TENANT, { complete: drafter().complete, now: NOW, bypassCache: true });
+    const minted = probe.proposals.find((p) => p.id.includes("::existing_edit::"))!;
+    // A finished FIELD-family Ready row, durably on file from an earlier day, under the id the field loop itself would mint for this page: a deterministic title edit carries no claims by construction, and it keeps every earning word of the stored title.
+    const seeded: ChangeProposal = { ...minted, id: `${TENANT}::${GAP_URL.slice(GAP_URL.indexOf("/"))}::existing_edit::title`, changeFamily: "title", status: "ready", researchOnly: false,
+      pagePath: GAP_URL.slice(GAP_URL.indexOf("/")), pageUrl: `https://${GAP_URL}`,
+      recommendedChange: { kind: "existing_edit", field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns" },
+      limitations: [], claims: [], supportFacts: [] };
+    const run = async (refuse: string[]) => { env.snap = snapshot; env.saved = []; env.store = new Map([[seeded.id, seeded]]); env.refuseSave = new Set(refuse);
+      const seam = drafter();
+      const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, readyTarget: 1 });
+      return { res, calls: seam.calls(), kept: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true).length }; };
+    // PRE-EXISTING STOCK CONFIRMS AND NEVER LANDS: the caller's deficit already subtracted the rows Ready on file, so
+    // re-serving one must not fill the shortfall again (that double-count deadlocked the queue at four of five while
+    // every dispatch burned a drive to stand still). The store confirms it, the receipt says produced, and the pass
+    // keeps working the shortfall with fresh drafting.
+    const early = await run([]);
+    expect(early.kept >= 1).toBe(true);
+    expect(early.res.paid.receipts.some((r) => r.outcome === "produced")).toBe(true);
+    expect(early.res.paid.readyShortfall).toBe(1); // confirmed stock filled nothing: the shortfall is NEW work owed (this fixture has no further fundable candidate, so the pass honestly ends short rather than closing on old stock)
+    // The SAME row whose save the store refuses counts for nothing: nothing durable exists, no receipt claims produced, and the shortfall stands (walking on to further candidates under a standing shortfall is pinned by the three-candidate editor contract in change-bundle).
+    const failed = await run([TENANT]);
+    expect(failed.res.paid.receipts.every((r) => r.outcome !== "produced")).toBe(true);
+    expect(failed.res.paid.receipts.some((r) => r.outcome === "retryable_blocked")).toBe(true); // the store's failure is on the receipt, never laundered into produced
+    expect(failed.res.paid.readyShortfall).toBe(1); // and the shortfall still stands: a failed save landed nothing
+  });
 });

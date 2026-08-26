@@ -762,7 +762,7 @@ export type RefreshAllConnectedResult = {
  *  seam behind the Update data button: one request that claims the run's lease for itself, with the
  *  day's real count kept on the account's own row so the `hop` a caller passes is a REPORT, never an
  *  authority. The daily round itself is the scheduler's job, not this action's. */
-export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean }> {
+export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean; blocker?: string }> {
   const tenantId = await currentTenantId().catch(() => "");
   return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };
 }

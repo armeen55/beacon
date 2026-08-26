@@ -65,7 +65,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const laneOf = useMemo(() => (p: ChangeProposal): Lane => {
     const stamped = moreLanes[p.id] ?? view.laneById?.[p.id]; if (stamped) return stamped;
     const hold = openHold(p);
-    return hold.lane === "research" ? "research" : p.status === "ready" && hold.blocking == null ? "ready" : "todo";
+    // FAIL CLOSED WITHOUT THE SERVER VERDICT. The stamped lane above carries BOTH legs of the one servability rule (blocking hold AND unsettled cause, computed server-side); this browser fallback can ask only the first, because the second leg's import chain is server-only. A row no stamp knows therefore never wears Ready here: offering Copy off half the verdict is exactly the list-versus-detail disagreement the one rule exists to end, and in practice every served row arrives stamped.
+    return hold.lane === "research" ? "research" : "todo";
   }, [moreLanes, view]);
   const rows = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
   const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);

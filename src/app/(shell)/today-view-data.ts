@@ -232,7 +232,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   const scheduleReleaseRebuild = () =>
     after(async () => {
       const { refreshCustomerSurface } = await import("./surface-release");
-      await refreshCustomerSurface(tenantId).catch(() => null);
+      await refreshCustomerSurface(tenantId, { maxDrafts: 0 }).catch(() => null); // a stale-release rebuild republishes stored truth at $0; it never drafts
     });
 
   // One lean head-count, in parallel with the surface read: zero tracked questions is the ONE state that stops research outright, and Today

@@ -56,7 +56,11 @@ export type CauseKey = CauseFinding["cause"];
  *  three files, which is exactly how two of its kinds shipped with no buyer and the compiler never said so).
  *  `kind` says what to buy, `query` or `url` says exactly which one. Runtime's acquireEvidence must execute every
  *  member of this union: its switch is exhaustive, so adding a kind without an acquisition handler fails typecheck. */
-export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string };
+export type EvidenceRequirement = { kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string;
+  /** THE MISSING INFORMATION ITSELF, for a factual_source born from a rival comparison: the topic or question the owned page cannot answer today, phrased as the proposition to research. Acquisition researches THIS, never the page's existing claims, and only a checked fact banked for this topic satisfies the requirement; an unrelated stored fact does not. */
+  missingTopic?: string;
+  /** Where a rival treats that topic, as BRIEFING provenance only: it says why the topic was judged missing, and its copy may never support a claim. */
+  rivalUrl?: string };
 
 /** THE ONE RESOLUTION VOCABULARY for a refused draft, produced by BOTH refusal producers: the deterministic
  *  drafting gates (which run before any model call and often refuse without one) and the model evaluator reading

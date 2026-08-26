@@ -50,6 +50,31 @@ describe("the search is the proposition", () => {
     expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));
   });
 });
+describe("a missing proposition is researched, never graded", () => { beforeEach(reset);
+  /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
+  it("an owed claim with no current wording banks the researched statement from real sources", async () => {
+    db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
+    const asked: string[] = [];
+    const missing = row({ statementKey: "missing#1", subject: "How Persian names are chosen for girls", current: "", pageLocator: "missing" });
+    const out = await unit({ held: [missing],
+      read: async (input: { system: string; user: string }) => { asked.push(input.user);
+        return input.system.startsWith("You read one web page") ? { value: { statements: [] } }
+          : { value: { verdict: "undecidable", proposed: "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature.", confidence: "confirmed", note: "",
+              supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] } }; } });
+    expect(out.status).toBe("advanced");
+    const banked = db.rows.find((r) => r.statementKey === "missing#1")!;
+    expect([banked.state, banked.proposed]).toEqual(["checked", "Persian girls' names are typically chosen for meaning, drawn from nature, virtues and classical literature."]);
+    expect(String(banked.sources && (banked.sources as unknown[]).length)).toBe("1"); // the quote verified against the fetched passage
+    expect(asked.join(" ")).toContain("The page does not answer this yet"); // researched as a gap, not compared to an empty quote
+    expect(asked.join(" ")).not.toContain('The page says: ""'); });
+  it("sources that cannot support the missing statement leave it typed debt, never invented copy", async () => {
+    db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
+    const missing = row({ statementKey: "missing#2", subject: "Average rug knot density in Kerman", current: "", pageLocator: "missing" });
+    const out = await unit({ held: [missing], read: reader({ claims: { statements: [] },
+      judge: { verdict: "undecidable", proposed: "", confidence: "unsupported", note: "nothing relevant", supporting: [] } }) });
+    expect(out.status).toBe("advanced");
+    const banked = db.rows.find((r) => r.statementKey === "missing#2")!;
+    expect([banked.confidence, banked.proposed]).toEqual(["unsupported", null]); }); });
 describe("every failure is typed and leaves the claim owed", () => { beforeEach(reset);
   it("a failed source read leaves the row OWED, never checked", async () => {
     const out = await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ hold: "capped" }) }); // sources found, reading them refused

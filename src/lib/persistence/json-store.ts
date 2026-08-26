@@ -33,6 +33,8 @@ export const SUPABASE_MIRRORED_STORES = new Set<string>([
   // Changes / re-measured proof-ledger releases). Without the mirror every
   // hosted lambda starts cold and pays the full rebuild/re-measure.
   "customer-surface",
+  // The reconciliation sweep's durable cursor: file-only it resets to zero on every hosted lambda, and the same first window is swept forever.
+  "sweep-cursor",
   "results-surface",
   // Ops ledger written from cron lambdas (no disk), read by error-ledger.ts /
   // the Today Ops + deadman cards.

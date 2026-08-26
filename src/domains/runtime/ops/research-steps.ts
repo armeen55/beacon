@@ -66,7 +66,7 @@ export type ResearchCycleSteps = {
    *  not proceed without it. EVERY kind the requirement union declares executes here, through machinery that
    *  already exists, and the switch is exhaustive so a new kind without a handler fails typecheck instead of
    *  becoming a typed dead end. Returns whether the reading landed, so an unfulfilled requirement stays owed. */
-  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
+  acquireEvidence: (tenantId: string, need: Pick<EvidenceRequirement, "kind" | "query" | "url" | "missingTopic">, basis: string | null, budgetMs: number) => Promise<{ acquired: boolean; detail: string }>;
   /** The account's CURRENT onboarding basis (the one Account fingerprint); the funnel scopes every derived read/write to it. Null = not resolvable. */
   currentBasis: (tenantId: string) => Promise<string | null>;
   /** Freeze every case's identity on file before anything reads or spends against it. RESOLVES only when that identity is actually persisted; a THROW pauses the phase before a focus, a unit or a cent. `plan` bounds the ONE advisory
@@ -241,9 +241,14 @@ export const defaultSteps: ResearchCycleSteps = {
     // ONLY A JOB'S OWN RECEIPT MAY WRITE ITS PAGE OFF, and only the two answers that actually settle it: finished work exists, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a page never reached all leave it owed. Reading a single "calls were charged" number as "every funded page was attempted" is what let one out-of-quota call write off four pages nobody ever asked about (Codex, 2026-08-22).
     // A KEY IS SETTLED WHEN THERE IS NOTHING LEFT TO DO FOR IT UNDER THIS EVIDENCE: a change was saved, a reading was banked, or one of Beacon's own gates refused it.
     // A DRAFT LEFT IN REVIEW IS NOT SETTLED THE FIRST TIME, AND IS NOT PURSUED FOR EVER EITHER. Counting `review_saved` as done wrote seven weak drafts off as handled and every later drive walked past them. Never counting it starves the queue the other way: one stubborn page would take the top slot on every dispatch. So it settles on the SECOND attempt under the same manifest, which buys exactly one corrective retry with the objection already on the row, and then preserves the best draft and moves to the next candidate. It becomes eligible again when the fingerprint changes, which it does when the evidence, the basis, the drafting policy or the writer contract changes.
-    const triedBefore = new Set(seen?.tried ?? []);
-    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal"
-      || (r.outcome === "review_saved" && triedBefore.has(r.key))).map((r) => r.key);
+    // A BEACON-CAUSED REVIEW IS OWED CORRECTIVE WORK, NEVER EXHAUSTION. The second same-manifest review save used to
+    // SETTLE the candidate, so a writer that failed twice declared the day exhausted over its own defect and the queue
+    // starved with work still owed. A review save now stays on the retry list only: it ranks behind untried work (so a
+    // stubborn page cannot take the top slot every drive) and it keeps the day OPEN, because the operator's queue being
+    // short is Beacon's debt while any candidate stands. Only finished work, banked evidence, and Beacon's own
+    // deterministic refusal of the CANDIDATE settle it; the fingerprint still reopens everything when the evidence,
+    // the policy, or the writer contract moves.
+    const settled = out.paid.receipts.filter((r) => r.outcome === "produced" || r.outcome === "evidence_banked" || r.outcome === "deterministic_refusal").map((r) => r.key);
     const attempted = [...new Set([...fresh, ...settled])];
     // A CANDIDATE THAT WAS TRIED AND SPENT MAY NOT RE-CONSUME EVERY DRIVE (Codex, 2026-08-23). /persian-female-first-names
     // spent seven calls and came back transiently blocked, and on the next drive it was top-ranked again and took the
@@ -251,7 +256,7 @@ export const defaultSteps: ResearchCycleSteps = {
     // ranks behind work nobody has tried yet.
     // A REVIEW SAVE COUNTS AS AN ATTEMPT, which is what makes the retry above bounded: the first one is remembered here and ranks behind work nobody has tried, and the second settles the candidate instead of taking the top slot for ever.
     // A CANDIDATE WAITING ON EVIDENCE RANKS BEHIND WORK NOBODY HAS TRIED, exactly as a transient block does: its requirement is minted, the acquisition is in flight, and until the reading lands another draft buys the identical refusal. Left at the top, the two hardest candidates re-took both funded slots on every drive and the completable work behind them was never funded once (live, 2026-08-25: five consecutive dispatches funded the same two evidence_required pages while a candidate one word short of its floor sat unfunded).
-    const triedNow = out.paid.receipts.filter((r) => (r.outcome === "evidence_required" || ((r.outcome === "retryable_blocked" || r.outcome === "review_saved") && (r.providerCalls ?? 0) > 0))).map((r) => r.key);
+    const triedNow = out.paid.receipts.filter((r) => (r.outcome === "evidence_required" || r.outcome === "review_saved" || (r.outcome === "retryable_blocked" && (r.providerCalls ?? 0) > 0))).map((r) => r.key);
     const tried = [...new Set([...(fingerprint === (seen?.fingerprint ?? fingerprint) ? seen?.tried ?? [] : []), ...triedNow])].filter((k) => !attempted.includes(k));
     // A FUNDED PAGE THAT WAS NEVER REACHED IS OWED FIRST, NOT LAST: it is simply absent from `attempted`, so the
     // next continuation ranks it exactly where its impact puts it, which is where the strongest work belongs.
@@ -368,8 +373,17 @@ export const defaultSteps: ResearchCycleSteps = {
         return { acquired: landed(out), detail: `own-page read of ${need.url}: ${unitStatus(out)}` };
       }
       case "factual_source": {
+        // THE MISSING PROPOSITION IS SEEDED AS AN OWED CLAIM FIRST, under the page's CURRENT body hash and with no
+        // current wording, so the same fact-check unit that researches the page's own statements now researches the
+        // information the page LACKS: it searches the proposition, reads real sources, and banks `proposed` with
+        // quotes. This is the loop's missing half. Without a topic, the pass re-checks the page's owed claims as before.
+        if (need.missingTopic?.trim() && need.url) {
+          const seeded = await seedMissingProposition(tenantId, need.url, need.missingTopic.trim()).catch((e) => {
+            log.warn("[research-run] the missing proposition could not be seeded", { tenantId, url: need.url, error: e instanceof Error ? e.message : String(e) }); return false; });
+          if (!seeded) return { acquired: false, detail: `the missing proposition could not be inventoried for ${need.url}, so nothing was researched` };
+        }
         const out = await factCheckPass(tenantId, budgetMs, undefined, need.url ?? null);
-        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, url: need.url, banked: out.banked, status: out.status });
+        log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, url: need.url, topic: need.missingTopic ?? null, banked: out.banked, status: out.status });
         return { acquired: out.status !== "failed" && out.banked > 0, detail: `fact check of ${need.url ?? "the owed page"}: ${out.status}, ${out.banked} banked` };
       }
       default: { const impossible: never = need.kind; return { acquired: false, detail: `no acquisition handler exists for ${String(impossible)}` }; }
@@ -417,6 +431,39 @@ export const defaultSteps: ResearchCycleSteps = {
     return surface == null || isCustomerSurfaceStale(surface.computedAt, nowMs); // no saved release yet = a first publish is genuinely due
   },
 };
+
+/** One owed claim for information the page DOES NOT HAVE, inventoried under the page's current body hash so the
+ *  authorized-facts filter accepts what the research banks. Empty current wording is the contract: the stale sweep
+ *  keeps it (an empty wording is contained by every body), and the judge researches the subject instead of grading
+ *  a quotation. Idempotent through the store's own conflict key. */
+async function seedMissingProposition(tenantId: string, pageUrl: string, topic: string): Promise<boolean> {
+  const [facts, { claimIdentity, pageHashOf }, { loadOwnedPageBodies }, { resolveCurrentBasis }] = await Promise.all([
+    import("@/domains/evidence/pages/fact-checks"), import("@/domains/evidence/pages/fact-check-run"),
+    import("@/domains/evidence/pages/owned-context"), import("@/domains/decision/load-proposals")]);
+  const bodies = await loadOwnedPageBodies(tenantId, [pageUrl]).catch(() => null);
+  const b = bodies?.get?.(pageUrl); if (!b) return false;
+  const body = [b.title, b.h1, ...(b.headings ?? []), ...(b.passages ?? [])].filter(Boolean).join("\n");
+  const path = ((): string => { try { return new URL(pageUrl.startsWith("http") ? pageUrl : `https://${pageUrl}`).pathname.replace(/\/+$/, "") || "/"; } catch { return pageUrl; } })();
+  const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+  const hash = pageHashOf(body), key = claimIdentity(topic, "", "missing");
+  // A ROW THE STALE SWEEP RETIRED IS REOPENED AT THE CURRENT VERSION, never insert-ignored into a lie: the seed's
+  // upsert used ignoreDuplicates, so a superseded row from an older page version blocked the insert, the seed still
+  // reported success, and the requirement re-minted every drive with no research ever happening (audit, 2026-08-26).
+  const held = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
+  const mine = held.find((h) => h.statementKey === key);
+  if (mine?.state === "checked" && mine.pageContentHash === hash) return true; // already researched at this version: the requirement is satisfied, not re-seeded
+  if (mine && (mine.state !== "owed" || mine.pageContentHash !== hash)) {
+    const n0 = await facts.recordFactChecks(tenantId, path, [{ ...mine, state: "owed", pageContentHash: hash, evidenceBasis: basis,
+      note: "Reopened: the page moved to a new version and this missing proposition is owed again.", checkedAt: new Date().toISOString() }]).catch(() => 0);
+    if (n0 <= 0) return false;
+  } else if (!mine) {
+    await facts.recordOwedClaims(tenantId, path, [{ statementKey: key, subject: topic, current: "", locator: "missing" }], hash, basis).catch(() => -1);
+  }
+  // AND SUCCESS IS VERIFIED, never inferred from a write that may have been ignored: an owed row for this key must
+  // actually exist afterward, or the acquisition honestly reports it could not be inventoried.
+  const after = await facts.readFactChecks(tenantId, path).catch(() => [] as Awaited<ReturnType<typeof facts.readFactChecks>>);
+  return after.some((h) => h.statementKey === key && h.state === "owed");
+}
 
 /** THE ONE FACT-CHECK PASS, shared by the daily phase (no target: rotation picks the page) and by a `factual_source` acquisition (the named page goes FIRST, because the requirement is that page's owed claims and rotation would spend the pass elsewhere). Same bounds, same stores, same receipts either way. */
 async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => Promise<boolean>) | undefined, firstPage: string | null): Promise<{ status: "advanced" | "done" | "failed"; banked: number; pagesComplete: number; failure?: string; reason?: string }> {

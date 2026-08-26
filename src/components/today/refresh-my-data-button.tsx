@@ -85,6 +85,7 @@ export function RefreshMyDataButton({
   const [pulling, setPulling] = useState(false);
   const [researching, setResearching] = useState(false);
   const [results, setResults] = useState<RefreshResult[] | null>(null);
+  const [blocker, setBlocker] = useState<string | null>(null);
   const busy = pulling || researching;
 
   function onClick() {
@@ -97,16 +98,14 @@ export function RefreshMyDataButton({
       // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
       // wait on the long half to see the short half.
       router.refresh();
-      // THE PRESS FINISHES WHAT IS OWED, inside the server's own per-day bound. One hop was pressed, five
-      // sixths of the day's work stayed owed, and the button reported the same success either way: the server
-      // has always answered { hop, more } and the result was discarded. The loop asks while the server says
-      // more is owed and stops the moment it says otherwise or the day's continuation allowance is spent,
-      // so the bound is still the server's, never this component's.
+      // ONE PRESS, ONE SERVER-OWNED CYCLE. The browser used to loop six requests and could stop the day's work
+      // by closing the tab, and the seventh press reported done over an unfinished queue. The server now drives
+      // the whole continuation inside one call, persists every step durably, and answers honestly: `more` with a
+      // blocker means work is still owed (usually evidence already requested and not yet answered), and pressing
+      // again any time is safe. Closing the tab changes nothing durable.
       setResearching(true);
-      for (let hop = 0, more = true; more && hop < 6; hop += 1) {
-        const res2 = await continueResearchNow(hop).catch(() => null);
-        more = res2?.more === true; router.refresh();
-      }
+      const res2 = await continueResearchNow(0).catch(() => null);
+      setBlocker(res2?.more === true ? res2.blocker ?? "More work is owed; press again any time." : null);
       setResearching(false);
       router.refresh();
     })();
@@ -138,7 +137,10 @@ export function RefreshMyDataButton({
             Picking up anything unfinished. This runs once, and the daily research carries on either way.
           </p>
         ) : results ? (
-          <RefreshResultList results={results} />
+          <>
+            <RefreshResultList results={results} />
+            {blocker ? <p className="mt-1 text-[12px] text-muted-foreground">{blocker}</p> : null}
+          </>
         ) : null}
       </div>
     </div>

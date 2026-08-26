@@ -111,7 +111,7 @@ function livenessOf(run: ResearchRun | null, nowMs: number, state: ResearchRunSt
   const did = answers > 0 ? `Read ${answers} new ${answers === 1 ? "answer" : "answers"} closely`
     : collected > 0 ? `${collected} previously requested AI ${collected === 1 ? "answer" : "answers"} arrived`
     : sources > 0 ? `Refreshed ${sources} connected ${sources === 1 ? "source" : "sources"}`
-    : spent > 0 ? `Spent $${spent.toFixed(2)} on research` : null;
+    : spent > 0 ? "Ran fresh research" : null; // WHAT happened, never its invoice: provider cost is internal metering, not customer value (terminal contract, 2026-08-25)
   // "NOTHING WAS OWED" IS A CLAIM ABOUT HOW THE RUN ENDED, not just what it counted. A run that paused or
   // died mid-research with zero output did NOT check everything, and saying so here contradicted the same
   // view's own pauseReason on the one surface that renders only this line.

@@ -110,12 +110,6 @@ export {
   splitLedgerLifecycle,
 } from "./changes/lifecycle-counts";
 
-// Changes: proof-timeline surfaces
-export { resolveProofPill, kernelProofSummary, type ProofPill } from "./changes/proof-timeline/result-pill";
-export { computeProofCounters, type ProofCounters } from "./changes/proof-timeline/counters";
-export { buildWaitingRail, type WaitingRailInput } from "./changes/proof-timeline/waiting-rail";
-export { projectChangeTitle, clampShortTitle } from "./changes/proof-timeline/title-projection";
-
 // Changes: recommended-edits persistence
 export {
   editLifecycleStatus,

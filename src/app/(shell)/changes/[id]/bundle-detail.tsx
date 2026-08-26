@@ -2,7 +2,7 @@
  *  is the smartest move, what was checked); layer 2 proves, behind one expander. Nothing here reads the
  *  database: the route hands it the row it already resolved. */
 import Link from "next/link";
-import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, sameComponentId, unsettledCause } from "@/domains/decision";
+import { causeLabel, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, openHold, sameComponentId, unsettledCause } from "@/domains/decision";
 import type { ChangeProposal, ChangeBundle, BundleComponent, BundleEvidenceItem } from "@/domains/decision";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import { ConfirmDangerous, CopyButton, MarkImplemented, SetAsideChange } from "../change-controls";
@@ -69,7 +69,14 @@ export function BundleDetail({ proposal, bundle, recorded }: { proposal: ChangeP
   const chips = [...bundle.scope.queries, ...bundle.scope.prompts];
   const isNew = proposal.kind === "new_page";
   // THE HOLD TRAVELS TO THE DETAIL PAGE. The queue says nothing in the review lane is ready to paste or can be marked done, and a direct link used to hand the operator a Copy button and a Mark done on exactly the card it had just held. One boundary, read on both screens: the LANE first (only `ready` may be pasted), then the unsettled cause.
-  const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet." : unsettledCause(proposal);
+  // THE ONE SERVABILITY VERDICT, THE SAME ONE THE LIST LANES BY. This read status and unsettledCause and skipped
+  // openHold, so a stored ready row the queue itself demotes (a typed fault, a blocking hold) rendered here with a
+  // Copy press and a Mark done on a direct link while the list refused to offer it: the list and the detail
+  // disagreed about the same row. One rule everywhere: the lane first, then the hold's own blocking reason (the
+  // safety hold excepted, because this page hosts the two-step confirmation it asks for), then the unsettled cause.
+  const hold0 = openHold(proposal);
+  const held = proposal.status !== "ready" ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
+    : (hold0.safetyHold ? null : hold0.blocking) ?? unsettledCause(proposal);
   // AND A HELD CHANGE THAT MOVES OR HIDES A PAGE HAS SOMEWHERE TO GO. Everything the operator needs to decide is already on this page: the pieces, the addresses, where a forward lands, what survives it, the copy, the risks and the evidence behind each one. The confirmation belongs beside them, never on a page of its own. Offered ONLY on finished work whose own cause is settled: review work held because a quality gate refused it is not up for a yes, and confirming it would promote copy nobody stands behind.
   const confirmable = proposal.status === "needs_review" && dangerousComponents(bundle.components).length > 0 && deliverableGaps(proposal).length === 0 && unsettledCause(proposal) == null ? confirmedVersion(proposal) : null;
   // ONE SENTENCE, ONCE ON THE PAGE. The same fact reached the screen three times over ("What this is based on", "Why this is the smartest move", "What was checked"), which reads as padding rather than proof.
@@ -416,9 +423,10 @@ export function SimpleDetail({ proposal }: { proposal: ChangeProposal }) {
   const research = deliverableGaps(proposal).length > 0;
   // LIFECYCLE, NOT SHAPE. Completeness answered "are the words written", and this page asked nothing else: a finished card sitting in the review lane, which the list refuses to offer, was handed over here with a
   // Copy press and a Mark done on a direct link. READY IS THE ONLY LANE THAT MAY BE PASTED, and it is asked here, on the row itself, exactly as the list and the mutation ask it.
+  const hold1 = openHold(proposal);
   const held = proposal.status !== "ready"
     ? "This change is still being reviewed, so nothing here is ready to paste and nothing here can be marked done yet."
-    : unsettledCause(proposal);
+    : (hold1.safetyHold ? null : hold1.blocking) ?? unsettledCause(proposal); // the SAME one verdict the list lanes by, so a direct link can never out-offer the queue
   const shownSteps = research && after && !(steps[0] ?? "").startsWith(after.slice(0, 25)) ? [after, ...steps] : steps;
   const checks = proposal.evidence?.hints ?? [];
   const action = (proposal.opportunityType || "").trim().replace(/_/g, " ") || "one edit to make";

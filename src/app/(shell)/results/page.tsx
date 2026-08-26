@@ -9,7 +9,6 @@ import { loadResultsLedgerSurface } from "./results-ledger-data";
 import { buildResultsView, type ShipmentPresentation } from "./results-presentation";
 import { ResultsRows } from "./results-rows-client";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
-import { ResultsTimeline } from "../changes/results-timeline";
 
 /**
  * Results (CORE 100K) - three numbers at the top, then one line per change. Every page is compared
@@ -115,15 +114,6 @@ export default async function ProofPage({
           </div>
         </details>
       ) : null}
-
-      <details className="mb-4">
-        <summary className="cursor-pointer text-[12px] font-medium text-muted-foreground hover:text-foreground">
-          Every change, listed
-        </summary>
-        <Suspense fallback={null}>
-          <ResultsTimeline />
-        </Suspense>
-      </details>
 
       <p className="text-[12px] text-muted-foreground">
         How often AI assistants name you is on{" "}

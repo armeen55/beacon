@@ -183,8 +183,8 @@ export async function markProposalImplementedAction(args: {
     const gaps = deliverableGaps(stored);
     if (gaps.length > 0) return { success: false, error: `Beacon has not finished this one yet, so there is nothing to record as done: ${gaps[0]}. It lands in your list as a change once the exact work is written.` };
     // AND A CHANGE THAT LEAVES ITS OWN DIAGNOSED CAUSE UNSETTLED IS NOT WORK EITHER. The queue holds it for review and says nothing there can be marked done; this is where that promise is kept, so a tab open since before the hold cannot start a 28 day reading of a split nobody settled.
-    const unfit = unsettledCause(stored);
-    if (unfit) return { success: false, error: unfit };
+    const unfit = unsettledCause(stored) ?? (stored.status === "ready" ? ((h) => h.safetyHold ? null : h.blocking)(openHold(stored)) : null);
+    if (unfit) return { success: false, error: unfit }; // the SAME one servability verdict the list lanes by and the detail renders: a read-time hold minted between saves refuses the press too, so a 28 day reading can never start on copy Beacon's own gate refuses. Review rows fall to the lane refusal below, which is their honest answer.
     // AND THE LANE ITSELF IS THE RULE, not two of the reasons a row lands in it. Completeness and the unsettled cause are why MOST review cards are held, and this action asked only those two: a complete card that never earned `ready` (no producer promoted it, or a gate this pass could not run) was recordable through a direct link and would have started a 28 day reading of work nobody stood behind. Only `ready` is work somebody can have done; an already recorded row still replays idempotently below, so a double press is never an error.
     if (stored.status !== "ready" && stored.status !== "implemented_pending_verification") {
       return { success: false, error: "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today." };
@@ -350,104 +350,5 @@ export async function dismissProposalAction(args: {
   } catch (err) {
     log.error("dismissProposal: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "That one could not be skipped just now. Press it again in a moment." };
-  }
-}
-
-/** Results-timeline "Mark shipped" confirms a previously-accepted recommended edit is live on the page, flipping its lifecycle to verified-live. Server-side publish authority is enforced (a stale UI cannot skip Accept). Distinct from the Changes-queue "Mark implemented" above: this operates on the persisted recommended_edits row linked to a changelog entry that Results renders. */
-function changelogJoinKey(entry: {
-  source_rec_id?: string | null;
-  action_type?: string | null;
-  target_element_key?: string | null;
-}): string | null {
-  if (!entry.source_rec_id || !entry.action_type || !entry.target_element_key) return null;
-  return `${entry.source_rec_id}__${entry.action_type}__${entry.target_element_key}`;
-}
-
-function indexEditsByJoinKey<
-  T extends { rec_id?: string | null; action_type?: string | null; target_element_key?: string | null },
->(edits: readonly T[]): Map<string, T> {
-  const map = new Map<string, T>();
-  for (const edit of edits) {
-    if (!edit.rec_id || !edit.action_type || !edit.target_element_key) continue;
-    map.set(`${edit.rec_id}__${edit.action_type}__${edit.target_element_key}`, edit);
-  }
-  return map;
-}
-
-type MarkChangelogEditShippedResponse = {
-  success: boolean;
-  error?: string;
-  flipped?: number;
-  skipped?: number;
-};
-
-export async function markChangelogEditShipped(args: {
-  changelogId: string;
-}): Promise<MarkChangelogEditShippedResponse> {
-  const action = "markChangelogEditShipped";
-  const t0 = Date.now();
-  log.info("Action started", { action, params: { changelogId: args.changelogId } });
-
-  if (!(await canPublishForCurrentTenant())) {
-    return { success: false, error: "You do not have permission to mark this change live." };
-  }
-
-  const tenantId = await currentTenantId();
-  const repo = getRepository().forTenant(tenantId);
-
-  let changelogEntries;
-  let recommendedEdits;
-  try {
-    [changelogEntries, recommendedEdits] = await Promise.all([
-      repo.getChangelogEntries(),
-      repo.getRecommendedEdits(),
-    ]);
-  } catch (err) {
-    log.error("markChangelogEditShipped: read failed", {
-      changelogId: args.changelogId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { success: false, error: "This change's history could not be read just now. Try it again in a moment." };
-  }
-
-  const entry = changelogEntries.find((e) => e.id === args.changelogId);
-  if (!entry) return { success: false, error: "Changelog entry not found." };
-
-  const joinKey = changelogJoinKey(entry);
-  if (!joinKey) {
-    return {
-      success: false,
-      error: "This changelog entry has no linked recommended edit, so there's nothing to mark as shipped.",
-    };
-  }
-
-  const edit = indexEditsByJoinKey(recommendedEdits).get(joinKey);
-  if (!edit) {
-    return { success: false, error: "No matching recommended edit row found for this changelog entry." };
-  }
-
-  const status = editLifecycleStatus(edit);
-  if (status === "recommended") {
-    return {
-      success: false,
-      error:
-        "Accept the recommendation first. Mark Shipped only confirms an already-accepted change is live on the page; it doesn't accept the recommendation for you.",
-    };
-  }
-  if (status !== "accepted") return { success: true, flipped: 0, skipped: 1 };
-
-  try {
-    const result = await markRecommendedEditsAsShipped({ editIds: [edit.id], tenantId });
-    log.info("Action completed", { action, durationMs: Date.now() - t0, params: { changelogId: args.changelogId, flipped: result.flipped } });
-    if (result.flipped > 0) await invalidateCoreSurfaces().catch(() => {});
-    revalidatePath("/changes");
-    revalidatePath("/", "layout");
-    return { success: true, flipped: result.flipped, skipped: result.skipped };
-  } catch (err) {
-    log.error("markChangelogEditShipped: persistence flip failed", {
-      changelogId: args.changelogId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return { success: false, error: "That could not be marked live just now. Try it again in a moment." };
   }
 }

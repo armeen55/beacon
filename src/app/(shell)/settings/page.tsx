@@ -5,7 +5,6 @@ import { requireReadyAccount } from "@/domains/account";
 import { researchPermission } from "@/domains/runtime";
 import { currentTenantId } from "@/lib/tenant-context";
 import { SETTINGS_SECTIONS } from "./settings-sections";
-import { SpendLine } from "./spend-line";
 import { ResearchPause } from "./research-pause";
 
 /**
@@ -48,7 +47,6 @@ export default async function SettingsPage() {
         ))}
       </ul>
       <ResearchPause permission={permission} />
-      <SpendLine />
     </div>
   );
 }

@@ -240,7 +240,11 @@ export function authorizedCorrections(checks: readonly FactCheck[],
   return checks.filter((c) => c.state === "checked"
     && c.rulesVersion === VERIFICATION_RULES_VERSION
     && c.confidence === "confirmed"
-    && (c.verdict === "page_wrong" || c.verdict === "page_imprecise")
+    // A CORRECTION corrects wording the page carries, so only a wrong or imprecise verdict authorizes one. A row
+    // with NO current wording is the other authorized shape: information the page LACKS, researched by the
+    // missing-information loop; there is no quotation to grade, so the verdict is not the test, and the
+    // authorization rests on the confirmed reading, the proposed statement, and the authoritative source below.
+    && (c.verdict === "page_wrong" || c.verdict === "page_imprecise" || c.current.trim() === "")
     && !!c.proposed?.trim()
     && !!c.sourceReadAt
     && c.sources.some((s) => s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")

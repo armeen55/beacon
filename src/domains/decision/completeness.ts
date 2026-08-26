@@ -82,7 +82,11 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
     need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsourced" };
   }
   if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "")) hard.push("Its reason promises clicks a wording change has never been shown to recover, so it is held until the ownership work it belongs to is finished.");
-  if (dangerousComponents(p.bundle?.components ?? []).length > 0) hard.push(DANGER);
+  // THE SAFETY HOLD LIFTS WHEN THE OPERATOR HAS ANSWERED IT, on the exact version they read: pushed unconditionally,
+  // a confirmed redirect could never wear Ready anywhere, the next pass swept the hold back into status, and the card
+  // told the operator to confirm the very thing they had just confirmed, forever (audit, 2026-08-26). The same
+  // staleness rule the validator applies decides: a change edited since the yes re-holds; a current yes stands.
+  if (dangerousComponents(p.bundle?.components ?? []).length > 0 && p.confirmedVersion !== confirmedVersion(p)) hard.push(DANGER);
   const said = [...new Set([...hard, ...faults])];
   return { lane: p.researchOnly === true || gaps.some((g) => NOT_WRITTEN.test(g)) ? "research" : "review",
     // EVERYTHING BEACON KNOWS ABOUT WHY THIS IS HELD, not the first kind of reason it happens to find: a row with a safety hold AND a copy fault used to print only the hold, so the defect stayed invisible.

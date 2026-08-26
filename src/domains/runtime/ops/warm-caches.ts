@@ -42,7 +42,8 @@ async function askOverlap(tenantId: string, input: { domain: string; pages: stri
  *  besides. Throws on a build/publish failure so the caller decides whether to fail soft. */
 export async function finalizeFreeSurfaces(tenantId: string): Promise<void> {
   const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-  await refreshCustomerSurface(tenantId);
+  // THE PUBLISHER IS $0 BY CONSTRUCTION (terminal contract, 2026-08-25): called bare, the rebuild inherited the producer's PAID default and the "free" publisher could draft. Drafting money flows only through the cycle's replenish and the scheduler's funded drives; a release rebuild republishes stored truth.
+  await refreshCustomerSurface(tenantId, { maxDrafts: 0 });
 }
 
 /** THE PAID HALF, named as one: settle who the competition is BEFORE the release is built, so the surface

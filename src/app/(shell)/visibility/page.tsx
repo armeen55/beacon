@@ -11,7 +11,7 @@ import { visibilitySeries } from "@/domains/measurement";
 import { dispositionOf, loadChangeProposals, readAiCaseDispositions, resolveFanoutCase } from "@/domains/decision";
 import { researchPermission, researchRunStatus } from "@/domains/runtime";
 import { answerIntelOf, canonicalPairOf, canonicalQueryKey, citesOwnSite, competitorLandscape, isAnalysisSettled, loadEvidenceSnapshot, loadGscDecaySignalsForTenant,
-  loadGscPageSignalsForTenant, observationReceiptCost, readAiObservations, type AiObservationRecord,
+  loadGscPageSignalsForTenant, readAiObservations, type AiObservationRecord,
   buildFanoutEvidence, ownedPageAiRollup,
   type ClassifiedDomain, type CompetitorKind, type GscDecaySignal, type GscPageSignal } from "@/domains/evidence";
 import { readCustomerSurface } from "../surface-release";
@@ -247,13 +247,12 @@ async function AiBody({ tenantId, params }: { tenantId: string; params: Params }
         pagePath: held.pagePath ?? null, missing: held.research?.missing ?? null } : null);
     })(),
   });
-  // THE WHOLE OF ONE RUN, and what it cost or that I cannot prove it: the row's own preserved receipt wins,
-  // and with none the exact stored receipt it names is asked. NEVER zero dollars for an answer that was paid for.
+  // THE WHOLE OF ONE RUN. Its price left the surface with the rest of cost-of-goods (terminal contract,
+  // 2026-08-26): the receipt id proves provenance and reuse, and the per-answer cost fetch that ran on every
+  // open bought the customer nothing.
   const row = opened[0] ?? null;
-  const cost = row == null ? null : Number(row.cost_usd) > 0 ? Number(row.cost_usd)
-    : row.cache_key ? await observationReceiptCost(row.cache_key).catch(() => null) : null;
   const reading = openId == null ? null
     : row == null ? ["That run could not be read back just now. Close this and open it again in a moment."]
-      : answerDetail(answerRow(row), new Map((landscape ?? []).map((k) => [k.domain, k.kind])), cost);
+      : answerDetail(answerRow(row), new Map((landscape ?? []).map((k) => [k.domain, k.kind])));
   return <AiWorkspace view={view} range={range} engine={engine} sub={sub} reading={reading} fanout={fanout} />;
 }

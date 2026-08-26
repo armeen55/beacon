@@ -81,7 +81,7 @@ export type ResearchRunProgress = {
   };
   /** THE DAY'S READY-INVENTORY WORK, day-scoped like the other day memories here. `fingerprint` names the manifest it was working through (a different basis or candidate set is a different question and starts again), `attempted` is the pages already spent on under it, and `closed` is set ONLY by an answer that may end the obligation: the stock reached the target, or every candidate on that manifest was spent on and none produced. A quota failure, a transient failure or an unreadable read leaves it absent, so the work is owed again the moment the block lifts. */
   /** THE EXACT READINGS FUNDED CANDIDATES ARE WAITING ON, typed and durable: an unfulfilled one stays owed here with its own receipt and is never called settled (Codex, 2026-08-23). `kind` is the requirement union acquireEvidence executes exhaustively (producers/contract). */
-  evidenceOwed?: readonly { key: string; kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; reason: string; workKey: string }[];
+  evidenceOwed?: readonly { key: string; kind: "serp" | "page_source" | "competitor_page" | "factual_source"; query: string; url?: string; reasonCode: string; reason: string; workKey: string; /** The missing proposition a factual_source researches, and the rival that identified it (briefing provenance only): declared here so a field-by-field rebuild can never silently drop the topic and degrade the acquisition to a plain re-check. */ missingTopic?: string; rivalUrl?: string }[];
   replenish?: { day: string; fingerprint: string; attempted: string[]; tried?: string[]; closed?: "target_reached" | "candidates_exhausted";
     /** What became of the funded work on the last drive, so a cycle that funded five and settled one can be READ rather than guessed at. */
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
@@ -442,17 +442,6 @@ export async function finishRun(
   }
 }
 
-/** Count ONE continuation hop for this reporting day, SERVER-SIDE and at DATABASE time, and return the day's new total. The hop a browser sends back is a number it made up, so a tab that kept
- *  claiming hop 0 bought itself an unbounded chain of research requests. The count lives on the account's own row, is incremented inside the update that lands it (two tabs get 1 and 2, never 1 and
- *  1), and is inherited by every pass that opens the same day. Null = it could not be counted, which the caller treats as its own first hop rather than as permission to loop. Never throws. */
-export async function countContinuationHop(tenantId: string, day: string): Promise<number | null> {
-  requireTenant(tenantId);
-  try { return await repo.countContinuation({ tenantId, day }); }
-  catch (error) {
-    log.warn("[research-run] continuation hop could not be counted", { tenantId, error: error instanceof Error ? error.message : String(error) });
-    return null;
-  }
-}
 
 /** The compact Today projection: latest run, fail-soft to "none". The reading tally is the DAY'S, summed across every pass: the newest row alone hid every reading the earlier passes bought. */
 export async function researchRunStatus(tenantId: string, now: Date = new Date()): Promise<ResearchRunStatusView> {

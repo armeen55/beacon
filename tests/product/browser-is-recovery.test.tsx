@@ -3,10 +3,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-const calls = vi.hoisted(() => ({ continues: [] as number[], refreshes: 0, paused: [] as boolean[], setOk: true, more: true }));
+const calls = vi.hoisted(() => ({ continues: [] as number[], refreshes: 0, paused: [] as boolean[], setOk: true, more: false, blocker: undefined as string | undefined }));
 vi.mock("@/app/(shell)/settings/connectors/actions", () => ({
   refreshAllConnectedDataNow: async () => ({ ranAt: "2026-08-02T00:00:00.000Z", results: [] }),
-  continueResearchNow: async (hop: number) => { calls.continues.push(hop); return { hop: hop + 1, more: calls.more }; },
+  continueResearchNow: async (hop: number) => { calls.continues.push(hop); return { hop: hop + 1, more: calls.more, ...(calls.blocker ? { blocker: calls.blocker } : {}) }; },
 }));
 vi.mock("@/app/(shell)/settings/actions", () => ({
   setResearchPausedNow: async (paused: boolean) => { calls.paused.push(paused); return { ok: calls.setOk }; } }));
@@ -28,15 +28,16 @@ const unmount = async (): Promise<void> => {
 };
 const press = async (button: HTMLButtonElement): Promise<void> => { await act(async () => { button.click(); }); };
 beforeEach(() => { (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  calls.continues = []; calls.refreshes = 0; calls.paused = []; calls.setOk = true; });
+  calls.continues = []; calls.refreshes = 0; calls.paused = []; calls.setOk = true; calls.more = false; calls.blocker = undefined; });
 afterEach(async () => { await unmount(); });
 describe("Update data is one recovery press", () => {
-  it("continues while the server says more is owed, and stops the moment it says otherwise", async () => {
-    // THE DEFECT THIS PINS, reversed on 2026-08-25: one hop of six left five sixths of the day owed while the button reported the same success either way. The SERVER still owns the bound (the fixture's `more: true` is capped by the client at six asks, the server's own per-day allowance), and a server that answers `more: false` ends the press at once.
+  /** ONE PRESS, ONE CALL: the server owns the whole continuation now, so the browser asks exactly once and closing the tab can neither stop the day's durable work nor falsely complete it. `more` with a blocker is rendered so an operator waiting on requested evidence is told so, and pressing again is always safe. */
+  it("asks the server exactly once, and renders the blocker when work is still owed", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />); const button = el.querySelector("button")!;
-    await press(button); expect(calls.continues).toEqual([0, 1, 2, 3, 4, 5]); // more:true throughout: the press works the day down to the server's own ceiling
-    calls.continues.length = 0; calls.more = false;
-    await press(button); expect(calls.continues).toEqual([0]); // nothing more owed: one ask, immediate stop
+    await press(button); expect(calls.continues).toEqual([0]); // one call, whatever the server still owes
+    calls.continues.length = 0; calls.more = true; calls.blocker = "waiting on already-requested evidence; press again any time";
+    await press(button); expect(calls.continues).toEqual([0]);
+    expect(el.textContent).toContain("waiting on already-requested evidence"); // the owed state is said, not hidden behind a success face
   });
   it("says what it does in ONE short sentence, and never that research needs this button or an open tab", async () => {
     const el = await mount(<RefreshMyDataButton connectedCount={2} />); const copy = el.textContent ?? "";

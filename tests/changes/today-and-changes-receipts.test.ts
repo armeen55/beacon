@@ -51,10 +51,12 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   ...over,
 } as ChangeProposal);
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
+// SERVABLE BY THE ONE VERDICT: a ready-lane fixture must pass unsettledCause too, exactly as the release lanes it. A cannibalization finding on a title edit is an UNSETTLED split (a wording change settles nothing about which page owns the search), so the atomic ready card carries a cause its own lever treats.
 const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low",
+  causeFinding: { ...FINDING, cause: "ctr_snippet", action: "title", explanation: "The line Google shows misses the words people search for.", competingExplanations: [{ cause: "cannibalization", reason: "only one page of yours comes up for this search" }] }, diagnosisCause: "ctr_snippet",
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
-  proposals: rows, ready: rows, toDo: [], research: [], aiCases: { state: "read" as const, rows: [] }, summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
+  proposals: rows, ready: rows, toDo: [], research: [], laneById: Object.fromEntries(rows.filter((r) => r.status === "ready").map((r) => [r.id, "ready" as const])), aiCases: { state: "read" as const, rows: [] }, summary: { todo: 0, ready: rows.length, research: 0, implemented: 0, measuring: 0, results: 0 },
   measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null,
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 async function renderList(view: ChangesView): Promise<string> {
