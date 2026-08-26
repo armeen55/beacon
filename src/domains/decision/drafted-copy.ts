@@ -590,7 +590,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
     if (!page) { out.push(card); continue; }
     if (slug === "thin_page" && (page.content?.wordCount ?? 0) === 0) { out.push(card); continue; }
     const meta = wants === "description", h1 = wants === "h1", link = wants === "link", title = wants === "title";
-    const slice = opts.stopBy != null && Date.now() >= opts.stopBy ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS); if (!slice) log.info("[drafted-copy] paid work stopped for this card: the pass's plan funded no allowance for it", { tenantId: opts.tenantId, path: card.pagePath, owed: wants });
+    const late = opts.stopBy != null && Date.now() >= opts.stopBy, slice = late ? null : budget.draw(DRAFT_BUDGET.keyOf(card), DRAFT_BUDGET.DELIVERABLE_CALLS);
+    if (!slice) { const why = late ? "the drive's time box ended before this page was started" : budget.owed() === 0 ? "the queue's shortfall was already filled, so this work waits for the next short day" : "this page's allowance was already spent by another family on the same page"; log.info("[drafted-copy] paid work stopped for this card", { tenantId: opts.tenantId, path: card.pagePath, owed: wants, why }); opts.note?.(DRAFT_BUDGET.keyOf(card), "retryable_blocked", why); } // FILED, NEVER SILENT: a funded skip used to end the pass wearing the fault sentence
     const done = slice ? await draftBlock(card, page, bodies.get(canonicalUrlKey(page.url)) ?? null, { ...opts, attempts: slice }, wants!, bodies, factsByPath.get(card.pagePath ?? "") ?? []) : null;
     if (slice && !done) opts.note?.(DRAFT_BUDGET.keyOf(card), opts.unsettled?.has(DRAFT_BUDGET.keyOf(card)) ? "retryable_blocked" : "deterministic_refusal", opts.refusals?.get(DRAFT_BUDGET.keyOf(card))); const drafted = done?.d;
     if (drafted) {
