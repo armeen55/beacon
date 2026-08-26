@@ -346,11 +346,16 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // AND A CLOSED DAY REOPENS THE MOMENT ITS ANSWER STOPS BEING TRUE. Two ways that happens. The question changed:
   // the memory is stamped with the basis and the evidence version it was answered under, so fresh evidence for the
   // very same pages makes the stock owed again today rather than tomorrow. Or the stock itself moved: a day closed
-  // because it REACHED five says nothing once the operator implements one and four are left, and the live count
-  // below already proves that, so only a proven exhaustion may hold the day shut (Codex, 2026-08-22).
+  // because it REACHED five says nothing once the operator implements one and four are left, so only a proven
+  // exhaustion may hold the day shut (Codex, 2026-08-22).
   const stockClosed = progress.replenish?.day === day && progress.replenish.closed === "candidates_exhausted"
     && progress.replenish.fingerprint.startsWith(`${basis.value ?? ""}::v${version.value ?? ""}::`);
-  if (ready.value != null && ready.value < READY_STOCK_TARGET && !stockClosed && !creditHeld.value) due.push("replenish_ready");
+  // A COUNT IS NOT A REASON TO STOP WORKING. This asked for a top-up only while the stock sat BELOW five, so an
+  // account holding fourteen finished changes was never even asked, and a press returned "nothing due" with real
+  // evidenced work standing unwritten. The floor still decides URGENCY everywhere else; what ends the day is a
+  // SETTLED MANIFEST, which is what `stockClosed` reads. Unreadable stock still holds, because an unread count is
+  // not a proven one.
+  if (ready.value != null && !stockClosed && !creditHeld.value) due.push("replenish_ready");
   if (sources.value > 0) due.push("refresh_sources");
   // THE WEBSITE IS A SOURCE TOO, and reading it is the one piece of evidence nobody else supplies. An account
   // whose inventory still holds pages I have never opened is owed a batch, whatever else is quiet today.

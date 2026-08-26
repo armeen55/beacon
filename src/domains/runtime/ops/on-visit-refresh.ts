@@ -237,7 +237,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         log.info("[research-run] ready inventory checked before buying evidence", { tenantId, ...(r ?? { answered, boxed: !answered }) });
         // TWO ANSWERS MAY END THE DAY'S OBLIGATION AND NO OTHERS: the stock reached the target, or every candidate on the current manifest was spent on and not one produced. A quota failure, a provider failure, a boxed drive, an unreadable read and a bounded batch that simply came up empty all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
         if (r) {
-          const closed = r.reason === "target_reached" || r.reason === "candidates_exhausted" ? r.reason : undefined;
+          const closed = r.reason === "candidates_exhausted" ? r.reason : undefined;
           progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(r.tried && r.tried.length > 0 ? { tried: r.tried } : {}), ...(closed ? { closed } : {}), ...(r.outcomes ? { outcomes: r.outcomes } : {}) } };
           if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease"; // the day's memory persists and the lease is re-proven before the phase spends
         // A STEP THAT TOOK REAL TIME RE-PROVES THE LEASE BEFORE THE PHASE SPENDS; one that answered at once proves nothing new and does not spend a renewal the phase behind it is counting on.
@@ -255,7 +255,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       // unrelated keywords while five changes are owed is still wrong; going and getting the exact facts a funded
       // candidate was refused for is the work itself.
       const owedFacts = (r?.evidenceOwed ?? []).length > 0; // TYPED, never a regex over English (Codex, 2026-08-23): "No results page for X is on file" matched no phrase the old pattern knew, so the one reading that finishes the account's strongest page was never fetched.
-      if (shortStock && r != null && r.reason !== "target_reached" && !owedFacts) {
+      if (shortStock && r != null && r.reason !== "candidates_exhausted" && !owedFacts) {
         log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
         return pause(); }
       // AND THE DISPATCH GOES AND GETS IT (Codex, 2026-08-23). Storing the requirement, logging it and checking it as a boolean is not acquisition: the reading was never bought, so the next drive drafted from the same missing evidence. The exact search a funded candidate named is fetched HERE, through the transport the funnel already uses, whatever phase set this dispatch opened with. A reading that lands leaves the work resumable; one that does not stays owed with its own receipt and is never called settled.
@@ -282,7 +282,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
             remaining = [...remaining.filter((n) => !fresh.some((f) => f.key === n.key)), ...fresh];
             // AND THE REDRAFT'S OWN DAY MEMORY PERSISTS, exactly as the pre-acquisition drive's did: dropping it
             // meant the next dispatch re-funded and re-bought refusals this one already paid for.
-            const closed2 = again.reason === "target_reached" || again.reason === "candidates_exhausted" ? again.reason : undefined;
+            const closed2 = again.reason === "candidates_exhausted" ? again.reason : undefined;
             progress = { ...progress, evidenceOwed: remaining,
               replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(closed2 ? { closed: closed2 } : {}), ...(again.outcomes ? { outcomes: again.outcomes } : {}) } };
             // WRITTEN, NOT JUST ASSIGNED: the pause below ends the run through finishRun, which never writes progress, so the memory only exists if it is stored HERE.

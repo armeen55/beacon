@@ -107,7 +107,7 @@ export type ResearchCycleSteps = {
     /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
     /** HOW THIS DRIVE ENDED, as a machine word. Only two of these four may close a day. `candidates_exhausted` is the one that has to be EARNED: it means every candidate on the current manifest has now been spent on and none of them finished, which is a different fact from "the two I could afford this drive produced nothing" (Codex, 2026-08-22). */
-    reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted";
+    reason: "made_progress" | "retryable_blocked" | "candidates_exhausted";
     /** The manifest this drive was working through, and the pages spent on so far under it. A different fingerprint is a different question, and the day starts again. */
     fingerprint: string; attempted: string[];
     /** THE EXACT READINGS funded candidates were refused for, typed: the dispatch executes these instead of parsing a refusal sentence (Codex, 2026-08-23). */ evidenceOwed?: readonly OwedReading[];
@@ -204,17 +204,18 @@ export const defaultSteps: ResearchCycleSteps = {
     if (before == null) return null;
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
     const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
-    const mark = (reason: "target_reached" | "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
+    const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
       outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly OwedReading[]) =>
-      ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "target_reached", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
+      ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "candidates_exhausted", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
     let proven = before;
     if (READY_STOCK_TARGET - before <= 0) { const { runWithoutSpending } = await import("@/lib/spend-scope");
       // ZERO SPEND IS ASSERTED ON THE STACK, not just asked for in the options. `zeroSpend` closes the producer's own doors; the ambient scope closes any door a future caller adds underneath it, and this path now runs on EVERY drive, which is the last place to rely on one flag being read.
       await runWithoutSpending(() => d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true })).catch(() => null);
       proven = (await read()) ?? before; // and the count the day closes on is the one just proven, never the one it opened with
-      if (proven >= READY_STOCK_TARGET) return mark("target_reached", proven, 0, seen?.fingerprint ?? `${stamp}::stocked`, held); }
-    const deficit = READY_STOCK_TARGET - proven; // above here the stocked branch either returned or left this short, so there is no second "already stocked" answer to give
+    }
+    // THE STOCK TARGET IS A FLOOR, NEVER A CEILING. A drive that reached five returned `target_reached` and drafted nothing, so the queue stopped at an arbitrary quantity while real evidenced work stood unwritten and the operator was told the day was finished. Short of the floor the shortfall drives the pass; at or above it the drive still produces one bounded batch. The day ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` once the manifest it declared is fully settled.
+    const short = Math.max(0, READY_STOCK_TARGET - proven), deficit = short > 0 ? short : REPLENISH_DRAFTS_PER_DRIVE;
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
@@ -237,7 +238,6 @@ export const defaultSteps: ResearchCycleSteps = {
     const after = await read(), persisted = out.persisted;
     // A COUNT I COULD NOT READ AFTERWARDS PROVES NOTHING EITHER WAY, least of all that a page is finished with.
     if (after == null) return mark("retryable_blocked", before, persisted, fingerprint, fresh);
-    if (after >= READY_STOCK_TARGET) return mark("target_reached", after, persisted, fingerprint, fresh);
     // ONLY A JOB'S OWN RECEIPT MAY WRITE ITS PAGE OFF, and only the two answers that actually settle it: finished work exists, or one of Beacon's own gates read it against today's evidence and refused. An empty balance, a cap, a timeout, a provider that would not answer, an unusable answer and a page never reached all leave it owed. Reading a single "calls were charged" number as "every funded page was attempted" is what let one out-of-quota call write off four pages nobody ever asked about (Codex, 2026-08-22).
     // A KEY IS SETTLED WHEN THERE IS NOTHING LEFT TO DO FOR IT UNDER THIS EVIDENCE: a change was saved, a reading was banked, or one of Beacon's own gates refused it.
     // A DRAFT LEFT IN REVIEW IS NOT SETTLED THE FIRST TIME, AND IS NOT PURSUED FOR EVER EITHER. Counting `review_saved` as done wrote seven weak drafts off as handled and every later drive walked past them. Never counting it starves the queue the other way: one stubborn page would take the top slot on every dispatch. So it settles on the SECOND attempt under the same manifest, which buys exactly one corrective retry with the objection already on the row, and then preserves the best draft and moves to the next candidate. It becomes eligible again when the fingerprint changes, which it does when the evidence, the basis, the drafting policy or the writer contract changes.
