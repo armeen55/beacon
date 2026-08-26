@@ -58,6 +58,7 @@ const CATEGORY: [RegExp, string][] = [
   [/::answer_block$/, "Answer block"], [/::consolidation$/, "Page merge"], [/::h1$/, "Heading"],
   [/::title(-family)?$/, "Title"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
 ];
+const INLINE_PIECES = 4; /** How many steps a card shows in full before the list becomes the detail page's job: a two or three step treatment is read here, a forty-item correction bundle is not. */
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "New page";
   const named = CATEGORY.find(([re]) => re.test(p.id))?.[1];
@@ -218,6 +219,21 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               </ol>
             </div>
           ) : null
+        ) : parts > 1 && parts <= INLINE_PIECES ? (
+          /* A CARD MAY ASK FOR SEVERAL STEPS AND MAY NEVER HIDE ONE. A two-step treatment summarised as "2 exact
+             pieces inside, open the change" put half the work behind a click, the same defect as burying a heading
+             change in placement prose: an operator who does not open it does the wrong amount of work. A short
+             treatment shows every step here, each with its own wording and its own location. */
+          <ol className="space-y-2" data-bundle-steps="true">
+            {(bundle?.components ?? []).map((c, i) => (
+              <li key={i} className="rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
+                <p className="text-[12px] font-semibold text-foreground"><span className="tabular-nums">{i + 1}. </span>{c.label}</p>
+                {c.before ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Now: <span className="line-through">{c.before}</span></p> : null}
+                <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground">{c.after}</p>
+                {c.where ? <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">Where it goes: {c.where}</p> : null}
+              </li>
+            ))}
+          </ol>
         ) : parts > 1 ? (
           /* A BUNDLE'S DELIVERABLE IS ITS PIECES, so the collapsed card never offers the umbrella sentence as
              the thing to copy: forty sourced corrections copied as "Replace the statements listed below" is not

@@ -77,7 +77,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your review", "Why it is held", "moves or hides a page", "2 exact pieces inside"]) expect(held, s).toContain(s);
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your review", "Why it is held", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
     for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
     // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED. The ready lane passed a bare `proven` on every row, so the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all. This row is Ready and has none either, so it may not wear the chip that says its argument was checked outside this account.
     expect(ready, "proven").not.toContain("Proven"); expect(ready, "tier").toContain("Page-only");
