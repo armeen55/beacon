@@ -280,14 +280,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
             // the persisted debt and the deadlock reopened one acquisition later. Merge by key, newest wins.
             const fresh = again.evidenceOwed ?? [];
             remaining = [...remaining.filter((n) => !fresh.some((f) => f.key === n.key)), ...fresh];
-            // AND THE REDRAFT'S OWN DAY MEMORY PERSISTS, exactly as the pre-acquisition drive's did: assigning `again`
-            // to `r` without writing progress.replenish threw away everything the redraft settled, so the next dispatch
-            // re-funded and re-bought refusals this one already paid for (audit, 2026-08-26).
+            // AND THE REDRAFT'S OWN DAY MEMORY PERSISTS, exactly as the pre-acquisition drive's did: dropping it
+            // meant the next dispatch re-funded and re-bought refusals this one already paid for.
             const closed2 = again.reason === "target_reached" || again.reason === "candidates_exhausted" ? again.reason : undefined;
             progress = { ...progress, evidenceOwed: remaining,
               replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(closed2 ? { closed: closed2 } : {}), ...(again.outcomes ? { outcomes: again.outcomes } : {}) } };
-            // WRITTEN, NOT JUST ASSIGNED: the pause two lines down ends the run through finishRun, which persists
-            // status and spend but never progress, so the redraft's memory only exists if it is stored HERE.
+            // WRITTEN, NOT JUST ASSIGNED: the pause below ends the run through finishRun, which never writes progress, so the memory only exists if it is stored HERE.
             if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
             log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
       }
