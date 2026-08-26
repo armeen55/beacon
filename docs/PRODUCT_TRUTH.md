@@ -152,9 +152,9 @@ internal links and anchor text; structured data; page consolidation; redirect, c
 article, service page, location page, comparison page, category, or hub; and information architecture and
 navigation changes. A technical finding enters the queue only when it names a concrete URL and the exact fix.
 
-One coherent implementation moment is one Change Bundle whose atomic components are visible inside it. Beacon
-does not manufacture five tiny tasks when one bundle is the honest unit of work, and it does not hide the
-components inside an opaque single row.
+One page is never one opportunity (operator, 2026-08-26). The primary product is an unlimited, site-wide, ranked queue of exact ATOMIC changes; one page may carry 1, 5, 20 or 40, each competing individually in the one ranking, and forty correct name fixes are forty separately ranked changes rather than one checklist inside a page card.
+Two are combined ONLY where they would overwrite the same title, description, paragraph or section: then the stronger treatment wins, or that overlapping mutation is written as one exact replacement. Unrelated edits on the same page are never folded together, and work is never deduplicated merely because two changes share a URL.
+A Change Bundle remains the honest unit for ONE coherent implementation moment (a consolidation writing several pages at once, or a complete new page, which is one operator action and must carry the complete paste-ready page rather than a brief), and its atomic components stay visible inside it.
 
 ### Results
 
