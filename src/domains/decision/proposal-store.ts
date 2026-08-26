@@ -10,7 +10,7 @@ import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { confirmedVersion, deliverableGaps, openHold } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
-import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy";
+import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
 const TABLE = PROPOSAL_TABLE;
@@ -71,13 +71,16 @@ function siteOf(p: ChangeProposal): string {
   catch { return url.toLowerCase(); }
 }
 
-type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily };
+type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string };
+/** WHAT THIS ROW ACTUALLY WRITES, and the only thing two rows on one page can genuinely collide over. Uniqueness was (tenant, case, page, family), and `title`, `meta` and `h1` all share `title-family`, so a page could carry a new title OR a new description and never both: /iran-animals/asiatic-cheetah lost its description the moment its title landed. A body change is keyed by its topic too, because two sections answering different questions are two changes, not one hypothesis twice. Bundles and new pages keep the empty slot they have always had. */
+const mutationSlot = (p: ChangeProposal): string => { if (p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return "";
+  const f = p.recommendedChange.field; return f === "section" || f === "answer_block" ? `${f}::${canonicalQueryKey(p.primaryQuery ?? "")}` : f; };
 
 /** PURE: the hypothesis this proposal is an answer to. */
 function identityOf(p: ChangeProposal): Identity {
   const anchor = anchorOf(p);
   return { site: siteOf(p), case_id: p.kind === "new_page" ? anchor : "",
-    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p) };
+    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: mutationSlot(p) };
 }
 
 /** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
@@ -182,7 +185,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const sb = getSupabaseAdmin();
     // Everything already filed under this hypothesis, in one read.
     const { data, error } = await sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
-      .eq("case_id", ident.case_id).eq("page_key", ident.page_key).eq("action_family", ident.action_family).limit(50);
+      .eq("case_id", ident.case_id).eq("page_key", ident.page_key).eq("action_family", ident.action_family).eq("mutation_key", ident.mutation_key).limit(50);
     if (error) {
       log.error("[proposal-store] canonical read failed, nothing was written", {
         tenantId: proposal.tenantId, id: proposal.id, error: error.message });
