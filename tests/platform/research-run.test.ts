@@ -921,7 +921,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] };
     vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
-    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b",
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
       loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; zeroSpend?: boolean }) => { M.calls.push(o);
         // the free re-read finds the stuffed row and holds it back, so the stock is really four
@@ -940,7 +940,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const L = { seq: [] as number[] }; // what the provider ledger answers, drained one read at a time
     vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => (L.seq.length > 0 ? L.seq.shift()! : 0) }));
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
-    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", loadProposalQueue: async () => (M.ready < 0 ? Promise.reject(new Error("queue unreadable")) : { ready: Array.from({ length: M.ready }, () => ({})) }),
+    vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length, loadProposalQueue: async () => (M.ready < 0 ? Promise.reject(new Error("queue unreadable")) : { ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; skipKeys?: readonly string[] }) => { if (M.throws) throw new Error("the provider fell over");
         const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)).slice(0, o.maxDrafts ?? 0);
         const receipts = funded.map((key) => { const hit = M.out.find((r) => r.key === key); return { key, funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: hit?.cost ?? 0, providerAttempted: true, outcome: (hit?.outcome ?? "not_reached") as never, ...(hit?.why ? { why: hit.why } : {}) }; });

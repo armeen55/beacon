@@ -198,7 +198,7 @@ export const defaultSteps: ResearchCycleSteps = {
     const version = acct ? await evidenceRowVersion(tenantId, acct).catch(() => null) : null;
     // THE DRAFTING POLICY IS PART OF THE QUESTION TOO. A page written off because the OLD allowance ran out mid-deliverable says nothing about the new one, so a policy change reopens those settlements the same day rather than skipping the very pages it was made for.
     const stamp = `${acct ?? ""}::v${version ?? ""}::p${DRAFT_BUDGET.POLICY}`;
-    const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => q.ready.length).catch(() => null);
+    const read = () => d.loadProposalQueue(tenantId, { currentBasis: basis }).then((q) => d.stockOf(q.ready)).catch(() => null); // STOCK, never a row count: thin levers fill at most their share of the five, so substantive work keeps funding
     const before = await read();
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (before == null) return null;

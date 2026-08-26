@@ -35,7 +35,8 @@ export {
 
 // Ranked queue load (surface data)
 export type { RankedProposalQueue } from "./load-proposals";
-export { loadProposalQueue } from "./load-proposals";
+export { loadProposalQueue,
+  stockOf } from "./load-proposals";
 
 // Proposal persistence. THERE IS NO BARE STATUS FLIP ON THIS FACADE: `transitionProposalToImplemented` demands
 // the id of the Shipment already measuring the change, so "done" can only ever be reached through the

@@ -116,6 +116,17 @@ export function pagesUnderMeasurement(
     .map((p) => p.pagePath as string);
 }
 
+/** WHAT COUNTS AS STOCK. The target is the five HIGHEST-IMPACT actionable changes, not five objects: four metadata
+ *  rewrites and a title filled every slot, the deficit read zero, and the substantive body work the ranking itself
+ *  scores higher could never fund again. A thin lever (a title, a description, a heading) is real work and counts,
+ *  but at most THIN_STOCK_MAX of them may fill the stock; past that, the remaining slots belong to substantive
+ *  changes, so the deficit keeps the drafting alive until the queue holds work worth the operator's morning. */
+const THIN_LEVER_FIELD = new Set(["title", "meta", "h1"]); const THIN_STOCK_MAX = 3;
+export function stockOf(ready: readonly ChangeProposal[]): number {
+  const thin = ready.filter((p) => p.recommendedChange.kind === "existing_edit" && THIN_LEVER_FIELD.has(p.recommendedChange.field)).length;
+  return (ready.length - thin) + Math.min(THIN_STOCK_MAX, thin);
+}
+
 export type RankedProposalQueue = {
   /** Every live CURRENT-BASIS proposal, ranked most-valuable first. */
   ranked: ChangeProposal[];

@@ -259,7 +259,8 @@ export const READY_STOCK_TARGET = 5;
 async function readyStock(tenantId: string): Promise<number | null> {
   const d = await import("@/domains/decision");
   const basis = await d.resolveCurrentBasis(tenantId).catch(() => null);
-  return (await d.readQueuePage(tenantId, "ready", basis ?? "", 0, 1)).total;
+  const page = await d.readQueuePage(tenantId, "ready", basis ?? "", 0, 25);
+  return d.stockOf(page.rows); // the SAME stock rule the replenish drive reads, or the two doors disagree about whether the day is owed
 }
 
 /** CLAIMS THE PAGES MAKE THAT NOBODY HAS CHECKED against a source outside them. */
