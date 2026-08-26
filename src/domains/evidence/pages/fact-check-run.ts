@@ -210,7 +210,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));
   }
 
-  let owed = inventory.filter((h) => h.state === "owed");
+  // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition
+  // seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks rotation over the
+  // page's own existing statements: without this the pass spent its budget re-checking claims the page already makes
+  // and reported the reading as acquired, while the writer still had nothing new to cite.
+  const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
+  let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (owed.length === 0 && cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION. Only when nothing already inventoried is owed: research first, read on.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
@@ -247,7 +252,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey,
       subject: c.subject, current: c.current, pageLocator: c.locator, pageContentHash: hash, evidenceBasis: d.basis,
       state: "owed" as const, checkedAt: now.toISOString() }))];
-    owed = inventory.filter((h) => h.state === "owed");
+    owed = seededFirst(inventory.filter((h) => h.state === "owed")); // a freshly inventoried section may not bury it either
   }
 
   // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is
