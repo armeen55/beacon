@@ -45,16 +45,18 @@ const INTENT_OF: [Intent, RegExp][] = [
   ["category", /\b(buy|shops?|stores?|prices?|costs?|delivery|products?)\b/i],
 ];
 const intentOf = (t: string): Intent => INTENT_OF.find(([, re]) => re.test(t))?.[0] ?? "question";
-/** What each intent's finished section is SHAPED like. Structure only: every fact still has to come from the
- *  page's own evidence, and the editor contract refuses anything these words could not license. */
+/** What each intent's finished section is SHAPED like. Structure only: every fact still has to stand on evidence
+ *  already on file, and the editor contract refuses anything these words could not license. THE SHAPE MAY NOT ORDER
+ *  A RESTATEMENT: clauses here reading "on this page" and "only what this page carries" told the writer to reuse the
+ *  page while the information-gain gate refused copy that only reused the page, so no body section could ever land. */
 const SHAPE: Record<Intent, string> = {
   examples: "a one-sentence direct answer first, then the strongest items each on its own line with the one fact a reader needs about it",
-  definition: "the definition in the first sentence, then the two or three facts on this page that support it",
+  definition: "the definition in the first sentence, then the two or three checked facts that support it",
   comparison: "what each option is and the one difference that decides between them",
   process: "the steps in order, one per line, each something a reader can do",
   history: "the turns in order, earliest first, with their dates",
-  category: "what this category offers and how a buyer narrows it, using only what this page carries",
-  question: "the direct answer in the first two sentences, then the specifics only this page has",
+  category: "what this category offers and how a buyer narrows it",
+  question: "the direct answer in the first two sentences, then the specifics that settle it",
 };
 /** A search rendered as a subject a reader would say, for copy that must not paste the machine's phrasing:
  *  the intent-marker words come off and what is left is a noun phrase about the subject itself. */
@@ -66,7 +68,7 @@ type Standing = { voice: string; quoted: string; path: string; intent: Intent; s
 function caseCopy(s: Standing): { headline: string; after: string; steps: string[]; next?: string } {
   const q = s.quoted, credit = s.domain ? `credit ${s.domain} instead` : "credit other sites";
   const open = `Open the site editor on ${s.path}`, close = "Mark it done here and the next answers get checked against it";
-  const section = `Add a section on ${s.path} that answers ${q}: ${SHAPE[s.intent]}, under a heading a reader would look for, built only from facts the page and its evidence already establish.`;
+  const section = `Add a section on ${s.path} that answers ${q}: ${SHAPE[s.intent]}, under a heading a reader would look for. The section owes a reader at least one thing this page does not already say: a checked fact, a figure, or a stated relation to another page of this site. Nothing is invented, and every claim stands on evidence already on file.`;
   if (s.stage === "owned_retrieved_not_cited") return {
     headline: `Assistants read ${s.path} for ${q} and ${credit}`,
     after: `${section} The assistants already open this page while answering and credit somebody else, so a restatement of what it lists changes nothing: the section has to be a block an assistant can lift whole.`,

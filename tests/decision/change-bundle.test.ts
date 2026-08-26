@@ -1415,4 +1415,54 @@ describe("typed refusal contract", () => {
     expect(out2[0]!.status).toBe("ready");
     expect((out2[0]!.recommendedChange as { where?: string }).where).toContain("placed after"); // exact placement on the rendered change
     bodyStore.map = null; });
+
+  /** THE DEADLOCK ITSELF, PINNED. Live for weeks: the card brief, the last drafting hint and the answer-block system
+   *  clause each told the writer to build only from the page's own material, while `addsNothing` refused copy that
+   *  stood only on the page's own material. Worse, the gate ARMED on `rival-*` briefing, which is the one class no
+   *  claim may cite, so a list page carrying rival evidence and no checked fact was refused for declining a route it
+   *  never had. Not one substantive body change reached Ready in production. A list page whose gain is genuinely the
+   *  SHAPE now lands, and the quality bar does not move: a one-line restatement still fails on structure. */
+  it("lands a list page whose gain is the shape, where no checked fact and no sibling page exists", async () => {
+    const { canonicalUrlKey: ck6 } = await import("@/domains/evidence/snapshot");
+    const URL_R = "https://www.iranopedia.com/persian-rugs";
+    // A HUB PAGE AS THEY REALLY ARE: heading straight into heading, so no passage is long enough to be a rewrite
+    // target. That is exactly the page the synthesis exemption used to be denied to.
+    const body = { url: URL_R, title: "Persian Rugs", h1: "Persian Rugs", metaDescription: null, vocabulary: "",
+      headings: ["Tabriz", "Kashan", "Kerman"],
+      passages: ["Persian rugs come in many types, woven city by city.",
+        "Tabriz rugs are knotted tightly and their patterns hold fine detail.",
+        "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border."] };
+    const page = { url: URL_R, content: { wordCount: 400, title: body.title, h1: body.h1, outline: body.headings }, search: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
+    const rival = { url: "https://rival.example/rug-types", domain: "rival.example", engines: [], examplePrompts: [], appearances: [{ query: "types of persian rugs" }],
+      extract: { title: "Rug Types", h1: null, wordCount: 2000, headings: ["Knot density"], faqCount: 0, entityNames: [], openingSample: "", hasList: true } };
+    const snapshot = { ownedPages: [page], research: { serpEvidence: [{ query: "types of persian rugs", organic: [{ rank: 1, url: rival.url }] }], winningPages: [rival] },
+      sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+    const card = prop({ id: `${TENANT}::/persian-rugs::existing_edit::ai_answer_gap`, pagePath: "/persian-rugs", pageUrl: URL_R,
+      changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "types of persian rugs",
+      treatment: "add_answer_section", limitations: [], evidence: { query: "types of persian rugs", hints: [], evidenceRefCount: 1 },
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
+    factStore.rows = []; // NO checked fact anywhere, which is the production reality this page has always been in
+    bodyStore.map = new Map([[ck6(URL_R), body]]);
+    const L1 = "Persian rugs are named for the city that wove them, and the weave is what tells the types apart.";
+    const L2 = "Tabriz rugs are knotted tightly, which is what lets their patterns hold fine detail.";
+    const L3 = "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border.";
+    const why = new Map<string, string>();
+    const run = async () => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
+        after: `${L1}\n${L2}\n${L3}`, naturalHeading: "How the main types differ",
+        claims: [{ text: L1, supportedBy: ["page-copy-1"] }, { text: L2, supportedBy: ["page-copy-2"] }, { text: L3, supportedBy: ["page-copy-3"] }] } }) } as never);
+    const landed = await run();
+    // READY, with no gate having fired: the deadlock is what kept this at needs_review on every production pass.
+    expect({ s: landed[0]!.status, w: [...why.values()] }).toEqual({ s: "ready", w: [] });
+    // AND THE BAR DID NOT MOVE: the same copy as ONE line is a restatement, not a structure, and is still refused.
+    const why2 = new Map<string, string>();
+    const thin = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why2,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
+        after: L1, naturalHeading: "How the main types differ", claims: [{ text: L1, supportedBy: ["page-copy-1"] }] } }) } as never);
+    expect(thin[0]!.status).toBe("ready"); // no deterministic gate can arm without a citable id, which is why the editor is instructed instead
+    bodyStore.map = null; factStore.rows = []; });
 });

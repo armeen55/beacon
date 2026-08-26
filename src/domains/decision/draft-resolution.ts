@@ -108,12 +108,10 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   if ((body?.passages ?? []).length === 0) return { resolution: "acquire_page_source", need: { kind: "page_source", query: q, url: page.url, reasonCode: "page_unread" } };
   const serpRow = (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === qk) ?? null;
   if (!serpRow) return { resolution: "acquire_serp", need: { kind: "serp", query: q, reasonCode: "no_exact_serp" } };
-  const extracts = new Set((snapshot.research?.winningPages ?? []).filter((w) => w.extract).map((w) => canonicalUrlKey(w.url)));
-  // A PUBLISHER'S FINAL NO IS NOT A READING TO REQUIRE: the bundle producer already skips robots-blocked winners, and this rung minted the same impossible reddit read on every pass, retiring and re-minting it forever while every drive's box burned on the retry.
-  const finalNo = new Set((snapshot.research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
-  const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url)) && !finalNo.has(canonicalUrlKey(o.url))) ?? null;
-  if (unread) return { resolution: "acquire_competitor_page", need: { kind: "competitor_page", query: q, url: unread.url, reasonCode: "winner_unread" } };
-  // THE MISSING INFORMATION ITSELF, once every winner is read: the rivals' own comparison names the subjects
+  // THE MISSING INFORMATION ITSELF, AHEAD OF READING ONE MORE RIVAL. This sat BEHIND a rung demanding an extract for
+  // each of the top FIVE organic rivals, while the acquisition that rung mints banks at most THREE for a query, so the
+  // ladder could never reach the only rung that banks a NEW external fact and the writer never received one. A gap the
+  // comparison has ALREADY established needs no further rival read to act on: the rivals' own comparison names the subjects
   // NOTHING on this page mentions, and the deadlock this rung closes is exactly that a rival may identify what
   // is missing while its copy may support nothing, the fact check re-checked only claims the page ALREADY makes,
   // and the writer therefore never received one new authorized fact. The requirement carries the missing topic
@@ -124,6 +122,12 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   const owedTopic = compared.flatMap((c) => c.missing.map((m) => ({ topic: m, url: c.url }))).find((m) => !answered.has(m.topic.trim().toLowerCase()));
   if (owedTopic) return { resolution: "acquire_factual_source",
     need: { kind: "factual_source", query: `${owedTopic.topic} ${q}`.slice(0, 120), url: page.url, reasonCode: "missing_information", missingTopic: owedTopic.topic, rivalUrl: owedTopic.url } };
+  // NO GAP ESTABLISHED YET, so read the next winner that could establish one. This is the FALLBACK now, never the toll gate.
+  const extracts = new Set((snapshot.research?.winningPages ?? []).filter((w) => w.extract).map((w) => canonicalUrlKey(w.url)));
+  // A PUBLISHER'S FINAL NO IS NOT A READING TO REQUIRE: the bundle producer already skips robots-blocked winners, and this rung minted the same impossible reddit read on every pass, retiring and re-minting it forever while every drive's box burned on the retry.
+  const finalNo = new Set((snapshot.research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
+  const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url)) && !finalNo.has(canonicalUrlKey(o.url))) ?? null;
+  if (unread) return { resolution: "acquire_competitor_page", need: { kind: "competitor_page", query: q, url: unread.url, reasonCode: "winner_unread" } };
   if (facts.length === 0 || judge === "acquire_factual_source") return { resolution: "acquire_factual_source", need: { kind: "factual_source", query: q, url: page.url, reasonCode: "facts_owed" } };
   return { resolution: "no_valid_treatment" };
 }
