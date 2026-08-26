@@ -61,7 +61,7 @@ export type {
   ProduceProposalsResult,
   ProducerOutcome,
 } from "./produce-proposals";
-export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS } from "./produce-proposals";
+export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS, isQuietDay } from "./produce-proposals";
 /** THE ONE PURE RESOLVER for where a search the assistants ran ends up. Decision persists its outcome and
  *  Visibility renders the same one, so the queue and the screen can never disagree about a search. */
 export { resolveFanoutCase } from "./producers/ai-cases";

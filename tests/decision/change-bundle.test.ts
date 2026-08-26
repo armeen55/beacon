@@ -1466,3 +1466,33 @@ describe("typed refusal contract", () => {
     expect(thin[0]!.status).toBe("ready"); // no deterministic gate can arm without a citable id, which is why the editor is instructed instead
     bodyStore.map = null; factStore.rows = []; });
 });
+
+/** THE DAY THE EDITOR NEVER OPENED. `acted` is the CTR ladder's verdict, and that ladder returns
+ *  `act_existing_page` for exactly ONE cause: a title deficit. So on every day no page had a title deficit,
+ *  `quietDay` was true, the editor declared NO work, and the AI-answer cards this pass had already minted for
+ *  /cities, /persian-rugs and the rest were persisted as research and never drafted. Live on 2026-08-26 the
+ *  producer logged "nothing earned an action this pass: judged 225, watching 69" while six substantive cards sat
+ *  on file, and the funded plan held only a winning-pattern read and a new-page topic. That is the whole reason
+ *  this account has shipped titles and descriptions and not one substantive body change. */
+describe("a day holding writable AI work is not a quiet day", () => {
+  const card = (treatment: string | null) => ({ treatment });
+  it("opens the editor when a writable AI card exists, even though nothing earned a title action", async () => {
+    const { isQuietDay } = await import("@/domains/decision/produce-proposals");
+    // THE LIVE SHAPE: no title deficit anywhere (acted 0, deep 0), AI cards on file that CAN be written, and an
+    // operator whose queue owes one finished change. That day is NOT quiet, and the editor opens.
+    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 1)).toBe(false);
+    expect(isQuietDay(0, 0, [card("add_answer_section")], 2)).toBe(false);
+    // One writable card among decisions is enough: the editor opens for the one it can actually write.
+    expect(isQuietDay(0, 0, [card("technical_reachability"), card("rewrite_existing_section")], 1)).toBe(false);
+    // A FREE REFRESH NOBODY ASKED FINISHED WORK FROM STILL BUYS NOTHING, which is the rule that keeps an ordinary
+    // page visit from spending: same cards, no shortfall owed.
+    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 0)).toBe(true);
+    // AND THE RULE DOES NOT INVERT: a DECISION treatment is not writing work, so it cannot open the editor even
+    // when work is owed; those go down the typed-debt path instead and buy nothing.
+    expect(isQuietDay(0, 0, [card("technical_reachability"), card("consolidate_or_differentiate"), card("new_page")], 5)).toBe(true);
+    expect(isQuietDay(0, 0, [], 5)).toBe(true);
+    // A page that DID earn the title verdict still opens the editor, exactly as before.
+    expect(isQuietDay(1, 0, [])).toBe(false);
+    expect(isQuietDay(0, 1, [])).toBe(false);
+  });
+});
