@@ -109,7 +109,9 @@ function gainResolution(judge: DraftResolution, snapshot: EvidenceSnapshot, card
   const serpRow = (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === qk) ?? null;
   if (!serpRow) return { resolution: "acquire_serp", need: { kind: "serp", query: q, reasonCode: "no_exact_serp" } };
   const extracts = new Set((snapshot.research?.winningPages ?? []).filter((w) => w.extract).map((w) => canonicalUrlKey(w.url)));
-  const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url))) ?? null;
+  // A PUBLISHER'S FINAL NO IS NOT A READING TO REQUIRE: the bundle producer already skips robots-blocked winners, and this rung minted the same impossible reddit read on every pass, retiring and re-minting it forever while every drive's box burned on the retry.
+  const finalNo = new Set((snapshot.research?.winningPages ?? []).filter((w) => !w.extract && w.readOutcome?.state === "robots_blocked").map((w) => canonicalUrlKey(w.url)));
+  const unread = serpRow.organic.filter((o) => canonicalUrlKey(o.url) !== canonicalUrlKey(page.url)).slice(0, 5).find((o) => !extracts.has(canonicalUrlKey(o.url)) && !finalNo.has(canonicalUrlKey(o.url))) ?? null;
   if (unread) return { resolution: "acquire_competitor_page", need: { kind: "competitor_page", query: q, url: unread.url, reasonCode: "winner_unread" } };
   // THE MISSING INFORMATION ITSELF, once every winner is read: the rivals' own comparison names the subjects
   // NOTHING on this page mentions, and the deadlock this rung closes is exactly that a rival may identify what
