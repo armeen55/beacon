@@ -560,7 +560,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (!proposals.some((x) => x.id === p.id) && !at.some((k) => taken.has(k))) { proposals.push(p); await persistIfChanged(p);
       const key = DRAFT_BUDGET.keyOf(p), q = p.primaryQuery;
       const hasSerp = snapshot.research.serpEvidence.some((e) => canonicalQueryKey(e.query) === canonicalQueryKey(q));
-      const need = p.treatment === "technical_reachability" && p.pageUrl ? { kind: "page_source" as const, query: q, url: p.pageUrl, reasonCode: "reachability_check" }
+      const hasFetch = snapshot.ownedPages.some((o) => o.content != null && pageKeys(o.url).some((k) => pageKeys(p.pageUrl).includes(k))); // the reading this treatment waits on, already banked: minting it again bought the same page every pass while the decision never moved
+      const need = p.treatment === "technical_reachability" && p.pageUrl && !hasFetch ? { kind: "page_source" as const, query: q, url: p.pageUrl, reasonCode: "reachability_check" }
         : p.treatment === "consolidate_or_differentiate" && !hasSerp ? { kind: "serp" as const, query: q, reasonCode: "split_owner_undecided" }
         : p.treatment === "new_page" && !hasSerp ? { kind: "serp" as const, query: q, reasonCode: "new_page_comparison" } : null;
       if (need && !evidenceOwed.has(key)) { evidenceOwed.set(key, { ...need, reason: `the ${p.treatment} decision waits on this exact reading`, workKey: "" }); file(key, "evidence_required", false, need.reasonCode); } }

@@ -227,7 +227,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       && (o.retrievedResults != null || instrumentFacts(o.engine, o.observationMode).retrievalReporting));
     const stage = passedOver ? ("owned_retrieved_not_cited" as const) : mentioned ? ("owned_mentioned_not_cited" as const)
       : retrievalCapable ? ("rivals_cited_own_not_retrieved" as const) : ("own_not_in_reported_sources" as const);
-    const unreach = stage === "rivals_cited_own_not_retrieved";
+    const unreach = stage === "rivals_cited_own_not_retrieved" && match.page.content == null; // the card's own rule: an access problem is ruled out the moment a fetch is on file, so a page whose stored crawl exists moves on to content work instead of waiting on reachability forever
     const standLine = stand.answers > 0 ? `Across ${count(stand.answers, "stored answer")} on file (${engineList(stand.engines)}), this site is cited on ${stand.cited}${stand.lastCitedAt ? `, last on ${dayLabel(stand.lastCitedAt)}` : ""} and retrieved on ${stand.retrieved}.` : "";
     const recurLine = w ? `Over the stored window this question ran on ${count(w.days.size, "day")} across ${count(w.engines.size, "assistant")}, and ${count(w.reporting, "answer")} reported sources.` : "";
     // THE ASSISTANTS' OWN FOLLOW-UP SEARCHES behind this question, recurring ones only, off the same projection Visibility renders: the cluster travels with the card into shipment scope, so Results can remeasure it.
@@ -372,7 +372,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     }
     const path = pathOf(fit.match.page.url), stage = evidence.stage!;
     const readOver = stage === "owned_retrieved_not_cited";
-    const unreachF = stage === "rivals_cited_own_not_retrieved";
+    const unreachF = stage === "rivals_cited_own_not_retrieved" && fit.match.page.content == null; // same rule as above: a banked fetch settles the reachability question
     const rival = row.rivalPages[0] ?? null;
     // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a
     // subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the
