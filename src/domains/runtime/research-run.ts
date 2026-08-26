@@ -60,9 +60,6 @@ export type ResearchRunProgress = {
   /** THE DAY THIS RUN COULD NOT BUY A CASE'S COMPETING DOMAINS because the spending ceiling was reached, and which cases those were. Day-scoped like the extra-sample grant, so it clears by rollover and the case receipt
    *  says "capped" about the pass that was actually capped, not about every pass since. */
   capped?: { day: string; caseIds: string[] };
-  /** How many continuation hops this account has already been given on `day`. SERVER-COUNTED at database time (patch_research_run_progress increments it inside the update): the hop a browser sends back is a number it
-   *  made up. Day-scoped and inherited by every pass that opens the same day, so a new row never hands out a fresh allowance. Browser recovery only: the daily scheduler never uses hops. */
-  continuations?: { day: string; count: number };
   observationRetries?: { day: string; counts: Record<string, number> }; // how many times each broken question and engine pair has been asked AGAIN today (daily-observations owns the rule); day-scoped and inherited exactly like the markers above, so a provider that refuses one engine all day is not re-bought on every pass forever
   /** The watermark the LAST decide-and-publish pass ran against: which basis, and which version of the research notes. Notes that moved past it are new evidence, which is what makes a second pass on the same day
    *  legitimate instead of redundant. */
@@ -195,8 +192,6 @@ export type ResearchRunRepo = {
   latest(tenantId: string): Promise<ResearchRun | null>;
   /** This account's rows for ONE reporting day, newest first, lean (id + progress): how many passes have already opened today, and what day-scoped state a new one inherits. */
   sameDay(input: { tenantId: string; day: string; limit: number }): Promise<Array<{ id: string; progress: ResearchRunProgress }>>;
-  /** Count ONE continuation hop for `day` on the account's latest row and return the day's new total, or null when it could not be counted (no row yet, or the write did not land). */
-  countContinuation(input: { tenantId: string; day: string }): Promise<number | null>;
 };
 
 function mapRow(r: Record<string, unknown>): ResearchRun {
@@ -295,15 +290,6 @@ const supabaseRepo: ResearchRunRepo = {
     if (error != null) throw new Error(error.message ?? String(error));
     return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({ id: String(r.id), progress: (r.progress as ResearchRunProgress | null) ?? {} }));
   },
-  // THE COUNT IS COMPUTED WHERE IT IS STORED: the row id is all this reads, and the increment and the merge belong to the update itself (read-modify-write let two tabs both read 0 and both write 1).
-  async countContinuation({ tenantId, day }) {
-    const { data, error } = await getSupabaseAdmin().from("research_runs").select("id")
-      .eq("tenant_id", tenantId).order("started_at", { ascending: false }).limit(1).maybeSingle();
-    if (error != null || data == null) return null;
-    const landed = await patchRunProgress(tenantId, String((data as { id: string }).id), {}, { key: "continuations", day });
-    const held = landed?.continuations;
-    return held?.day === day && Number.isFinite(held.count) ? held.count : null;
-  },
 };
 
 let repo: ResearchRunRepo = supabaseRepo;
@@ -328,7 +314,7 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
     if (out.decided == null && p.decided != null) out.decided = p.decided;
     if (out.extraSamples == null && p.extraSamples?.day === day) out.extraSamples = p.extraSamples;
     if (out.capped == null && p.capped?.day === day) out.capped = p.capped;
-    if (out.continuations == null && p.continuations?.day === day) out.continuations = p.continuations; if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
+    if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
     if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
     // THE DAY'S TOP-UP MEMORY TRAVELS WITH THE DAY, not with the run. Without this every extra same-day pass started from an empty attempted list, re-funded the same two failing pages and could never reach the third (Codex, 2026-08-22).
     if (out.replenish == null && p.replenish?.day === day) out.replenish = p.replenish;
@@ -349,7 +335,7 @@ async function inheritDayState(run: ResearchRun, owner: string, priors: readonly
 /** Inherit the day's state, but ONLY for a row that cannot already know it: a resumed run carrying any of it IS the day's memory and pays for no read. */
 async function withDayState(run: ResearchRun, owner: string): Promise<ResearchRun> {
   const p = run.progress ?? {};
-  if (p.decided != null || p.extraSamples != null || p.capped != null || p.continuations != null || p.synthesisAttempted != null || p.observationRetries != null) return run;
+  if (p.decided != null || p.extraSamples != null || p.capped != null || p.synthesisAttempted != null || p.observationRetries != null) return run;
   const priors = await repo.sameDay({ tenantId: run.tenant_id, day: run.cycle_key.slice(-10), limit: DAILY_PASS_RUNAWAY_CEILING })
     .catch(() => [] as DayRow[]);
   return inheritDayState(run, owner, priors);

@@ -758,10 +758,10 @@ export type RefreshAllConnectedResult = {
  *   same freshness contract the per-source actions use.
  * - Zero connected → `{ ranAt, results: [] }`.
  */
-/** ONE bounded research hop of whatever is unfinished, and whether more is owed. This is the recovery
- *  seam behind the Update data button: one request that claims the run's lease for itself, with the
- *  day's real count kept on the account's own row so the `hop` a caller passes is a REPORT, never an
- *  authority. The daily round itself is the scheduler's job, not this action's. */
+/** The WHOLE due list in one press. This is the recovery seam behind the Update data button: a
+ *  server-owned loop that keeps running canonical passes until the work is done, the press budget
+ *  runs out, or nothing durable moves; the `hop` it returns is a report of cycles run, never an
+ *  allowance. The daily round itself is the scheduler's job, not this action's. */
 export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean; blocker?: string }> {
   const tenantId = await currentTenantId().catch(() => "");
   return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };

@@ -104,9 +104,6 @@ function memRepo(): { repo: RR.ResearchRunRepo; rows: RR.ResearchRun[] } { const
     async latest(t) { const m = newestFirst(t)[0]; return m ? { ...m } : null; },
     async sameDay({ tenantId, day, limit }) {  // The reporting day rides on the tail of BOTH cycle-key shapes, which is how the day's rows are found.
       return newestFirst(tenantId).filter((x) => x.cycle_key.endsWith(day)).slice(0, limit).map((x) => ({ id: x.id, progress: x.progress ?? {} })); },
-    async countContinuation({ tenantId, day }) {  // THE COUNT IS COMPUTED WHERE IT IS STORED, so the fake sits at the SAME seam the SQL does. A read-modify-write here would pin the very bug the RPC kills: two tabs both reading 0, both writing 1.
-      const row = newestFirst(tenantId)[0]; if (!row) return null; await Promise.resolve(); // the round trip: both callers can be in flight before either patch lands
-      const held = patchProgress(tenantId, row.id, {}, "continuations", day)?.continuations; return held?.day === day && Number.isFinite(held.count) ? held.count : null; },
   }; return { repo, rows }; }
 function freshRepo(): RR.ResearchRun[] { const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); return rows; }
 /** A seeded paused (unleased) today-row a fresh claim can reclaim, plus its rows. */

@@ -12,6 +12,7 @@
  */
 
 export const TENANT_SCOPED_STORES = new Set<string>([
+  "sweep-cursor",
   "imported-results",
   "imported-changes",
   "imported-opportunities",

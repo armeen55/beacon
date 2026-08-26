@@ -160,7 +160,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // EVERY PAID DOOR CLOSED ON THE STACK, not just the two budgets: the model gateway and the provider call
     // each ask the ambient scope before a client is built, so a path this option never reached still refuses.
     const produced = await runWithoutSpendingIf(paused, () => produceProposalsForTenant(tenantId,
-      paused ? { maxDrafts: 0 } : opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts }));
+      paused ? { maxDrafts: 0, zeroSpend: true } : opts.maxDrafts === 0 ? { maxDrafts: 0, zeroSpend: true } : opts.maxDrafts === undefined ? {} : { maxDrafts: opts.maxDrafts })); // maxDrafts 0 means REPUBLISH STORED TRUTH: without zeroSpend the "free" rebuild could still buy sixty page readings
     if (produced?.outcome === "persistence_failed") {
       throw new Error("This pass produced changes but could not save a single one, so your last release was kept instead of stamping a new time on work that cannot be loaded back.");
     }

@@ -78,14 +78,15 @@ type SpecificEditEvidenceRef =
  *   READ / branched on: `recommended` (the `editLifecycleStatus` default and the
  *     "accept it first" gate in app/(shell)/changes/actions.ts), `accepted` (the
  *     Mark-shipped gate + the card's `canMarkShipped`), and `not_found_after_7d`
- *     (proof-timeline/result-pill.ts).
+ *     (written by the measurement sweep; no surface renders it since the
+ *     proof-timeline subsystem was deleted).
  *   NEITHER written nor read: `pushed`, `push_failed`, `verified_live_modified`,
  *     `needs_review`, `wrong_page`, `partially_implemented`, `expired`,
  *     `dismissed`. They exist only in rows a prior generation wrote.
  *
  * Note the consequence, since it is a real product gap and not a typo: nothing in this tree writes `accepted`, so the Mark-shipped affordance only ever unlocks for rows already stored as `accepted`.
  *
- * This union is NOT the proof-timeline pill vocabulary and NOT draft-quality's verdicts. Those are separate vocabularies that happen to share words.
+ * This union is NOT draft-quality's verdict vocabulary; those are separate vocabularies that happen to share words.
  *
  * A missing value reads as `recommended` (the DB column DEFAULT); legacy file rows predate the column entirely.
  */

@@ -286,6 +286,9 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
             const closed2 = again.reason === "target_reached" || again.reason === "candidates_exhausted" ? again.reason : undefined;
             progress = { ...progress, evidenceOwed: remaining,
               replenish: { day: reportingDay(nowFn().getTime()), fingerprint: again.fingerprint, attempted: again.attempted, ...(again.tried && again.tried.length > 0 ? { tried: again.tried } : {}), ...(closed2 ? { closed: closed2 } : {}), ...(again.outcomes ? { outcomes: again.outcomes } : {}) } };
+            // WRITTEN, NOT JUST ASSIGNED: the pause two lines down ends the run through finishRun, which persists
+            // status and spend but never progress, so the redraft's memory only exists if it is stored HERE.
+            if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
             log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
       }
       // AND A READING THAT DID NOT LAND BUYS NOTHING ELSE. Going on to broad keyword or answer work because a

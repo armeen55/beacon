@@ -202,6 +202,12 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const ok = await drive(1, []);
     expect(ok.res.paid.receipts.every((r) => r.outcome !== "produced" || env.store.has(String(r.key)) || ok.landed.length > 0)).toBe(true);
     expect(ok.calls).toBeGreaterThan(0);
+    // ONE LANDING PER DURABLY KEPT ROW, at the settlement and nowhere else. A second land on the same row (the editor
+    // landing again after the settlement already had) only shows at a deficit of TWO or more: it closed the pass a row
+    // early and reported the queue full while it was still short, which starved every replenish drive in production.
+    const two = await drive(2, []);
+    expect(two.res.paid.readyShortfall).toBe(2 - two.landed.length); // the receipt owns up to exactly what the store took, at a deficit the old double landing lied about
+    expect(two.calls).toBeGreaterThanOrEqual(ok.calls); // and a bigger deficit never does less work
   });
   /** EVERY PAID FAMILY SHARES THE ONE DURABLE READY TARGET, proven across families through the real producer and store: an EARLY family's durably kept Ready row fills the shortfall, and the generic editor then makes ZERO paid calls; the same row failing to save fills nothing, and the pass keeps working. The landing hole this closes was live: budget.land() ran only through the generic editor, so new-page, factual, deep-bundle and field work saved Ready without reducing the deficit and later families kept spending past a full queue. */
   it("an early family's durable Ready row stops every later family, and its failed save stops nothing", async () => {

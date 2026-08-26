@@ -769,9 +769,10 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const snap = { ownedPages: PATHS.map((x) => ({ url: URL_OF(x), content: { wordCount: 400, title: `Phrases ${x}`, h1: `Phrases ${x}`, outline: ["Overview"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT } };
       const SUMMARY = "Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.";
       const run = async (readyTarget: number, settled: boolean) => { const asked: string[] = [];
+        const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90, readyTarget });
         const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
-          judge: async () => OKJ as never, settle: async () => settled,
-          budget: DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90, readyTarget }),
+          judge: async () => OKJ as never, settle: async () => { if (settled) budget.land(); return settled; }, // the settlement is the ONE lander, exactly as persistAndFile lands in production
+          budget,
           complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
         return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
       // Owing nothing, the shared manifest funds nothing: no family draws, whatever it was going to write.
@@ -779,6 +780,10 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       // One owed and the store KEEPS the first one: the pass stops there and never buys the other two.
       const landed = await run(1, true);
       expect(landed.asked).toBe(1);
+      // TWO owed and the store keeps each: exactly two drafts, never one. A second land on the same kept row (the
+      // editor landing again after the settlement already had) closed a deficit of two after ONE row, so every
+      // replenish drive in production stopped a row short of its own target (final review, P1).
+      expect((await run(2, true)).asked).toBe(2);
       // One owed and the store keeps NOTHING: the same copy is written and the shortfall still stands, so the walk carries on to every remaining candidate instead of closing on work nobody can act on.
       const lost = await run(1, false);
       expect(lost.asked).toBe(3);

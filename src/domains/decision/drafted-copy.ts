@@ -642,7 +642,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
               ? "This sentence is written off both pages' stored copy and search rows as last read, so check it reads naturally where it lands before you publish it."
               : "This answer is written off the page's own title, headings and stored copy as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it."] };
       out.push(finished);
-      if (await opts.settle?.(finished)) budget.land();
+      await opts.settle?.(finished); // the SETTLEMENT is the one lander; a second land here closed a five-row deficit after three rows
       continue;
     }
     if (slug === "thin_page") {
