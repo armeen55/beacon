@@ -23,6 +23,7 @@ import { loadChangeProposals } from "./proposal-store";
 import { rankProposals } from "./rank-proposals";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { openHold } from "./completeness";
+import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
 import { CAUSE_LEVERS, unsettledCause, withholdReason } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
@@ -162,7 +163,6 @@ export async function loadProposalQueue(
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
-  const topicOf = (p: ChangeProposal): string => p.primaryQuery.trim().toLowerCase();
   // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at
   // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is
   // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it
@@ -179,11 +179,19 @@ export async function loadProposalQueue(
   // genuine opportunities the account had already paid to find. Every standing row is ranked and shown; what the
   // boundary decides is which of the three lanes it lands in and which controls its card carries.
   const all = standing;
-  // A bundle REPLACES its own shallow rows: an existing-page bundle covers that PAGE, a new-page bundle covers that TOPIC. READ AFTER the basis filter above, never before it: a bundle from a retired generation can never be shown, and one that censored the current card for its own page took a whole split off the queue rather than the wrong half of it (2026-08-14). A row that cannot be presented may not suppress one that can.
-  const bundledPages = new Set(all.filter((p) => p.bundle && p.kind === "existing_edit").map((p) => p.pagePath));
-  const bundledTopics = new Set(all.filter((p) => p.bundle && p.kind === "new_page").map(topicOf));
-  const current = all.filter((p) => p.bundle
-    || (p.kind === "existing_edit" ? !bundledPages.has(p.pagePath) : !bundledTopics.has(topicOf(p))));
+  // A CHANGE REPLACES ONLY THE WORK IT ACTUALLY OVERWRITES (operator, 2026-08-26). This asked instead whether any
+  // OTHER row on the page carried a bundle, and dropped every non-bundle row when one did. Live that hid eight
+  // standing rows behind a single table-row bundle, three of them already shown to the operator as Ready: the
+  // /farsi-numbers zero explainer, and the Late Safavid linked paragraph and title. One page is not one opportunity,
+  // so the question is what each row WRITES: a bundle rewriting a title still takes the plain title rewrite with it,
+  // while a table row, a heading, a schema block and a title on one page are four changes and all four stand.
+  // READ AFTER the basis filter above, never before it: a row that cannot be presented may not suppress one that can.
+  // Richest first, so the bundle that subsumes several atomic cards is the one kept, and ties break on id so the
+  // queue is the same on every read. Ranking has not run yet, which is why worth cannot decide it here.
+  const held: ChangeProposal[] = [];
+  for (const p of [...all].sort((a, b) => mutationFootprint(b).size - mutationFootprint(a).size || a.id.localeCompare(b.id)))
+    if (!held.some((k) => footprintsOverlap(k, p))) held.push(p);
+  const current = all.filter((p) => held.includes(p));
   const demotedStaleBasis = live.length - standing.length;
   // WHY the queue is empty decides what may be said: a raised bar is true of an older or missing basis and a lie when the account simply could not be read, so the surfaces get the reason, not just the number.
   const basisUnreadable = currentBasis == null;

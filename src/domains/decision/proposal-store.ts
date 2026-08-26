@@ -10,7 +10,7 @@ import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
 import { confirmedVersion, deliverableGaps, openHold } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
-import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy"; import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
 const TABLE = PROPOSAL_TABLE;
@@ -55,33 +55,23 @@ export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "reco
 }
 
 /** The subject segment of the proposal's own id (`tenant::subject::kind::suffix`): the page for an edit, the research case for a new page. Derived FROM the id, so one id can never need two current rows. */
-function anchorOf(p: ChangeProposal): string {
-  const parts = p.id.split("::");
-  const raw = parts.length >= 3 ? (parts[1] ?? "") : (p.pagePath ?? p.pageUrl ?? p.pageLabel ?? "");
-  return raw.trim().toLowerCase();
+function anchorOf(p: ChangeProposal): string { const parts = p.id.split("::");
+  return (parts.length >= 3 ? (parts[1] ?? "") : (p.pagePath ?? p.pageUrl ?? p.pageLabel ?? "")).trim().toLowerCase();
 }
 
 /** The site this change lands on, from its own URL. Informational: the index is keyed on account, case,  page and family. */
 function siteOf(p: ChangeProposal): string {
-  const url = (p.pageUrl ?? "").trim();
-  if (!url) return "";
+  const url = (p.pageUrl ?? "").trim(); if (!url) return "";
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "").toLowerCase(); }
   catch { return url.toLowerCase(); }
 }
 
-type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string };
-/** WHAT THIS ROW ACTUALLY WRITES, and the only thing two rows on one page can genuinely collide over. A BUNDLE IS KEYED ON WHAT IT WRITES: 27 anchor-label changes on one hub are 27 changes, and keying every bundle to the empty slot collided them onto one row, so the set of its components IS its mutation. Uniqueness was (tenant, case, page, family), and `title`, `meta` and `h1` all share `title-family`, so a page could carry a new title OR a new description and never both: /iran-animals/asiatic-cheetah lost its description the moment its title landed. A body change is keyed by its topic too, because two sections answering different questions are two changes, not one hypothesis twice. Bundles and new pages keep the empty slot they have always had. */
-export const NO_FIELD_KIND: ReadonlySet<string> = new Set(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]); /** Kinds writing something no `recommendedChange.field` can name: a bundle of only these is keyed on its components, so 27 anchor labels are 27 changes, while a bundle rewriting a title still shares the title slot with a plain title edit because they really would overwrite each other. */
-const mutationSlot = (p: ChangeProposal): string => { const cs = p.bundle?.components ?? [];
-  if (cs.length > 0 && cs.every((c) => NO_FIELD_KIND.has(c.kind))) return cs.map((c) => `${c.kind}:${c.page ?? ""}:${(c.where ?? c.after ?? "").trim().slice(0, 48)}`).sort().join("|").slice(0, 180);
-  if (p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return ""; const f = p.recommendedChange.field;
-  return f === "section" || f === "answer_block" ? `${f}::${canonicalQueryKey(p.primaryQuery ?? "")}` : f; };
-
+type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string }; /** WHAT THIS ROW WRITES is `mutationFootprint`, shared with the queue so storage and presentation cannot drift; `mutation_key` is its SORTED TEXT and the index over it is a backstop against an EXACT duplicate only, because a bundle writing {title, meta} and a plain title rewrite hold different text and still collide over the title, which is why real overlap is decided by `footprintsOverlap` against the decoded rows. NO_FIELD_KIND names the kinds no `recommendedChange.field` can express, kept for the producer's sweep, which may only retire work it could have re-derived and never mints one. */
+export const NO_FIELD_KIND: ReadonlySet<string> = new Set(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]);
 /** PURE: the hypothesis this proposal is an answer to. */
-function identityOf(p: ChangeProposal): Identity {
-  const anchor = anchorOf(p);
+function identityOf(p: ChangeProposal): Identity { const anchor = anchorOf(p);
   return { site: siteOf(p), case_id: p.kind === "new_page" ? anchor : "",
-    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: mutationSlot(p) };
+    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: footprintKey(p) };
 }
 
 /** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
@@ -165,6 +155,8 @@ async function setDisposition(tenantId: string, id: string, disposition: Termina
 
 /** The one token that lets a save move a row INTO implemented. It is module-private and handed out only by transitionProposalToImplemented, so "done" is reachable through the orchestrated transaction alone: a direct save carrying the implemented status without it is refused. The incident repair that orphaned  three implementations was exactly such a save. */
 const IMPLEMENTED_TRANSITION = Symbol("implemented-transition");
+/** The token a RETIREMENT saves under. Taking a draft back may not take anything else with it: the save exists only so the row is ON FILE before it is retired, and left to run the supersession path a draft that covers a narrower live card would retire that card on its way out and leave nothing writing it. */
+const NO_HANDOVER = Symbol("no-handover");
 
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol): Promise<SaveResult> {
@@ -184,18 +176,26 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
   const ident = identityOf(proposal);
   try {
     const sb = getSupabaseAdmin();
-    // Everything already filed under this hypothesis, in one read.
+    // EVERYTHING ON THIS PAGE, narrowed below to what this change actually collides with. Filtering here on `action_family` and `mutation_key` too made overlap mean "identical key", so the store could not see that a bundle writing {title, meta} overwrites a plain title rewrite. ORDERED, so the row picked to step aside is the same on every run and not whichever the cut returned first; the limit is generous because /iran-animals alone carries twenty-seven live anchor rows on one page.
     const { data, error } = await sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
-      .eq("case_id", ident.case_id).eq("page_key", ident.page_key).eq("action_family", ident.action_family).eq("mutation_key", ident.mutation_key).limit(50);
+      .eq("case_id", ident.case_id).eq("page_key", ident.page_key).order("id", { ascending: true }).limit(200);
     if (error) {
       log.error("[proposal-store] canonical read failed, nothing was written", {
         tenantId: proposal.tenantId, id: proposal.id, error: error.message });
       return "failed";
     }
-    const rows = (data ?? []) as CanonRow[];
-    // This id may have been filed under a DIFFERENT family last time (a bundle whose components changed), so it is looked up by id as well before anything is written.
+    // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
+    const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) }));
+    const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
     const mine = rows.find((r) => r.id === proposal.id) ?? (await rowById(proposal.tenantId, proposal.id));
-    const current = rows.find((r) => r.terminal_disposition == null) ?? null;
+    // A NEIGHBOUR IS ONLY TAKEN OVER WHEN THIS CHANGE WRITES EVERYTHING IT WROTE. Retiring on a bare intersection let a title-only rewrite consume a bundle that also moved the canonical and added a link, throwing the rest of that bundle's work away with no receipt; PARTIAL overlap is refused below instead, so two live rows can never both claim one edit and nothing is ever silently dropped. An unreadable neighbour counts as partial: it may be carrying anything.
+    const live = transition === NO_HANDOVER ? [] : onPage.filter((e) => e.row.terminal_disposition == null && e.row.id !== proposal.id && (!e.stored || footprintsOverlap(e.stored, proposal)));
+    const partial = live.find((e) => !e.stored || !footprintCovers(proposal, e.stored));
+    if (partial) { log.info("[proposal-store] this change writes part of what another live change writes, so it is not saved beside it",
+      { tenantId: proposal.tenantId, holding: partial.row.id, draft: proposal.id }); return "blocked"; }
+    const overtaken = live.map((e) => e.row);
+    // THE PREDECESSOR IS THE ROW HOLDING THE INDEX KEY THIS ONE IS ABOUT TO CLAIM, not whichever id sorted first: superseding any other leaves that key held, the insert violates the current-row index, and the function answers "failed" on every future pass in the same order, for ever.
+    const current = (live.find((e) => e.stored && footprintKey(e.stored) === ident.mutation_key) ?? live[0])?.row ?? null;
 
     // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row shut through a whole generation while the readings under it changed completely, and the redraft the moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that will not decode keeps its refusal, because an unreadable answer is not a moved one.
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
@@ -210,15 +210,12 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     }
 
     const version = (mine?.proposal_version ?? current?.proposal_version ?? 0) + 1;
-    // One identity, one current row: the predecessor steps aside BEFORE the successor lands, because the index will not hold both at once.
-    const handover = current && current.id !== proposal.id ? current : null;
-    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history mid-measurement orphans the proof. Only a row still waiting on them may step aside.
-    const holdingStatus = handover?.status ?? null;
-    if (handover && holdingStatus !== "ready" && holdingStatus !== "needs_review") {
-      log.info("[proposal-store] this page already carries a change I am measuring, so the new draft is not saved", {
-        tenantId: proposal.tenantId, holding: handover.id, status: holdingStatus, draft: proposal.id });
-      return "blocked";
-    }
+    // One mutation, one current row: the predecessor steps aside BEFORE the successor lands, because the index will not hold both at once.
+    const handover = current;
+    // A CHANGE THE OPERATOR ALREADY MADE IS NOT MINE TO RETIRE: pushing an implemented row into history mid-measurement orphans the proof. Only a row still waiting on them may step aside, and it is asked of EVERY row this one would overwrite, not just the first: a bundle taking over three atomic cards may not quietly retire the one of them already being measured.
+    const measuring = overtaken.find((r) => r.status !== "ready" && r.status !== "needs_review");
+    if (measuring) { log.info("[proposal-store] this edit is already carried by a change I am measuring, so the new draft is not saved",
+      { tenantId: proposal.tenantId, holding: measuring.id, status: measuring.status, draft: proposal.id }); return "blocked"; }
     if (handover) {
       // ONE database operation: guard, step-aside and landing commit together or not at all, so a crash mid-handover never leaves this hypothesis with no current answer. The scoping proof is made first.
       log.info("[proposal-store] superseding", { id: handover.id, by: proposal.id, version });
@@ -235,6 +232,9 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
           tenantId: proposal.tenantId, id: proposal.id, answer: data ?? null, error: error?.message ?? null });
         return data === "blocked" ? "blocked" : "failed";
       }
+      // A bundle can overwrite SEVERAL atomic cards at once. The function hands over one predecessor atomically and every other row this change overwrites is retired straight after, pointing at the successor, so the operator is never handed two instructions for one edit. AFTER the successor lands, never before: a crash between the two leaves a duplicate the next pass clears, where the reverse order would retire work with nothing replacing it.
+      for (const extra of overtaken.filter((r) => r.id !== handover.id)) if (!(await setDisposition(proposal.tenantId, extra.id, "superseded", proposal.id, "superseded: another change now writes this same edit")))
+        log.error("[proposal-store] a row this change overwrites did not step aside", { tenantId: proposal.tenantId, id: extra.id, by: proposal.id });
       return "saved";
     }
     try { await dualWriteUpsertScoped(TABLE, [rowFor(proposal, ident, version)], "id", proposal.tenantId); }
@@ -290,7 +290,7 @@ export async function answerReviewedProposal(tenantId: string, id: string, versi
 
 /** BEACON'S OWN RETRACTION. A draft a safety gate refused is not queued work and not a rejection the operator has to read: it lands as history under the disposition that says I took it back. Fail-soft. */
 export async function withdrawChangeProposal(proposal: ChangeProposal, reason?: string): Promise<boolean> {
-  const saved = await saveChangeProposal(proposal);
+  const saved = await saveChangeProposal(proposal, NO_HANDOVER);
   if (saved === "failed") return false;
   if (saved === "refused") return true; // already withdrawn or dismissed under this basis
   return setDisposition(proposal.tenantId, proposal.id, "withdrawn", null, reason ?? null);

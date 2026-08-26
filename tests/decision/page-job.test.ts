@@ -33,24 +33,20 @@ describe("what one page is for, held durably", () => {
     const again = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); // the row IS the answer: nothing is bought twice
     expect([again.reason, again.job?.job, s.calls()]).toEqual(["read", READING.job, 1]);
     // A page that CHANGED under its reading is still answered, labelled stale, until a pass can afford a fresh one.
-    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);
-  });
+    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);});
   it("says WHY a page has no job instead of answering null five different ways", async () => {
     budget.allowed = true; const db = store();
     expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable"); expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
     // Two subject words is below the schema's floor of three, so the whole reading is refused rather than half kept.
     expect((await pageJobFor("t_fixture", extract("/b"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete, store: db })).reason).toBe("refused");
     budget.allowed = false; expect((await pageJobFor("t_fixture", extract("/c"), { complete: seam(READING).complete, store: db })).reason).toBe("unaffordable"); budget.allowed = true;
-    expect([(await pageJobFor("t_fixture", extract("/d"), { store: db, buy: false })).reason, db.rows.size]).toEqual(["unaffordable", 0]);
-  });
+    expect([(await pageJobFor("t_fixture", extract("/d"), { store: db, buy: false })).reason, db.rows.size]).toEqual(["unaffordable", 0]);});
   it("buys what one pass is allowed, then resumes the rotation where it stopped and wraps around the site", async () => {
     budget.allowed = true; const db = store(false); const six = Array.from({ length: 6 }, (_, i) => extract(`/page-${i}`));
     const pass = async (): Promise<[number, string | null]> => { const s = seam(READING); await loadPageJobs("t_fixture", six, { complete: s.complete, store: db, maxNewReads: 2, priority: 0 }); return [s.calls(), db.at()]; };
     const [bought, first] = await pass(), [, second] = await pass(), [, third] = await pass();
     // Two readings a pass, starting at the page after the last one paid for. Six pages, three passes, back to the beginning.
-    expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);
-  });
-});
+    expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);});});
 describe("what a job changes, and what a missing one may never change", () => {
   it("keeps a section off a page that is not for it and off a rail an essay never goes on", () => {
     // THE SHAPES, none named in the code: one word this whole site carries is not a tie, a shop rail is no place for an essay, and NO VERDICT WITHOUT A READING (what "unknown" licenses is the caller's decision, made on the typed reason). A PAGE ABOUT ONE THING IS NOT THE ANSWER ABOUT EVERYTHING AROUND IT either (a city page covers landmarks, so overlap alone handed it a whole country's), and a page answers for its SUBJECTS, never the prose around them, so a history timeline is not a famous-people page.
@@ -83,6 +79,4 @@ describe("what a job changes, and what a missing one may never change", () => {
     // THE CASPIAN HORSE CLASS: the horse page covers the anchor perfectly, and the names page sharing not one of its subjects still may not link to it. A link is a claim two pages share a subject, read BOTH ways.
     const horse = job({ url: "https://mysite.example/caspian-horse", topics: ["caspian horse", "horse breed"], job: "Describes the Caspian horse breed of Iran.", audience: "horse lovers" });
     const names = job({ url: "https://mysite.example/persian-male-names", topics: ["persian male names", "baby names"], job: "Lists Persian male first names with meanings.", audience: "parents" });
-    expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic"); expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);
-  });
-});
+    expect(linkFit(horse, names, ["caspian", "horse"])).toBe("off_topic"); expect([linkFit(null, stranger, ["farsi"]), linkFit(target, null, ["farsi"])]).toEqual(["unknown", "unknown"]);});});

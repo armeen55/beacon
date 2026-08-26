@@ -30,10 +30,8 @@ describe("the four doors into the deep read", () => {
     const picked = selectDeepCandidates({
       candidates: [cand({ pageUrl: AI_PAGE, query: "saffron price",
         cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) })],
-      coverage: null, limit: 3,
-    });
-    expect(picked).toEqual([]);
-  });
+      coverage: null, limit: 3,});
+    expect(picked).toEqual([]);});
   it("keeps one slot per page: a page carrying AI evidence and a click gap drafts once, by the click door", () => {
     const both = cand({ pageUrl: AI_PAGE, query: "saffron price", action: "act_existing_page", recoverableClicks: 120,
       cause: cause("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "where to buy saffron" }) });
@@ -45,20 +43,15 @@ describe("the four doors into the deep read", () => {
         cand({ pageUrl: AI_PAGE, query: "saffron price",
           cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) }),
         cand({ pageUrl: "https://own.example/haft-seen", query: "haft seen table", recoverableClicks: 80,
-          cause: cause("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }) }),
-      ],
-      coverage: null, limit: 2,
-    });
-    expect([picked.map((p) => p.door), picked[0]!.entry.includes("about 300 clicks short"), picked[1]!.entry.includes("2 of your own pages come up")]).toEqual([["ctr_gap", "cannibalization"], true, true]);
-  });
+          cause: cause("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }) }),],
+      coverage: null, limit: 2,});
+    expect([picked.map((p) => p.door), picked[0]!.entry.includes("about 300 clicks short"), picked[1]!.entry.includes("2 of your own pages come up")]).toEqual([["ctr_gap", "cannibalization"], true, true]);});
   it("keeps the single-door regression path byte-stable: only the click door qualifying picks the old page", () => {
     const picked = selectDeepCandidates({
       candidates: [
         cand({ pageUrl: CTR_PAGE, action: "act_existing_page", recoverableClicks: 300 }),
-        cand({ pageUrl: AI_PAGE, action: "act_existing_page", recoverableClicks: 500 }),
-      ],
-      coverage: null, limit: 3,
-    });
+        cand({ pageUrl: AI_PAGE, action: "act_existing_page", recoverableClicks: 500 }),],
+      coverage: null, limit: 3,});
     expect(picked.map((p) => [p.door, p.pageUrl])).toEqual([["ctr_gap", AI_PAGE]]); });
   /** DOOR 5 WAS UNREACHABLE FOR A GENERATION: nothing anywhere assigned `gap: "recent_decline"`, so the door that finds a page which was earning and stopped could never open. compileCandidates assigns it now, off the page's own two four week windows, and these two pins run the real thing end to end. */
   /** The page's own rate, so the click curve finds nothing wrong and the fall is the only thing left to see: exactly the state a fitted curve puts a real account in. */

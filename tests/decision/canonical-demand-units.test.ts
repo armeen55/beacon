@@ -28,15 +28,12 @@ describe("one audience need across every stream", () => {
     expect(u!.tensions.some((t) => t.includes("grades this commercial"))).toBe(true); expect([u!.volume!.searchVolume, u!.serp!.winners[0]!.domain]).toEqual([8100, "rival.example"]);
     // The prompt joined on shared subject tokens; its answers, credits, rivals and fan-outs ride the unit.
     expect([u!.prompts[0]!.answers, u!.prompts[0]!.credited, u!.prompts[0]!.citedRivals[0]!.domain, u!.fanouts]).toEqual([2, 1, "rival.example", ["persian baby girl names 2026"]]); expect(u!.winningPages[0]!.domain).toBe("rival.example");
-    expect(u!.vocabulary).toContain("What are popular Persian girl names?");
-  });
+    expect(u!.vocabulary).toContain("What are popular Persian girl names?");});
   it("seeds a unit from history alone when the audience vanished, and claims nothing on absent streams", () => {
     const [u] = canonicalDemandUnits({ ...base,
       history: [{ query: "iranian recipes", earlyClicks: 3000, earlyImpressions: 90000, earlyPosition: 4,
         recentClicks: 0, recentImpressions: 0, recentPosition: null, earlyTopPage: "https://x.example/recipes", recentTopPage: null }] });
-    expect([u!.label, u!.history!.lostClicksPerMonth, u!.history!.pageSwapped]).toEqual(["iranian recipes", 300, false]); expect([u!.volume, u!.serp, u!.prompts, u!.winningPages]).toEqual([null, null, [], []]);
-  });
-});
+    expect([u!.label, u!.history!.lostClicksPerMonth, u!.history!.pageSwapped]).toEqual(["iranian recipes", 300, false]); expect([u!.volume, u!.serp, u!.prompts, u!.winningPages]).toEqual([null, null, [], []]);});});
 describe("AI can seed demand, and only exact identity ever joins it (AEO reconstruction, 2026-08-19)", () => {
   const gsc = { pageQueries: [{ page: "https://x.example/girl-names", rows: [{ query: "persian girl names", impressions: 5000, clicks: 300, position: 5 }] }] };
   it("never joins a tracked question onto a unit by shared words alone: the three-token join is deleted", () => {
@@ -58,8 +55,7 @@ describe("AI can seed demand, and only exact identity ever joins it (AEO reconst
       { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["haft seen table items list"], engine, day: `2026-08-0${i + 2}` }));
     const fan = canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "haft seen table items list");
     expect(fan).toBeDefined(); // two assistants across two days: recurring demand no Google row reports
-    expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);
-  });
+    expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);});
   it("carries the parent questions the search was issued from, so the AEO path can join it at all", () => {
     // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
     const runs = ["2026-08-01", "2026-08-02", "2026-08-03"].map((day) => (
@@ -72,6 +68,4 @@ describe("AI can seed demand, and only exact identity ever joins it (AEO reconst
   it("refuses to seed a unit from one same-day sighting on two assistants", () => {
     const runs = ["chatgpt", "gemini"].map((engine) => (
       { promptId: "p1", promptText: "What goes on a haft seen table?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/h" }], fanOutQueries: ["one off curiosity"], engine, day: "2026-08-02" }));
-    expect(canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "one off curiosity")).toBeUndefined();
-  });
-});
+    expect(canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "one off curiosity")).toBeUndefined();});});

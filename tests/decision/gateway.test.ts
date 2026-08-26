@@ -14,9 +14,7 @@ function completedEnvelope(structuredText: string, over: Record<string, unknown>
   return {
     id: "resp_abc123", model: "gpt-5-mini", status: "completed", created_at: 1_753_000_000,
     output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: structuredText }] }],
-    output_text: structuredText, usage: { input_tokens: 1200, output_tokens: 300 }, ...over,
-  };
-}
+    output_text: structuredText, usage: { input_tokens: 1200, output_tokens: 300 }, ...over,};}
 type FetchCapture = { calls: number; url: string | null; body: any };
 /** A fake fetch that records the call and returns the given envelope/status. */
 function fakeFetch(envelope: unknown, opts: { ok?: boolean; status?: number; throwErr?: Error; notJson?: boolean; retryAfter?: string } = {}): { impl: typeof fetch; capture: FetchCapture } {
@@ -27,15 +25,12 @@ function fakeFetch(envelope: unknown, opts: { ok?: boolean; status?: number; thr
     return { ok: opts.ok ?? true, status: opts.status ?? 200, headers: { get: (k: string) => (k.toLowerCase() === "retry-after" ? opts.retryAfter ?? null : null) },
       json: async () => { if (opts.notJson) throw new Error("not json"); return envelope; } } as unknown as Response;
   }) as unknown as typeof fetch;
-  return { impl, capture };
-}
+  return { impl, capture };}
 function baseArgs(over: Partial<StructuredCallArgs> = {}): StructuredCallArgs {
   return {
     promptId: "draft.answer_block", promptVersion: 6, action: "gateway-test", apiKey: "sk-test", model: "gpt-5-mini",
     instructions: "You are a strict JSON generator.", input: "Make a title.", schemaName: "test_schema", zodSchema: SCHEMA,
-    maxOutputTokens: 512, timeoutMs: 30_000, budget: { mode: "caller", note: "test" }, tenantId: "tenant-fixture", ...over,
-  };
-}
+    maxOutputTokens: 512, timeoutMs: 30_000, budget: { mode: "caller", note: "test" }, tenantId: "tenant-fixture", ...over,};}
 const allowBreaker: CostBreakerImpl = { check: async () => ({ tripped: false }) };
 /** EVERY drafter schema the registry holds converts, and converts FULLY STRICT: every object additionalProperties:false with every property required, recursively, through anyOf branches and array items. A schema that drifts out of strict fails only LIVE, as an invalid_response the operator pays for. */
 function assertFullyStrict(n: Record<string, unknown>, at: string): void {
@@ -50,9 +45,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("converts EVERY drafter schema in the registry, with no unsupported construct and nothing left loose", () => {
     for (const kind of Object.keys(SCHEMA_BY_KIND) as Array<keyof typeof SCHEMA_BY_KIND>) {
       const out = strictJsonSchemaFor(SCHEMA_BY_KIND[kind], kind); expect("unsupported" in out, `${kind}: ${(out as { unsupported?: string }).unsupported}`).toBe(false);
-      if (!("unsupported" in out)) assertFullyStrict(out.schema as Record<string, unknown>, kind);
-    }
-  });
+      if (!("unsupported" in out)) assertFullyStrict(out.schema as Record<string, unknown>, kind);}});
   // Every pre-network refusal spends nothing, calls nobody, and SAYS WHY. One promise, so one test.
   it.each([
     ["a tripped global cost breaker", { budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) } }, "blocked_budget", "ceiling reached"],
@@ -106,18 +99,14 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     else if (res.kind === "invalid_response") {
       expect(res.reason).toBe(detail);
       // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
-      if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);
-    }
-  });
+      if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);}});
   it("calls a timeout a timeout by name only, never by wording, because my own deadline brings back no body and no usage receipt", async () => {
     const sig = AbortSignal.timeout(1); await new Promise((r) => setTimeout(r, 5)); // ONE IDENTITY: the NAME on AbortSignal.timeout's reason. Sniffing "abort" out of a message made every dead socket a deadline.
     const err = async (e: Error) => openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(completedEnvelope("{}"), { throwErr: e }).impl }));
-    expect([await err(sig.reason as Error), await err(new Error("socket hang up: request aborted"))].map((r) => [r.kind === "error" && r.timedOut, llmFailureOf(r)])).toEqual([[true, "client_timeout"], [false, "transient"]]);
-  });
+    expect([await err(sig.reason as Error), await err(new Error("socket hang up: request aborted"))].map((r) => [r.kind === "error" && r.timedOut, llmFailureOf(r)])).toEqual([[true, "client_timeout"], [false, "transient"]]);});
   it("floors reasoning-model timeouts to 90s and leaves others alone", () => {
     expect([isReasoningModel("gpt-5-mini"), isReasoningModel("gpt-4o-mini")]).toEqual([true, false]);
-    expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]); });
-});
+    expect([effectiveTimeoutMs("gpt-5-mini", 1_000), effectiveTimeoutMs("gpt-5-mini", 120_000), effectiveTimeoutMs("gpt-4o-mini", 1_000)]).toEqual([90_000, 120_000, 1_000]); });});
 /** A REFUSED CALL IS NOT A PURCHASE, AND AN EMPTY ACCOUNT STOPS ITSELF. The transport threw the provider's error body away and handed back a bare status, so a throttle and an exhausted balance were one event to every caller, and the drafter then billed an ESTIMATE for a call that had bought nothing. */
 describe("openAIStructuredResponse: what a failed call says, and what it stops", () => {
   const credit = (stop: "clear" | "held" | "probe_due" = "clear") => { const seen: string[] = []; return { seen, impl: { peek: async () => stop, claimProbe: async () => (seen.push("claim"), true), trip: async () => { seen.push("trip"); }, clear: async () => { seen.push("clear"); } } }; };
@@ -153,8 +142,7 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const t = { trippedAt: "2026-08-04T12:00:00.000Z", probeAt: null }, at = (iso: string) => new Date(iso); // one probe, fifteen minutes after the stop, and the stamp restarts the wait
     expect([decideCreditBreaker(null, at("2026-08-04T12:00:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:14:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:15:00.000Z")),
       decideCreditBreaker({ ...t, probeAt: "2026-08-04T12:15:00.000Z" }, at("2026-08-04T12:20:00.000Z"))])
-      .toEqual([{ active: false, probe: false }, { active: true, probe: false }, { active: false, probe: true }, { active: true, probe: false }]); });
-});
+      .toEqual([{ active: false, probe: false }, { active: true, probe: false }, { active: false, probe: true }, { active: true, probe: false }]); });});
 /** THE COMPOSITION, NOT THE LAYERS (Codex, 2026-08-22). The live receipt: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because the guards in FRONT of the call consumed the probe the cooldown had just granted and the call behind them then read the fresh stamp and refused itself, so a tripped account could never recover through a replenish drive. Real modules end to end here: the real ledger-backed breaker over one real row, the real guard both the replenish drive and the producer ask (`creditBreakerHeld`), and the real transport. Only Supabase and the wire stand in. The drive's own accounting is proved where it belongs, against the REAL producer, in the runtime and kernel suites. */
 describe("a due probe is spent on the provider call itself, never on a guard in front of it", () => {
   const T = "tenant-fixture", ROW = { creditBreaker: null as unknown };
@@ -175,6 +163,4 @@ describe("a due probe is spent on the provider call itself, never on a guard in 
       ROW.creditBreaker = { trippedAt: new Date().toISOString(), probeAt: null }; // and inside the cooldown: zero network calls, whoever asks
       const cold = fakeFetch(completedEnvelope("{}"));
       expect([await g.creditBreakerHeld(T), (await g.openAIStructuredResponse(baseArgs({ fetchImpl: cold.impl, costBreakerImpl: allowBreaker }))).kind, cold.capture.calls]).toEqual([true, "blocked_credit", 0]);
-    } finally { process.env.VITEST = "true"; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
-  });
-});
+    } finally { process.env.VITEST = "true"; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }});});

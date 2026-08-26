@@ -12,18 +12,15 @@ describe("what a surface shows for one search is decided in one place", () => {
     // The evidence alone says actionable. The pass that held the pages says no page here is for it.
     const d = dispositionOf(EVIDENCE, read([filed()])); expect(d.state).toBe("no_page");
     expect(d.href).toBeNull(); // the button that appeared under a refused case
-    expect(d.line).toContain("pages to build");
-  });
+    expect(d.line).toContain("pages to build");});
   it("shows a page held for want of a reading as held, not as work", () => {
     const d = dispositionOf(EVIDENCE, read([filed({ state: "held", pageUrl: "https://own.example/haft-seen",
       reason: "ran on 4 separate days, and the page it would land on has not been read yet, so the next work is that reading rather than a change." })]));
-    expect([d.state, d.href]).toEqual(["held", null]);
-  });
+    expect([d.state, d.href]).toEqual(["held", null]);});
   it("shows a search a tracked question already asks as covered, deliberately, with no action under it", () => {
     const d = dispositionOf(EVIDENCE, read([filed({ state: "covered",
       reason: "ran on 4 separate days. A question this account already tracks asks this search, so its standing is judged there rather than as a case of its own." })]));
-    expect([d.state, d.href]).toEqual(["covered", null]); expect(d.line).toContain("already tracks");
-  });
+    expect([d.state, d.href]).toEqual(["covered", null]); expect(d.line).toContain("already tracks");});
   it("offers the action only where the filed verdict actually named a page", () => {
     expect(dispositionOf(EVIDENCE, read([filed({ state: "actionable", pageUrl: "https://own.example/haft-seen" })])).href).toBe("/changes");
     expect(dispositionOf(EVIDENCE, read([filed({ state: "actionable" })])).href).toBeNull(); // actionable with nowhere to land is not an offer
@@ -32,22 +29,17 @@ describe("what a surface shows for one search is decided in one place", () => {
     const d = dispositionOf(EVIDENCE, read([filed()]), { id: "t::/haft-seen::existing_edit::ai_answer_gap", pagePath: "/haft-seen" });
     expect([d.state, d.href]).toEqual(["change", "/changes/t%3A%3A%2Fhaft-seen%3A%3Aexisting_edit%3A%3Aai_answer_gap"]);
     const r = dispositionOf(EVIDENCE, read([filed()]), { id: "x", researchOnly: true, pagePath: "/haft-seen", missing: "the source is not banked yet" });
-    expect([r.state, r.line.includes("the source is not banked yet")]).toEqual(["research", true]);
-  });
+    expect([r.state, r.line.includes("the source is not banked yet")]).toEqual(["research", true]);});
   it("says a search nobody has judged yet is unjudged, and offers nothing", () => {
     const d = dispositionOf(EVIDENCE, read([])); expect(d.state).toBe("actionable");
-    expect(d.href).toBeNull(); expect(d.line).toContain("has not judged this one yet");
-  });
+    expect(d.href).toBeNull(); expect(d.line).toContain("has not judged this one yet");});
   it("keeps a verdict about a different search out of this one", () => {
-    expect(dispositionOf(EVIDENCE, read([filed({ caseKey: "fanout:something|else" })])).state).toBe("actionable");
-  });
-});
+    expect(dispositionOf(EVIDENCE, read([filed({ caseKey: "fanout:something|else" })])).state).toBe("actionable");});});
 /** THE TABLE ITSELF, against a fake implementing the SQL writer's documented semantics exactly. */
 const db = vi.hoisted(() => ({
   rows: new Map<string, Record<string, unknown>>(),
   rpcCalls: 0,
-  failReads: false, failWrites: false,
-}));
+  failReads: false, failWrites: false,}));
 vi.mock("@/lib/persistence/supabase", () => {
   const key = (t: unknown, c: unknown) => `${String(t)}|${String(c)}`;
   const upsert = (tenant: string, raw: unknown[]): number => {
@@ -60,10 +52,8 @@ vi.mock("@/lib/persistence/supabase", () => {
         page_url: r.pageUrl ?? null, stage: r.stage ?? null, proposal_id: r.proposalId ?? null,
         reason: r.reason, days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0,
         executions: r.executions ?? 0, decided_at: r.decidedAt });
-      landed += 1;
-    }
-    return landed;
-  };
+      landed += 1;}
+    return landed;};
   /** A builder chain whose every method chains and whose await resolves the answer. */
   const answered = (data: unknown, error: { message: string } | null = null): unknown =>
     new Proxy({}, { get: (_t, p) => p === "then"
@@ -74,13 +64,11 @@ vi.mock("@/lib/persistence/supabase", () => {
       db.rpcCalls += 1;
       if (db.failWrites) return Promise.resolve({ data: null, error: { message: "connection reset" } });
       if (name !== "upsert_ai_case_dispositions") return Promise.resolve({ data: null, error: { message: `no function ${name}` } });
-      return Promise.resolve({ data: upsert(args.p_tenant_id, args.p_rows), error: null });
-    },
+      return Promise.resolve({ data: upsert(args.p_tenant_id, args.p_rows), error: null });},
     from: (table: string) => db.failReads || table !== "ai_case_dispositions"
       ? answered(null, { message: "statement timeout" })
       : answered([...db.rows.values()]),
-  }) };
-});
+  }) };});
 describe("the filed verdicts are durable, and two cold instances merge instead of overwriting", () => {
   beforeEach(() => { db.rows.clear(); db.rpcCalls = 0; db.failReads = false; db.failWrites = false; });
   /** One COLD instance: a fresh copy of the module, sharing nothing in-process with the last one. */
@@ -94,15 +82,13 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
       pageUrl: "https://own.example/p", decidedAt: "2026-08-20T00:00:00.000Z" })])).toEqual({ filed: true, landed: 1 });
     const back = await b.readAiCaseDispositions("t");
     expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
-      [["fanout:a", "actionable"], ["fanout:b", "already_credited"]]);
-  });
+      [["fanout:a", "actionable"], ["fanout:b", "already_credited"]]);});
   it("refuses a stale writer, and the stale pass may not claim the family it failed to write", async () => {
     const s = await coldInstance(); await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
     // "The call worked" is not "my conclusions are canonical" (reviewer, 2026-08-21).
     expect(await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" })]))
       .toEqual({ filed: false, reason: "superseded", landed: 0 });
-    const back = await s.readAiCaseDispositions("t"); expect(back.state === "read" ? back.rows[0]?.state : null).toBe("actionable");
-  });
+    const back = await s.readAiCaseDispositions("t"); expect(back.state === "read" ? back.rows[0]?.state : null).toBe("actionable");});
   it("reports superseded when even ONE row lost, because the family claim is all rows or nothing", async () => {
     const s = await coldInstance(); await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
     const out = await s.recordAiCaseDispositions("t", [
@@ -112,20 +98,16 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
     expect(out).toEqual({ filed: false, reason: "superseded", landed: 1 });
     const back = await s.readAiCaseDispositions("t"); // the landed row IS durable; only the sweep license is lost
     expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
-      [["fanout:a", "actionable"], ["fanout:b", "no_page"]]);
-  });
+      [["fanout:a", "actionable"], ["fanout:b", "no_page"]]);});
   it("carries a read failure out as unavailable, never as an account with no verdicts", async () => {
     const s = await coldInstance(); await s.recordAiCaseDispositions("t", [filed()]);
     db.failReads = true;
-    expect(await s.readAiCaseDispositions("t")).toEqual({ state: "unavailable" });
-  });
+    expect(await s.readAiCaseDispositions("t")).toEqual({ state: "unavailable" });});
   it("reports a write failure as filed:false, so the pass cannot claim durability it did not get", async () => {
     const s = await coldInstance();
     db.failWrites = true;
-    expect(await s.recordAiCaseDispositions("t", [filed()])).toEqual({ filed: false, reason: "unwritable" });
-  });
+    expect(await s.recordAiCaseDispositions("t", [filed()])).toEqual({ filed: false, reason: "unwritable" });});
   it("files an empty set without touching the database at all", async () => {
     const s = await coldInstance(); expect(await s.recordAiCaseDispositions("t", [])).toEqual({ filed: true, landed: 0 });
     expect(db.rpcCalls).toBe(0); // deciding nothing is not a write
-  });
-});
+  });});

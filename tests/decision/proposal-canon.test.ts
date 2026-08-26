@@ -26,8 +26,7 @@ const db = vi.hoisted(() => {
         if (at >= 0 && state.rows[at]!.tenant_id !== args.p_tenant_id) return { data: "failed", error: null };
         Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
         if (at >= 0) state.rows[at] = { ...state.rows[at], ...row }; else state.rows.push({ created_at: "2026-07-01T00:00:00.000Z", ...row });
-        return { data: "saved", error: null };
-      };
+        return { data: "saved", error: null };};
       return Promise.resolve(run());
     }, };
   return { state, client }; });
@@ -49,16 +48,14 @@ Object.assign(db.client, supabaseFake({
   onSelect: () => { const r = db.state.race; db.state.race = null; r?.(); },
   clash: (row, rows) => (rows.some((r) => r.id !== row.id && r.terminal_disposition == null
     && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]))
-    ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),
-}));
+    ? { message: "duplicate key value violates unique constraint ux_change_proposals_current" } : null),}));
 const T = "acct-a", PAGE = "/nowruz-guide";
 const bundle = (kind: ChangeBundle["components"][number]["kind"], after = "Nowruz Traditions and the Haft-Seen Table"): ChangeBundle => ({
   objective: "Say what the searcher asked for in the line Google shows.", metric: "clicks on this page for this search",
   scope: { queries: ["nowruz traditions"], prompts: [] },
   components: [{ kind, label: "Page title", before: "Nowruz", after, evidenceKeys: ["k1"], risk: "safe" }],
   receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for nowruz traditions.", observedAt: "2026-07-25T00:00:00.000Z" }], missing: [], freshestObservedAt: "2026-07-25T00:00:00.000Z" },
-  alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "I will read clicks for this search after 14 days.",
-});
+  alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "I will read clicks for this search after 14 days.",});
 const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: `${T}::${PAGE}::existing_edit::title`, tenantId: T, kind: "existing_edit", pagePath: PAGE,
   pageUrl: `https://www.fixture-outdoors.example${PAGE}`, pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
@@ -66,8 +63,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
   whyItMatters: "The line Google shows misses the words people search for.", estimatedEffortMinutes: 1,
   riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: "nowruz traditions", hints: [], evidenceRefCount: 1 },
-  impactScore: 300, upsidePerMonth: null, basis: "basis_today::d6", publish: "manual", createdAt: "2026-07-30T00:00:00.000Z", ...over,
-});
+  impactScore: 300, upsidePerMonth: null, basis: "basis_today::d6", publish: "manual", createdAt: "2026-07-30T00:00:00.000Z", ...over,});
 /** The deep form of the same hypothesis: a different id, the same page, the same family. */
 const deep = (over: Partial<ChangeProposal> = {}) => proposal({ id: `${T}::${PAGE}::existing_edit::title-family`, bundle: bundle("title"), ...over });
 const current = () => db.state.rows.filter((r) => r.terminal_disposition == null);
@@ -116,8 +112,7 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(proposal())).toBe("saved"); // title-family
     const body = deep({ id: `${T}::${PAGE}::existing_edit::section-family`, bundle: bundle("section_rewrite") }); // the id the producer mints for it: the family is IN the id, so two families coexist
     expect(await saveChangeProposal(body)).toBe("saved"); // section-family: a different hypothesis about the same page
-    expect([current().map((r) => r.action_family).sort(), current().every((r) => r.proposal_version === 1), (await loadChangeProposals(T)).size]).toEqual([["section-family", "title-family"], true, 2]);
-  });
+    expect([current().map((r) => r.action_family).sort(), current().every((r) => r.proposal_version === 1), (await loadChangeProposals(T)).size]).toEqual([["section-family", "title-family"], true, 2]);});
   it("does not resurrect a dismissed change under the same evidence, and lets a new basis try again", async () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
@@ -131,8 +126,7 @@ describe("canonical proposal persistence", () => {
     expect(await dismissChangeProposal(T, proposal().id)).toBe(false); // already put away, nothing to write
     // A change the operator marked implemented is under measurement, so it is not theirs to put away.
     Object.assign(db.state.rows[0]!, { terminal_disposition: null, status: "implemented_pending_verification" });
-    expect([await dismissChangeProposal(T, proposal().id), db.state.rows[0]!.terminal_disposition, await dismissChangeProposal(T, "an-id-nobody-holds")]).toEqual([false, null, false]);
-  });
+    expect([await dismissChangeProposal(T, proposal().id), db.state.rows[0]!.terminal_disposition, await dismissChangeProposal(T, "an-id-nobody-holds")]).toEqual([false, null, false]);});
   it("refuses a crafted successor id that lives under another account, and nothing moves", async () => {
     // Account B holds a row whose id a malicious caller hands to account A's handover as the successor.
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -271,8 +265,7 @@ describe("done is only ever reached with a record behind it", () => {
     expect([await reconcileImplementedWithoutShipment(T, new Set<string>()), row.status]).toEqual([[], "implemented_pending_verification"]);
     db.state.missing = false; db.state.rows = [];
     const stale = done({ limitations: ["A change marked done on August 1 lost its record; mark it done again when you confirm it is live."] }); await reconcileImplementedWithoutShipment(T, new Set<string>());
-    expect(storedNow(stale)?.limitations).toHaveLength(1); });
-});
+    expect(storedNow(stale)?.limitations).toHaveLength(1); });});
 /** STEP TWO OF THE TWO-STEP HOLD IS A COMPARE-AND-SET, NEVER A READ AND A SAVE. The confirmation used to read the row, check the version on the screen against it, and then hand the promoted copy to the ordinary save path, whose own read happens afterwards: a rewrite landing in between was overwritten by the version the operator had been looking at, and that version became ready. Here is that exact interleaving, both ways round. */
 describe("the operator's yes lands on the exact version they read, or on nothing at all", () => {
   const mover = () => deep({ status: "needs_review", riskLevel: "high",
@@ -306,8 +299,7 @@ describe("the operator's yes lands on the exact version they read, or on nothing
     const after = landed(held);
     expect([(await answerReviewedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
-      (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });
-});
+      (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });});
 /** APPROVAL REFUSES ON THE FACT, NEVER ON THE SENTENCE DESCRIBING IT. A row whose lever does not treat its own diagnosed cause is refused by `unsettledCause` run directly on the promoted row, even when the stored limitation is worded to clear every phrase the display classifier (HARD_LIMITATION) looks for. */
 describe("a badly classified row cannot be waved through", () => {
   it("refuses promotion on the unsettled cause even though the stored limitation reads as benign", async () => {

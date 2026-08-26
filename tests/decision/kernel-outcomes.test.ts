@@ -246,8 +246,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(r.providerCalls % 2).toBe(0);          // two requests per logical operation, exactly as the transport said
       expect(r.costUsd).toBeCloseTo(0.0125 * (r.providerCalls / 2), 6); // and the dollars follow the same operations
       expect(r.providerAttempted).toBe(true);        // "asked" now MEANS a request left the process
-      expect(r.ops).toBeGreaterThan(0);
-    }
+      expect(r.ops).toBeGreaterThan(0);}
     // AND THE PASS'S OWN SUM IS THE SUM OF ITS PAGES, which is the number the runtime reconciles against the ledger.
     const total = out.paid.receipts.reduce((a, r) => a + r.costUsd, 0);
     expect(total).toBeCloseTo(spent.reduce((a, r) => a + r.costUsd, 0), 6); });
@@ -281,8 +280,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(typeof r.allowance).toBe("number"); expect(r.allowance).toBeGreaterThan(0); // the whole price this page was funded at
       expect(typeof r.ops).toBe("number"); expect(typeof r.providerCalls).toBe("number"); expect(typeof r.costUsd).toBe("number");
       expect(r).toHaveProperty("persistence"); // the STORE'S OWN WORD, or null where nothing was written
-      expect(["produced", "evidence_banked", "deterministic_refusal", "retryable_blocked", "not_reached"]).toContain(r.outcome);
-    }
+      expect(["produced", "evidence_banked", "deterministic_refusal", "retryable_blocked", "not_reached"]).toContain(r.outcome);}
     const worked = out.paid.receipts.filter((r) => r.outcome === "produced");
     expect(worked.length).toBeGreaterThan(0);
     expect(worked.every((r) => r.ops > 0 && ["saved", "unchanged", "not_persisted"].includes(r.persistence ?? ""))).toBe(true); // produced means the store took it
@@ -396,9 +394,7 @@ describe("a new page needs a positive yes, never just the absence of a no", () =
   it("authorizes a topic the account's own confirmations or demand tie to, and refuses one nothing ties to", async () => {
     const { topicPositivelyAuthorized } = await import("@/domains/decision/owned-coverage"); const world = snap([GAP], READY(), DEMAND); const tied = buildTopicInvestigations(world).find((i) => i.label === HAFT)!;
     expect(topicPositivelyAuthorized(world, tied, null)).toBe(true); // the operator's own anchors reach it
-    const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);
-  });
-});
+    const drifted = { ...tied, label: "submarine cable maintenance", queries: ["submarine cable maintenance"] }; expect(topicPositivelyAuthorized(world, drifted, null)).toBe(false);});});
 describe("a subject I own no page for becomes ONE researched page, and nothing else does", () => {
   it("reads a page of mine whose words are already stored, decides again in the SAME pass, and still judges the topic that OWNS the comparison", async () => {
     const research = withParked(READY({ topicKey: keyOf(READY()) })); const world = snap([GAP, UNREAD], research, [...DEMAND, ...PARKED_DEMAND]);
@@ -550,8 +546,7 @@ const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageE
   const research = { ...r, serpEvidence: [{ ...r.serpEvidence[0]!, organic: [...GUIDED.serpEvidence[0]!.organic, { rank: 4, domain: "fixture-outdoors.example", url: GAP_URL, title: `${HAFT} guide` }] }], ...over };
   const world = { ...snap(pages, research, DEMAND), cannibalization: can };
   const key = buildTopicInvestigations(world).find((i) => i.label === HAFT)?.key ?? ""; // The comparison is pinned to the case THIS world actually builds, so an extra answer in the evidence never orphans it.
-  return { ...world, research: { ...research, pageComparisons: (research.pageComparisons ?? []).map((c) => ({ ...c, topicKey: key })) } };
-};
+  return { ...world, research: { ...research, pageComparisons: (research.pageComparisons ?? []).map((c) => ({ ...c, topicKey: key })) } };};
 /** The REAL producer, through the REAL pass: nothing about the deep change is stubbed here. */
 const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN) => { reset(world); env.realBundle = true;
   return produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true,
@@ -637,8 +632,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const laddered = async (page: OwnedPageEvidence, pattern: typeof PATTERN_HELD) => {
       const world = snap([page], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
       const read = await readCoverage(world, "fixture-tenant", { basis: "basis_today", now: NOW, patternFor: { topicKey: keyOf(READY()), pattern } });
-      return compileCandidates(world, { coverage: read.decided })[0]!;
-    };
+      return compileCandidates(world, { coverage: read.decided })[0]!;};
     const noGaps = { ...PATTERN_HELD, ownedGaps: [] }; const bare = { ...noGaps, commonHeadings: [], commonEntities: [] };
     expect((await laddered(GAP, noGaps)).cause.cause).toBe("incomplete_coverage"); // nothing my page fails to DO, so what they all cover is asked next
     const listy = ownedPage(GAP_URL, "Top 10 Nowruz Traditions", { impressions: 6400, clicks: 190 }, [{ query: "nowruz traditions", impressions: 6000, clicks: 180, position: 4.1 }]);
@@ -832,5 +826,4 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     env.store = new Map([[keep.id, keep], [demote.id, { ...demote, pagePath: "/funny2", pageUrl: "https://fixture-outdoors.example/funny2" }]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
     expect(env.store.get(keep.id)!.status).toBe("ready"); // the synthesis charter: its whole gain is FORM, so the page's own words are its legal ground
-    expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("learns nothing new")]); });
-});
+    expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("learns nothing new")]); });});

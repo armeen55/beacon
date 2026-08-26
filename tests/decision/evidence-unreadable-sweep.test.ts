@@ -16,8 +16,7 @@ const env = vi.hoisted(() => ({
   aiWindow: [] as unknown[] | "fail",
   /** The durable disposition table, shared across simulated cold instances. */
   dispositions: new Map<string, Record<string, unknown>>(),
-  upserts: 0,
-}));
+  upserts: 0,}));
 /** A Supabase admin whose every builder method chains; the disposition writer implements its migration's documented semantics, so the durability tests exercise the contract. */
 vi.mock("@/lib/persistence/supabase", () => {
   const chain = (answer: RpcAnswer): unknown =>
@@ -30,8 +29,7 @@ vi.mock("@/lib/persistence/supabase", () => {
   const next = (name: string): RpcAnswer => {
     const queue = env.rpc[name];
     if (!queue || queue.length === 0) return { data: [] };
-    return queue.length === 1 ? queue[0]! : queue.shift()!;
-  };
+    return queue.length === 1 ? queue[0]! : queue.shift()!;};
   const upsertDispositions = (tenant: string, raw: unknown[]): number => {
     let landed = 0;
     for (const r of raw as Array<Record<string, unknown>>) {
@@ -42,10 +40,8 @@ vi.mock("@/lib/persistence/supabase", () => {
         page_url: r.pageUrl ?? null, stage: r.stage ?? null, proposal_id: r.proposalId ?? null, reason: r.reason,
         days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0, executions: r.executions ?? 0,
         decided_at: r.decidedAt });
-      landed += 1;
-    }
-    return landed;
-  };
+      landed += 1;}
+    return landed;};
   return {
     isSupabaseConfigured: () => true,
     getSupabaseAdmin: () => ({
@@ -54,14 +50,11 @@ vi.mock("@/lib/persistence/supabase", () => {
         if (name === "upsert_ai_case_dispositions") {
           env.upserts += 1;
           const a = args as { p_tenant_id: string; p_rows: unknown[] };
-          return chain({ data: upsertDispositions(a.p_tenant_id, a.p_rows) as unknown as unknown[] });
-        }
-        return chain(next(name));
-      },
+          return chain({ data: upsertDispositions(a.p_tenant_id, a.p_rows) as unknown as unknown[] });}
+        return chain(next(name));},
       from: (table: string) => table === "ai_case_dispositions"
         ? chain({ data: [...env.dispositions.values()] as unknown as unknown[] })
-        : chain({ data: [] }),
-    }),
+        : chain({ data: [] }),}),
   }; });
 /** The producer's own window read, failable on demand. */
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => {
@@ -79,8 +72,7 @@ vi.mock("@/domains/evidence/ai-visibility/answer-journeys", async (orig) => {
 vi.mock("@/domains/account", () => ({
   loadBusinessProfile: async () => null,
   getTenant: async () => ({ id: "tenant-fx", domain: "fixture.example", growth_goal: null }),
-  basisTag: () => "basis_fx",
-}));
+  basisTag: () => "basis_fx",}));
 /** The real loader unless a test pins a snapshot: part of this file exercises it, part feeds the producer. */
 vi.mock("@/domains/evidence/snapshot-loader", async (orig) => {
   const actual = (await orig()) as typeof import("@/domains/evidence/snapshot-loader");
@@ -110,8 +102,7 @@ const TIMEOUT = { message: "canceling statement due to statement timeout", code:
 /** One full PostgREST page, so the reader asks for a second one and meets the error on it. */
 const fullPage = () => Array.from({ length: 1_000 }, (_v, i) => ({
   page: `https://fixture.example/p${String(i).padStart(4, "0")}`,
-  clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],
-}));
+  clicks: 5, impressions: 100, pos_weighted: 800, top_queries: [],}));
 /** A snapshot whose GSC leg says exactly what the test needs it to say. */
 function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
   const gscPayload = status === "fresh"
@@ -125,10 +116,8 @@ function snapshotWith(status: "failed" | "fresh" | "empty"): unknown {
     clarity: { status: "empty", lastSyncedAt: null, payload: [] },
     dataforseo: { status: "empty", lastSyncedAt: null, payload: [] },
     research: { status: "empty", lastSyncedAt: null, payload: emptyResearchEvidence() },
-    aiAnswersUnread: false,
-  };
-  return buildEvidenceSnapshot(input);
-}
+    aiAnswersUnread: false,};
+  return buildEvidenceSnapshot(input);}
 /** One untouched card the operator can still act on, in a family the sweep rewrites. */
 const openCard = (suffix: string): ChangeProposal => ({
   id: `${TENANT}::/shiraz::existing_edit::${suffix}`, tenantId: TENANT, kind: "existing_edit",
@@ -207,16 +196,13 @@ describe("a zero-spend regeneration is non-destructive", () => {
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true });
     expect(out.outcome).not.toBe("persistence_failed"); // a pass that bought nothing is not a failed pass
     // The paid drafter never ran, so the family it owns is not one anybody rewrote in full this pass.
-    expect(env.withdrawn).not.toContain(theirs.id);
-  });
+    expect(env.withdrawn).not.toContain(theirs.id);});
   it("mints both paid pools empty, so no page reading and no drafting attempt is available to spend", async () => {
     env.snapshot = snapshotWith("fresh");
     env.store = new Map();
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true, maxDrafts: 5 });
     // maxDrafts is the caller's ask and the pause outranks it: nothing here was drafted for money.
-    expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);
-  });
-});
+    expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);});});
 /** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable table: the blind instance files nothing and holds its families; the seeing one files durably; and what it filed is what BOTH surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
@@ -237,8 +223,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
       wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"])]),
       research: src({ ...emptyResearchEvidence(), aiObservations: [
         storedAnswer("pA", "things to do in shiraz", [{ url: "https://rival.example/shiraz", domain: "rival.example", title: "Shiraz guide" }]),
-        storedAnswer("pB", "best time to visit shiraz", null)] }), aiAnswersUnread: false });
-  };
+        storedAnswer("pB", "best time to visit shiraz", null)] }), aiAnswersUnread: false });};
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
   const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({
     tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
@@ -260,8 +245,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store"); const file = await readAiCaseDispositions(TENANT);
     expect(file.state).toBe("read"); const onVisibility = dispositionOf({ caseKey: "prompt:pB", state: "actionable", reason: "the evidence-only view" }, file);
     const onChanges = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pB")?.reason ?? null : null; expect(onVisibility.state).toBe("unreported");
-    expect(onVisibility.href).toBeNull(); expect(onChanges).toBe(onVisibility.line);
-  });
+    expect(onVisibility.href).toBeNull(); expect(onChanges).toBe(onVisibility.line);});
   it("judges and files the AI cases on a QUIET day, through the whole produce pass", async () => {
     env.snapshot = aiSnapshot();
     env.aiWindow = [];
@@ -290,6 +274,4 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
       windowRow("row2", "pB", "best time to visit shiraz", null)];
     await runExtras(aiSnapshot()); const { canonicalQueryKey } = await import("@/domains/evidence/relevance-gate");
     const filedRow = env.dispositions.get(`${TENANT}|fanout:${canonicalQueryKey("best time to visit shiraz")}`); expect(filedRow?.state).toBe("covered");
-    expect(String(filedRow?.reason)).toContain("already tracks");
-  });
-});
+    expect(String(filedRow?.reason)).toContain("already tracks");});});
