@@ -18,7 +18,7 @@ const db = vi.hoisted(() => {
         if (state.breakWrite) return { data: "failed", error: null }; // the transaction rolls back: neither write lands
         const row = args.p_row;
         const clash = state.rows.some((r) => r.id !== row.id && r.id !== pred.id && r.terminal_disposition == null
-          && ["tenant_id", "case_id", "page_key", "action_family"].every((c) => r[c] === row[c]));
+          && ["tenant_id", "case_id", "page_key", "action_family", "mutation_key"].every((c) => r[c] === row[c]));
         if (clash) return { data: "failed", error: null };
         if (state.raceForeign) state.rows.push({ id: row.id, tenant_id: state.raceForeign, status: "ready", created_at: "2026-07-01T00:00:00.000Z" });
         // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the successor never landed, so it raises and BOTH writes unwind with the predecessor still in place.

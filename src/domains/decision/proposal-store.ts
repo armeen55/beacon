@@ -41,10 +41,8 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
   canonical: "technical-family", redirect: "technical-family", noindex: "technical-family",
   navigation: "technical-family", consolidation: "consolidation", new_page: "new_page",
 };
-
 /** BLAST RADIUS ORDER. A bundle touching several families is named by the biggest thing it does: moving the page outranks rewriting the body. Deterministic, so one bundle always lands on the same identity. */
 const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "accuracy-family", "section-family", "links-family", "title-family"];
-
 /** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. THE ONE ANSWER: the id a producer mints, the `changeFamily` it stamps and the identity this store files it under all read it here, so a page can hold a snippet rewrite and a body rebuild at once without either wearing the other's name. Structural on purpose, so a producer can ask before it has a whole proposal to hand. */
 export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "recommendedChange">): ActionFamily {
   if (p.kind === "new_page") return "new_page";
@@ -72,9 +70,12 @@ function siteOf(p: ChangeProposal): string {
 }
 
 type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string };
-/** WHAT THIS ROW ACTUALLY WRITES, and the only thing two rows on one page can genuinely collide over. Uniqueness was (tenant, case, page, family), and `title`, `meta` and `h1` all share `title-family`, so a page could carry a new title OR a new description and never both: /iran-animals/asiatic-cheetah lost its description the moment its title landed. A body change is keyed by its topic too, because two sections answering different questions are two changes, not one hypothesis twice. Bundles and new pages keep the empty slot they have always had. */
-const mutationSlot = (p: ChangeProposal): string => { if (p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return "";
-  const f = p.recommendedChange.field; return f === "section" || f === "answer_block" ? `${f}::${canonicalQueryKey(p.primaryQuery ?? "")}` : f; };
+/** WHAT THIS ROW ACTUALLY WRITES, and the only thing two rows on one page can genuinely collide over. A BUNDLE IS KEYED ON WHAT IT WRITES: 27 anchor-label changes on one hub are 27 changes, and keying every bundle to the empty slot collided them onto one row, so the set of its components IS its mutation. Uniqueness was (tenant, case, page, family), and `title`, `meta` and `h1` all share `title-family`, so a page could carry a new title OR a new description and never both: /iran-animals/asiatic-cheetah lost its description the moment its title landed. A body change is keyed by its topic too, because two sections answering different questions are two changes, not one hypothesis twice. Bundles and new pages keep the empty slot they have always had. */
+const NO_FIELD_KIND: ReadonlySet<string> = new Set(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]); /** Kinds writing something no `recommendedChange.field` can name: a bundle of only these is keyed on its components, so 27 anchor labels are 27 changes, while a bundle rewriting a title still shares the title slot with a plain title edit because they really would overwrite each other. */
+const mutationSlot = (p: ChangeProposal): string => { const cs = p.bundle?.components ?? [];
+  if (cs.length > 0 && cs.every((c) => NO_FIELD_KIND.has(c.kind))) return cs.map((c) => `${c.kind}:${c.page ?? ""}:${(c.where ?? c.after ?? "").trim().slice(0, 48)}`).sort().join("|").slice(0, 180);
+  if (p.kind !== "existing_edit" || p.recommendedChange.kind !== "existing_edit") return ""; const f = p.recommendedChange.field;
+  return f === "section" || f === "answer_block" ? `${f}::${canonicalQueryKey(p.primaryQuery ?? "")}` : f; };
 
 /** PURE: the hypothesis this proposal is an answer to. */
 function identityOf(p: ChangeProposal): Identity {
