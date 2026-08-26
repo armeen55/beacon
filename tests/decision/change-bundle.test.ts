@@ -236,8 +236,7 @@ const release = async (produce: () => Promise<unknown>) => { vi.resetModules(); 
   vi.doMock("@/app/(shell)/changes-data", () => ({ buildChangesViewUncached: async () => ({ proposals: [], stampRows: [] }) }));
   const signals: { declineNotes?: { page: string; note: string }[] }[] = [];
   vi.doMock("@/app/(shell)/today-view-data", () => ({ buildTodayCompositeFromChanges: async (_v: unknown, sig: { declineNotes?: { page: string; note: string }[] }) => { signals.push(sig); return { headline: "" }; } }));
-  return { ...(await import("@/app/(shell)/surface-release")), published, signals, swept };
-};
+  return { ...(await import("@/app/(shell)/surface-release")), published, signals, swept };};
 /** What the ledger hands the build: rows, or a read that FAILED. */
 const ledger = { read: async (): Promise<Array<{ proposalId: string | null }>> => [] };
 describe("a release publishes only on a real production result", () => { it("lets a production failure through instead of stamping stale work with a fresh timestamp", async () => {
@@ -401,8 +400,7 @@ describe("the complete change universe answers for itself", () => { it("round-tr
       const c = comp({ kind, risk: dangerous ? "dangerous" : "safe", ...(needsSourcePack(comp({ kind })) ? { sourcePack: { sourceRequirements: ["Cite the county rule page."], factRequirements: ["Check the 2026 limit."] } } : {}) });
       const v = validateProposal(prop({ ...(dangerous ? { riskLevel: "high" as const, status: "needs_review" as const } : {}), bundle: bundleOf([c]) }));
       expect(v.verdict).not.toBe("rejected"); // every kind in the union is a shape this validator understands
-      if (dangerous) { expect(v.verdict).toBe("needs_review"); expect(v.reasons.join(" ")).toContain("confirm it before you make the change"); }
-    }
+      if (dangerous) { expect(v.verdict).toBe("needs_review"); expect(v.reasons.join(" ")).toContain("confirm it before you make the change"); }}
     const blind = validateProposal(prop({ bundle: bundleOf([comp({ kind: "section_add", evidenceKeys: [] })]) })); // no component without evidence, no fact without sources, and no new kind without its four answers
     expect([blind.verdict, blind.reasons.some((r) => r.includes("cannot show you anything behind"))]).toEqual(["rejected", true]); const unsourced = validateProposal(prop({ bundle: bundleOf([comp({ kind: "factual_correction" })]) }));
     expect([unsourced.verdict, unsourced.reasons.some((r) => r.includes("carries no sources to check it against"))]).toEqual(["rejected", true]);
@@ -706,8 +704,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const arc = add[0]!.recommendedChange;
       if (arc.kind === "existing_edit" && (arc.where ?? "").includes("A new section headed")) expect(add[0]!.treatment).toBe("add_answer_section");
       expect(add[0]!.treatment === "rewrite_existing_section").toBe(JSON.stringify(arc).includes("Replaces the existing passage"));
-      bodyStore.map = null;
-    });
+      bodyStore.map = null;});
     /** WHAT A READER GETS TWICE IS THE SUBJECT, AND THE PAGE ALREADY SAYS WHAT ITS SUBJECTS ARE. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means" or in an ordinary sentence walked past it, and a live replacement scored ZERO of six lines and went READY at rank 1 while all five entries kept their sections underneath. The page's own stored headings are the subjects; the only question is whether the replacement says them again, however it writes them. */
     it("catches a repeated subject in any formatting, and lets only a claim-preserving consolidation name its removals", async () => {
       const { canonicalUrlKey: ck3 } = await import("@/domains/evidence/snapshot");
@@ -742,8 +739,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       for (const [shape, copy] of shapes) {
         const r = await run(copy);
         expect([shape, r.status]).not.toEqual([shape, "ready"]);
-        expect([shape, (r.faults ?? []).join(" ")]).toEqual([shape, expect.stringContaining("repeats what stays")]);
-      }
+        expect([shape, (r.faults ?? []).join(" ")]).toEqual([shape, expect.stringContaining("repeats what stays")]);}
       // A SUMMARY that names no surviving subject is finished work.
       const sum = await run("Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.");
       expect([sum.status, (sum.recommendedChange as { where?: string }).where]).toEqual(["ready", 'Replaces the existing passage under "Playful Persian expressions"']);
@@ -811,8 +807,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect((dup[0]!.recommendedChange as { where?: string }).where).toContain("absorbs the duplicated entries below it");
       expect((dup[0]!.operatorSteps ?? []).join(" ")).toContain("so the page says it once");
       expect([dup[0]!.status, (dup[0]!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("repeats what stays")]);
-      bodyStore.map = null;
-    });
+      bodyStore.map = null;});
     /** A REFUSAL MUST PRODUCE BETTER WORK, NOT ANOTHER GUESS. Two things were missing from every corrective round: the ASSIGNMENT was passed on the first call only, so rounds two and three were asked to fix "it repeats what stays on the page below it" without being told what stays or even that this was a replacement, while the gate that refused them kept asking; and nothing ever said what to ADD, because the searches this page is shown for and does not answer were computed on the packet and read by nothing at all. */
     it("tells a corrective round what it is replacing and what to add", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
@@ -853,8 +848,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       // THE PLANNER REPLANS RATHER THAN WRITING THE PAGE OFF: no section to replace is a fact about the treatment.
       expect(notes.join(" ")).not.toContain("is a section this rewrite could replace");
       expect(JSON.stringify(out[0]!.recommendedChange)).not.toContain("Shop Now"); // and the operator is never told to delete it
-      bodyStore.map = null;
-    });
+      bodyStore.map = null;});
     it("a rewrite that cannot identify its section refuses in those words, and never invents a placement", async () => {
       const notes: string[] = [];
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
@@ -867,8 +861,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never); // no stored body is on file, so no passage can be identified
       // A REWRITE WITH NOTHING TO REPLACE BECOMES THE SECTION THE PAGE DOES NOT HAVE, and never a settled refusal.
-      expect(notes.join(" ")).not.toContain("is a section this rewrite could replace");
-    });
+      expect(notes.join(" ")).not.toContain("is a section this rewrite could replace");});
     it("a grounded answer passes every editor gate AND the canon, mechanically placed", async () => {
       const d = await drive({ ...GOOD, placementAnchor: "whatever" }); expect([d?.anchor, (d?.after ?? "").includes(P2)]).toEqual(["Funny Farsi Phrases", true]);
       const v = validateProposal(prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const,
@@ -1078,8 +1071,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
     const brief = prop({ researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters." } }); const lanes = [openHold(placed), openHold(lost), openHold(brief)];
     expect([lanes.map((h) => h.lane), lanes.map((h) => h.blocking == null), lanes[1]!.why[0]!.startsWith("Where this copy goes can no longer be checked"),
       (lost.recommendedChange as { after: string }).after === BODY, lost.claims?.length])
-      .toEqual([["review", "review", "research"], [true, false, false], true, true, 1]); });
-});
+      .toEqual([["review", "review", "research"], [true, false, false], true, true, 1]); });});
 describe("the AI side ranks on recurrence and stage, never on raw answer totals (AEO reconstruction, 2026-08-19)", () => {
   const aiProp = (id: string, ai: Partial<NonNullable<ChangeProposal["aiImpact"]>> & { answers: number; citedRivals: number }) => prop({ id, impactScore: null, demandImpressions90d: null, aiImpact: { audienceWeight: null, mentionRate: 0, ...ai } });
   it("puts a question asked every day for a week above one asked once with ten times the rows", () => {
@@ -1087,16 +1079,14 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
     const burst = aiProp("burst", { answers: 50, citedRivals: 3 }); // fifty rows, no recurrence on file
     const ranked = rankProposals([burst, recurring]); expect(ranked.map((p) => p.id)).toEqual(["recurring", "burst"]); const receipt = ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
     expect(receipt.input).toContain("asked on 7 days across 4 assistants"); // the receipt says the same thing the score used
-    expect(receipt.input).toContain("while this page is already read and passed over");
-  });
+    expect(receipt.input).toContain("while this page is already read and passed over");});
   it("ranks a page already read and passed over above the same claim on a page never retrieved", () => {
     const shared = { answers: 5, citedRivals: 3, days: 7, engines: 4 } as const;
     const ranked = rankProposals([
       aiProp("never-read", { ...shared, stage: "rivals_cited_own_not_retrieved" }),
       aiProp("passed-over", { ...shared, stage: "owned_retrieved_not_cited" })]);
     expect(ranked.map((p) => p.id)).toEqual(["passed-over", "never-read"]); // closer to the citation ranks first
-  });
-});
+  });});
 /** FINISHED COPY SURVIVES EVERYTHING BUT A MATERIAL CHANGE (operator, 2026-08-22): a paused $0 pass reworded its generator's prose and DESTROYED the one Ready change in production. Identity is material now, and a genuine replacement of finished words stamps an inspectable retirement receipt. */
 /** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed technical_reachability ("copy is premature until reachability work is done") while its old finished section draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing treatments away from the editor was also the only path that persisted them outside quiet days. */
 describe("a changed treatment retires the copy it makes premature, on any kind of day", () => {
@@ -1114,8 +1104,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
       run: { cards: [card], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"] }, unitLoad: null }) }));
     const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
     env.snap = snapshot(); // /rain-barrels still earns an acted candidate, so this is an ORDINARY day, not a quiet one
-    return run(TENANT, { complete: seam, ...OPTS });
-  };
+    return run(TENANT, { complete: seam, ...OPTS });};
   it("retires the finished copy with its receipt, keeps the opportunity as research work, and persists on an ordinary day", async () => {
     store.rows.set(CITIES, heldRow());
     await runWith(incoming());
@@ -1124,8 +1113,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     expect(out.previousCopy?.retiredBecause).toContain("technical_reachability");
     // The row IS the research card now: the old words did not survive as the offered change.
     expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("reachability first");
-    expect([out.researchOnly, out.status === "ready", out.evidence.hints.some((h) => h.includes("reports reading"))]).toEqual([true, false, true]);
-  });
+    expect([out.researchOnly, out.status === "ready", out.evidence.hints.some((h) => h.includes("reports reading"))]).toEqual([true, false, true]);});
   /** FINISHED WORK SURVIVES A SOFT RE-READ AS REVIEW WORK (Codex, 2026-08-23). Live, the /funny-farsi-phrases answer was saved Ready and destroyed back to its own brief ONE SECOND later, because the re-mint's re-read applied the banned-word rule without the exemption the editor had honoured. Soft reasons keep the words, at review, with the reason on the card; only the four hard classes still retire copy. */
   it("keeps finished copy through a soft re-read failure, downgraded to review with the reason, never the brief", async () => {
     const finished = "The finished cities section, with the word Farsi the searchers themselves use.";
@@ -1222,9 +1210,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));
     await runWith(incoming());
-    expect(store.rows.get(CITIES)!.previousCopy).toBeUndefined();
-  });
-});
+    expect(store.rows.get(CITIES)!.previousCopy).toBeUndefined();});});
 describe("finished copy survives a pass that cannot redraft", () => {
   const finished = (over: Partial<ChangeProposal> = {}) => prop({ status: "ready", researchOnly: false, copyStamp: "T|H|D|O",
     diagnosisCause: "ai_citation_gap", claims: [{ text: "c", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "f" }],
@@ -1237,16 +1223,12 @@ describe("finished copy survives a pass that cannot redraft", () => {
   it("a reworded brief with new observations and no drafting preserves the finished words, status and receipt-free row", () => {
     const kept = preferFinished(brief(), finished());
     expect([kept.recommendedChange.kind === "existing_edit" ? kept.recommendedChange.after : "", kept.status, kept.researchOnly, kept.previousCopy])
-      .toEqual(["The finished words, one item per line.", "ready", false, undefined]);
-  });
+      .toEqual(["The finished words, one item per line.", "ready", false, undefined]);});
   it("a MATERIAL change replaces the copy and stamps the retirement receipt with the fact that moved", () => {
     for (const [over, said] of [[{ copyStamp: "THE PAGE WAS RECRAWLED DIFFERENT" }, "content changed"],
       [{ diagnosisCause: "ranking_loss" as const }, "cause changed"]] as const) {
       const out = preferFinished(brief(over), finished()); expect(out.recommendedChange.kind === "existing_edit" ? out.recommendedChange.after : "").toContain("credited pages");
-      expect(out.previousCopy?.after).toBe("The finished words, one item per line."); expect(out.previousCopy?.retiredBecause).toContain(said);
-    }
-  });
-});
+      expect(out.previousCopy?.after).toBe("The finished words, one item per line."); expect(out.previousCopy?.retiredBecause).toContain(said);}});});
 /** ONE BUDGET, ONE RANKED LINE (operator, 2026-08-22). The top-up spent $1.28 across 239 calls and produced nothing, because every family kept a private pool, one stubborn candidate could eat a pass, and stale work spent in front of the globally ranked line. These pin the arithmetic and the order. */
 describe("the paid line is compiled, priced and funded ONCE, before a cent is spent", () => {
   const job = (key: string, family: string, impact: number, calls: number = DRAFT_BUDGET.DELIVERABLE_CALLS): { key: string; family: string; impact: number; calls: number; blocked?: string } => ({ key, family, impact, calls });
@@ -1285,8 +1267,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     // THE EXACT DEFECT (Codex, 2026-08-22): the new page and the correction review were minted first and claimed first, so they took the pass's slots before the strongest completable change was ever reached. Asking order is not a ranking, so nothing claims by asking any more.
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");
     // Impact orders the line: the strongest candidate leads however early the weak new page asked; with two slots the new page funds BEHIND it and the weakest is declined for slots, never for asking late.
-    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/best", "topic:wildlife"], true, "/rugs"]);
-  });
+    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/best", "topic:wildlife"], true, "/rugs"]);});
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     // THE DEFECT (Codex, 2026-08-22): a deep bundle and an editor card on one page were two candidates and two allowances, so a rewrite that SUCCEEDED left the editor's slot funded and unused, and one that FAILED let the same page spend twelve calls and then three more while other pages went unfunded.
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
@@ -1307,8 +1288,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("does not let one expensive bundle silently starve several higher-value small changes", () => {
     expect(plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 40 }).funded.map((f) => f.key)).toEqual(["/bundle", "/a", "/b", "/c", "/d"]); // impact orders the line: the 60-impact bundle leads and everything still fits in forty
     const tight = plan([BUNDLE, ...SMALLS], { candidates: 5, calls: 33 }); // and when the last cheap job does not fit, the walk KEPT funding strong work past the expensive leader instead of starving on it
-    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/bundle", "/a", "/b", "/c"], ["this needs 6 charged calls and 3 were left"]]);
-  });
+    expect([tight.funded.map((f) => f.key), tight.declined.map((d) => d.reason)]).toEqual([["/bundle", "/a", "/b", "/c"], ["this needs 6 charged calls and 3 were left"]]);});
   it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
     .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));
   it("funds nothing at all while the provider's own credit is spent", () => {
@@ -1317,9 +1297,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)], { calls: 40 });
     const first = b.take("/best")!; expect(first.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // a draft, its judge, and the retries the editor is built to make
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
-    expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, DRAFT_BUDGET.DELIVERABLE_CALLS]);
-  });
-});
+    expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, DRAFT_BUDGET.DELIVERABLE_CALLS]);});});
 // ── the typed refusal contract: faults ride preserved copy, and a gain refusal mints the reading it needs ─
 describe("typed refusal contract", () => {
   it("preservation carries the typed faults with the banked copy it keeps", () => {
@@ -1464,8 +1442,7 @@ describe("typed refusal contract", () => {
       complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
         after: L1, naturalHeading: "How the main types differ", claims: [{ text: L1, supportedBy: ["page-copy-1"] }] } }) } as never);
     expect(thin[0]!.status).toBe("ready"); // no deterministic gate can arm without a citable id, which is why the editor is instructed instead
-    bodyStore.map = null; factStore.rows = []; });
-});
+    bodyStore.map = null; factStore.rows = []; });});
 
 /** THE DAY THE EDITOR NEVER OPENED. `acted` is the CTR ladder's verdict and it returns `act_existing_page` for exactly ONE cause, a title deficit, so on every day no page had one, `quietDay` was true, the editor declared NO work, and the AI-answer cards already minted for /cities, /persian-rugs and the rest were persisted as research and never drafted. Live 2026-08-26: "nothing earned an action this pass, judged 225, watching 69" while six substantive cards sat on file. */
 describe("a day holding writable AI work is not a quiet day", () => {
@@ -1476,8 +1453,7 @@ describe("a day holding writable AI work is not a quiet day", () => {
     expect(isQuietDay(0, 0, [card("technical_reachability"), card("rewrite_existing_section")], 1)).toBe(false);
     expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 0)).toBe(true); // a free refresh nobody asked finished work from still buys nothing
     expect(isQuietDay(0, 0, [card("technical_reachability"), card("new_page")], 5)).toBe(true); // a DECISION treatment is not writing work
-    expect([isQuietDay(0, 0, [], 5), isQuietDay(1, 0, []), isQuietDay(0, 1, [])]).toEqual([true, false, false]); });
-});
+    expect([isQuietDay(0, 0, [], 5), isQuietDay(1, 0, []), isQuietDay(0, 1, [])]).toEqual([true, false, false]); });});
 
 /** ONE PAGE IS NOT ONE OPPORTUNITY. Coverage was keyed on the PAGE, so one Ready row anywhere on a URL dropped every other card for it: /farsi-numbers owes a title aligned to "persian numbers 0-9 names and symbols" (4,744 impressions, ZERO clicks), a zero row its table never had, and FAQ schema for four question headings carrying none, and the queue could offer exactly ONE, forever. Two cards collide only when they would overwrite the same mutation, which is what this key names. */
 describe("distinct atomic changes on one page do not suppress each other", () => {

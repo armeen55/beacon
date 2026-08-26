@@ -115,10 +115,15 @@ export async function saveSetup(data: {
     if (rules.errors.length > 0) return { success: false, error: `Nothing was saved yet. ${rules.errors[0]}` };
     const current = await loadBusinessProfile(tenantId);
     const bt = (data.businessType ?? "").trim() as BusinessType;
-    // Rules are sentences, so they split on lines only: a comma inside a rule
-    // is part of the rule.
-    const editorial = (data.editorialRulesText ?? "").split("\n").map((s) => s.trim()).filter(Boolean);
-    const banned = splitList(data.bannedTermsText ?? "");
+    // Rules are sentences, so they split on lines only: a comma inside a rule is part of the rule.
+    // AN EMPTIED BOX IS A DELETION, NOT A MISSING ANSWER (operator, 2026-08-26): both boxes read the stored
+    // list back for the operator to edit, so `length > 0 ? typed : stored` could only ever ADD. A rule cleared
+    // on screen returned on the very next save and went on holding copy nobody had asked to hold, with the
+    // settings page showing it the whole time. An ABSENT field is still no answer, which is what stops a
+    // partial save from wiping rules it never carried.
+    const editorial = data.editorialRulesText == null ? null
+      : data.editorialRulesText.split("\n").map((s) => s.trim()).filter(Boolean);
+    const banned = data.bannedTermsText == null ? null : splitList(data.bannedTermsText);
     const priorRules = current.constraints.value;
     const namedNow = splitList(data.competitorsText ?? "").map((name) => ({ name, evidenceUrls: [] }));
     const patch: Parameters<typeof saveBusinessProfile>[1] = {
@@ -135,14 +140,8 @@ export async function saveSetup(data: {
         ...(namedNow.length > 0 ? namedNow : current.competitors.value.filter((c) => !c.domain)),
         ...rules.overrides.map((o) => ({ name: o.domain, evidenceUrls: [], domain: o.domain, action: o.action, kind: o.kind })),
       ]),
-      constraints:
-        editorial.length + banned.length > 0
-          ? confirmed({
-              ...priorRules,
-              editorial: editorial.length > 0 ? editorial : priorRules.editorial,
-              bannedTerms: banned.length > 0 ? banned : priorRules.bannedTerms,
-            })
-          : current.constraints,
+      constraints: editorial == null && banned == null ? current.constraints
+        : confirmed({ ...priorRules, editorial: editorial ?? priorRules.editorial, bannedTerms: banned ?? priorRules.bannedTerms }),
     };
     // Business type is optional. An unanswered selector never overwrites a
     // stored type with a confirmed blank.
