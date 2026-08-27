@@ -85,6 +85,24 @@ async function reviewComponents(tenantId: string, components: readonly BundleCom
  *  page's worth of calls and not forty. A card whose correction the reviewer holds keeps its words and its
  *  reason and simply is not offered; a card the reviewer clears becomes ready. Unreadable or unaffordable
  *  promotes nothing and loses nothing. */
+/** The name a correction card is about, as it was minted: the row's own subject, not a re-parse of the copy. */
+const subjectOf = (c: ChangeProposal): string => /^The "(.+?)" entry/.exec(c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? "") : "")?.[1] ?? "";
+
+/** WHY THIS REPLACEMENT CANNOT STAND WHERE THE WORDS IT REPLACES STAND, or null when it can. A sourced meaning
+ *  is not yet publishable copy: the source says darya derives from "possess or maintain; well, good", which is
+ *  a true etymology and a dictionary fragment, and dropping it into "Meaning:_" leaves the page reading
+ *  "Meaning:possess or maintain; well, good". Shape only, no vocabulary and no word list, so it says nothing
+ *  about which language or subject a page is allowed to be about. Checked here, before anybody is paid to read
+ *  it, because a deterministic gate does not have moods and does not cost anything to run. */
+function unfitToStandIn(before: string | null, after: string, subject: string): string | null {
+  const a = after.trim(), b = (before ?? "").trim(), bare = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  if (bare(a) === bare(subject)) return "it offers the name itself as the name's meaning, which tells a reader nothing";
+  if (b === "") return null; // nothing is being replaced, so there is no shape to match
+  if (/[.!?]["')\]]?$/.test(b) && !/[.!?]["')\]]?$/.test(a)) return "the words it replaces finish a sentence and these do not, so the page would be left mid-sentence";
+  if (a.includes(";") && !b.includes(";")) return "it lists alternative glosses where the page carries prose, which reads as a dictionary entry rather than as the page";
+  return null;
+}
+
 async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { tenantId: string; now: Date;
   attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal[]> {
   const parts = cards.map((c): BundleComponent => ({ kind: "factual_correction", label: c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? c.pagePath ?? "") : "",
@@ -93,10 +111,19 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
     evidenceKeys: ["fact-1"], risk: "review",
     ...(c.recommendedChange.kind === "existing_edit" && c.recommendedChange.where ? { where: c.recommendedChange.where } : {}) }));
   if (parts.length === 0) return [...cards];
-  const held = await reviewComponents(wiring.tenantId, parts, wiring.now, wiring).catch(() => null);
-  if (held == null) return [...cards]; // unaffordable, refused or unreadable: nothing is promoted and nothing is lost
-  return cards.map((c, i) => held.has(i)
-    ? { ...c, limitations: [`Held by Beacon's own review: ${held.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
+  const unfit = new Map<number, string>();
+  for (const [i, p] of parts.entries()) {
+    const why = unfitToStandIn(p.before, p.after, cards[i]?.recommendedChange.kind === "existing_edit" ? subjectOf(cards[i]!) : "");
+    if (why) unfit.set(i, why);
+  }
+  const held = await reviewComponents(wiring.tenantId, parts.filter((_, i) => !unfit.has(i)), wiring.now, wiring).catch(() => null);
+  if (held == null && unfit.size === 0) return [...cards]; // unaffordable, refused or unreadable: nothing promoted and nothing lost
+  // The reviewer only ever saw the fit ones, so its indexes are remapped onto the cards they came from.
+  const offered = parts.map((_, i) => i).filter((i) => !unfit.has(i));
+  for (const [j, why] of held ?? []) unfit.set(offered[j]!, why);
+  if (held == null) for (const [i] of parts.entries()) if (!unfit.has(i)) unfit.set(i, "Beacon's own sense review has not read this correction yet");
+  return cards.map((c, i) => unfit.has(i)
+    ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,
       limitations: [...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not")),
         "Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] });

@@ -37,7 +37,7 @@ type PaidJob = { key: string; family: string; impact: number; calls: number; tre
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
-function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean;
+function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean;
   /** HOW MANY FINISHED CHANGES THIS PASS IS SHORT, counted down only by `land()` when the STORE accepted a Ready row. Reached, and no family draws again. Absent = walk the whole funded manifest. */ readyTarget?: number;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
   /** Pages this day ALREADY SPENT REAL CALLS ON that came back transiently blocked. They are still owed and still
@@ -74,6 +74,10 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
     else if (skip.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
+    // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
+    // operator reading it would go looking at a billing page for a decision Beacon had made itself.
+    else if (input.quiet === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "this pass was asked to spend nothing, so the work is still owed and nothing was bought for it" });
     else if (input.breakerOpen === true) declined.push({ key: j.key, family: j.family, calls: price, reason: "the provider's own credit is spent, so this pass funded nothing" });
     else if (slots <= 0) declined.push({ key: j.key, family: j.family, calls: price, reason: `the pass funds ${Math.max(0, input.candidates)} candidates and stronger work filled them` });
     else if (price > callsLeft) declined.push({ key: j.key, family: j.family, calls: price, reason: `this needs ${price} charged calls and ${callsLeft} were left` });

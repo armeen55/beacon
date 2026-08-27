@@ -1292,7 +1292,13 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("never lets the families together exceed the pass ceiling", () => expect(DRAFT_BUDGET.plan({ jobs: Array.from({ length: 50 }, (_, i) => job(`/p${i}`, "field_draft", 50 - i)), candidates: 50, calls: 7 })
     .funded.reduce((n, f) => n + f.calls, 0)).toBeLessThanOrEqual(7));
   it("funds nothing at all while the provider's own credit is spent", () => {
-    const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]); });
+    const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]);
+    expect(b.declined[0]!.reason).toContain("the provider's own credit is spent");
+    // A PASS ASKED TO SPEND NOTHING IS NOT A PROVIDER THAT RAN OUT. Both funded nothing, and reporting the same
+    // sentence for both sent the operator to a billing page over a decision Beacon had made itself.
+    const q = plan([job("/best", "field_draft", 90)], { quiet: true });
+    expect([q.funded, q.spent().calls]).toEqual([[], 0]);
+    expect(q.declined[0]!.reason).toBe("this pass was asked to spend nothing, so the work is still owed and nothing was bought for it"); });
   it("caps one candidate at ONE deliverable's price, banks the failure and still funds the next", () => {
     const b = plan([job("/best", "field_draft", 90), job("/second", "field_draft", 80)], { calls: 40 });
     const first = b.take("/best")!; expect(first.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // a draft, its judge, and the retries the editor is built to make

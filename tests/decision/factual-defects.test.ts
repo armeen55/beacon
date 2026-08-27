@@ -104,6 +104,30 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
     expect(out[1]!.recommendedChange, "a held correction keeps its exact words").toEqual(cards[1]!.recommendedChange); });
+  it("a sourced meaning that cannot stand where it goes is held before anyone is paid to read it", async () => {
+    // ALL THREE ARE LIVE ROWS. A source can be right about the etymology and still not be publishable copy:
+    // "Meaning:Beauty, elegance, and charm." replaced by "possess or maintain; well, good" leaves the page
+    // reading "Meaning:possess or maintain; well, good", and the Jasmine row proposed the name itself.
+    checks.rows = [check({ subject: "Darya", current: "Meaning:Beauty, elegance, and charm.", proposed: "possess or maintain; well, good" }),
+      check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine" }),
+      check({ subject: "Leila", current: "Meaning:Beauty and purity", proposed: "night; dark" }),
+      check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly." })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    let asked = 0;
+    const complete = async (i: { user: string }) => { asked = (i.user.match(/possess|Jasmine|night; dark|Bestowing/g) ?? []).length;
+      return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly" }] } }; };
+    const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
+    const by = new Map(out.map((c) => [c.id.split("fact-")[1], c]));
+    expect(by.get("darya")!.status).toBe("needs_review");
+    expect(by.get("darya")!.limitations[0]).toContain("mid-sentence");
+    expect(by.get("leila")!.status).toBe("needs_review");
+    expect(by.get("leila")!.limitations[0]).toContain("dictionary entry");
+    expect(by.get("jasmine")!.status).toBe("needs_review");
+    expect(by.get("jasmine")!.limitations[0]).toContain("the name itself as the name's meaning");
+    // The one that fits IS offered, and is the ONLY one the paid reviewer was shown.
+    expect(by.get("atossa")!.status).toBe("ready");
+    expect(asked, "the unfit corrections never reached the paid call").toBe(1); });
+
   it("promotes nothing when the review cannot be read, and loses nothing", async () => {
     const cards = await cardsOf(2);
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: async () => ({ status: "failed" as const, error: "unreadable" }) });
