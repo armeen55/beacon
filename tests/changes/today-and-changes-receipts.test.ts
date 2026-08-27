@@ -105,7 +105,14 @@ describe("a ranked card explains itself without being opened", () => {
     const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
     for (const said of ["Replace description", "Copy description", "Only the description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
-    // 4. A replaced passage: the untouched line bounds the blast radius.
+    // 4. A multi-piece bundle is named by its size, never by one piece's family word: the live queue held a
+    // three-edit bundle across two pages wearing the chip "Title" because its id ended ::title-family.
+    const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
+    two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,
+      { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };
+    const bundled = await renderList(viewOf([two]));
+    expect(bundled).toContain("2 edits together");
+    // 5. A replaced passage: the untouched line bounds the blast radius.
     const passage = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: "Tehran is by far the biggest city.", after: "Cities like Yazd and Kerman are globally known.", where: "The paragraph immediately below the table." } })]));
     for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });
 

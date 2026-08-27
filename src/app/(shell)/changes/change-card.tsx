@@ -76,9 +76,11 @@ function actionWordOf(p: ChangeProposal): string {
 }
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
   if (isNew) return "Create page";
+  // A multi-piece bundle is named by its SIZE first: the live queue held a three-edit bundle across two
+  // pages wearing the chip "Title" because its id ended ::title-family. The family regex names one edit only.
+  if (parts > 1) return `${parts} edits together`;
   const named = CATEGORY.find(([re]) => re.test(p.id))?.[1];
   if (named) return named;
-  if (parts > 1) return `${parts} edits together`;
   return `${actionWordOf(p)} ${targetWordOf(p)}`;
 }
 
