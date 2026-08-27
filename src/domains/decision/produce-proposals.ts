@@ -43,8 +43,7 @@ type ProducerRun = { families: readonly string[]; complete: boolean };
 function ownedFactsFor(snapshot: EvidenceSnapshot, decided: DecidedTopic): ReturnType<typeof extractPageFacts>[number] | null {
   if (decided.decision.verdict !== "improve_existing") return null; const url = decided.decision.ownedUrls[0], held = decided.candidates.find((c) => c.url === url && c.bodyHeld); if (!held) return null;
   const at = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } }; const row = snapshot.ownedPages.find((p) => at(p.url) === at(held.url))?.content ?? null;
-  return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount, headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;
-}
+  return extractPageFacts([{ url: held.url, extract: { title: held.title, h1: held.h1, wordCount: held.wordCount, headings: row?.outline ?? null, faqCount: row?.faqCount ?? null, openingSample: held.openingSample, entityNames: held.entities } }])[0] ?? null;}
 /** Normalized keys a candidate and a proposal can be matched on. */
 const pageKeys = (pageUrl: string | null | undefined): string[] => {
   const url = (pageUrl ?? "").trim().toLowerCase(); if (!url) return [];
@@ -53,16 +52,14 @@ const pageKeys = (pageUrl: string | null | undefined): string[] => {
 /** The pages still being measured: what the caller passed, else the Shipment STAMPS (Decision -> Measurement is the allowed direction), else the drafted dates of the applied rows in hand. Fail-soft. */
 async function measuringPaths(tenantId: string, existing: Map<string, ChangeProposal>, opts: ProduceProposalsOptions): Promise<string[]> {
   if (opts.measuringPagePaths) return [...opts.measuringPagePaths]; const shipped = await import("@/domains/measurement/proof-gsc/shipped-change-store").then((m) => m.pagesUnderMeasurementFromShipments(tenantId, opts.now)).catch(() => [] as string[]);
-  return shipped.length > 0 ? shipped : pagesUnderMeasurement(existing.values(), opts.now);
-}
+  return shipped.length > 0 ? shipped : pagesUnderMeasurement(existing.values(), opts.now);}
 /** TWO CONSECUTIVE 28-DAY WINDOWS PER PAGE, Google's and GA4's side by side: the only read that tells "Google moved this page" apart from "something on this page stopped working". $0, fail-soft. */
 type Windows = Map<string, { positionNow: number; positionPrior: number; sessionsNow: number; sessionsPrior: number; clicksNow: number; clicksPrior: number; impressionsNow: number; impressionsPrior: number; windowEnd: string; lostClicks: number }>;
 async function twoWindows(tenantId: string, now: Date | undefined): Promise<Windows> { const out: Windows = new Map();
   const [decay, visits] = await Promise.all([import("@/domains/evidence/readers/gsc-page-signals").then((m) => m.loadGscDecaySignalsForTenant(tenantId, now ?? new Date())).catch(() => null), import("@/domains/evidence/readers/ga4-page-values").then((m) => m.loadGa4SessionSplitForTenant(tenantId, now ?? new Date())).catch(() => null)]);
   if (!decay) return out;
   for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior, sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior, windowEnd: d.windowNowEnd, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
-  return out;
-}
+  return out;}
 /** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed. Fail-soft to nothing. */
 async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> { const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null); if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
@@ -111,8 +108,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const at = coverage!, mine = new Set(at.investigation.winners.filter((w) => w.extractState === "current").map((w) => w.url)); // ONLY THE WINNERS CURRENTLY HELD A READ OF: the denominator is exactly what was read and is still held.
     const pattern = await readWinningPattern(extractPageFacts((snapshot.research.winningPages ?? []).filter((r) => mine.has(r.url))), ownedFactsFor(snapshot, at), tenantId, { complete: opts.complete, now: opts.now, pageType: at.investigation.pageType, label: at.investigation.label, attempts: slice }).catch(() => null);
     if (!pattern) return; const again = await readCoverage(snapshot, tenantId, { basis, profile, now: opts.now, intersection: opts.intersection, curve, patternFor: { topicKey: at.investigation.key, pattern } }).catch(() => null);
-    if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }
-  };
+    if (again?.decided) { coverage = again.decided; waitingUntil = again.waitingUntil; }};
   /** The pass's own research half, read at the END of the pass so it carries the verdict the funded reading refined rather than the one that stood before it. */
   const research = () => ({ investigations, coverage, waitingUntil, held: extraHeld });
   const decline = new Map<string, NonNullable<ReturnType<Windows["get"]>>>(); for (const [url, w] of windows) for (const k of pageKeys(url)) decline.set(k, w); const compile = () => compileCandidates(snapshot, { coverage, ...measuring, decline, curve }), bound = Math.min(DEFAULT_MAX_DRAFTS, maxDrafts); // THE PAGE'S OWN TWO WINDOWS REACH THE DIAGNOSIS, keyed every way a candidate can be matched. Without this a fall was loaded, rendered on a lane, and never once weighed by the kernel that decides what to do.
@@ -170,6 +166,10 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const blockedFor = (c: ChangeProposal): string | undefined => {
     const key = (c.pageUrl ?? "").trim().toLowerCase(), path = (c.pagePath ?? "").trim().toLowerCase(), cause = (preJudged.get(key) ?? preJudged.get(path))?.cause.cause;
     const split = cause === "cannibalization" && !preOwned.covered.has(key) && !preOwned.covered.has(path); // NO CARD, NO REFUSAL
+    // A DRAFT THAT ALREADY FAILED A GATE ON TODAY'S EVIDENCE IS NOT RE-BOUGHT (operator, 2026-08-27): five answer-gap cards reached proposal_version 800 and up, each pass paying to redraft copy the same gate rejected for the same reason, so a second identical cycle with nothing owed still cost $0.12 and rewrote twelve rows. Narrow on purpose: a card nobody has drafted is still funded and a tried key is still merely DEMOTED, because retrying is how a draft gets better. What is refused is paying twice for the same attempt on the same evidence, and the basis is the retry trigger.
+    const tried = existing.get(c.id), spent = !!tried && basis != null && tried.basis === basis
+      && (tried.status === "ready" || (tried.limitations ?? []).some((l) => /^[a-z]/.test(l) || l.startsWith("Held by Beacon's own review") || l.includes("reviewer read this correction")));
+    if (spent) return "this exact draft was already made on today's evidence and held, so it is not bought again until the evidence moves";
     return blockedById(c.id, c, false) ?? (split ? undefined : withholdReason(c, cause) ?? undefined); };
   const blockedField = (i: Parameters<typeof proposalId>[0]): string | undefined => blockedById(proposalId(i), { pagePath: i.page.path, pageUrl: i.page.url ?? null }, true);
   if (patternKey) jobs.push({ key: patternKey, family: "winning_pattern", impact: topicWorth, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }); if (newPageIds && !heldNewPage) jobs.push({ key: `topic:${coverage!.investigation.key}`, family: "new_page", impact: topicWorth, calls: DRAFT_BUDGET.BUNDLE_CALLS });
@@ -232,8 +232,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       confidence: p.bundle ? p.confidence : readiness ? confidenceFor(readiness, diagnosisByKey.get(`${key}::${qk}`) ?? null) : p.confidence, // A BUNDLE KEEPS ITS OWN CONFIDENCE: it built its own receipt, so a coarser readiness never overwrites it.
     };
     // IDENTITY IS COMPUTED FROM THE ROW AS STAMPED, never from the row as it arrived: computing it first read a null cause on every fresh draft, so pass one stored one key and every later pass derived another from the same row and re-saved settled work forever. A BUNDLE keeps the key its job declared; every other row derives from itself, so a field edit on a bundle's page never wears the bundle's identity.
-    return { ...stamped, workKey: (p.bundle ? declaredWorkKey.get(DRAFT_BUDGET.keyOf(p)) : null) ?? workKeyOf(stamped) };
-  };
+    return { ...stamped, workKey: (p.bundle ? declaredWorkKey.get(DRAFT_BUDGET.keyOf(p)) : null) ?? workKeyOf(stamped) };};
   /** RECOVERY BEFORE DISCOVERY: a page that lost real clicks while its ranking held is worth what it LOST. The lost figure never lowers a proven one, and only a card that could actually win those clicks back may claim it: a duplicate heading or an engine follow-up on a page that shed 191 clicks was inheriting all 191 as its own worth and outranking the rewrite that might really recover them. A bundle qualifies outright (it rewrites the page); a single edit only in a family whose words a searcher reads. */
   const RECOVERS_A_FALL = new Set(["title", "h1", "answer_block", "thin_page", "missing_description"]); const lostByKey = new Map([...windows].flatMap(([url, w]) => pageKeys(url).map((k) => [k, w.lostClicks] as const)));
   const recovered = (p: ChangeProposal): ChangeProposal => { // AN ACCURACY DEFECT NEVER INHERITS A FALL: handed the page's lost clicks, a card about statements contradicting their own sources arrived claiming 192 clicks nothing tied it to (the merge of two separate truths the operator forbade, 2026-08-17). A cause that claims no clicks by construction is left alone.
@@ -343,10 +342,8 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
       if (stored && stored.rankingReceipt?.score === p.rankingReceipt?.score
         && (stored.impactScore ?? null) === (p.impactScore ?? null)
         && (stored.whyRankedAboveNext ?? null) === (p.whyRankedAboveNext ?? null)) continue;
-      if (await saveChangeProposal(p).catch(() => "failed" as const) === "saved") existing.set(p.id, p);
-    }
-    return ranked;
-  };
+      if (await saveChangeProposal(p).catch(() => "failed" as const) === "saved") existing.set(p.id, p);}
+    return ranked;};
   const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); } // suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged.
   const gscComplete = snapshot.sources.some((s) => s.source === "gsc" && s.status === "fresh");  /** THE GENEROUS HALF OF THE QUEUE: every concrete edit the held evidence supports, at needs_review. */
   const withSuggestions = async (strict: ChangeProposal[]): Promise<ProducerRun> => {
