@@ -13,9 +13,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
     reopenObsoleteChecks: async (_t: string, _p: string, stale: { statementKey: string }[]) => (db.reopened.push(...stale.map((x) => x.statementKey)), stale.length),
     supersedeStaleFacts: async (_t: string, _p: string, _h: string, present: (c: string) => boolean) => {
       const gone = db.rows.filter((r) => !present(String(r.current)));
-      db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },
-  };
-});
+      db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
 const NOW = new Date("2026-08-18T00:00:00.000Z");
@@ -47,9 +45,7 @@ describe("the search is the proposition", () => {
     expect(q).not.toContain("definition reference"); // the query the live run actually sent
     expect(claimTypeOf("Tehran", "was founded in 1796")).toBe("date_or_event"); const meaning = sourceQueryFor("word_meaning", "Afsaneh", "means Goddess");
     expect([meaning.includes("etymology"), meaning.includes("Goddess")]).toEqual([true, true]); // the proposition survives the hint
-    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));
-  });
-});
+    expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));});});
 describe("a missing proposition is researched, never graded", () => { beforeEach(reset);
   /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
   it("an owed claim with no current wording banks the researched statement from real sources", async () => {
@@ -93,9 +89,7 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect([bad.status, bad.failure, db.rows.length]).toEqual(["failed", "source_quality_unresolved", 0]);
     expect((await unit({ held, searchSources: async () => ({ organic: [] }) })).status).toBe("advanced"); // truly empty
     const r = db.rows[0] as FactCheck; expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
-    db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");
-  });
-});
+    db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");});});
 describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("a page longer than one section is NOT complete after its first chunk", async () => {
     const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
@@ -107,8 +101,21 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
       pageContentHash: pageHashOf(long.body), state: "checked" })];
     const second = await unit({ page: long, held, read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     // Completion arrives only once the LAST section has been inventoried too, and coverage says so durably.
-    expect([(db.cov as { coveredChars: number }).coveredChars, second.status]).toEqual([long.body.length, "done"]);
-  });
+    expect([(db.cov as { coveredChars: number }).coveredChars, second.status]).toEqual([long.body.length, "done"]);});
+  it("a chunk that filled up to the cap has not been read, and the cursor says where it stopped", async () => {
+    // A DENSE LIST PAGE IS THE CASE THIS EXISTS FOR: 194 name entries in 11,600 characters fit inside ONE
+    // 12,000-character chunk, the schema returns at most forty statements, and the page was then marked COVERED.
+    // The other 154 entries became permanently unreachable at that body hash, so "check the page" quietly meant
+    // "sample a fifth of it". A capped extraction now advances only to the end of the last statement it banked.
+    const entries = Array.from({ length: 60 }, (_, i) => `Name${i} Meaning: wrong meaning ${i}.`);
+    const dense = { url: "https://x.example/dense", path: "/dense", body: entries.join(" ") };
+    const capped = { statements: Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `wrong meaning ${i}.`, locator: `Name${i}` })) };
+    const out = await unit({ page: dense, read: reader({ claims: capped, judge: CONFIRMS }) });
+    const at = (db.cov as { coveredChars: number }).coveredChars;
+    expect(out.cursor?.pageComplete, "a capped chunk never completes the page").toBe(false);
+    expect(at, "and it stops inside the body, not at the end of it").toBeLessThan(dense.body.length);
+    expect(at, "at the fortieth statement, not at the first").toBeGreaterThan(dense.body.indexOf("Name39")); });
+
   it("one proposition reworded with the same content words is not acquired twice", async () => {
     const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C"); expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
     expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat); // not semantic: different words, different claim
@@ -119,8 +126,7 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
       held: [row({ statementKey: "a", subject: "Ahvaz", current: "hottest day record 54 °C", state: "checked" }),
         row({ statementKey: "b", subject: "Ahvaz", current: "The hottest day record, 54 °C, is held by Ahvaz", state: "owed" })] });
     // no paid call for the reformulation
-    expect([searches, db.superseded.includes("Ahvaz"), out.status]).toEqual([0, true, "done"]);
-  });
+    expect([searches, db.superseded.includes("Ahvaz"), out.status]).toEqual([0, true, "done"]);});
   it("agreement means independent publishers, so the second fetch prefers a different source class", async () => {
     const fetched: string[] = [];
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async (url: string) => { fetched.push(url); return { text: PASSAGE }; },

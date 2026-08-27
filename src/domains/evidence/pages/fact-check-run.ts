@@ -27,6 +27,8 @@ const RESERVE_MS = 8_000;
 /** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted
  *  and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). */
 export const EXTRACT_CHUNK = 12_000;
+/** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
+const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and
  *  waits alike: the old per-page nesting advertised four and allowed twelve (Codex, 2026-08-18). */
 export const ATTEMPTS_PER_PASS = 4;
@@ -246,7 +248,17 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     // not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
-    cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + chunk.length, page.body.length), totalChars: page.body.length };
+    // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP. The schema returns at most CLAIM_CAP
+    // statements, so on a dense list page (194 name entries in 11,600 characters) one 12,000-character chunk
+    // swallowed the whole body, banked forty statements, and marked the page COVERED: the other 154 entries
+    // became permanently unreachable at that body hash, and "check the page" silently meant "sample a fifth of
+    // it". When the cap is hit, the cursor advances only to the end of the LAST STATEMENT actually inventoried,
+    // found in the chunk by its own wording, so the next pass resumes exactly where this one stopped reading.
+    // Nothing is re-banked when it does: identity and proposition both dedupe above.
+    const last = claims.length >= CLAIM_CAP ? claims[claims.length - 1]!.current : null;
+    const at = last ? chunk.toLowerCase().lastIndexOf(last.toLowerCase().slice(0, 60)) : -1;
+    const read = at >= 0 ? Math.max(1, at + Math.min(last!.length, 60)) : chunk.length;
+    cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + read, page.body.length), totalChars: page.body.length };
     if (d.writeCoverage && !(await d.writeCoverage(cov).catch(() => false)))
       return fail("inventory_write_failed", null, "the section's coverage could not be stored, so it would be read and paid for again");
     inventory = [...inventory, ...claims.map((c) => ({ ...EMPTY_ROW, page: page.path, statementKey: c.statementKey,

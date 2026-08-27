@@ -6,19 +6,16 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({ from: (table: string) => { const q: Record<string, unknown> = {
     select: (c: string) => { pg.queries += 1; pg.cols.push(c); return q; }, eq: () => q, contains: () => q, order: () => q, limit: () => q,
     insert: async (row: Record<string, unknown>) => { pg.inserted.push({ table, ...row }); return { error: null }; },
-    then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),
-}));
+    then: (res: (v: unknown) => void) => res(pg.queued.shift() ?? { data: [], error: null }) }; return q; } }),}));
 /** The spend gate, allowed, so the read-back path below is exercised end to end without a ledger, and WHAT IT WAS ASKED TO RECORD: `recordSpend` is the one writer of the durable llm_budget_ledger row. */
 const ledger = vi.hoisted(() => ({ spent: [] as number[] }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async (usd: number) => void ledger.spent.push(usd),
-  reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},
-}));
+  reserveOnboardingSpend: async () => ({ ok: true }), reconcileOnboardingSpend: async () => {},}));
 /** WHAT THE PROVIDER REGISTRY CAN ASK TODAY. The planner derives its engine set from the registry through this one predicate, so turning a capability off here is the only way to prove the derivation is live. */
 const registry = vi.hoisted(() => ({ off: new Set<string>() }));
 vi.mock("@/domains/evidence/dataforseo/funnel-boundary", async (orig) => ({
-  ...((await orig()) as object), capabilityAskable: (cap: string) => !registry.off.has(cap),
-}));
+  ...((await orig()) as object), capabilityAskable: (cap: string) => !registry.off.has(cap),}));
 /** What the pass SAID, so a swallowed write can be told apart from a recorded one. */
 const said = vi.hoisted(() => ({ warnings: [] as string[], errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {},
@@ -46,8 +43,7 @@ const PROMPTS = [q("p1", "2026-01-01"), q("p2", "2026-02-01"), q("p3", "2026-03-
 const seen = (o: Partial<AiObservationView> & { promptId: string; engine: string }): AiObservationView => ({
   id: `obs-${o.promptId}-${o.engine}-${o.slot ?? 0}-${o.day ?? DAY}`, version: 1, slot: 0, day: DAY, status: "observed",
   observedAt: null, requestedAt: `${o.day ?? DAY}T08:00:00.000Z`, failureReason: null, promptText: "", answerText: null,
-  answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,
-});
+  answerHash: null, citationUrls: null, analysis: null, analysisHash: null, ...o,});
 const key = (d: { promptId: string; version: number; engine: string; slot: number }) => `${d.promptId}|${d.version}|${d.engine}|${d.slot}`;
 /** Every pair answered on `day`, so the canonical round is complete. */
 const fullDay = (day = DAY, slot = 0) => PROMPTS.flatMap((p) => ENGINES.map((e) => seen({ promptId: p.id, engine: e, slot, day })));
@@ -67,8 +63,7 @@ describe("daily observation plan", () => {
     expect(plan[0]).toMatchObject({ promptId: "p1", engine: "chatgpt" }); // core beats the older non-core row
     expect(plan.slice(0, 12).every((d) => d.promptId !== "z-legacy")).toBe(true);
     const wide = [...mixed, q("p4", "2026-04-01"), q("p5", "2026-05-01")]; // 6 questions x 4 engines is more than one pass may plan
-    expect(planObservations(DAY, { prompts: wide, observed: [] })).toHaveLength(DAILY_OBSERVATION_BATCH);
-  });
+    expect(planObservations(DAY, { prompts: wide, observed: [] })).toHaveLength(DAILY_OBSERVATION_BATCH);});
   it("excludes an engine it cannot ask without blocking the engines it can", () => {
     const plan = planObservations(DAY, { prompts: PROMPTS, observed: [], engines: ["chatgpt", "claude", "gemini"], unsupportedPairs: ["p2|claude"], maxBatch: 99 });
     expect([plan.some((d) => d.engine === "perplexity"), plan.some((d) => d.promptId === "p2" && d.engine === "claude"), plan.filter((d) => d.promptId === "p2").length, plan.length])
@@ -87,8 +82,7 @@ describe("daily observation plan", () => {
     expect(writes.find((w) => w.id === "k0")).toMatchObject({ is_active: false, version: 1 }); // history keeps its series
     expect(writes.find((w) => w.is_active && w.text === "reworded question")).toMatchObject({ version: 1, core: true }); // a fresh id starts at series 1
     expect(writes.find((w) => w.id === "k11")).toMatchObject({ is_active: true, version: 4 }); // the revival is a new series on the same id
-  });
-});
+  });});
 describe("extra readings", () => {
   const base = { prompts: PROMPTS, observed: [] as AiObservationView[] };
   it("refuses an extra reading before today's canonical round is done, grants one after it, and refuses at three", () => {
@@ -105,12 +99,10 @@ describe("extra readings", () => {
     const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 }); expect(capped).toEqual([]);
     const one = planObservations(DAY, { ...base, observed: fullDay(), extraSamples: 1, maxBatch: 99 }); expect(new Set(one.map(key)).size).toBe(12);
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1, maxBatch: 99 })).toEqual([]); // ONE grant buys ONE extra round: with slot 1 in, a second slot needs a second ask.
-    expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);
-  });
+    expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);});
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
-    expect(out.reason).toContain("could not be read");
-  });
+    expect(out.reason).toContain("could not be read");});
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
