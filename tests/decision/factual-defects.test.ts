@@ -36,21 +36,17 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
-    // A CORRECTION CARD IS NOT SELF-JUSTIFYING: minted on evidence later found to be about the wrong subject,
-    // six stood Ready for ever (one cited Wikipedia's Slavic "Daria" for Persian darya).
     const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh";
     const dead = "t::/persian-female-first-names::existing_edit::fact-darya";
     store.rows = [{ id: live }, { id: dead }, { id: "t::/other::existing_edit::fact-elsewhere" }];
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([dead]);
-    // FAIL-CLOSED: a failed body read must not retire every correction on the site at once.
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });
 
   it("turns forty sourced corrections into forty separately ranked changes that nothing can retire together", async () => {
-    // ONE CORRECTION IS ONE CHANGE (operator, 2026-08-26): forty as ONE row died in a single stale-sweep write.
     checks.rows = many(40);
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards).toHaveLength(40);
@@ -67,11 +63,20 @@ describe("a page's own statements against their sources", () => {
       before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry');
     expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
-    // ONE SUPPORT PER QUOTED SOURCE, carrying the passage itself; an empty banked quote counts for nothing.
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]);
     expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
+  it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
+    // Wikipedia's Maryam quote says the name "may have originated... possibly"; its Ariana quote derives the
+    // meaning from "the Ancient Greek name Ariadne". Both shipped as flat corrections past the model reviewer.
+    const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
+    checks.rows = [check({ subject: "Maryam", sources: src('The name may have originated from the root mr "love; beloved"') }),
+      check({ subject: "Ariana", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
+      check({ subject: "Leila", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    // One edit of distance is a transliteration (Laila/Leila), never a different name; the other two die typed.
+    expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
     for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) {
       checks.rows = [check(bad)];
@@ -101,8 +106,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
     expect(out[1]!.recommendedChange, "a held correction keeps its exact words").toEqual(cards[1]!.recommendedChange); });
   it("a sourced gloss is shaped into the line it replaces, and only its shape", async () => {
-    // LIVE: all eight cards for the biggest recovery page were held for ever because the mint pasted the raw
-    // fragment ("light") over "Meaning:Bright, radiant, or glowing."; one span swallowed the name heading.
     checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light" }),
       check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark" }),
       check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart" })];
@@ -113,7 +116,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(rc("leila").after, "a semicolon list becomes the page's own prose").toBe("Meaning:Night, or dark.");
     expect(rc("alborz")).toMatchObject({ before: "Meaning:Shining like a heavenly flower.", after: "Meaning:Mountain Rampart." });
     expect(by.get("noor")!.limitations[0], "nothing deterministic holds a composed line").toContain("has not read this correction yet");
-    // A point replacement is not weighed as a 15-to-400-word section; a real section stub still fails.
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
     expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).join(" ")).toContain("its copy is");
@@ -125,8 +127,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(one.supportFacts).toHaveLength(1); expect(openHold(one).need?.reasonCode).toBe("single_source"); });
 
   it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
-    // The label prefix must not smuggle "Meaning:Jasmine." past the name gate, and the reviewer reads the
-    // exact passages: its source-consistency charge was being asked over an empty source line.
     checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine" }),
       check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly." })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });

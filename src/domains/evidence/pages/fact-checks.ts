@@ -242,6 +242,30 @@ export async function reopenObsoleteChecks(tenantId: string, page: string, stale
  *  outside the runtime is real work and still cannot attest to itself here: it stays a finding until the
  *  engine reads its source and says so. `current` binds the row to the page version and basis it was checked
  *  against, so a stale fact can never sit beside its own replacement as a second live instruction. */
+/** A QUOTE THAT ONLY HYPOTHESIZES DOES NOT AUTHORIZE A FLAT REPLACEMENT. Wikipedia's Maryam passage says the
+ *  name "may have originated... possibly derivative of the root mr", and the flat "Beloved." shipped on it was
+ *  really standing on one ordinary baby-name site: a hypothesis plus an ordinary publisher is a finding, never
+ *  a confirmation. */
+const HEDGED = /\b(?:may|might|possibly|perhaps|likely|uncertain|unclear|disputed|debated|suggest(?:s|ed|ion)?)\b/i;
+/** A QUOTE THAT DEFINES A DIFFERENT NAME DEFINES A DIFFERENT SUBJECT, however alike the spelling: the passage
+ *  crediting Persian Ariana with "most holy" was Wikipedia deriving it from "the Ancient Greek name Ariadne",
+ *  which is the Daria-for-darya failure wearing a derivation. The verifier's own rule already says a variant of
+ *  a different language's name is a different subject; this asks the same question of the banked quote itself,
+ *  so one model lapse cannot ship a homograph. One edit of distance is a transliteration (Laila/Leila), never a
+ *  different name. */
+const editDistanceOver1 = (a: string, b: string): boolean => {
+  if (Math.abs(a.length - b.length) > 1) return true;
+  let i = 0, j = a.length - 1, k = b.length - 1;
+  while (i < Math.min(a.length, b.length) && a[i] === b[i]) i += 1;
+  while (j >= i && k >= i && a[j] === b[k]) { j -= 1; k -= 1; }
+  return j - i >= 1 || k - i >= 1;
+};
+const definesOtherName = (says: string, subject: string): boolean => {
+  const bare = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^a-z]/g, "");
+  const who = bare(subject);
+  return [...says.matchAll(/\bname\s+(\p{Lu}[\p{L}]+)/gu)].some((m) => editDistanceOver1(bare(m[1]!), who));
+};
+
 export function authorizedCorrections(checks: readonly FactCheck[],
   current?: { pageContentHash: string | null; evidenceBasis?: string | null }): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
@@ -254,7 +278,10 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     && (c.verdict === "page_wrong" || c.verdict === "page_imprecise" || c.current.trim() === "")
     && !!c.proposed?.trim()
     && !!c.sourceReadAt
-    && c.sources.some((s) => s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")
+    // THE LOAD-BEARING AUTHORITY IS ONE WHOSE OWN QUOTE CAN CARRY THE WEIGHT: read, non-hedging, and about this
+    // subject rather than a different name it derives from. Kind alone let a hypothesis and a homograph through.
+    && c.sources.some((s) => (s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")
+      && s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject))
     && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
 }
