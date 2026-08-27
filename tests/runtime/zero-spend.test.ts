@@ -69,9 +69,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release"); const out = await refreshCustomerSurface("tenant-fx");
     expect(built).toBe(0); // the other dispatcher owns the build
     expect(out).toBe(held[0]); // this one serves what is already published
-    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
-  });
-});
+    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});});
 /** THE DOORS THEMSELVES READ THE SWITCH, with no scope open at all: a caller added tomorrow inherits it. */
 describe("the paid doors refuse a paused account even with no scope open", () => {
   it("blocks the model door at the pause bit, before any network", async () => {
@@ -86,15 +84,13 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
     setSpendPauseProbeForTests(null);
     expect(outcome.kind).toBe("blocked_budget");
     if (outcome.kind === "blocked_budget") expect(outcome.reason).toContain("paused");
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
+    expect(fetchSpy).not.toHaveBeenCalled();});
   it("blocks the provider door the same way, leaving the work owed", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
     setSpendPauseProbeForTests(async () => true);
     const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities"); const result = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
     setSpendPauseProbeForTests(null);
-    expect(result.state).toBe("capped"); expect(fetchSpy).not.toHaveBeenCalled();
-  });
+    expect(result.state).toBe("capped"); expect(fetchSpy).not.toHaveBeenCalled();});
   it("leaves the FREE collect of an already-purchased task untouched by the pause", async () => {
     // Collection is a task_get that costs nothing; the pause stops buying, never picking up what was bought.
     const { setSpendPauseProbeForTests, runWithoutSpending } = await import("@/lib/spend-scope");
@@ -105,8 +101,7 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
     } as never)).catch(() => null);
     setSpendPauseProbeForTests(null);
     expect(reached || out != null).toBe(true); // it went to work rather than refusing at the boundary
-  });
-});
+  });});
 /** ONE REBUILD PER ACCOUNT, DECIDED BY THE DATABASE (reviewer, 2026-08-19): read-check-act is not a claim. */
 describe("two dispatchers cannot both rebuild one account, and only the owner can free the hold", () => {
   type Hold = { content: [{ until: string; owner?: string }] };
@@ -117,8 +112,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
         insert: (r: { scope_key: string; content: Hold["content"] }) => ({
           select: async () => rows.has(r.scope_key)
             ? { data: null, error: { code: "23505", message: "duplicate key" } }
-            : (rows.set(r.scope_key, { content: r.content }), { data: [{ scope_key: r.scope_key }], error: null }),
-        }),
+            : (rows.set(r.scope_key, { content: r.content }), { data: [{ scope_key: r.scope_key }], error: null }),}),
         update: (r: { content: Hold["content"] }) => ({
           eq: (_c: string, key: string) => {
             const takeover = {
@@ -127,20 +121,14 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
                   const held = rows.get(key);
                   if (!held || held.content[0].until >= nowIso) return { data: [], error: null };
                   rows.set(key, { content: r.content });
-                  return { data: [{ scope_key: key }], error: null };
-                },
-              }),
+                  return { data: [{ scope_key: key }], error: null };},}),
               // The release path: a second eq is the OWNER match, and the row changes only when it holds.
               eq: (_o: string, owner: string) => ({
                 then: (res: (v: unknown) => unknown) => {
                   const held = rows.get(key);
                   if (held && held.content[0].owner === owner) rows.set(key, { content: r.content });
-                  return Promise.resolve({ data: null, error: null }).then(res);
-                },
-              }),
-            };
-            return takeover;
-          },
+                  return Promise.resolve({ data: null, error: null }).then(res);},}),};
+            return takeover;},
         }),
       }),
     }),

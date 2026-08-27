@@ -103,6 +103,19 @@ describe("extra readings", () => {
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not be read");});
+  it("keeps a reading that lists one item too many instead of throwing the whole batch away", async () => {
+    // A `.max()` on every enumeration made the reader fail-closed: ONE answer naming 31 entities instead of 30
+    // failed the WHOLE batch of five already-paid readings, which were left owed and bought again to fail the
+    // same way. That is what stopped the reading on 2026-08-16 and left 891 answers, $7.75 of paid text, unread.
+    const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
+    const long = { sections: [], claims: [], topicEntities: Array.from({ length: 41 }, (_, i) => `entity ${i}`),
+      ownedBrandMention: { mentioned: false, position: null, context: null }, competitors: [],
+      contentTypesRecommended: Array.from({ length: 20 }, (_, i) => `type ${i}`), questionsAnswered: [],
+      materialOmissions: [], caveats: [] };
+    const out = SCHEMA_BY_KIND.answer_analysis.safeParse(long);
+    expect(out.success, "a long answer is a long answer, never an invalid one").toBe(true);
+    expect(out.success && out.data.topicEntities.length, "and what is over the bound is dropped, not the reading").toBe(30); });
+
   it("buys no new answer while answers already paid for sit unread, and says how many", async () => {
     // Live, 891 answers carrying $7.75 of paid text had never been analysed, every one dated 2026-08-16 or
     // later, and the button that buys more still said yes. Buying more of what nobody reads is the one spend

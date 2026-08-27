@@ -292,19 +292,26 @@ export type NewPageBrief = z.infer<typeof NewPageBriefSchema>;
 // ── answer analysis (V1 Truth Convergence Phase 1, 2026-07-31) ────────────── What one AI engine's answer to one tracked question ACTUALLY said. The model here is a READER, never an author: every claim carries the
 // answer's own wording, every entity and competitor is one the answer named, and no URL, number, ranking or fact may appear that the answer text does not contain. Nothing in this shape is ever published; it is the
 // evidence a later decision reads. `position` is an ORDINAL within the answer (1 = named first), never a search rank.
+/** A LIST BOUND IS HOW MUCH IS KEPT, NEVER A REASON TO THROW THE READING AWAY. These caps are presentation
+ *  limits on enumerations, and `.max()` made every one of them fail-closed: one answer naming 31 entities
+ *  instead of 30 failed the WHOLE batch, so five already-paid readings were discarded, left owed, and bought
+ *  again on the next pass to fail the same way. Live, that is exactly what stopped the reading on 2026-08-16
+ *  and left 891 answers carrying $7.75 unread while the buying continued. Over-length now TRUNCATES, because a
+ *  thirty-first entity is a long answer and never an invalid one. Every per-item bound above still holds. */
+const capped = <T extends z.ZodTypeAny>(item: T, max: number) => z.preprocess((v) => (Array.isArray(v) ? v.slice(0, max) : v), z.array(item));
 const AnswerAnalysisSchema = z.object({
-  sections: z.array(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) })).max(12),
+  sections: capped(z.object({ heading: z.string().min(1).max(200), covers: z.string().min(1).max(600) }), 12),
   /** Each claim restated in the ANSWER'S OWN WORDING, plus what it is about. */
-  claims: z.array(z.object({ subject: z.string().min(1).max(160), text: z.string().min(1).max(400) })).max(24),
-  topicEntities: z.array(z.string().min(1).max(120)).max(30),
+  claims: capped(z.object({ subject: z.string().min(1).max(160), text: z.string().min(1).max(400) }), 24),
+  topicEntities: capped(z.string().min(1).max(120), 30),
   /** Was the account's own brand named, where in the answer, and in what light. */
   ownedBrandMention: z.object({ mentioned: z.boolean(), position: z.number().int().min(1).max(100).nullable(), context: z.string().max(400).nullable() }),
-  competitors: z.array(z.object({ name: z.string().min(1).max(160), position: z.number().int().min(1).max(100).nullable() })).max(20),
-  contentTypesRecommended: z.array(z.string().min(1).max(80)).max(12),
-  questionsAnswered: z.array(z.string().min(1).max(300)).max(15),
+  competitors: capped(z.object({ name: z.string().min(1).max(160), position: z.number().int().min(1).max(100).nullable() }), 20),
+  contentTypesRecommended: capped(z.string().min(1).max(80), 12),
+  questionsAnswered: capped(z.string().min(1).max(300), 15),
   /** What this answer leaves a reader still not knowing. Named, never invented. */
-  materialOmissions: z.array(z.string().min(1).max(300)).max(10),
-  caveats: z.array(z.string().min(1).max(300)).max(10),
+  materialOmissions: capped(z.string().min(1).max(300), 10),
+  caveats: capped(z.string().min(1).max(300), 10),
 });
 export type AnswerAnalysis = z.infer<typeof AnswerAnalysisSchema>;
 // The BATCH read (V1 Closure, 2026-08-01): the SAME reader contract over many answers in ONE call, each entry echoing the observation id it was taken on, copied from the input and never minted. One answer per call
