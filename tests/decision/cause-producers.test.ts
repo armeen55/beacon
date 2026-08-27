@@ -27,8 +27,7 @@ const bought: string[] = [];
 const seam = (over: { section?: unknown; atomic?: unknown } = {}): CompleteFn => async ({ kind }) => {
   bought.push(kind);
   if (kind === "section_draft") return { value: (over.section ?? SECTION) as never };
-  return { value: (over.atomic ?? { field: "answer_block", before: null, after: ANSWER, rationale: "The opening never says what the search is about.", ...TAIL }) as never };
-};
+  return { value: (over.atomic ?? { field: "answer_block", before: null, after: ANSWER, rationale: "The opening never says what the search is about.", ...TAIL }) as never };};
 const page = (over: Partial<OwnedPageEvidence> = {}): OwnedPageEvidence => ({
   url: URL,
   content: { title: "Rain Barrels", metaDescription: null, h1: "Rain Barrels", h2: [], outline: ["Rain barrel sizing", "Roof area and gallons"],
@@ -83,8 +82,7 @@ describe("a named cause produces the change that fixes it", () => {
     expect(out.proposal.diagnosisCause).toBe("incomplete_coverage"); expect(b.components.map((c) => c.kind)).toEqual(["section_add", "section_add"]);
     // section_add is OUTSIDE the grandfathered kinds, so all four answers are owed or the validator rejects the whole change
     for (const c of b.components) {
-      expect(c.where).toBeTruthy(); expect(c.objective).toBeTruthy(); expect(c.mechanism).toBeTruthy(); expect(c.measurementPlan).toBeTruthy(); expect(c.after).toContain(SECTION.body);
-    }
+      expect(c.where).toBeTruthy(); expect(c.objective).toBeTruthy(); expect(c.mechanism).toBeTruthy(); expect(c.measurementPlan).toBeTruthy(); expect(c.after).toContain(SECTION.body);}
     expect(validateProposal(out.proposal, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected");
     expect(bought.filter((k) => k === "section_draft")).toHaveLength(2); // one call per section, never a third
   });
@@ -167,8 +165,7 @@ describe("every door answers for its own evidence", () => {
     expect(await refused({ door: "cannibalization" })).toContain("which pages those are is not settled"); expect(await refused({ door: "recent_decline" })).toContain("one 90 day total");
     expect(await refused({ door: "coverage_verdict" })).toContain("named it as the page of yours to improve"); expect(await refused({ evidence: { ...DOOR.evidence, query: " " } })).toContain("no longer names the search it was about");
     for (const door of ["cannibalization", "recent_decline", "coverage_verdict"] as const) {
-      expect(await refused({ door })).not.toMatch(/losing enough clicks|[–—]|experiment|control group|baseline|SERP/i);
-    }
+      expect(await refused({ door })).not.toMatch(/losing enough clicks|[–—]|experiment|control group|baseline|SERP/i);}
     expect(bought).toEqual([]); // a door that cannot show its own case never reaches a drafter
   }); });
 describe("the wording cause keeps the path it has always had", () => {

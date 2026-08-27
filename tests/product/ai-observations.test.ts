@@ -28,11 +28,8 @@ function fakeTable(table: string) {
       const ordered = sorted(mine); const cursor = after;
       const past = cursor ? ordered.filter((r) => { const at = String(r.requested_at ?? ""); return at < cursor.at || (at === cursor.at && String(r.id) < cursor.id); }) : ordered; const page = max == null ? past : past.slice(0, max);
       if (table === "ai_observations") { db.pages.push(`${cursor ? `${cursor.at}|${cursor.id}` : "start"}+${page.length}`); db.onPage?.(db.pages.length); } // only this table's own reads are counted, so a page count means what it says
-      return res({ data: page, error: db.error });
-    },
-  };
-  return q;
-}
+      return res({ data: page, error: db.error });},};
+  return q;}
 /** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
@@ -68,15 +65,12 @@ function provider(fail: CachedCallResult | null = null) {
     const envelope = cap === "llm_scraper_chatgpt" ? fx.scraperAnswer({ keyword: text }) : fx.llmAnswer({ model: `${cap}-served` });
     if (bought.has(cacheKey)) return { state: "hit", envelope, costUsd: 0, cacheKey, modelServed: null };
     bought.add(cacheKey); paid += 1;
-    return { state: "ok", envelope, costUsd: 0.02, cacheKey, modelServed: null };
-  };
-  return { call, paid: () => paid };
-}
+    return { state: "ok", envelope, costUsd: 0.02, cacheKey, modelServed: null };};
+  return { call, paid: () => paid };}
 function world(over: Partial<FunnelDeps> = {}, fail: CachedCallResult | null = null) {
   const store = fx.memFunnelStore(), p = provider(fail);
   const deps: FunnelDeps = { ...store.deps, callProvider: p.call, now: () => NOW, getAccount: async () => ({ domain: SITE } as Account), ...over };
-  return { deps, paid: p.paid, store };
-}
+  return { deps, paid: p.paid, store };}
 const rowsFor = (table: string) => db.written.filter((w) => w.table === table).map((w) => w.row);
 const observations = () => rowsFor("ai_observations") as unknown as AiObservationRecord[];
 const run = (deps: FunnelDeps, due: DueObservation[] | null, tenantId = TENANT) => promptObservationUnit(deps, due)(tenantId, { basis: BASIS, runId: "run-1" }, 60_000);
@@ -87,8 +81,7 @@ describe("one canonical identity per observation", () => {
     expect(rows.length).toBe(12); // 3 questions x 4 engines, nothing implied and nothing dropped
     for (const r of rows) expect(r.id).toBe(aiObservationId({ tenantId: TENANT, promptId: r.prompt_id, promptVersion: 1, engine: r.engine, day: DAY, slot: 0 })); // one deterministic id per pair, so twelve pairs are twelve rows
     expect(new Set(rows.map((r) => `${r.reporting_day}|${r.sample_slot}|${r.language}|${r.location}`))).toEqual(new Set([`${DAY}|0|en|2840`]));
-    expect(rows.every((r) => r.site === SITE && r.prompt_text.length > 0 && r.completed_at === new Date(NOW).toISOString())).toBe(true);
-  });
+    expect(rows.every((r) => r.site === SITE && r.prompt_text.length > 0 && r.completed_at === new Date(NOW).toISOString())).toBe(true);});
   it("reuses the SAME row when a failed check is retried, and never buys the same day twice", async () => {
     const broken = world({}, { state: "error", cacheKey: null, disposition: "none", detail: "the provider could not finish it" }); await run(broken.deps, duePlan()); const failed = observations();
     expect([failed.length, new Set(failed.map((r) => r.status)).size, failed[0]!.failure_reason]).toEqual([12, 1, "the provider could not finish it"]);
@@ -120,15 +113,13 @@ describe("one canonical identity per observation", () => {
     const blind = world(), out = await run(blind.deps, null); expect([out.status, blind.paid(), db.written.length]).toEqual(["failed", 0, 0]);
     expect(out.detail).toContain("I could not read which of your questions are due"); const settled = world();
     const nothing = await run(settled.deps, []); // nothing owed is a finished day, not a reason to re-ask
-    expect([nothing.status, settled.paid(), db.written.length]).toEqual(["done", 0, 0]);
-  });
+    expect([nothing.status, settled.paid(), db.written.length]).toEqual(["done", 0, 0]);});
   it("treats a second deliberate reading of the same pair as a NEW observation, never an overwrite", async () => {
     const w = world(); await run(w.deps, duePlan(0)); const first = observations().map((r) => r.id); db.written = [];
     await run(w.deps, duePlan(1)); const second = observations(); expect(second.length).toBe(12); expect(second.every((r) => r.sample_slot === 1 && r.reporting_day === DAY)).toBe(true);
     expect(first.some((id) => second.some((r) => r.id === id))).toBe(false); // same question, same engine, same day, DIFFERENT reading
     expect(w.paid()).toBe(24); // and a DIFFERENT question to the provider: a second sample that replayed the first for $0 would not be a second opinion
-  });
-});
+  });});
 describe("the answer is kept whole", () => {
   it("keeps the full text and the whole journey, with retrieved pages held apart from cited sources", async () => {
     await run(world().deps, duePlan()); const rows = observations(), consumer = rows.find((r) => r.engine === "chatgpt")!;
@@ -148,8 +139,7 @@ describe("the answer is kept whole", () => {
     const unsupported = observations().filter((r) => r.status === "unsupported"); expect([unsupported.length, unsupported[0]!.engine, unsupported[0]!.cost_usd, unsupported[0]!.cache_key]).toEqual([1, "grok", 0, null]);
     expect(unsupported[0]!.failure_reason).toBe("I cannot ask grok for you yet, so I spent nothing on it.");
     expect([w.paid(), out.status]).toEqual([12, "done"]); // the gap is named and the twelve engines I can reach still finish
-  });
-});
+  });});
 describe("tenant isolation and the derived history row", () => {
   it("never lets one account's answers carry another account's identity", async () => {
     await run(world().deps, duePlan(), TENANT); const mine = observations(); db.written = [];
@@ -163,8 +153,7 @@ describe("tenant isolation and the derived history row", () => {
     expect(rows.length).toBe(12);
     expect(rowsFor("prompt_answer_observations")).toEqual([]); // no second AI truth is ever written again
     expect(rows.every((r) => r.journey.run_id === "run-1" && r.tenant_id === TENANT)).toBe(true); // the canonical row itself names the run that bought it
-  });
-});
+  });});
 describe("re-analysis reads what was already bought", () => {
   it("reads stored answers back and records a verdict beside them without asking any provider again", async () => {
     db.read = [{ id: "obs_1", tenant_id: TENANT, prompt_id: "q1", prompt_version: 1, engine: "chatgpt", sample_slot: 0, reporting_day: DAY,
@@ -201,8 +190,7 @@ describe("re-analysis reads what was already bought", () => {
     for (const col of ["cited:journey->cited_sources", "retrieved:journey->retrieved_results", "model_served"]) expect(db.selected[0]!.split(",")).toContain(col);
     for (const heavy of ["answer_text", ",journey,", ",analysis,"]) expect(db.selected[0]).not.toContain(heavy); // the overview reads two journey lists, never the whole journey and never the answer
     db.selected = []; await readAiObservations(TENANT, { day: DAY }); // a caller that needs the whole answer simply does not ask for a projection, and it is the ONLY path that ever loads one
-    expect(db.selected[0]).toBe("*");
-  });
+    expect(db.selected[0]).toBe("*");});
   it("reads the addresses an answer credited off the stored journey, and keeps null a different claim from none", async () => {
     const at = (url: string, domain: string) => ({ url, domain, title: null });
     const row = (id: string, second: number, journey?: Record<string, unknown>) => ({ id, tenant_id: TENANT, reporting_day: DAY, sample_slot: 0, status: "observed", requested_at: `${DAY}T09:00:0${second}.000Z`, ...(journey ? { journey } : {}) });
@@ -221,8 +209,7 @@ describe("re-analysis reads what was already bought", () => {
     db.updated = null; db.filters = {}; await settleFailedObservation(TENANT, "obs_2", "unsupported");
     expect([db.updated, db.filters]).toEqual([{ status: "unsupported" }, { tenant_id: TENANT, id: "obs_2", status: "failed" }]); // an engine I cannot ask is a different claim
     db.updated = null; db.error = { message: "connection lost" };
-    await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);
-  });
+    await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);});
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
     // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
     db.read = stored(600);
@@ -233,8 +220,7 @@ describe("re-analysis reads what was already bought", () => {
     const walked = await readAiObservations(TENANT, { day: DAY });
     expect(new Set(walked.map((r) => r.id)).size).toBe(walked.length); // no id twice
     expect(walked.filter((r) => Number(String(r.id).slice(4)) < 2500).length).toBe(2500); // and nothing already stored was skipped
-  });
-});
+  });});
 describe("the funnel's own default reader carries provenance, not just payload", () => {
   /** Provenance is invisible from the outside: a keyword harvested downstream names the page it came from only because these fields ride along. Run for real over the fakes. */
   it("names the page of mine whose Search Console row carried each query, and orders the slipping ones first", async () => {
@@ -246,8 +232,7 @@ describe("the funnel's own default reader carries provenance, not just payload",
     expect(await resolveDeps({}).loadPageQueries(TENANT)).toEqual([
       { query: "kite festival dates", impressions: 400, declining: true, page: "https://mine.example/guide" },
       { query: "kite festival food", impressions: 300, declining: false, page: "https://mine.example/food" }]);
-  });
-});
+  });});
 describe("retrieved is not the same claim as not cited", () => {
   const at = (url: string) => ({ url, domain: url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]!, title: null });
   const MINE = "https://mine.example/guide";
@@ -274,8 +259,7 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(loaded.state.prompts.pairs[0]!.retrievedResults).toEqual(pair.retrievedResults); // decoded whole, not reinterpreted
     const once = retrievedNotCitedLinks(loaded.state.prompts.pairs[0]!.retrievedResults, pair.citations); expect(once.map((r) => r.url)).toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(once, pair.citations)).toEqual(once); // deriving again takes nothing more away
-  });
-});
+  });});
 /** THE SNAPSHOT'S AI EVIDENCE IS THE WHOLE CANONICAL RECORD. The funnel's working state carries ONE 20 pair window, so projecting it told every decision that an account holding 35 questions across 4 engines had a single answer, and the legacy projection read beside it carried no fan-outs and no readings at all. Everything below runs the REAL loader and the REAL pure assembler over the faked Postgres above; no provider is reachable from any of it. */
 describe("the snapshot reads the canonical answer set, never the working window", () => {
   const PROMPTS = Array.from({ length: 35 }, (_, i) => ({ id: `p${i}`, version: 2 })), DAY2 = "2026-07-22";
@@ -318,8 +302,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
     const unread = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!; expect([unread.status, unread.note]).toEqual(["failed", "Your stored AI answers could not be read this run, so decisions are made without them."]);
     db.error = null; promptSet.active = null; // the QUESTION SET could not be read either: still a read I did not get, never an empty account
     expect((await snapshotOf()).sources.find((s) => s.source === "native_ai")!.status).toBe("failed"); promptSet.active = PROMPTS; db.read = []; const none = (await snapshotOf()).sources.find((s) => s.source === "native_ai")!;
-    expect([none.status, none.note]).toEqual(["dormant", "No AI answer is stored for your questions yet, so that evidence is not in play for now."]);
-  });
+    expect([none.status, none.note]).toEqual(["dormant", "No AI answer is stored for your questions yet, so that evidence is not in play for now."]);});
   it("derives the pages AI keeps crediting and the questions it answered from those same answers", async () => {
     const MINE = `https://${SITE}/kite-guide`, RIVAL = "https://rival.example/kites", asked = { questionsAnswered: ["when do kite festivals start", "too short"] };
     const cite = (url: string) => ({ url, domain: url.replace(/^https:\/\//, "").split("/")[0]!, title: null });
@@ -329,8 +312,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
       stored("p3", "chatgpt", { analysis_hash: "h1", analysis: { questionsAnswered: Array.from({ length: 40 }, (_, i) => `what does a kite festival do about weather ${i}`) } })]; // and 40 questions are cut to the bound
     const snap = await snapshotOf(), cited = snap.ownedPages.find((p) => p.url === `${SITE}/kite-guide`)!.aiCitations; expect([cited.count, cited.distinctPrompts, cited.engines]).toEqual([3, 3, ["chatgpt", "gemini"]]);
     expect([snap.competitors.length, snap.competitors[0]!.domain, snap.sources.find((s) => s.source === "native_ai")!.status, snap.questionDemand.length]).toEqual([15, "rival.example", "fresh", 30]); // 41 credited addresses and 40 questions both come back bounded, most cited first, and a fragment too short to be a question never enters
-    expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });
-  });
+    expect(snap.questionDemand[0]).toEqual({ question: "when do kite festivals start", weight: 2, sourcePrompts: ["question p0", "question p1"], source: "native_ai", coverageStatus: "unanswered" });});
   /** ONE PAGE IS NOT A HISTORY. 1,000 rows is under three days at 140 readings a day, so a pair whose newest useful answer is any older sat past the edge of that one page and left every decision silently, as if it never existed. */
   const older = (n: number, promptId = "p0") => Array.from({ length: n }, (_, i) => stored(promptId, "chatgpt", { id: `obs_f${String(i).padStart(4, "0")}`, requested_at: new Date(Date.parse(`${DAY}T01:00:00.000Z`) + (i + 1) * 1000).toISOString() }));
   it("pages past the newest 1,000 rows to reach a pair whose latest answer is older, and stops the moment every pair is resolved", async () => {
@@ -341,12 +323,9 @@ describe("the snapshot reads the canonical answer set, never the working window"
     expect((await readCanonicalAnalysisStamps(TENANT)).map((s) => s.id).sort()).toEqual(["obs_deep", "obs_f0999"]);
     expect([db.pages.length, [...new Set(db.selected)]]).toEqual([2, ["id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash"]]); // same pages, and never the answer, the journey or the reading itself
     db.pages = []; db.read = wholeDay(); // and all 140 pairs land on page one, so I read exactly ONE page and never eight
-    expect([(await snapshotOf()).research.aiObservations.length, db.pages.length]).toEqual([140, 1]);
-  });
+    expect([(await snapshotOf()).research.aiObservations.length, db.pages.length]).toEqual([140, 1]);});
   it("says how many pairs its history window could not reach, and still hands back the ones it resolved", async () => {
     db.read = older(8000); const said: string[] = []; const log = vi.spyOn(console, "warn").mockImplementation((m) => { said.push(String(m)); });
     const snap = await snapshotOf(); log.mockRestore();
     expect([snap.research.aiObservations.length, db.pages.length]).toEqual([1, 8]); // the one pair I could resolve comes back; the window stops at its stated ceiling
-    expect(said.join(" ")).toContain("139 of your 140");
-  });
-});
+    expect(said.join(" ")).toContain("139 of your 140");});});

@@ -41,16 +41,13 @@ describe("what a domain that keeps showing up actually is", () => {
   it("10 + 11: decides on role evidence, never on recurrence, and admits when the evidence points both ways", () => {
     // A FACT ABOUT THE DOMAIN OUTRANKS EVERY VERDICT, so even a reading that says "same business" cannot make an encyclopedia, a city hall, a forum or a marketplace into somebody an operator can take customers from.
     for (const d of ["britannica.com", "en.wikipedia.org", "merriam-webster.com", "npr.org", "nyc.gov", "reddit.com", "www.amazon.com"]) {
-      expect(classifyDomain(d, sig({ competingQueries: 9, serpAppearances: 12, overlap: "same_business" })).kind, d).not.toBe("commercial_competitor");
-    }
+      expect(classifyDomain(d, sig({ competingQueries: 9, serpAppearances: 12, overlap: "same_business" })).kind, d).not.toBe("commercial_competitor");}
     expect(classifyDomain("nyc.gov", sig({ competingQueries: 9 })).kind).toBe("government_educational"); expect(classifyDomain("britannica.com", sig({ competingQueries: 1, aiCitations: 6 })).kind).toBe("citation_authority");
     expect(classifyDomain("shop.example", sig({ competingQueries: 4, aiCitations: 0, overlap: "same_business" })).kind).toBe("commercial_competitor");
     expect(classifyDomain("guide.example", sig({ competingQueries: 0, aiCitations: 5 })).kind).toBe("citation_authority"); expect(classifyDomain("shop.example", sig({ competingQueries: 4, overlap: "same_business" })).ambiguous).toBeUndefined();
     const both = classifyDomain("hybrid.example", sig({ competingQueries: 4, aiCitations: 6 }));
     expect([both.ambiguous, both.kind]).toEqual([true, "citation_authority"]); // quoted is what the evidence actually supports, and it is still unsettled
-    expect(classifyDomain("seen-once.example", sig({ competingQueries: 1, aiCitations: 1 })).kind).toBe("irrelevant_unknown");
-  });
-});
+    expect(classifyDomain("seen-once.example", sig({ competingQueries: 1, aiCitations: 1 })).kind).toBe("irrelevant_unknown");});});
 /** The same evidence seen four ways: a case-wide domain look saying rival.example ranks for FOUR keywords, two winning-page sightings of it, an AI block citing source.example twice, and the answer analysis counting that same source three times. */
 const LANDSCAPE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(),
   caseCompetitors: [{ caseId: "c1", keywordsAsked: 6, domains: [{ domain: "rival.example", avgPosition: 3, rating: null, keywordsCount: 4 }], observedAt: FRESH, receipt: "r1", served: "cache" }],
@@ -104,8 +101,7 @@ describe("the corrections box", () => {
   it("says exactly what it could not read, and keeps the lines it could", () => {
     const { overrides, errors } = parseCompetitorOverrides("beat everyone\npin over there\nbig.example is a wombat\nexclude keep.example"); expect(overrides).toEqual([{ domain: "keep.example", action: "exclude" }]);
     expect(errors[0]).toBe('I could not read "beat everyone". Write one instruction per line: "pin example.com", "exclude example.com", or "example.com is a publisher".');
-    expect(errors[1]).toContain('"over there" is not a domain I can use'); expect(errors[2]).toContain('I do not have a group called "wombat"'); });
-});
+    expect(errors[1]).toContain('"over there" is not a domain I can use'); expect(errors[2]).toContain('I do not have a group called "wombat"'); });});
 describe("a correction survives a save and a reload", () => {
   let row: Record<string, unknown> | null = null;
   beforeEach(() => { row = null; __resetBusinessProfileCacheForTests();
@@ -118,8 +114,7 @@ describe("a correction survives a save and a reload", () => {
     __resetBusinessProfileCacheForTests();
     const back = (await loadBusinessProfile("acct-1")).competitors.value;
     expect(back.filter((c) => !c.domain).map((c) => c.name)).toEqual(["A rival I already knew"]); // a name stays a name; only a row carrying a domain is an instruction
-    expect(back.filter((c) => !!c.domain).map((c) => competitorOverrideLine({ domain: c.domain!, action: c.action ?? "pin", kind: c.kind as CompetitorKind })).join("\n")).toBe(typed); });
-});
+    expect(back.filter((c) => !!c.domain).map((c) => competitorOverrideLine({ domain: c.domain!, action: c.action ?? "pin", kind: c.kind as CompetitorKind })).join("\n")).toBe(typed); });});
 const ASKED = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [{ promptId: "p1", promptText: QUERY, engine: "chatgpt", observationMode: "standardized_response",
   modelRequested: null, modelServed: null, observedAt: FRESH, webSearchReported: null, citationsObserved: true, citations: [], fanOutQueries: [], observationId: "obs_p1", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "h1", retrievedResults: null, brandMentions: null, analysis: null }] });
 /** A subject I have genuinely finished investigating: a fresh exact look, priced demand I can trace back to how I found it, an engine I asked, and three separate publishers whose pages I have actually read. */
@@ -129,8 +124,7 @@ function COMPLETE(): EvidenceSnapshot {
   return snap({ ...ASKED(),
     retainedKeywords: [{ query: QUERY, searchVolume: 4400, competition: null, competitionLevel: null, difficulty: 30, intent: "commercial", discoveredVia: "gsc" }],
     serpEvidence: [{ query: QUERY, observedAt: FRESH, aiOverview: [], aiMode: [], paa: [], related: [], organic: HOSTS.map((domain, i) => ({ rank: i + 1, domain, url: `https://${domain}/a`, title: "Best rain barrel" })) }],
-    winningPages: HOSTS.map((d, i) => page(d, [won(d, QUERY, i + 1)], { extract })) }, { keywordDemand: DEMAND });
-}
+    winningPages: HOSTS.map((d, i) => page(d, [won(d, QUERY, i + 1)], { extract })) }, { keywordDemand: DEMAND });}
 describe("the one thing worth buying next", () => {
   it("names the exact results page when that is the only thing missing", () => {
     const inv = buildTopicInvestigations(snap(ASKED()))[0]!; expect(inv.exactSerps).toEqual([]);
@@ -142,5 +136,4 @@ describe("the one thing worth buying next", () => {
     expect(inv.missingEvidence).toContain("A winning page here did not answer me, so I try again in a couple of weeks. Nothing here is waiting on you.");
     const due = buildTopicInvestigations(snap(heldTo(BUILT), { keywordDemand: DEMAND }))[0]!; expect([due.missingEvidence.some((m) => /try again/.test(m)), due.nextAcquisition?.kind]).toEqual([false, "read_winner"]); }); // a day that has arrived is due now, never a wait
   it("stops asking for money when nothing at all is missing", () => {
-    const inv = buildTopicInvestigations(COMPLETE())[0]!; expect(inv.missingEvidence).toEqual([]); expect(inv.nextAcquisition).toBeNull(); expect(inv.diminishing).toBe(false); });
-});
+    const inv = buildTopicInvestigations(COMPLETE())[0]!; expect(inv.missingEvidence).toEqual([]); expect(inv.nextAcquisition).toBeNull(); expect(inv.diminishing).toBe(false); });});

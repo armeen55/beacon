@@ -84,9 +84,7 @@ describe("fixture envelopes drive the REAL registry parsers", () => {
     const readable = parsed("onpage_content_parsing", fx.competitorPageBody());
     expect([readable.title, readable.h1, readable.hasTable, readable.wordCount > 40]).toEqual(["Kite Festival Traditions Explained", "Kite festival traditions", true, true]);
     expect(readable.headings).toEqual(["Kite festival traditions", "What families bring", "When the lanterns go up"]); expect(readable.openingSample).toContain("A kite festival is a spring gathering");
-    const dark = parsed("onpage_content_parsing", fx.unreadablePageBody()); expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);
-  });
-});
+    const dark = parsed("onpage_content_parsing", fx.unreadablePageBody()); expect([dark.title, dark.h1, dark.wordCount, dark.headings, dark.openingSample, dark.hasTable]).toEqual([null, null, 0, [], null, false]);});});
 const PROMPTS = [{ id: "p1", text: "where can I see a kite festival" }]; // ── the replay through the REAL funnel executors ─────────────────────────────
 /** Runtime's daily plan: the ONLY thing the observation unit will act on. */
 const DUE: DueObservation[] = PROMPTS.flatMap((p) => (["chatgpt", "claude", "gemini", "perplexity"] as const).map((engine) => ({ promptId: p.id, version: 1, text: p.text, engine, slot: 0 as const, day: "2026-07-21" })));
@@ -115,8 +113,7 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
   state.winningPages = [fx.winningPage(RIVAL_A, GAP_QUERY, parsed("onpage_content_parsing", fx.competitorPageBody())), fx.blockedWinner("https://rival-b.example/blog/spring-kites", GAP_QUERY)];
   // The snapshot's AI evidence is the canonical record the executors just wrote, mapped by the same pure shape production reads, never the working window.
-  return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };
-}
+  return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };}
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {
   it("lands every fixture shape in the research evidence with its provenance intact", async () => {
     const { evidence, statuses } = await replayFunnel(); expect(statuses).toEqual(["done", "done", "done"]);
@@ -128,8 +125,7 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect(Object.keys(gap)).not.toContain("monthlySearches"); // the paid twelve-month trend survives the parser and stops at the funnel row
     const serp = evidence.serpEvidence.find((s) => s.query === GAP_QUERY)!; expect([serp.organic.find((o) => o.domain === SITE)!.rank, serp.paa.length, serp.related.length, serp.aiOverview.length]).toEqual([6, 2, 3, 2]);
     expect(evidence.winningPages.map((w) => [w.extract !== null, w.readOutcome?.state ?? null])).toEqual([[true, null], [false, "robots_blocked"]]); // a body in hand, and one honestly refused
-    expect(evidence.receipt.retained).toBeGreaterThan(0);
-  });
+    expect(evidence.receipt.retained).toBeGreaterThan(0);});
   it("stores the consumer answer WHOLE: the full text, the journey, the receipt and the identity of what it was read from", async () => {
     const { observed } = await replayFunnel(); const consumer = observed.find((o) => o.observation_mode === "consumer_search" && o.status === "observed")!;
     expect([consumer.engine, consumer.site, consumer.reporting_day, consumer.sample_slot]).toEqual(["chatgpt", SITE, "2026-07-21", 0]);
@@ -138,13 +134,11 @@ describe("the replay drives the REAL funnel executors, not a mock of them", () =
     expect(consumer.journey.retrieved_results!.map((r) => r.domain)).toEqual(fx.RETRIEVED_ONLY.map((r) => r.domain)); // read and not credited, kept apart from cited
     expect([consumer.journey.brand_mentions, consumer.journey.fan_outs!.length, consumer.journey.web_search_reported]).toEqual([["Atlaspedia", "Rival A"], 2, true]);
     expect([consumer.cache_key, consumer.cost_usd, consumer.analysis]).toEqual(["ck-scraper", 0.01, null]); // the envelope it came from, what it cost, and no verdict yet
-    expect(consumer.prompt_text).toBe(PROMPTS[0]!.text);
-  });
+    expect(consumer.prompt_text).toBe(PROMPTS[0]!.text);});
   it("checks the search that is SLIPPING before the one that is climbing", async () => {
     const { evidence } = await replayFunnel();
     expect(evidence.serpEvidence.slice(0, 2).map((s) => s.query)).toEqual([GAP_QUERY, WINNER_QUERY]); // the declining page's own query is bought first
-  });
-});
+  });});
 const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns", confidence: "high", // ── the replay through the REAL decision pass ────────────────────────────────
   rationale: "The stored title is two words and misses the traditions searchers ask about.", risks: ["keep the title readable"],
   evidenceRefs: [{ source: "gsc", detail: "many views for kite festival traditions with a low click rate" }],
@@ -160,8 +154,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(fx.replaySnapshot({ gsc: fx.gscCannibalPair().map((r) => ({ ...r, topQueries: r.topQueries.map((k) => ({ ...k, impressions: 49 })) })), research: evidence, wix: [] }).cannibalization).toEqual([]); // 49 views against 49 is two pages barely shown, not a split
     const dated = (url: string) => freshnessAt(snapshot.ownedPages.find((p) => p.url === url)!.content!.fetchedAt, NOW_MS, freshnessMsFor("owned_page"));
     expect([dated(GAP_URL), dated(fx.STALE_URL)]).toEqual(["current", "stale"]); // one body read this week, one read in the spring
-    expect(buildTopicInvestigations(snapshot).length).toBeGreaterThan(0);
-  });
+    expect(buildTopicInvestigations(snapshot).length).toBeGreaterThan(0);});
   it("judges the replayed gap, says what it is still missing, and drafts the change the evidence earned", async () => {
     const { evidence } = await replayFunnel(); const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
     const read = await readCoverage(snapshot, TENANT, { basis: BASIS, maxQueries: 3, now: NOW });
@@ -239,5 +232,4 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(failed.res.paid.receipts.every((r) => r.outcome !== "produced")).toBe(true);
     expect(failed.res.paid.receipts.some((r) => r.outcome === "retryable_blocked")).toBe(true); // the store's failure is on the receipt, never laundered into produced
     expect(failed.res.paid.readyShortfall).toBe(1); // and the shortfall still stands: a failed save landed nothing
-  });
-});
+  });});

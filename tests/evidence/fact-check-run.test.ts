@@ -134,8 +134,7 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
       searchSources: async () => ({ organic: [["en.wikipedia.org", "en.wikipedia.org/a"], ["www.britannica.com", "britannica.com/a"],
         ["behindthename.com", "behindthename.com/a"]].map(([d, u]) => ({ domain: d!, url: `https://${u}`, title: "A" })) }) });
     // not the second encyclopedia that merely ranked next
-    expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]); });
-});
+    expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]); });});
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
     let units = 0; const pages = ["/a", "/b", "/c"].map((p) => ({ url: `https://x.example${p}`, path: p, loadBody: async () => `${p} page body.` }));
@@ -158,8 +157,7 @@ describe("one pass, one global claim allowance", () => { beforeEach(reset);
       held: [row({ page: "/a", pageContentHash: pageHashOf("A body.") })],
       refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
       read: reader({ claims: CLAIMS, judge: CONFIRMS }), searchSources: async () => ({ hold: "capped" }), fetchSource: async () => ({ text: PASSAGE }) });
-    expect([out.status, out.failure, out.attempts]).toEqual(["failed", "search_capped", 1]); });
-});
+    expect([out.status, out.failure, out.attempts]).toEqual(["failed", "search_capped", 1]); });});
 describe("what may authorize replacing published words", () => { beforeEach(reset);
   it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
     const weak = "Afsaneh (افسانه) is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
@@ -213,6 +211,28 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const right = db.rows[0] as FactCheck;
     expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
 
+  it("the site being corrected is never its own source, and a wording no source carries is not confirmed", async () => {
+    // BOTH LIVE. The Nazanin correction cited iranopedia.com/persian-female-first-names, which is the page it
+    // was correcting, and banked it as sourced. The Maryam correction proposed "beloved; wished-for child"
+    // over a quote deriving the name from Hebrew for "rebellious", and banked that confirmed too.
+    const fetched: string[] = [];
+    const both = { organic: [{ domain: "www.iranopedia.com", url: "https://www.iranopedia.com/persian-female-first-names", title: "Persian names" },
+      { domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Maryam" }] };
+    const hebrew = "Maryam: Maas (1912) proposes a derivation from Hebrew marah, to be rebellious. افسانه";
+    await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => both,
+      page: { ...PAGE, url: "https://www.iranopedia.com/persian-female-first-names" },
+      fetchSource: async (url: string) => { fetched.push(url); return { text: hebrew }; },
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "beloved; wished-for child",
+        supporting: [{ url: "https://en.wikipedia.org/x", quote: hebrew }],
+        subjects: [{ url: "https://en.wikipedia.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry is about this name" }] } }) });
+    // The account's own page is never even bought, so it cannot vouch for the words it is being corrected on.
+    expect(fetched.some((u) => u.includes("iranopedia"))).toBe(false);
+    const r = db.rows[0] as FactCheck;
+    // The passage IS about the right subject, so the claim survives. The WORDING is not in it, so it may not
+    // replace anything yet: partial support authorizes only the part that is supported.
+    expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
+    expect(r.note).toContain("not carried by any passage that was read"); });
+
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",
@@ -222,8 +242,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([{ ...read, state: "owed" }])).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }])).toHaveLength(0); // verdict from replaced rules
     // A valid fetched-source contradiction still reaches Decision while its page hash is current.
-    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" })).toHaveLength(1);
-  });
+    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" })).toHaveLength(1);});
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
@@ -232,8 +251,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     // A judgement that names no subject at all cannot be read: whose name it is about is not optional.
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale" }], note: "" }).success).toBe(false);
-    expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);
-  });
+    expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);});
   it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
     const { parseCapability } = await import("@/domains/evidence/dataforseo/capabilities");
     const envelope = { tasks: [{ result: [{ items: [{ page_content: { main_topic: [{ main_title: "Afsaneh", h_title: "Etymology", primary_content: [{ text: PASSAGE }] }] } }] }] }] };
@@ -270,6 +288,6 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
   it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE, fetchSource: split,
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence

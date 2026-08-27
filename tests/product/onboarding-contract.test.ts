@@ -30,16 +30,13 @@ function chain(): any {
       const w = insertRow ?? updateRow;
       if (w) { if (ledgerWriteFails) return { error: { message: "write failed" } }; ledger = { usd: Math.max(0, Number(w.spent_usd) || 0), has: true }; return { error: null }; }
       return { data: ledger.has ? [{ spent_usd: ledger.usd }] : [], error: null };
-    }).then(res, rej),
-  };
-  return p;
-}
+    }).then(res, rej),};
+  return p;}
 vi.mock("@/lib/persistence/supabase", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   // THE SPEND WRITE IS ONE ATOMIC INCREMENT: the ledger is handed a DELTA and adds it, never a total this process computed and could lose a concurrent charge from.
   getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
-  isSupabaseConfigured: () => true,
-}));
+  isSupabaseConfigured: () => true,}));
 // ── in-memory world ─────────────────────────────────────────────────────────
 const NOW = new Date("2026-07-24T00:00:00Z");
 type TenantRow = { status: Account["status"]; domain: string; growth_goal: string | null; tos: string | null };
@@ -57,8 +54,7 @@ function makeWorld() {
       t.domain = domain; t.growth_goal = null;
       for (const r of prompts) if (r.tenant_id === id && r.is_active) r.is_active = false;
       profiles.set(id, emptyBusinessProfile(id));
-      return "replaced";
-    },
+      return "replaced";},
     async updateTenantGoal(id, goal, _at, statuses) { const t = tenants.get(id); if (!t || !(statuses ?? ["pending_onboarding"]).includes(t.status)) return "not_pending"; t.growth_goal = goal; return "ok"; },
     // Mirrors the one statement: it writes only where the terms are unstamped, so an account already running with its terms on file is untouched and one flipped active without them can still accept them.
     async activateTenant(id, now) { const t = tenants.get(id); if (!t) return "blocked";
@@ -66,8 +62,7 @@ function makeWorld() {
       if (t.status !== "pending_onboarding" && t.status !== "active") return "blocked";
       t.status = "active"; t.tos = now; return "activated"; },
     async readPrompts(id) { return prompts.filter((r) => r.tenant_id === id).map((r) => ({ ...r, tags: [...r.tags] })); },
-    async upsertPrompts(rows) { for (const row of rows) { const i = prompts.findIndex((r) => r.id === row.id); if (i >= 0) prompts[i] = { ...row }; else prompts.push({ ...row }); } },
-  };
+    async upsertPrompts(rows) { for (const row of rows) { const i = prompts.findIndex((r) => r.id === row.id); if (i >= 0) prompts[i] = { ...row }; else prompts.push({ ...row }); } },};
   const deps: OnboardingDeps = {
     store,
     getAccount: async (id) => { const t = tenants.get(id); return t ? { id, slug: id.replace(/^tenant-/, ""), provisional_name: "", domain: t.domain, status: t.status, signup_date: "", tos_accepted_at: t.tos, daily_budget_usd: 0, growth_goal: t.growth_goal as Account["growth_goal"], created_at: "", updated_at: "" } : null; },
@@ -80,10 +75,8 @@ function makeWorld() {
     connectorInfo: async () => ({ status: "disconnected", connected_at: null, expires_at: null, last_synced_at: null }) as any,
     coldStartScan: (async () => ({ status: "no_pages", pagesDiscovered: 0, pagesCrawled: 0, snapshotsWritten: 0, durationMs: 0, source: "none" })) as any,
     scheduleResearch: (id: string) => { scheduled.push(id); },
-    now: () => NOW,
-  };
-  return { tenants, profiles, get prompts() { return prompts; }, crawls, scheduled, deps };
-}
+    now: () => NOW,};
+  return { tenants, profiles, get prompts() { return prompts; }, crawls, scheduled, deps };}
 const CONFIRMABLE = ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude"] as const;
 // A fully operator-confirmed profile (every confirmable section), with optional sparser facts for the thin case.
 function confirmedProfile(id: string, facts: Record<string, any> = {}): BusinessProfile {
@@ -92,11 +85,9 @@ function confirmedProfile(id: string, facts: Record<string, any> = {}): Business
     offerings: ["rug cleaning", "rug repair"], audiences: ["homeowners"], customerProblems: ["dirty rugs"], geographicScope: ["denver"],
     differentiators: ["same day service"], trustClaims: ["insured"], topicsToOwn: ["rug care"], topicsToExclude: [], ...facts };
   for (const k of CONFIRMABLE) (p as any)[k] = { value: merged[k], origin: "operator_confirmed", confidence: 1, sourceUrls: [] };
-  return p;
-}
+  return p;}
 function seedPending(w: ReturnType<typeof makeWorld>, id: string, over: Partial<TenantRow> = {}) {
-  w.tenants.set(id, { status: "pending_onboarding", domain: "", growth_goal: null, tos: null, ...over });
-}
+  w.tenants.set(id, { status: "pending_onboarding", domain: "", growth_goal: null, tos: null, ...over });}
 function seedConfirmedProfile(w: ReturnType<typeof makeWorld>, id: string) { w.profiles.set(id, confirmedProfile(id)); }
 /** N extra live core questions under a basis nobody holds any more: exactly what a Settings edit or an old goal leaves behind. */
 const seedCore = (w: ReturnType<typeof makeWorld>, id: string, n: number) => { for (let i = 0; i < n; i += 1) w.prompts.push({ id: `seeded-${w.prompts.length}`, tenant_id: id,
@@ -161,8 +152,7 @@ describe("onboarding contract (Slice 5)", () => {
     expect(w.profiles.get(A)!.audiences.value).toEqual(["homeowners"]); // preview persisted NOTHING
     await applyConfirmedPatch(A, { audiences: ["law firms"], accountId: "tenant-evil", domain: "evil.com" } as any, w.deps);
     const after = w.profiles.get(A)! as any; // whitelist holds; a confirmed patch confirms ONLY what it patched
-    expect(after.audiences.value).toEqual(["law firms"]); expect(after.accountId).toBe(A); expect(after.domain).toBeUndefined(); expect(after.offerings.origin).toBe("inferred");
-  });
+    expect(after.audiences.value).toEqual(["law firms"]); expect(after.accountId).toBe(A); expect(after.domain).toBeUndefined(); expect(after.offerings.origin).toBe("inferred");});
   it("5. candidate generation yields ~100 unique prompts in 5-10 groups covering all seven intents with exactly 50 recommended, inactive, canonical-id, current-basis, four-engine, and a retry never duplicates", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A);
@@ -199,8 +189,7 @@ describe("onboarding contract (Slice 5)", () => {
     for (const p of cands.slice(16)) w.prompts.splice(w.prompts.indexOf(p), 1);
     const ids = cands.slice(0, 16).map((p) => p.id);
     expect((await approvePrompts(A, { approvedIds: ids.slice(0, 11) }, w.deps)).ok).toBe(false); // under the bent floor of sixteen
-    expect((await approvePrompts(A, { approvedIds: ids }, w.deps)).ok && activeCore(w, A).length).toBe(16);
-  });
+    expect((await approvePrompts(A, { approvedIds: ids }, w.deps)).ok && activeCore(w, A).length).toBe(16);});
   it("7. activation is blocked until website + confirmed profile + goal + approved prompts + TOS, never schedules on a block, is double-click safe, and schedules exactly one research run", async () => {
     const w = makeWorld();
     seedPending(w, A, { domain: "acme.com" }); // missing profile + goal + prompts
@@ -276,15 +265,13 @@ describe("onboarding contract (Slice 5)", () => {
     // Reserve writes BEFORE it reads, so the later reader sees both reservations: only one clears the $2 boundary.
     ledger = { usd: 1.98, has: true };
     const r1 = await reserveOnboardingSpend(0.02, { tenantId: A }); const r2 = await reserveOnboardingSpend(0.02, { tenantId: A });
-    expect([r1.allowed, r2.allowed].filter(Boolean).length).toBe(1);
-  });
+    expect([r1.allowed, r2.allowed].filter(Boolean).length).toBe(1);});
   it("12. an already-active account is never mutated by onboarding commands", async () => {
     const w = makeWorld();
     seedPending(w, A, { status: "active", domain: "live.com", growth_goal: "grow" });
     seedConfirmedProfile(w, A);
     expect((await submitWebsite(A, "changed.com", w.deps)).ok).toBe(false); expect((await saveGoal(A, "recover", w.deps)).ok).toBe(false);
-    const t = w.tenants.get(A)!; expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");
-  });
+    const t = w.tenants.get(A)!; expect(t.domain).toBe("live.com"); expect(t.growth_goal).toBe("grow");});
   it("13. a live account is never stranded: approval cannot sweep it, kept wording keeps its id, a rewording versions itself, legacy rows are untouched, bounds hold, and both projections agree", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
     await approvePrompts(A, { useRecommendedDefault: true }, w.deps); w.tenants.get(A)!.status = "active"; const live = activeCore(w, A); const keep = live.slice(0, 12).map((p) => p.id);
@@ -301,8 +288,7 @@ describe("onboarding contract (Slice 5)", () => {
     const n = (k: number) => applyTrackedSelection(rows, { keepIds: [], edits: [], additions: Array.from({ length: k }, (_, i) => `question number ${i}`) }, ctx).ok; expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
     const funnelWay = rows.filter((p) => p.is_active && p.tags.includes("core_v1")).sort((a, b) => (a.created_at === b.created_at ? a.id.localeCompare(b.id) : a.created_at.localeCompare(b.created_at))).map((p) => p.id).slice(0, 100);
     expect(projectTrackedQuestions(rows).active.map((q) => q.id)).toEqual(funnelWay); // what the operator reads is exactly what I check
-  });
-});
+  });});
 /** PHASE 8 SURFACES. The three promises the setup and settings screens make to a customer: approving the recommendation is ONE action over topics rather than a hundred and fifty rows, an account that stopped halfway comes back to the step it actually reached, and Connections offers the customer's own tools and nothing Beacon runs on  its own account. */
 /** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as a group below. */
 const TOPICS = [
@@ -331,8 +317,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(resumed.connections.map((c) => c.kind)).toEqual(["google_gsc", "google_ga4", "clarity"]); // no Wix, and none is required to get here
     // Step 7 hands back a REAL technical gap out of the crawl catalogue, named with that page's own count.
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
-    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");
-  });
+    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");});
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
     const w = makeWorld(); const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });
@@ -381,8 +366,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     // Terms nobody ever accepted are the one thing the launch step still owes, and accepting them starts nothing.
     w.tenants.get(A)!.tos = null;
     expect(await gap()).toEqual({ step: 7 }); expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
-    expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);
-  });
+    expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);});
   /** PHASE 6E.3, corrected. Confirm once stamped ALL eleven sections including eight never rendered; the repair then swung too far and stamped THREE while six more facts that decide what gets researched sat on screen still labelled as my guess. A confirmation now speaks for exactly what the step renders. */
   it("confirms every research-driving field it puts on screen, claims nothing it holds nothing for, and never locks out the account that confirmed three", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); const inferred = emptyBusinessProfile(A);
@@ -417,25 +401,19 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const { PromptsEditor } = await import("@/components/prompts-editor");
     const editor = (n: number) => renderToStaticMarkup(createElement(PromptsEditor, {
       groups: [{ slug: "g", name: "Choosing", prompts: Array.from({ length: n }, (_, i) => ({ id: `p${i}`, text: `question ${i}`, recommended: true, approved: false })) }],
-      mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},
-    }));
+      mode: "onboarding" as const, submitLabel: "Approve my selection", onSubmit: () => {},}));
     const thin = editor(16); expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
     expect(thin).toContain("Approve my selection");
     expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
     // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
-    const full = editor(24); expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");
-  });
+    const full = editor(24); expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");});
   it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
     expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]); const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();
-    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/); expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");
-  });
+    expect(words).not.toMatch(/openai|dataforseo|crawler|perplexity|gemini/); expect(CONNECTOR_REGISTRY.find((c) => c.id === "google_gsc")!.summary).toContain("Strongly recommended");});
   it("tells an operator where each tracked question's trend starts, so a rewording never looks like a drop", () => {
     expect(historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }))
       .toBe("This exact question has been asked since May 10, and its trend runs from there.");
     expect(historyNote({ version: 3, createdAt: "2026-05-10T00:00:00Z" }))
       .toBe("This is version 3 of this question. It changed 2 times, and each change restarts its trend, so it is only compared against readings of the wording it has now.");
     for (const note of [historyNote({ version: 1, createdAt: "2026-05-10T00:00:00Z" }), historyNote({ version: 2, createdAt: "2026-05-10T00:00:00Z" })]) {
-      expect(note!).not.toMatch(/[–—]/); expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-    }
-  });
-});
+      expect(note!).not.toMatch(/[–—]/); expect(note!).not.toMatch(/\d{4}-\d{2}-\d{2}/);}});});

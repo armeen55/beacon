@@ -137,11 +137,8 @@ describe("what the screen calls the work, and what it will not promise", () => {
     const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const; const M = ["clicks", "ctr", "position", "unclassified"] as const;
     for (const verdict of V) for (const basisDay of [7, 14, 28, 56] as const) for (const overlapCount of [0, 1, 2]) for (const overlapClosedOn of [null, "2026-05-05"]) for (const metric of M) {
       const line = buildHeadline({ verdict, metric, lift: verdict === "directional_decline" ? -30 : 40, impressionsLift: 60, basisDay, overlapCount, overlapClosedOn, ga4ExtraSessions: 12, ga4Trustworthy: true });
-      expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);
-    }
-    expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);
-  });
-});
+      expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);}
+    expect(buildResultsCsv([shipment().read, declined, measuring, sharedCredit, cutOff]), "first person in the export").not.toMatch(/\b(I|me|my|we|our)\b/);});});
 /** THE CHANGE IS FILED UNDER THE YARDSTICK IT DECLARED (reviewer, 2026-08-19): grouped by the Google verdict, a change raised to earn a CITATION could earn exactly that and sit under "No change", while one that moved no citation sat under "Worked" for traffic it never aimed at. */
 describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
@@ -152,8 +149,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     ({ direction, line: "Credited on 6 of the 20 answers that reported their sources, up from 1 of 18 before.", metricLines: [], boundary: null, daysElapsed });
   it("files a won citation as a win even while Google has not moved", () => {
     const row = first({ read: flatOnGoogle, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord]).toEqual(["worked", "Worked"]);
-    expect(row.yardstick).toBe("Judged on being credited in AI answers");
-  });
+    expect(row.yardstick).toBe("Judged on being credited in AI answers");});
   it("refuses to call a change a win for traffic it was never aimed at", () => {
     const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") }); // Google says this one improved. Its own objective did not move, so it is not filed as a win.
     expect(row.group).toBe("flat");
@@ -164,8 +160,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(first({ judgedMetric: "ai_retrieval", ai: ai("improved", 3) }).group).toBe("reading"); // AND A LEAN TAKEN THREE DAYS IN IS NOT A VERDICT EITHER, however strongly it leans.
   });
   it("files a retrieval objective that went backwards under went down", () => {
-    expect(first({ judgedMetric: "ai_retrieval", ai: ai("worsened") }).group).toBe("down");
-  });
+    expect(first({ judgedMetric: "ai_retrieval", ai: ai("worsened") }).group).toBe("down");});
   it("groups a click-judged change exactly as it always did, whatever the AI half says", () => {
     const declared = first({ judgedMetric: "clicks", ai: ai("worsened") }); expect(declared.group).toBe(first().group);
     expect(declared.yardstick).toBeNull(); // nothing new is claimed on a row judged the old way
@@ -190,8 +185,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
     // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
     expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed." });
-    expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });
-  });
+    expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });});
   it("refuses to read as a win when Google moved and the declared objective did not", () => {
     const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar]).toEqual(["flat", "No clear movement", "Credited with no clear movement yet", 0]);
     expect(row.happened).toBe("Ran 28 days. Credited in AI answers with no clear movement yet."); expect(row.taught).toContain("it was credited in AI answers with no clear movement yet");
@@ -209,17 +203,14 @@ describe("an AI change is judged on the thing it was raised to move", () => {
           expect(s, `${m} ${d} at ${days} days: ${s}`).not.toMatch(/\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i);
         }
         expect(row.nextStep.length, `${m} ${d} at ${days} days`).toBeGreaterThan(0);
-      }
-  });
+      }});
   it("leaves a click-judged row exactly as the rest of this file pins it, whatever the AI half says", () => {
     const declared = first({ judgedMetric: "clicks", ai: ai("worsened") }), plain = first();
     expect([declared.liftLabel, declared.bar, declared.impressionsLabel, declared.readLabel, declared.pipCaption, declared.happened, declared.taught, declared.nextStep])
       .toEqual([plain.liftLabel, plain.bar, plain.impressionsLabel, plain.readLabel, plain.pipCaption, plain.happened, plain.taught, plain.nextStep]);
     expect([declared.pips, declared.timeline, declared.googleAside]).toEqual([plain.pips, plain.timeline, null]);
     expect([declared.liftLabel, declared.impressionsLabel, declared.happened, declared.nextStep]).toEqual(["+40 clicks ahead", "+120 shown",
-      "Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.", "Add the same kind of section to a similar page."]);
-  });
-});
+      "Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.", "Add the same kind of section to a similar page."]);});});
 /** THE HEADER IS THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click and no appearances figure, so adding its Google numbers into the totals made a header nobody could reconcile against the list under it. */
 describe("the totals reconcile with what the rows actually show", () => {
   it("leaves an AI-judged row out of the Google money totals, and keeps a click row in", () => {
@@ -227,16 +218,13 @@ describe("the totals reconcile with what the rows actually show", () => {
     const withAi = buildResultsView([shipment(), shipment({ judgedMetric: "ai_citation",
       ai: { direction: "improved", line: "Credited on 6 of 20 answers.", metricLines: [], boundary: null, daysElapsed: 28 } })], NOW);
     expect(withAi.counts.worked).toBe(clickOnly.counts.worked + 1); // The AI row is counted in the tabs, and adds nothing to a clicks figure it never printed.
-    expect(withAi.header.clicks).toEqual(clickOnly.header.clicks); expect(withAi.header.appearances).toEqual(clickOnly.header.appearances);
-  });
-});
+    expect(withAi.header.clicks).toEqual(clickOnly.header.clicks); expect(withAi.header.appearances).toEqual(clickOnly.header.appearances);});});
 /** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop. RENDERED, never read off the view object: what a customer sees is what is pinned. */
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
     const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([
       import("react-dom/server"), import("react"), import("@/app/(shell)/results/results-rows-client")]);
-    return renderToStaticMarkup(createElement(ResultsRows, { view: buildResultsView([shipment(over)], NOW) }));
-  };
+    return renderToStaticMarkup(createElement(ResultsRows, { view: buildResultsView([shipment(over)], NOW) }));};
   const aiRow = (direction: "no_clear_movement" | "mixed" | "unclear", terminal = false) =>
     ({ judgedMetric: "ai_citation" as const, ai: { direction, terminal, daysElapsed: 28, metricLines: [], boundary: null,
       line: terminal ? "Not measurable: where the AI answers stood when this was marked done was not on file." : "No clear movement." } });
@@ -246,18 +234,13 @@ describe("the surface never renders uncertainty as No change", () => {
       const html = await render(row);
       expect(html).toContain("No clear result");   // the tab that holds all three
       expect(html).toMatch(said); expect(html).not.toContain("No change");
-      expect(html).not.toContain("landed inside the normal range");
-    }
-  });
+      expect(html).not.toContain("landed inside the normal range");}});
   // A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): on a day after the window close, the surface says the read is overdue because Google reports behind, never "lands May 8".
   it("never renders a past date as the next future result", () => {
     const late = buildResultsView([shipment({ read: measuring })], new Date("2026-08-21T00:00:00Z"));
     const texts = [late.header.worked.value, late.header.reading.sub, ...late.rows.reading.map((r) => `${r.pipCaption} ${r.happened} ${r.nextStep}`)].join(" | "); expect(texts).not.toMatch(/lands May|Next May|until May/);
-    expect(texts).toContain("overdue"); expect(texts).toContain("Google reports a few days behind");
-  });
+    expect(texts).toContain("overdue"); expect(texts).toContain("Google reports a few days behind");});
   it("still says No change on a real control-based Google flat result", async () => {
     // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
     const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }; const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []);
-    expect(await render({ read: flat })).toContain("No change");
-  });
-});
+    expect(await render({ read: flat })).toContain("No change");});});

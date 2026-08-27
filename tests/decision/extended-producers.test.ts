@@ -84,8 +84,7 @@ const validate = (components: BundleComponent[], evidenceText?: string, over: Pa
     whyItMatters: "The title misses the word people search.", estimatedEffortMinutes: effortMinutesFor(primary.kind), riskLevel: "low", confidence: "medium",
     limitations: [], evidence: { query: QUERY, hints: [], evidenceRefCount: 1 }, impactScore: 100, upsidePerMonth: null,
     publish: "manual", createdAt: "2026-07-25T00:00:00.000Z", bundle: bundleOf(components), ...over,
-  } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });
-};
+  } as ChangeProposal, { ...GATE_OPTS, ...(evidenceText === undefined ? {} : { evidenceText }) });};
 /** THE COMPONENT GATE'S OWN ANSWER: every component refusal ends in the operator's words, never the validator's. */
 const componentRefusals = (v: ReturnType<typeof validateProposal>): string[] =>
   v.reasons.filter((r) => r.endsWith("so I am not putting it in front of you."));
@@ -115,8 +114,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
       draft: { internalLink: async () => null, section: async () => ({ heading: "Downspout diverter",
         body: "A diverter splits roof water \u2014 between the drain and the barrel.\n\nThe cited pages  say when one is needed.",
-        sources: [], containsNumber: false }) },
-    }));
+        sources: [], containsNumber: false }) },}));
     const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
     expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]); });
   it("sends the reader to a page this account actually has, and survives the component gate", async () => {
@@ -169,8 +167,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
       sources: [{ kind: "manufacturer", detail: "diverter fitting guide" }], containsNumber: false, });
     const gap = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
-      draft: { section, internalLink: async () => null },
-    }));
+      draft: { section, internalLink: async () => null },}));
     const c = gap.components[0]!;
     // the page already talks about a roof, so only the subject it genuinely lacks is asked for
     expect([gap.components.length, c.kind, c.risk, answered(c)]).toEqual([1, "entity_expansion", "review", true]);
@@ -185,8 +182,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     // an engine that READ the page and named somebody else is a credibility problem, so it sources what the page already claims
     const read = await produceSourceExpansion(ctxOf({
       finding: finding("retrieved_not_cited", { cause: "retrieved_not_cited", engine: "Perplexity", promptText: "best rain barrel size" }),
-      draft: { section, internalLink: async () => null },
-    }));
+      draft: { section, internalLink: async () => null },}));
     expect([read.components[0]!.kind, read.components[0]!.mechanism!.includes("seen and passed over")]).toEqual(["source_update", true]);
     expect(read.components[0]!.sourcePack!.factRequirements).toEqual(["Rain barrels catch what runs off a roof."]);
     for (const beaconFact of FACTS) expect(JSON.stringify(read.components[0])).not.toContain(beaconFact);
@@ -281,8 +277,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
     for (const out of [links, sources, merge]) {
       expect(out.components).toHaveLength(0); expect(out.refusal!.length).toBeGreaterThan(20);
-      expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);
-    }
+      expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);}
     // a finding with nothing on file behind it never becomes a component, whatever the payload says
     const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } }));
     expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });

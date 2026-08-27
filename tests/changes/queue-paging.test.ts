@@ -13,9 +13,7 @@ const client: Record<string, unknown> = {
     a.p_ids.forEach((id, i) => { const r = db.rows.find((x) => x.tenant_id === a.p_tenant_id && x.id === id);
       if (r) { r.queue_lane = `${a.p_release}::${a.p_lanes[i]}`; r.queue_rank = i + 1; } });
     if (name === "publish_customer_release") blob.stored = (a.p_content ?? [null])[0];
-    return Promise.resolve({ data: a.p_release ?? null, error: null });
-  },
-};
+    return Promise.resolve({ data: a.p_release ?? null, error: null });},};
 Object.assign(client, supabaseFake({ rows: (t) => (t === "change_proposals" ? db.rows : db.legacy),
   onSelect: (t, r) => { if (t === "change_proposals" && !r.head) db.reads.push(r.max); } }));
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => client }));
@@ -30,8 +28,7 @@ vi.mock("@/app/(shell)/surface-release", () => ({
     return ({ releaseId: "blob-1", computedAt: "2026-08-02T00:00:00.000Z",
     today: { today: { headerSentence: "stale", nextOpportunities: [] }, hasChanges: false },
     changes: { proposals: [], ready: [], toDo: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
-      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },
-}));
+      readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },}));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   resolveCurrentBasis: async () => db.basis, produceProposalsForTenant: async () => ({ outcome: "proposals_persisted", candidates: [] }) }));
 vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),
@@ -129,8 +126,7 @@ describe("one global rank across every lane", () => {
     await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
     expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["research", "ready", "todo", "ready"]);
     await stamp("rel-1"); // restore the fixture ranking for the suites below
-  });
-});
+  });});
 describe("the ranked queue pages in the database", () => {
   it("hands over all 501 changes exactly once, and every request reads one bounded page", async () => {
     const view = await loadChangesView(); const seen = view.ready.map((p) => p.id);
@@ -171,5 +167,4 @@ describe("a publish that half landed", () => {
       changes: { surfaceVersion: "rel-prev", ready: ALL.slice(0, 3), toDo: [] }, today: {} };
     blob.writeFails = true;
     await expect(real.refreshCustomerSurface(T)).rejects.toThrow(); const page = await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE);
-    expect([page.release, page.rows.map((p) => p.id)]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id)]); });
-});
+    expect([page.release, page.rows.map((p) => p.id)]).toEqual(["rel-prev", ALL.slice(0, 3).map((p) => p.id)]); });});

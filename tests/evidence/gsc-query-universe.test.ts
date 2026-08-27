@@ -7,11 +7,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
       range: async (from: number) => {
         env.calls += 1;
         if (env.fail) return { data: null, error: { message: "statement timeout" } };
-        return { data: env.pages[Math.floor(from / 1000)] ?? [], error: null };
-      },
-    }),
-  }),
-}));
+        return { data: env.pages[Math.floor(from / 1000)] ?? [], error: null };},}),}),}));
 import { loadGscQueryUniverse } from "@/domains/evidence/readers/gsc-query-universe";
 const NOW = () => new Date("2026-08-21T12:00:00Z");
 beforeEach(() => { vi.resetModules(); env.pages = []; env.fail = false; env.calls = 0; });
@@ -26,11 +22,8 @@ describe("the complete query universe for Decision", () => {
   });
   it("hands back null on a failed read, never an empty universe", async () => {
     env.fail = true;
-    expect(await loadGscQueryUniverse("t-universe-b", NOW())).toBeNull();
-  });
+    expect(await loadGscQueryUniverse("t-universe-b", NOW())).toBeNull();});
   it("reads once per tenant per reporting day, because the universe changes when the sync lands", async () => {
     env.pages = [[{ query: "one" }]];
     await loadGscQueryUniverse("t-universe-c", NOW()); await loadGscQueryUniverse("t-universe-c", NOW());
-    expect(env.calls).toBe(1);
-  });
-});
+    expect(env.calls).toBe(1);});});

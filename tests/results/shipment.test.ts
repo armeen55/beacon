@@ -129,16 +129,13 @@ describe("the canonical Shipment", () => {
     await upsertShippedChange(await ship({
       shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.verification).toBeNull();
-    expect(stored.operatorNote).toBe("I pasted it into my site myself.");
-  });
+    expect(stored.operatorNote).toBe("I pasted it into my site myself.");});
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities");
     expect(stored.baseline.clicks).toBe(5);
     expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification])
-      .toEqual([null, null, null, null]);
-  });
-});
+      .toEqual([null, null, null, null]);});});
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
@@ -146,8 +143,7 @@ describe("a day-56 reading already taken", () => {
   const ranWindow = (day: number, adjustedLift: number) => ({
     day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
     treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0,
-    controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
-  });
+    controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,});
   it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
     const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never }; const measured = await measureRecord(T, held, LATER, BEHIND_56, new Set());
     // The 7/14/28 windows are rebuilt; the reading Beacon already paid for rides through.
@@ -155,9 +151,7 @@ describe("a day-56 reading already taken", () => {
     // Google has no finalized data through the 56-day close, so that window was never re-read.
     expect(gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25")).toBe(false);
     // And the verdict is still read on it, rather than falling back to a thinner window.
-    expect(measured.verdict).toBe("won");
-  });
-});
+    expect(measured.verdict).toBe("won");});});
 describe("recording what the live check found", () => {
   it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {
     const record = await ship(); await upsertShippedChange(record);
@@ -165,32 +159,26 @@ describe("recording what the live check found", () => {
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
     const [stored] = await loadShippedChangesForTenant(T);
     expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search?.clicks])
-      .toEqual(["verified", NOW.toISOString(), 9]);
-  });
-});
+      .toEqual(["verified", NOW.toISOString(), 9]);});});
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
   it("refuses a Shipment it cannot store durably, but still files a pre-Shipment row nothing reads from the table", async () => {
     db.state.upsertError = MISSING_COLUMN;
     await expect(upsertShippedChange(await ship())).rejects.toThrow(/migration/i); expect([db.state.rows.length, db.state.file.length]).toEqual([0, 0]);
-    await upsertShippedChange(await ship({ shipment: undefined })); expect(db.state.file).toHaveLength(1);
-  });
+    await upsertShippedChange(await ship({ shipment: undefined })); expect(db.state.file).toHaveLength(1);});
   it("keeps working with no database at all: the record and its answer both land in the local ledger", async () => {
     db.state.offline = true;
     const record = await ship(); await upsertShippedChange(record);
     expect(db.state.file).toHaveLength(1);
     // The answer saves ONCE, so the verifier never goes back out to the customer's website for it again.
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
-    expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);
-  });
+    expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);});
   it("saves what the check found to the file when the column is missing, rather than re-owing the check forever", async () => {
     const record = await ship();
     await upsertShippedChange(record); // the table takes the row, and the file mirrors it
     db.state.updateError = { code: "PGRST204", message: "Could not find the 'verification' column of 'shipped_change_proof' in the schema cache" };
-    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
-  });
-});
+    expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");});});
 /** PRODUCT TRUTH: start measurement only after implementation is VERIFIED on the live page. Measuring a change I never found there would credit search movement to work that may never have landed. */
 describe("measurement waits for the change to be found on the page", () => {
   const LATER = new Date("2026-08-20T12:00:00.000Z"), FINAL = "2026-08-19";
@@ -201,12 +189,9 @@ describe("measurement waits for the change to be found on the page", () => {
     expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false);
-    expect(await due(verification("differs"))).toBe(false);
-  });
+    expect(await due(verification("differs"))).toBe(false);});
   it("keeps measuring a record written before there were Shipments, which has no answer to wait for", async () => {
-    const legacy = { ...(await ship()), implementedAt: null, verification: null }; expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);
-  });
-});
+    const legacy = { ...(await ship()), implementedAt: null, verification: null }; expect(isDueForMeasure(legacy, FINAL, LATER)).toBe(true);});});
 describe("what is still under measurement", () => {
   const row = (id: string, implementedAt: string, path: string, v: ShipmentVerification | null): Row =>
     ({ ...legacyRow(), id, path, implemented_at: implementedAt, verification: v, proposal_id: `p-${id}` });
@@ -218,12 +203,9 @@ describe("what is still under measurement", () => {
       row("s4", "2026-07-29T00:00:00.000Z", "/isfahan", verification("blocked")),  // I could not look, which is when I am least sure: it HOLDS
       row("s5", "2026-05-01T00:00:00.000Z", "/kish", verification("verified")),    // past the window
       { ...legacyRow(), id: "s6", path: "/never-shipped" },                        // no stamp at all
-    ];
-  });
+    ];});
   it("windows on the stamp, keeps only what is really being measured, and belongs to one account", async () => {
-    expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);
-  });
-});
+    expect(await pagesUnderMeasurementFromShipments(T, NOW)).toEqual(["/nowruz-guide", "/tehran", "/isfahan"]); expect(await pagesUnderMeasurementFromShipments("acct-b", NOW)).toEqual([]);});});
 /** MEASUREMENT USED TO NEED A VISITOR: the engine fired only from a Results render, so a verdict waited on somebody opening the page and production sat on sixteen measurable shipments. The scheduled run drives this now, and a reading is only true on screen once Results is rebuilt and only reaches ranking once winner memory re-harvests. */
 describe("the measurement pass settles itself, all the way to the screen", () => {
   const result = (over: Record<string, number>) => ({ considered: 16, due: 16, measured: 0, changed: 0, settled: 0, failed: 0, outcomes: [], ...over });
@@ -237,8 +219,7 @@ describe("the measurement pass settles itself, all the way to the screen", () =>
     await settleDueMeasurements(T); expect(settle.harvested).toEqual([T]); // a won or lost verdict reaches ranking
     settle.pass.mockRejectedValue(new Error("the ledger did not answer"));
     expect(await settleDueMeasurements(T)).toBe(0); // fail-soft: a reading I could not take never pauses the pass that asked for it
-  });
-});
+  });});
 /** RECORDING IS NOT MEASURING. What the operator applied is a fact and is written down whatever the data says; whether it can be fairly compared is a SEPARATE fact, recorded beside it and never used to refuse the write. The path used to refuse below two comparison pages, so a true implementation left no record at all and the queue offered it back. */
 describe("the recording seam", () => {
   const facts = (over: Record<string, unknown> = {}) => ({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide",
@@ -253,8 +234,7 @@ describe("the recording seam", () => {
     ctl.pages = [];
     expect((await recordShipment(facts())).measurement).toBe("insufficient_comparison");
     expect(db.state.rows).toHaveLength(1); // the implementation landed anyway, stamp and all
-    expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["insufficient_comparison", NOW.toISOString()]);
-  });
+    expect([(await stored()).measurementState, (await stored()).implementedAt]).toEqual(["insufficient_comparison", NOW.toISOString()]);});
   it("records it when Google has nothing finalized, and when this page has no history to count from", async () => {
     gsc.lastFinal.mockResolvedValue(null);
     expect((await recordShipment(facts())).measurement).toBe("measurement_unavailable");
@@ -279,9 +259,7 @@ describe("the recording seam", () => {
   it("repairs idempotently on the same account of it, and stays honest when there is nothing to compare", async () => {
     const first = await repair(); expect([(await repair()).shipmentId, db.state.rows.length]).toEqual([first.shipmentId, 1]);
     db.state.rows = []; ctl.pages = [];
-    expect((await repair()).measurement).toBe("insufficient_comparison");
-  });
-});
+    expect((await repair()).measurement).toBe("insufficient_comparison");});});
 /** THE STARTING NUMBERS ARE FROZEN OVER THIS CHANGE'S OWN SEARCHES, at mark time, once: the account-wide day compared an account-wide before against a scope-filtered after, two different measures. */
 describe("the AI baseline is frozen over the change's own scope (AEO reconstruction, 2026-08-19)", () => {
   const SITE = "https://www.fixture-outdoors.example", DAY = "2026-07-30";
@@ -311,17 +289,13 @@ describe("the AI baseline is frozen over the change's own scope (AEO reconstruct
       retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, // read the page and credited a rival
       engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"],
       // THE YARDSTICK RIDES THE STARTING NUMBERS, so no later read may pick its own.
-      objective: "ai_citation_conversion",
-    });
-    expect(held?.scopeFingerprint).toMatch(/^[0-9a-f]{16}$/);
-  });
+      objective: "ai_citation_conversion",});
+    expect(held?.scopeFingerprint).toMatch(/^[0-9a-f]{16}$/);});
   it("records the implementation with no AI starting numbers when the scope's answers are not on file", async () => {
     ai.records.mockResolvedValue([]);
     await upsertShippedChange(await ship({ shipment: origin({ aiScope: SCOPE }) as never })); const [stored] = await loadShippedChangesForTenant(T);
     // The change is on file, stamp and all; the AI half is honestly absent and is never rebuilt later.
-    expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
-  });
-});
+    expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);});});
 describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
   it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
     const scope = { promptIds: ["p1"], engines: ["chatgpt", "gemini"], fanouts: ["haft seen table items list"], stage: "owned_retrieved_not_cited" };
@@ -331,8 +305,7 @@ describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-
     const row = (await loadShippedChangesForTenant(T))[0]!;
     expect(row.aiScope).toEqual(scope); // exactly what the card claimed, remeasurable
     expect(row.targetQueries).toEqual(["nowruz traditions"]); // and the Google scope is untouched by it
-  });
-});
+  });});
 /** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI numbers were captured only where Google already had something to say, so a new or quiet page lost the baseline of exactly the change it existed for. */
 describe("an AI change on a page Google cannot see yet still measures", () => {
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
@@ -341,6 +314,4 @@ describe("an AI change on a page Google cannot see yet still measures", () => {
     expect(objectiveOfStage("rivals_cited_own_not_retrieved")).toBe("ai_retrieval"); expect(objectiveOfStage("owned_retrieved_not_cited")).toBe("ai_citation_conversion");
     expect(objectiveOfStage("owned_mentioned_not_cited")).toBe("ai_citation");
     expect(objectiveOfStage("citations_unreported")).toBe("ai_citation"); // a reporting gap is never a mention problem
-    expect(objectiveOfStage(null)).toBe("ai_mentions");
-  });
-});
+    expect(objectiveOfStage(null)).toBe("ai_mentions");});});

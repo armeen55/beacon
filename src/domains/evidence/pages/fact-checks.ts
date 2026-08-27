@@ -32,8 +32,15 @@ type ClaimState = "owed" | "checked" | "superseded";
 /** WHICH RULES PRODUCED A VERDICT. Version 1 is everything researched before 2026-08-18: it searched the
  *  SUBJECT alone, and it banked `checked` on sources it never managed to read. Version 2 searches the whole
  *  proposition and leaves an unread source owed. A row from an older version is not current evidence, so
- *  Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1. */
-export const VERIFICATION_RULES_VERSION = 3;
+ *  Decision may not act on it and the engine owes the claim again (Codex, 2026-08-18). Null reads as 1.
+ *  VERSION 4 ASKS WHAT THE SOURCE WAS ABOUT. Versions 1 to 3 proved a quote was really in the passage they read
+ *  and never once asked whether that passage was about the same subject, so a quote proving the source SAID it
+ *  was taken as proof it said it about THIS name. Live, that banked Cambridge's thesaurus entry for the English
+ *  word "alluring" as confirmation of a Persian name, the OED on "dream" and on "reliable" for two more,
+ *  Wikipedia's Slavic "Daria" as the meaning of Persian darya, and one page cited as its own source. Version 4
+ *  also requires that the words a correction proposes are carried by a passage somebody actually read. So every
+ *  verdict from an earlier version is an unasked question rather than a finding, and its claim is owed again. */
+export const VERIFICATION_RULES_VERSION = 4;
 
 export type FactCheck = {
   page: string;

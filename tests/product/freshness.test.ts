@@ -39,8 +39,7 @@ describe("the freshness matrix", () => {
     expect(isCurrent("owned_page", read, NOW)).toBe(true); // two days into a seven day window
     expect(isCurrent("owned_page", read, NOW, at(NOW - DAY))).toBe(false); // the page changed AFTER I read it: recent, and no longer about the page that exists
     expect(isCurrent("owned_page", read, NOW, at(NOW - 5 * DAY))).toBe(true); // it changed BEFORE I read it, so my read already saw the change
-  });
-});
+  });});
 describe("what the matrix actually buys", () => {
   /** HALF THE MATRIX WAS DECORATIVE: the windows above said a month while the row holding the evidence expired in a week, so a page every side of the product still called current was thrown away and bought back. The cache lifetime IS the matrix now, on the ask and on the banked body alike. */
   const written: Record<string, unknown>[] = [];
@@ -70,8 +69,7 @@ describe("hot versus cold searches", () => {
     expect(await run([])).toEqual([]); // nothing is named, so both two-day-old looks are still current
     expect(await run(["hot query"])).toEqual(["hot query"]); // named by the plan, the same look is due; the unnamed one is untouched at the same age
     expect(await run(["Hot  Query!"])).toEqual(["hot query"]); // the plan's own wording, not a second identity
-  });
-});
+  });});
 describe("the ONE page of the account's own, and what makes it due", () => {
   const U = "own.com/nowruz", ABS = `https://${U}`;
   const page = { ok: true, html: "<html><body><h1>Nowruz</h1><p>How a nowruz table is set out.</p></body></html>", status: 200 };
@@ -85,8 +83,7 @@ describe("the ONE page of the account's own, and what makes it due", () => {
     expect(await run(at(NOW - 2 * DAY), null)).toEqual([]); // a body two days old is the read: zero fetches of the customer's own website
     expect(await run(at(NOW - 9 * DAY), null)).toEqual([ABS]); // past the week, the body is due
     expect(await run(at(NOW - 2 * DAY), at(NOW - DAY))).toEqual([ABS]); // recent, but the page changed after I read it, so what I hold is not the page
-  });
-});
+  });});
 describe("the recurring winning domains capability (dataforseo_labs/google/serp_competitors/live)", () => {
   /** The DOCUMENTED response shape, verified against docs.dataforseo.com on 2026-07-31: result[0] carries se_type, seed_keywords, location_code, language_code, total_count, items_count and items; each item carries its metrics as FLAT fields, never a nested metrics object. */
   const envelope: ProviderEnvelope = { status_code: 20000, cost: 0.0105, tasks: [{ status_code: 20000, result: [{
@@ -104,8 +101,7 @@ describe("the recurring winning domains capability (dataforseo_labs/google/serp_
       { domain: "gsmarena.com", avgPosition: null, rating: null, keywordsCount: null }, // absent is null, never a fake zero
     ]); // a row with no domain is not a competitor and is dropped
     expect(parseCapability("labs_serp_competitors", { status_code: 20000, tasks: [{ result: [] }] } as ProviderEnvelope)).toEqual([]); // an empty answer reads empty, never a throw
-  });
-});
+  });});
 describe("the monthly ceilings", () => {
   it("holds a real research month at $250 an account and $500 across everything", () => {
     expect([DEFAULT_MONTHLY_CAP_USD, monthlyCapUsd({} as never)]).toEqual([250, 250]);
@@ -114,5 +110,4 @@ describe("the monthly ceilings", () => {
     expect(decideBreaker({ spentUsd: 60, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(false); // $60 of research this month keeps going
     expect(decideBreaker({ spentUsd: 260, capUsd: DEFAULT_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // $260 is past the account's ceiling and stops
     expect(decideBreaker({ spentUsd: null, capUsd: DEFAULT_GLOBAL_MONTHLY_CAP_USD, projectedUsd: 0.05 }).tripped).toBe(true); // a spend I cannot confirm still fails closed
-  });
-});
+  });});

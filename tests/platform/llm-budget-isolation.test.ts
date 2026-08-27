@@ -7,13 +7,10 @@ vi.mock("@/lib/persistence/json-store", () => ({
   readStore: vi.fn(async (name: string, _f?: unknown, opts?: { tenantId?: string }) => {
     readCalls.push({ name, tenantId: opts?.tenantId });
     if (!opts?.tenantId) throw new Error("test: readStore called without explicit tenantId");
-    return FILE_ROWS.get(opts.tenantId) ?? [];
-  }),
+    return FILE_ROWS.get(opts.tenantId) ?? [];}),
   writeStore: vi.fn(async (name: string, rows: unknown[], opts?: { tenantId?: string }) => {
     if (!opts?.tenantId) throw new Error("test: writeStore called without explicit tenantId");
-    FILE_ROWS.set(opts.tenantId, rows);
-  }),
-}));
+    FILE_ROWS.set(opts.tenantId, rows);}),}));
 // Per-tenant durable ledger seam.
 const DURABLE = new Map<string, number>();
 const durableWrites: Array<{ tenantId: string; costUsd: number }> = [];
@@ -24,9 +21,7 @@ vi.mock("@/lib/cost/daily-cap", () => ({ dailyCapReason: vi.fn(async () => null)
 vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
   getTenantSpentThisMonthUsd: vi.fn(async (tenantId: string) => DURABLE.get(tenantId) ?? 0),
   recordSpendSupabase: vi.fn(async (a: { tenantId: string; costUsd: number }) => {
-    durableWrites.push({ tenantId: a.tenantId, costUsd: a.costUsd });
-  }),
-}));
+    durableWrites.push({ tenantId: a.tenantId, costUsd: a.costUsd });}),}));
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 const A = "tenant-a";
 const B = "tenant-b";
@@ -35,8 +30,7 @@ describe("per-account LLM budget isolation", () => {
     FILE_ROWS.clear();
     DURABLE.clear();
     durableWrites.length = 0;
-    readCalls.length = 0;
-  });
+    readCalls.length = 0;});
   it("account A's file-layer spend never changes account B's remaining budget", async () => {
     await recordSpend(54.99, { tenantId: A }); const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
     const b = await checkBudget({ tenantId: B, projectedCostUsd: 0.02 });
@@ -61,6 +55,4 @@ describe("per-account LLM budget isolation", () => {
     await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/); await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
     // And the successful paths above always routed with the explicit account.
-    await checkBudget({ tenantId: A }); expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);
-  });
-});
+    await checkBudget({ tenantId: A }); expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);});});

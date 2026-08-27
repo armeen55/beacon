@@ -4,8 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 const BILLED = vi.hoisted(() => ({ usd: [] as number[] }));
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
-  recordSpend: async (usd: number) => { BILLED.usd.push(usd); },
-}));
+  recordSpend: async (usd: number) => { BILLED.usd.push(usd); },}));
 import { callStructuredLLM, draftAtomicEditStructured, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
@@ -14,20 +13,17 @@ const VALID_ATOMIC_EDIT = {
   rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }],
   confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
-  proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
-};
+  proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
 const REQ = {
   kind: "atomic_edit" as const, tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.",
-  grounded: "nowruz traditions persian new year customs haft-seen",
-};
+  grounded: "nowruz traditions persian new year customs haft-seen",};
 /** A `complete` double that replays a queue and counts how many times it ran. */
 function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): { complete: CompleteFn; calls: () => number } {
   let i = 0, calls = 0;
   const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
-  return { complete, calls: () => calls };
-}
+  return { complete, calls: () => calls };}
 describe("structured-drafter strict transport", () => {
   it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
     const refs = (r: unknown[]) => ({ value: { ...VALID_ATOMIC_EDIT, evidenceRefs: r } }); const clarity = [{ source: "clarity", detail: "people stop scrolling about halfway down the page" }];
@@ -72,5 +68,4 @@ describe("a description names the subject, never the page's own furniture", () =
     expect(meta.user).not.toMatch(/ship internationally|return policy/); // the question rail never becomes the subject
     expect(meta.system).toContain("DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE");
     expect(title.user).toContain("Does this ship internationally?"); // a title still reads the whole outline
-    expect(title.system).not.toContain("DESCRIBE THE THING THE PAGE IS ABOUT"); });
-});
+    expect(title.system).not.toContain("DESCRIBE THE THING THE PAGE IS ABOUT"); });});

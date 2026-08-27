@@ -66,8 +66,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
       summary: { ready: 1, todo: 0, research: 1 } } as never);
     expect(led.nextOpportunities[0]!.lane).toBe("ready");
     const { buildScoreboard } = await import("@/domains/measurement"); // ONE COUNT RULE: the header owns "N measuring", the chart never repeats it
-    expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });
-});
+    expect(buildScoreboard([{ date: "2026-07-01", clicks: 10, impressions: 0 }, { date: "2026-07-20", clicks: 20, impressions: 0 }], [], new Date("2026-07-21T00:00:00Z"))?.verdictLine ?? "").not.toMatch(/measuring/i); });});
 describe("Connectors settings route smoke", () => {
   it("renders the connector page with the shipped cards + the one summary strip", async () => {
     const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); const html = renderToStaticMarkup((await ConnectorsPage()) as ReactElement);
@@ -80,8 +79,5 @@ describe("Connectors settings route smoke", () => {
     vi.mocked(getConnectorInfo).mockImplementation(async (provider: string) => {
       const on = provider === "google_gsc" || provider === "clarity";
       return { status: on ? "connected" : "disconnected", connected_at: on ? "2026-06-01T00:00:00.000Z" : null,
-        expires_at: null, last_synced_at: on ? "2026-07-01T09:00:00.000Z" : null };
-    });
-    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 3 connected");
-  });
-});
+        expires_at: null, last_synced_at: on ? "2026-07-01T09:00:00.000Z" : null };});
+    const { default: ConnectorsPage } = await import("@/app/(shell)/settings/connectors/page"); expect(renderToStaticMarkup((await ConnectorsPage()) as ReactElement)).toContain("2 of 3 connected");});});

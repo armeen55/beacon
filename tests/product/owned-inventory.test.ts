@@ -92,8 +92,7 @@ describe("evidence - my own page's actual words, read narrowly", () => {
     db.snaps = [snapRow({ body_paragraph_sample: Array.from({ length: 20 }, (_, i) => `Passage ${i + 1}.`), word_count: 2, card_texts: [], internal_links: [] })];
     expect((await read()).completeness).toBe("sample_only"); // the crawler's PARAGRAPH cap is a stop, not an ending
     db.snaps = [snapRow({ body_text: "held prose. ".repeat(6_000), word_count: 5, card_texts: [], internal_links: [] })]; const held = await read();
-    expect([held.completeness, held.heldNote.includes("past my 48000 character ceiling")]).toEqual(["partial", true]); });
-});
+    expect([held.completeness, held.heldNote.includes("past my 48000 character ceiling")]).toEqual(["partial", true]); });});
 /** THE SITE IS EVENTUALLY READ IN FULL. Every bound is per PASS: the page cap used to be a lifetime clamp (a 1,000-page site simply had 400 pages Beacon would never read) and one discovery pass was the whole enumeration. Passes provably ADVANCE and never repeat, an oversized sitemap continues where it stopped, and "that is your whole website" is said only when nothing is left, not even a page waiting out a refusal. */
 describe("a crawl is finished only when the inventory is", () => {
   const html = (w: string) => `<html><head><title>T</title></head><body><main><p>${w}</p></main></body></html>`;
@@ -141,5 +140,4 @@ describe("a crawl is finished only when the inventory is", () => {
     const shipped = await batch(hold, pages);
     expect([shipped.read, shipped.out.crawled, hold.s.pages_crawled]).toEqual([["https://own.com/new"], 1, 2]); // finished was a reading, never a latch
     const stale = await batch(hold, pages, at(45)); // and a read past thirty days is owed again on its own
-    expect([stale.read.length, stale.out.crawled, hold.s.status]).toEqual([2, 2, "complete"]); });
-});
+    expect([stale.read.length, stale.out.crawled, hold.s.status]).toEqual([2, 2, "complete"]); });});

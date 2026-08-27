@@ -8,19 +8,16 @@ const SURFACE = vi.hoisted(() => ({
   computedAt: new Date(Date.now() - 22 * 60_000).toISOString(),
   changes: { proposals: [], ready: [], toDo: [], research: [], summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 },
     measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null },
-  today: { today: {} },
-}));
+  today: { today: {} },}));
 vi.mock("next/navigation", () => ({ redirect: (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); },
   usePathname: () => "/changes", useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<typeof import("next/server")>("next/server")), after: (fn: () => unknown) => { void fn; } }));
 vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof import("@/lib/tenant-context")>("@/lib/tenant-context")),
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/evidence", () => ({
-  loadGscDecaySignalsForTenant: vi.fn(async () => { calls.evidence += 1; if (calls.evidence === 1) throw new Error("cold"); return new Map(); }),
-}));
+  loadGscDecaySignalsForTenant: vi.fn(async () => { calls.evidence += 1; if (calls.evidence === 1) throw new Error("cold"); return new Map(); }),}));
 vi.mock("@/domains/measurement", () => ({
-  loadProofLedgerCached: vi.fn(async () => { calls.ledger += 1; await new Promise((r) => setTimeout(r, 80)); return []; }),
-}));
+  loadProofLedgerCached: vi.fn(async () => { calls.ledger += 1; await new Promise((r) => setTimeout(r, 80)); return []; }),}));
 vi.mock("@/domains/decision", () => ({
   splitLedgerLifecycle: () => ({ measuring: [], promising: [], won: [], learned: [] }),
   resolveCurrentBasis: async () => null,
@@ -28,32 +25,26 @@ vi.mock("@/domains/decision", () => ({
   countLedgerLifecycle: () => ({ measuring: 0, decided: 0 }),
   loadProposalQueue: async () => ({ ranked: [], ready: [], toDo: [], research: [], implementedPendingVerification: 0, demotedStaleBasis: 0 }),
   readQueuePage: async () => ({ rows: [], total: 0, nextRank: 0, release: null, more: false, dropped: 0 }),
-  publishCustomerRelease: async () => "rel",
-}));
+  publishCustomerRelease: async () => "rel",}));
 vi.mock("@/app/(shell)/surface-release", () => ({
   readCustomerSurface: vi.fn(async () => {
     calls.surface += 1;
     if (calls.failSurface > 0) { calls.failSurface -= 1; throw new Error("release read failed"); }
-    return SURFACE;
-  }),
+    return SURFACE;}),
   isCustomerSurfaceStale: () => false,
-  refreshCustomerSurface: async () => SURFACE,
-}));
+  refreshCustomerSurface: async () => SURFACE,}));
 vi.mock("@/app/(shell)/changes-data", async () => ({
   ...(await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data")),
   loadChangesView: vi.fn(async () => ({ proposals: [], ready: [], toDo: [], research: [],
     summary: { todo: 0, ready: 0, research: 0, implemented: 0, measuring: 0, results: 0 }, measuringCountCanonical: 0,
-    demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null, surfaceBuilding: false })),
-}));
+    demotedStaleBasis: 0, decidedCountCanonical: 0, readyZeroHint: null, receiptLine: null, surfaceBuilding: false })),}));
 async function renderSection(): Promise<string> {
   const { ChangesSection } = await import("@/app/(shell)/changes/page");
-  return renderToStaticMarkup((await ChangesSection()) as ReactElement);
-}
+  return renderToStaticMarkup((await ChangesSection()) as ReactElement);}
 describe("a struggling source costs one read, and a list already in hand beats a spinner", () => {
   beforeEach(() => { calls.ledger = 0; calls.evidence = 0; calls.surface = 0; calls.failSurface = 0; });
   it("a Changes visit buys no ledger read and no decay read of its own", async () => {
-    await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);
-  });
+    await Promise.all([renderSection(), renderSection()]); expect([calls.ledger, calls.evidence]).toEqual([0, 0]);});
   it("with nothing remembered yet, an unreadable release still refuses to claim a first-ever build", async () => {
     calls.failSurface = 2;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data"); const view = await loadChangesView();
@@ -67,5 +58,4 @@ describe("a struggling source costs one read, and a list already in hand beats a
     const view = await loadChangesView(); expect(calls.surface, "the blob read gets its own deadline and exactly one retry").toBe(2);
     expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false);
     expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
-  }, 15_000);
-});
+  }, 15_000);});

@@ -903,8 +903,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
       const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
-    }
-  });
+    }});
   /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed
    *  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only
    *  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and
@@ -969,12 +968,10 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.out = [{ key: "/i", outcome: "produced", cost: 0.02 }];
       expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.9, delta: 0.9, metered: 0.02, unexplained: 0.88, reconciled: true }); // the receipts never claimed more than the ledger saw; the 0.88 the drafting meter cannot explain is NAMED, not called a mismatch
     } finally {
-      vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }
-  });
+      vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.resetModules(); }});
   it("stamps the day only once the step PROVED the stock at target", async () => {
     const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
-    expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "candidates_exhausted"]);
-  });
+    expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "candidates_exhausted"]);});
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */
   /** THE DISPATCH GOES AND GETS THE READING A REFUSED CANDIDATE NAMED (Codex, 2026-08-23). Storing it, logging it and
    *  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the
@@ -1000,8 +997,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const drive = async (attempted: string[]) => {
       await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
         replenishReady: async (_t, _n, was) => { seen.push(was?.attempted ?? []);
-          return { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "m1", attempted }; } });
-    };
+          return { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "m1", attempted }; } });};
     await drive(["/settled"]); // /strong was funded and never reached, so it is NOT in attempted
     expect(rows.at(-1)!.progress?.replenish?.attempted).toEqual(["/settled"]);
     expect(JSON.stringify(rows.at(-1)!.progress?.replenish)).not.toContain("deferred"); // nothing is demoted, ever
@@ -1037,6 +1033,4 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     void withRun({ current_phase: "serp_analysis" });
     await run({ ...healthySteps(order), replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
-    expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0); expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));
-  });
-});
+    expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0); expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));});});

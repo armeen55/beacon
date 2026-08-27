@@ -13,13 +13,10 @@ const { ownerFlag, mocks } = vi.hoisted(() => ({
     loadChangeProposal: vi.fn(),
     recordShipment: vi.fn(),
     transitionProposalToImplemented: vi.fn(),
-    resolveCurrentBasis: vi.fn(),
-  },
-}));
+    resolveCurrentBasis: vi.fn(),},}));
 vi.mock("@/lib/auth/can-publish", () => ({
   isAccountOwner: async () => ownerFlag.value,
-  canPublishForCurrentTenant: async () => ownerFlag.value,
-}));
+  canPublishForCurrentTenant: async () => ownerFlag.value,}));
 vi.mock("@/domains/decision", async () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
   loadChangeProposal: mocks.loadChangeProposal, transitionProposalToImplemented: mocks.transitionProposalToImplemented,
@@ -31,8 +28,7 @@ vi.mock("@/domains/decision", async () => ({
   dangerousComponents: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).dangerousComponents,
   componentIdOf: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).componentIdOf,
   deliverableGaps: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).deliverableGaps, unsettledCause: (await vi.importActual<typeof import("@/domains/decision/authorization")>("@/domains/decision/authorization")).unsettledCause,
-  sameComponentId: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).sameComponentId,
-}));
+  sameComponentId: (await vi.importActual<typeof import("@/domains/decision/contracts")>("@/domains/decision/contracts")).sameComponentId,}));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), getTenant: async () => ({ id: "tenant-test", domain: "x.test" }) }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
@@ -41,18 +37,15 @@ vi.mock("@/lib/operator-mode", () => ({ isOperatorModeServer: () => true }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: vi.fn(async () => "tenant-test") }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
-  loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
-}));
+  loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,}));
 vi.mock("@/domains/measurement/proof-gsc/measure-pass", () => ({
   captureChangeMeta: mocks.captureChangeMeta, recordShippedChange: mocks.recordShippedChange, measureRecord: mocks.measureRecord,
   // audit-4: actions.ts now defaults shipDate to the Pacific calendar day.
   defaultPacificShipDate: () => "2026-06-22",
   // THE ONE comparison-page chooser, shared by the record path and the shipment, so both doors refuse alike. null is the read that FAILED, which is a different sentence from a site that genuinely has too few pages.
-  selectControlPages: async () => { const pages = mocks.topPagesByDemand(); return pages === null ? null : pages.slice(0, 3); },
-}));
+  selectControlPages: async () => { const pages = mocks.topPagesByDemand(); return pages === null ? null : pages.slice(0, 3); },}));
 vi.mock("@/domains/measurement/proof-gsc/shipped-change-store", () => ({
-  loadShippedChanges: mocks.loadShippedChanges, upsertShippedChange: mocks.upsertShippedChange,
-}));
+  loadShippedChanges: mocks.loadShippedChanges, upsertShippedChange: mocks.upsertShippedChange,}));
 // THE ONE DOOR THAT WRITES A SHIPMENT. It always writes and always answers with the row's id and what that row can be fairly compared against; the mark-implemented press consumes it and never decides any of that for itself.
 vi.mock("@/domains/measurement/proof-gsc/record-shipment", () => ({ recordShipment: mocks.recordShipment }));
 import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(shell)/results/actions";
@@ -78,8 +71,7 @@ beforeEach(() => {
   Object.values(mocks).forEach((m) => m.mockReset());
   mocks.captureChangeMeta.mockResolvedValue({
     canonPage: "https://x.test/cities", path: "/cities", before: "old", after: "new", targetQueries: ["cities in iran"],
-    headlineAction: "title", contentHash: "hash-before",
-  });
+    headlineAction: "title", contentHash: "hash-before",});
   mocks.recordShippedChange.mockResolvedValue({ id: "/cities::2026-06-19", verdict: "measuring" });
   mocks.recordShipment.mockResolvedValue({ shipmentId: "shp_1", measurement: "measuring" });
   mocks.upsertShippedChange.mockResolvedValue(undefined);
@@ -88,23 +80,19 @@ beforeEach(() => {
   mocks.topPagesByDemand.mockReturnValue(["https://x.test/a", "https://x.test/b", "https://x.test/c"]);
   mocks.resolveCurrentBasis.mockResolvedValue(BASIS);
   mocks.loadChangeProposal.mockResolvedValue(proposal());
-  mocks.transitionProposalToImplemented.mockResolvedValue(true);
-});
+  mocks.transitionProposalToImplemented.mockResolvedValue(true);});
 describe("recordShippedChangeAction, account-owner gating", () => {
   it("non-owner ⇒ refused even with the operator env flag on, no record written", async () => {
     ownerFlag.value = false;
     const res = await recordShippedChangeAction({ pageUrl: "https://x.test/cities" });
-    expect([res.success, /owner/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length, mocks.upsertShippedChange.mock.calls.length]).toEqual([false, true, 0, 0]);
-  });
+    expect([res.success, /owner/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length, mocks.upsertShippedChange.mock.calls.length]).toEqual([false, true, 0, 0]);});
   it("account owner ⇒ captures baseline + persists the record, and a missing page is refused", async () => {
     expect((await recordShippedChangeAction({ pageUrl: "https://x.test/cities" })).success).toBe(true); expect([mocks.recordShippedChange.mock.calls.length, mocks.upsertShippedChange.mock.calls.length]).toEqual([1, 1]);
-    expect((await recordShippedChangeAction({ pageUrl: "" })).success).toBe(false); expect(mocks.recordShippedChange).toHaveBeenCalledOnce();
-  });
+    expect((await recordShippedChangeAction({ pageUrl: "" })).success).toBe(false); expect(mocks.recordShippedChange).toHaveBeenCalledOnce();});
   it("ANY page ⇒ still records, controls derived from top-demand pages", async () => {
     expect((await recordShippedChangeAction({ pageUrl: "/cities" })).success).toBe(true);
     expect(mocks.topPagesByDemand).toHaveBeenCalled(); // fallback control selection fired
-    expect(mocks.recordShippedChange.mock.calls[0][0].controlPages.length).toBeGreaterThan(0);
-  });
+    expect(mocks.recordShippedChange.mock.calls[0][0].controlPages.length).toBeGreaterThan(0);});
   it("passes explicit change fields through to recordShippedChange", async () => {
     const res = await recordShippedChangeAction({
       pageUrl: "/cities", changeType: "edit_meta", before: "old meta", after: "new meta", shippedAt: "2026-06-20",
@@ -115,35 +103,27 @@ describe("recordShippedChangeAction, account-owner gating", () => {
     expect(arg.actionType).toBe("edit_meta"); expect(arg.before).toBe("old meta");
     expect(arg.after).toBe("new meta"); expect(arg.notes).toBe("manual edit on my site");
     expect(arg.verifiedLive).toBe(true); expect(arg.liveSourceUrl).toBe("https://www.fixture-content.example/cities");
-    expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);
-  });
+    expect(arg.targetQueries).toEqual(["cities in iran", "largest cities in iran", "cities of iran"]);});
   it("a real edit owes its before and after; a keep-current decision does not", async () => {
     const noCopy = { canonPage: "https://x.test/cities", path: "/cities", before: null, after: null, targetQueries: [], headlineAction: null };
     mocks.captureChangeMeta.mockResolvedValue(noCopy);
     const refused = await recordShippedChangeAction({ pageUrl: "/cities", changeType: "edit_title" });
     expect([refused.success, /before and after/i.test(refused.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);
-    expect([(await recordShippedChangeAction({ pageUrl: "/cities", changeType: "keep_current" })).success, mocks.recordShippedChange.mock.calls.length]).toEqual([true, 1]);
-  });
+    expect([(await recordShippedChangeAction({ pageUrl: "/cities", changeType: "keep_current" })).success, mocks.recordShippedChange.mock.calls.length]).toEqual([true, 1]);});
   it("duplicate page + ship date ⇒ refused, nothing overwritten", async () => {
     mocks.loadShippedChanges.mockResolvedValue([{ path: "/cities", actionType: "meta", shippedAt: "2026-06-20T08:00:00.000Z" }]);
-    const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" }); expect([res.success, /already recorded/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);
-  });
+    const res = await recordShippedChangeAction({ pageUrl: "/cities", shippedAt: "2026-06-20" }); expect([res.success, /already recorded/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);});
   it("fewer than 2 control pages ⇒ refused, nothing recorded", async () => {
     mocks.topPagesByDemand.mockReturnValue(["https://x.test/a"]); // only 1 candidate
-    const res = await recordShippedChangeAction({ pageUrl: "/cities" }); expect([res.success, /only 1 page on your site/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);
-  });
+    const res = await recordShippedChangeAction({ pageUrl: "/cities" }); expect([res.success, /only 1 page on your site/i.test(res.error ?? ""), mocks.recordShippedChange.mock.calls.length]).toEqual([false, true, 0]);});
   it("never hands a customer a backend error", async () => { // P1-13
     mocks.captureChangeMeta.mockRejectedValue(new Error("relation shipped_change_proof does not exist"));
-    expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "That change could not be recorded just now. Try it again in a moment." });
-  });
-});
+    expect(await recordShippedChangeAction({ pageUrl: "/cities" })).toEqual({ success: false, error: "That change could not be recorded just now. Try it again in a moment." });});});
 describe("recomputeProofLedgerAction, account-owner gating", () => {
   it("non-owner ⇒ refused, nothing recomputed", async () => {
     ownerFlag.value = false;
     const res = await recomputeProofLedgerAction(); expect(res.success).toBe(false);
-    expect(mocks.loadShippedChanges).not.toHaveBeenCalled();
-  });
-});
+    expect(mocks.loadShippedChanges).not.toHaveBeenCalled();});});
 /** THE SHIPMENT TRANSACTION (Phase 6). "Mark implemented" used to flip a status and nothing else, so a change the operator really made left no record of what was applied or where the page stood beforehand. The press now writes a Shipment FIRST and flips SECOND: a crash between them leaves a Shipment nobody flipped, which the next press heals, where the reverse leaves a change marked done that nothing measures. */
 /** The fixture's title piece is GRADED dangerous, so every whole-bundle press carries the deliberate yes: the canonical rule is the risk grade OR the kind, never the four kinds alone. */
 const PRESS = { proposalId: PROPOSAL_ID, destructiveConfirmed: true };
@@ -156,13 +136,11 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
       .toEqual([PROPOSAL_ID, BASIS, "hash-before", ["title", "opening_answer"]]);
     expect(/line Google shows/.test(facts().bundleHypothesis)).toBe(true);
     // And the flip carries the id of the record that is measuring it, so no bare status flip is reachable from this door.
-    expect(mocks.transitionProposalToImplemented.mock.calls[0]![2]).toBe("shp_1");
-  });
+    expect(mocks.transitionProposalToImplemented.mock.calls[0]![2]).toBe("shp_1");});
   it("a shipment that does not land leaves the change unflipped, and never leaks the reason", async () => {
     mocks.recordShipment.mockRejectedValue(new Error("relation shipped_change_proof does not exist"));
     const res = await markProposalImplementedAction({ ...PRESS });
-    expect([res.success, /could not start/i.test(res.error ?? ""), /shipped_change_proof/.test(res.error ?? ""), mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([false, true, false, 0]);
-  });
+    expect([res.success, /could not start/i.test(res.error ?? ""), /shipped_change_proof/.test(res.error ?? ""), mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([false, true, false, 0]);});
   it("a second press on the same change does NOTHING: the record I already hold stands", async () => {
     await markProposalImplementedAction({ ...PRESS });
     // The change is now on file, checked, with its own ship date and starting numbers.
@@ -172,34 +150,29 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "implemented_pending_verification" })); // the flip already happened
     mocks.recordShipment.mockClear();
     // Success, because the change really is recorded as done. And nothing is rebuilt: rebuilding it erased the live check back to null, moved the ship date to today, and recomputed the displayed starting numbers over a window that included the days AFTER the change.
-    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect(mocks.recordShipment).not.toHaveBeenCalled();
-  });
+    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect(mocks.recordShipment).not.toHaveBeenCalled();});
   it("a genuinely new version of the copy is a new Shipment, and leaves the old one alone", async () => {
     await markProposalImplementedAction({ ...PRESS });
     mocks.loadShippedChanges.mockResolvedValue([{ id: "shp_1", proposalId: PROPOSAL_ID, proposalVersion: "an-older-version" }]);
     mocks.recordShipment.mockClear();
-    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect(mocks.recordShipment).toHaveBeenCalledOnce();
-  });
+    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(true); expect(mocks.recordShipment).toHaveBeenCalledOnce();});
   // The grade travels because measurement owes a dangerous change a fourth checkpoint and the kind alone never says it is dangerous; the id travels because two pieces of one kind are picked apart, and because the flip waits until every piece is on file.
   it("records only the components the operator says they applied, with the risk grade each carried", async () => {
     expect((await markProposalImplementedAction({ ...PRESS, componentIds: ["0:title"] })).success).toBe(true);
     // The name carries the exact copy as well as the position and the kind, so a redraft is never mistaken for work already recorded; the piece is pinned by both.
-    const [one] = facts().componentsApplied; expect([one.id.startsWith("0:title:"), one.kind, one.label, one.after, one.risk]).toEqual([true, "title", "Page title", null, "safe"]);
-  });
+    const [one] = facts().componentsApplied; expect([one.id.startsWith("0:title:"), one.kind, one.label, one.after, one.risk]).toEqual([true, "title", "Page title", null, "safe"]);});
   // P0-4. The server used to trust whatever kinds the caller sent: ["bogus"] selected nothing, skipped the deliberate yes entirely, wrote a shipment and closed the whole proposal.
   it.each([
     ["a selection I do not recognize", { componentIds: ["bogus"] }],
     ["a selection with nothing in it", { componentIds: [] as string[] }],
   ])("%s is refused before anything is written", async (_name, over) => {
-    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, ...over })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);
-  });
+    expect((await markProposalImplementedAction({ proposalId: PROPOSAL_ID, ...over })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
   // THE LANE IS THE RULE. A complete card with no cause mismatch and a deliberate yes on every piece is STILL refused while it sits in review: the queue holds it back, the detail page hands over no Copy and no Mark done, and a direct press on the action cannot start a 28 day reading of work nobody promoted. A dangerous piece lives here too, because the canon refuses one in the ready lane, so the deliberate-yes gate below it is reached by nothing today.
   it("a change still in review is refused however it is pressed", async () => {
     mocks.loadChangeProposal.mockResolvedValue(proposal({ status: "needs_review", riskLevel: "high",
       bundle: { ...(proposal().bundle as object), components: [{ kind: "title", label: "Page title", after: null, risk: "dangerous", evidenceKeys: ["k1"] }] } }));
     const res = await markProposalImplementedAction({ ...PRESS }); expect([res.success, res.error]).toEqual([false, "This change is still being reviewed, so it cannot be marked done yet. Open Changes for the work that is ready to make today."]);
-    expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);
-  });
+    expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});
   // AN IMPLEMENTATION FACT IS A FACT. A true implementation used to go unrecorded because the comparison set was short, so the queue offered the operator's own finished work back the next morning. It is recorded either way now, and the press says which reading it can actually start.
   it.each([
     ["insufficient_comparison", "Too few pages on your site can be fairly compared"],
@@ -227,26 +200,22 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     held.length = 0;
     const once = (await press({ componentIds: ["0:title"] }), facts());
     held.length = 0;
-    await press({ componentIds: ["0:title", "0:title"] }); expect([facts().proposalVersion, facts().componentsApplied]).toEqual([once.proposalVersion, once.componentsApplied]);
-  });
+    await press({ componentIds: ["0:title", "0:title"] }); expect([facts().proposalVersion, facts().componentsApplied]).toEqual([once.proposalVersion, once.componentsApplied]);});
   // P1-3. A read that FAILED is not a site with too few pages: telling a connected operator to connect Search Console is a false diagnosis of their own account, and the fix it asks for is one they already did. The Results door still owes that distinction on its own read.
   it("tells a failed comparison read apart from a site that genuinely has too few pages", async () => {
     mocks.topPagesByDemand.mockReturnValue(null);
     expect(await recordShippedChangeAction({ pageUrl: "/cities" }))
       .toEqual({ success: false, error: "Your other pages could not be read just now, so this is not recorded yet. Try it again in a moment." });
-    expect(mocks.recordShippedChange).not.toHaveBeenCalled();
-  });
+    expect(mocks.recordShippedChange).not.toHaveBeenCalled();});
   it("never hands a customer a backend error", async () => { // P1-13: a Supabase relation name is not an answer
     mocks.transitionProposalToImplemented.mockRejectedValue(new Error("relation change_proposals does not exist"));
-    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, error: "That could not be recorded just now. Press it again in a moment." });
-  });
+    expect(await markProposalImplementedAction({ ...PRESS })).toEqual({ success: false, error: "That could not be recorded just now. Press it again in a moment." });});
   // PIN (B): THE BYPASS IS GONE. A press that still carries the retired override flag records a note and a Shipment with NO verification on it, so the live check is owed exactly as it is for every other press.
   it("keeps the operator's words as a note and never lets a press stand in for a reading", async () => {
     await markProposalImplementedAction({ ...PRESS, operatorConfirmed: true, operatorNote: "I pasted it in myself." });
     expect([facts().operatorNote, "operatorConfirmed" in facts(), "verification" in facts()]).toEqual(["I pasted it in myself.", false, false]);
     mocks.recordShipment.mockClear();
-    await markProposalImplementedAction({ ...PRESS }); expect(facts().operatorNote).toBeNull();
-  });
+    await markProposalImplementedAction({ ...PRESS }); expect(facts().operatorNote).toBeNull();});
   it.each([
     // The ACCOUNT half of the basis moved. A generation-only bump (::d6 to ::d9) no longer sets a row aside; the checks decide those.
     ["a change I set aside", () => mocks.resolveCurrentBasis.mockResolvedValue("basis_moved::d6")],
@@ -254,9 +223,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     ["a press by someone who may not publish", () => { ownerFlag.value = false; }],
   ])("%s is refused before anything is written", async (_name, arrange) => {
     arrange();
-    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);
-  });
-});
+    expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});});
 describe("a new page owes me the address it is live at", () => {
   // A PUBLISH-READY PAGE, because the ADDRESS gate is what is under test: an outline with no copy behind it is refused a step earlier by the completeness boundary.
   const SECTIONS = ["When it runs", "Where to watch", "What to bring"], OPENS = "The kite festival runs the first weekend of April.";
@@ -272,5 +239,4 @@ describe("a new page owes me the address it is live at", () => {
     expect(mocks.recordShipment.mock.calls[0]![0]).toMatchObject({ page: "https://www.x.test/kite-festival-guide", path: "/kite-festival-guide" }); // verification reads THAT page
     // The flip carries the record that is measuring it, and the address that record was written against.
     expect(mocks.transitionProposalToImplemented).toHaveBeenCalledWith("tenant-test", PROPOSAL_ID, "shp_1", "https://www.x.test/kite-festival-guide");
-  });
-});
+  });});

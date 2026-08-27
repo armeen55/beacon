@@ -25,8 +25,7 @@ describe("the durable per-account LLM spend writer", () => {
     ["a negative amount", { tenantId: "t1", platform: "perplexity", costUsd: -0.01 }], ["an amount that is not a number", { tenantId: "t1", platform: "perplexity", costUsd: NaN }],
     ["a fractional count", { tenantId: "t1", platform: "perplexity", costUsd: 0.05, promptCount: 1.5 }]] as const)(
     "refuses %s before the database is touched at all", async (_name, input) => {
-      await recordSpendSupabase(input as Parameters<typeof recordSpendSupabase>[0]); expect(db.tables).toEqual([]); });
-});
+      await recordSpendSupabase(input as Parameters<typeof recordSpendSupabase>[0]); expect(db.tables).toEqual([]); });});
 describe("one canonical day for money and research", () => {
   it("the ledger day IS the reporting day, including across the seven-hour gap where UTC has already rolled", async () => {
     const { ledgerDay } = await import("@/lib/cost/budget-ledger-supabase"); const { reportingDay } = await import("@/lib/reporting-day");
@@ -45,14 +44,11 @@ describe("one canonical day for money and research", () => {
     expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21)).toBeNull(); // the reserve is still there
     db.spentToday = 0.93; // non-fact model work stops at 0.92, leaving the fact reserve intact
     expect(await dailyCapReason("t", new Date(), shareFor("model", "bulk"), 0.01)).toContain("budget"); expect(await dailyCapReason("t", new Date(), shareFor("model", "fact_check"), 0.02)).toBeNull();
-    db.spentToday = 0;
-  });
-});
+    db.spentToday = 0;});});
 describe("migration history is immutable", () => {
   it("the applied 2026-08-18 migration keeps its committed bytes and later moves live in their own files", async () => {
     const { readFileSync, existsSync } = await import("node:fs"); const { createHash } = await import("node:crypto");
     const original = readFileSync("migrations/2026-08-18_page_source_facts_and_fact_check_phase.sql"); expect(createHash("sha256").update(original).digest("hex")).toBe("75862d2956f861aa0d5f66cd38f0d4d098d24264505bb3be8196f76b92564a1c");
     // the lifecycle, the ledger day and the rules version each got their own immutable file
     for (const f of ["2026-08-18b_claim_lifecycle", "2026-08-18c_ledger_reporting_day", "2026-08-18d_verification_rules_version"]) expect(existsSync(`migrations/${f}.sql`)).toBe(true);
-  });
-});
+  });});

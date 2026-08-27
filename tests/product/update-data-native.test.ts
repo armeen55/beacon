@@ -17,8 +17,7 @@ vi.mock("@/lib/connector-store", () => ({
   getYelpConnectorToken: async () => null,
   deleteConnectorToken: async () => {},
   saveConnectorToken: async () => {},
-  updateConnectorToken: async () => {},
-}));
+  updateConnectorToken: async () => {},}));
 vi.mock("@/domains/runtime", () => ({
   continueResearch: async () => ({ hop: 1, more: false }),
   requestExtraSample: async (_t: string, day: string) => { CALLS.extraSample += 1; CALLS.extraDays.push(day); return CALLS.verdict; },
@@ -26,8 +25,7 @@ vi.mock("@/domains/runtime", () => ({
   researchPermission: async () => "running" as const,
   publishCustomerSurfaces: async () => { CALLS.warm += 1; },
   finalizeFreeSurfaces: async () => { CALLS.warm += 1; },
-  recordSourceRefresh: async () => {},
-}));
+  recordSourceRefresh: async () => {},}));
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { refreshAllConnectedDataNow } from "@/app/(shell)/settings/connectors/actions";
@@ -37,37 +35,30 @@ afterEach(() => { vi.useRealTimers(); });
 describe("Update data with no third-party connection", () => {
   it("still asks for the extra AI reading and warms what the operator is about to look at", async () => {
     await refreshAllConnectedDataNow(); expect(CALLS.extraSample).toBe(1);
-    expect(CALLS.warm).toBe(1); expect(CALLS.synced).toBe(0);
-  });
+    expect(CALLS.warm).toBe(1); expect(CALLS.synced).toBe(0);});
   it("says what the readings ACTUALLY did, on the granted branch and on the refused one", async () => {
     // GRANTED: the number of readings the planner really authorized, never a vague "I refreshed things".
     const granted = (await refreshAllConnectedDataNow()).results[0]!; expect(granted.ok).toBe(true);
     expect(`${granted.label} ${granted.detail}`).toBe(
-      "Beacon's own research. Taking 3 fresh AI readings now. Connect Google to refresh your search data too.",
-    );
+      "Beacon's own research. Taking 3 fresh AI readings now. Connect Google to refresh your search data too.",);
     // REFUSED: the planner's OWN sentence, which used to be dropped into a log line while the operator read that Beacon had refreshed its own research.
     CALLS.verdict = REFUSED;
     const refused = (await refreshAllConnectedDataNow()).results[0]!; expect(refused.detail).toBe(`${REFUSED.reason} Connect Google to refresh your search data too.`);
     expect(refused.detail).not.toContain("I refreshed what I gather myself");
     // Beacon voice: first person, a next step, and never a dash.
-    for (const line of [granted, refused]) expect(line.detail).not.toMatch(/[\u2013\u2014]/);
-  });
+    for (const line of [granted, refused]) expect(line.detail).not.toMatch(/[\u2013\u2014]/);});
   it("tells the truth when the press itself failed, instead of claiming nothing is connected", async () => {
     // The action now always answers with at least its own research line, so an empty list can only mean the press failed. "Nothing connected to refresh yet." was a claim about the account, not about the press.
     const failed = renderToStaticMarkup(createElement(RefreshResultList, { results: [] })); expect(failed).toContain("Nothing could be refreshed just now; try again in a minute.");
     expect(failed).not.toContain("Nothing connected"); const line = (await refreshAllConnectedDataNow()).results[0]!;
-    expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);
-  });
+    expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);});
   it("asks for the reading against the operator's own day, not the UTC one", async () => {
     // Six in the evening Pacific on August 1 is already August 2 in UTC. Every observation is filed under the operator's day, so an evening press asked the planner about a day with no readings at all: it reported a whole round still owed and refused the second reading the operator had just pressed for.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-02T02:00:00.000Z"));
-    await refreshAllConnectedDataNow(); expect(CALLS.extraDays).toEqual(["2026-08-01"]);
-  });
+    await refreshAllConnectedDataNow(); expect(CALLS.extraDays).toEqual(["2026-08-01"]);});
   it("leaves a connected account exactly as it was: the sources still sync and no native line is added", async () => {
     CALLS.connected = true;
     const result = await refreshAllConnectedDataNow(); expect(CALLS.synced).toBe(3);
     expect(CALLS.extraSample).toBe(1); expect(result.results.map((r) => r.provider)).toEqual(["google_gsc", "google_ga4", "clarity"]);
-    expect(result.results.every((r) => r.ok)).toBe(true);
-  });
-});
+    expect(result.results.every((r) => r.ok)).toBe(true);});});

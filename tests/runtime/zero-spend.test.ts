@@ -128,11 +128,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
                   const held = rows.get(key);
                   if (held && held.content[0].owner === owner) rows.set(key, { content: r.content });
                   return Promise.resolve({ data: null, error: null }).then(res);},}),};
-            return takeover;},
-        }),
-      }),
-    }),
-  });
+            return takeover;},}),}),}),});
   it("grants the hold to exactly one caller, and an expired hold never wedges the account", async () => {
     vi.resetModules();
     const rows = new Map<string, Hold>();
@@ -145,8 +141,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     // AND A HOLD THAT OUTLIVES ITS OWNER NEVER WEDGES THE ACCOUNT: expired, the next dispatcher takes it.
     rows.set("surface-claims::tenant-fx", { content: [{ until: "2000-01-01T00:00:00.000Z", owner: "dead" }] });
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
-    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
-  });
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});
   it("lets a holder that outlived its TTL release NOTHING, so its successor keeps the hold", async () => {
     // A stalls past TTL; B takes the hold; A's late release must free NOTHING or C rebuilds beside B.
     vi.resetModules();
@@ -161,9 +156,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull(); // C is still refused: B holds
     await releaseScope("surface-claims", "tenant-fx", b!); // B's own release is the one that lands
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string"); // now C may build
-    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
-  });
-});
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
 /** A BROKEN HOSTED INSTANCE IS NOT A QUIET SINGLE-PROCESS MACHINE: only local file mode grants without a database (reviewer, 2026-08-19). */
 describe("the rebuild claim fails closed in every hosted failure mode", () => {
   const hosted = async (impl: () => unknown): Promise<string | null> => {
@@ -174,26 +167,19 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     const { claimScope } = await import("@/lib/persistence/json-store"); const got = await claimScope("surface-claims", "tenant-fx", 300);
     process.env.DATA_SOURCE = prior.source ?? ""; if (prior.vercel != null) process.env.VERCEL = prior.vercel;
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
-    return got;
-  };
+    return got;};
   const table = (error: { code?: string; message: string }) => () => ({
     from: () => ({
       insert: () => ({ select: async () => ({ data: null, error }) }),
-      update: () => ({ eq: () => ({ lt: () => ({ select: async () => ({ data: null, error }) }) }) }),
-    }),
-  });
+      update: () => ({ eq: () => ({ lt: () => ({ select: async () => ({ data: null, error }) }) }) }),}),});
   it("refuses when the database client will not start", async () => {
-    expect(await hosted(() => { throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set"); })).toBeNull();
-  });
+    expect(await hosted(() => { throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set"); })).toBeNull();});
   it("refuses when the claims table is not migrated here", async () => {
-    expect(await hosted(table({ code: "42P01", message: "relation does not exist" }))).toBeNull();
-  });
+    expect(await hosted(table({ code: "42P01", message: "relation does not exist" }))).toBeNull();});
   it("refuses when the statement fails", async () => {
-    expect(await hosted(table({ code: "57014", message: "canceling statement due to statement timeout" }))).toBeNull();
-  });
+    expect(await hosted(table({ code: "57014", message: "canceling statement due to statement timeout" }))).toBeNull();});
   it("refuses when the answer is not something it can read", async () => {
-    expect(await hosted(() => ({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: null }) }) }) }))).toBeNull();
-  });
+    expect(await hosted(() => ({ from: () => ({ insert: () => ({ select: async () => ({ data: null, error: null }) }) }) }))).toBeNull();});
   it("still grants in explicitly local file mode, where there is one process and nothing to race", async () => {
     vi.resetModules();
     const prior = process.env.DATA_SOURCE;
@@ -201,9 +187,7 @@ describe("the rebuild claim fails closed in every hosted failure mode", () => {
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { throw new Error("no env"); } }));
     const { claimScope } = await import("@/lib/persistence/json-store"); expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     process.env.DATA_SOURCE = prior ?? "";
-    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
-  });
-});
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});
 /** PRESSING PAUSE MUST LAND ON THE VERY NEXT PAID CALL (reviewer, 2026-08-21): permission is never remembered, only the refusal. These run the REAL read path, hermetics lifted for their duration. */
 describe("pressing Pause closes the doors on the very next paid call", () => {
   const withRealPausePath = async (fn: (mod: typeof import("@/lib/spend-scope")) => Promise<void>, reads: { paused: () => boolean; count?: { n: number } }) => {
@@ -216,23 +200,20 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       } }) }) }),
     }) }));
     try { await fn(await import("@/lib/spend-scope")); }
-    finally { process.env.VITEST = prior; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }
-  };
+    finally { process.env.VITEST = prior; vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules(); }};
   it("never remembers permission: the switch flipped mid-minute refuses on the very next ask", async () => {
     let paused = false;
     await withRealPausePath(async ({ spendingClosed }) => {
       expect(await spendingClosed("tenant-fx")).toBe(false); // running is read
       paused = true; // the operator presses Pause
       expect(await spendingClosed("tenant-fx")).toBe(true); // no memo shields the stale grant
-    }, { paused: () => paused });
-  });
+    }, { paused: () => paused });});
   it("remembers only the refusal, so a paused drafting pass reads the switch once, not dozens of times", async () => {
     const count = { n: 0 };
     await withRealPausePath(async ({ spendingClosed }) => {
       for (let i = 0; i < 3; i += 1) expect(await spendingClosed("tenant-fx")).toBe(true);
       expect(count.n).toBe(1); // one read, then the memoized refusal
-    }, { paused: () => true, count });
-  });
+    }, { paused: () => true, count });});
   it("lets the verified pause write settle the boundary directly, and a resume clears without granting", async () => {
     const count = { n: 0 };
     await withRealPausePath(async ({ spendingClosed, settleSpendPause }) => {
@@ -242,8 +223,7 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       settleSpendPause("tenant-fx", false); // resume clears the memo and grants NOTHING by itself
       expect(await spendingClosed("tenant-fx")).toBe(false);
       expect(count.n).toBe(1); // the grant came from a fresh read, never from the settle
-    }, { paused: () => false, count });
-  });
+    }, { paused: () => false, count });});
   it("refuses at BOTH paid doors immediately after the flip, with zero network", async () => {
     let paused = false;
     await withRealPausePath(async () => {
@@ -257,9 +237,7 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
       expect(model.kind).toBe("blocked_budget"); const provider = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
       expect(provider.state).toBe("capped");
       expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
-    }, { paused: () => paused });
-  });
-});
+    }, { paused: () => paused });});});
 /** ALREADY-BOUGHT TASKS MUST ACTUALLY FINISH WHILE PAUSED (reviewer, 2026-08-21): the free collect existed as a function nothing called, and paid-for evidence expired provider side. */
 describe("a paused tick collects what was already paid for, free, then republishes", () => {
   it("enumerates pending receipts, collects each with a free GET, posts nothing, and rebuilds after", async () => {
@@ -287,6 +265,4 @@ describe("a paused tick collects what was already paid for, free, then republish
     expect(fetchSpy).not.toHaveBeenCalled(); // GET went through the collector fake; nothing posted, nothing paid
     vi.doUnmock("@/domains/evidence/dataforseo/default-deps"); vi.doUnmock("@/domains/evidence/dataforseo/capabilities");
     vi.doUnmock("@/domains/runtime/research-run"); vi.doUnmock("@/app/(shell)/surface-release");
-    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();
-  });
-});
+    vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});});

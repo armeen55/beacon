@@ -24,8 +24,7 @@ function harness(fetchBody: unknown, over: Record<string, unknown> = {}) {
     claimEvidenceFetch: async () => ({ outcome: "claimed", payload: null, providerTaskId: null, modelServed: null, readyAt: null, costUsd: 0 }),
     reserveProviderSpend: async () => true, adjustProviderSpend: async () => true, cacheUpsert: async () => {}, breaker: async () => ({ tripped: false }),
     cacheRead: async () => null, cacheWrite: async (_k: string, patch: Record<string, unknown>) => { calls.writes.push(patch); }, ...depsOver };
-  return { deps: deps as unknown as Record<string, unknown>, calls, task: () => calls.fetch.filter((u) => !u.endsWith("/models")) };
-}
+  return { deps: deps as unknown as Record<string, unknown>, calls, task: () => calls.fetch.filter((u) => !u.endsWith("/models")) };}
 describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", () => {
   it("pins every documented code onto one class and fails closed on everything else", () => {
     const groups: [TaskStatusClass, (number | null)[]][] = [
@@ -43,8 +42,7 @@ describe("exact task-status taxonomy (docs.dataforseo.com/v3/appendix/errors)", 
       [20000, 61234, 0, "blocked"], // undocumented: fails closed
       [40203, null, 0, "daily_limit_release"], [20000, 40203, 0, "daily_limit_release"], // a ceiling that RESETS releases, never a hold needing an operator
       [40203, null, 0.01, "uncertain"], [40203, 50303, 0, "blocked"]]; // ...unless it may have charged, or is mixed with another refusal
-    for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c); });
-});
+    for (const c of paid) expect([c[0], c[1], c[2], classifyPaidResponse(c[0], c[1], c[2])]).toEqual(c); });});
 describe("exact provider paths + DYNAMIC method routing", () => {
   it("a Standard AI POST hits /task_post, the tag carries the cacheKey, and the model rides back; Perplexity is Live", async () => {
     const chat = harness(llmResponsesTaskPostAck, { modelsBody: STD }); const res = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, chat.deps);
@@ -62,8 +60,7 @@ describe("exact provider paths + DYNAMIC method routing", () => {
     for (const family of ["serp/google/organic", "serp/google/ai_mode", "ai_optimization/chat_gpt/llm_responses", "ai_optimization/claude/llm_responses", "ai_optimization/gemini/llm_responses", "ai_optimization/chat_gpt/llm_scraper"]) {
       const g = harness(serpTaskGetAdvanced, { cacheRead: async () => taskRow(`${family}/task_post`, { provider_task_id: null, quarantined_at: NOW.toISOString() }) }); g.deps.fetchImpl = vi.fn(async (u: string) => { g.calls.fetch.push(u); return new Response(JSON.stringify(u.includes("tasks_ready") ? { status_code: 20000, tasks: [{ status_code: 20000, result: [{ id: "found-1", tag: "k" }] }] } : serpTaskGetAdvanced), { status: 200 }); }) as unknown as typeof fetch;
       expect((await collectCapability("k", g.deps)).state).toBe("ok"); expect([g.calls.fetch[0], g.calls.fetch.some((u) => u.includes("task_post"))]).toEqual([`${BASE}${family}/tasks_ready`, false]); // FREE GET per family, never a paid repost
-    } });
-});
+    } });});
 describe("web-enabled request bodies per engine (only documented fields)", () => {
   it("ChatGPT sends web_search ONLY: force_web_search draws an in-body 40501 on its reasoning models, and no web field rides an unasked or unsupported search", async () => {
     const chat = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("o4-mini", true) }); const r1 = await providerCall("llm_chatgpt", { user_prompt: "q", web_search: true }, IDS, chat.deps); const cb = chat.calls.bodies[0][0]; expect(cb).toMatchObject({ user_prompt: "q", model_name: "o4-mini", max_output_tokens: 2048, web_search: true });
@@ -87,8 +84,7 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     const day = "2026-07-25", next = "2026-07-26";
     const post = async (over: Record<string, unknown>) => {
       const h = harness(llmResponsesTaskPostAck, { modelsBody: modelsFor("gpt-4o", true) }); const r = await providerCall("llm_gemini", { user_prompt: "q", web_search: true, ...over }, IDS, h.deps);
-      return { key: "cacheKey" in r ? r.cacheKey : null, body: h.calls.bodies[0]![0]! };
-    };
+      return { key: "cacheKey" in r ? r.cacheKey : null, body: h.calls.bodies[0]![0]! };};
     const slot0 = await post({ observation_day: day, sample_slot: 0 }); const slot1 = await post({ observation_day: day, sample_slot: 1 });
     const tomorrow = await post({ observation_day: next, sample_slot: 0 }); const retry = await post({ observation_day: day, sample_slot: 0 });
     expect(slot0.key).toBe(retry.key);           // the same reading retried the same day is ONE ask and stays $0
@@ -100,22 +96,19 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
     expect(slot0.key).toBe((await post({ observation_day: day })).key);
     const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/gemini/llm_responses/task_post", publicInput, locationCode: 2840, languageCode: "en", device: null, modelRequested: "gpt-4o" });
-    expect(slot0.key).toBe(key({ user_prompt: "q", web_search: true, observation_day: day }));
-  });
+    expect(slot0.key).toBe(key({ user_prompt: "q", web_search: true, observation_day: day }));});
   it("reads the brands the consumer answer named itself, however the provider shaped the list, and never turns unreadable into none", () => {
     const scraped = (brand_entities: unknown): ProviderEnvelope => ({ status_code: 20000, tasks: [{ status_code: 20000, result: [{ markdown: "an answer", brand_entities }] }] } as unknown as ProviderEnvelope);
     expect(parseCapability("llm_scraper_chatgpt", scraped([{ title: "Acme" }, { title: "Rival" }]))!.brandMentions).toEqual(["Acme", "Rival"]);
     expect(parseCapability("llm_scraper_chatgpt", scraped(["Acme", "Rival"]))!.brandMentions).toEqual(["Acme", "Rival"]); // a plain string list is the same claim
     expect(parseCapability("llm_scraper_chatgpt", scraped([]))!.brandMentions).toEqual([]); // it looked and named none
     expect(parseCapability("llm_scraper_chatgpt", scraped([{ name: "Acme" }]))!.brandMentions).toBeNull(); // unreadable is "I do not know", never "it named none"
-    expect(parseCapability("llm_scraper_chatgpt", scraped(undefined))!.brandMentions).toBeNull();
-  });
+    expect(parseCapability("llm_scraper_chatgpt", scraped(undefined))!.brandMentions).toBeNull();});
   it("rejects cross-engine fields and caller-chosen models at COMPILE time", () => {
     // @ts-expect-error a scraper is keyword-based; user_prompt is not its field
     const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS);
     // @ts-expect-error the model is resolved, never caller-supplied
-    const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS); expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });
-});
+    const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS); expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });});
 describe("keyword ideas: one request per 200 seeds, and nothing missing turned into a zero", () => {
   const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } }, ranked = { ranked_serp_element: { serp_item: { rank_group: 4, rank_absolute: 7, url: "https://mysite.example/saffron-price" } } };
   const sparse = { keyword: "saffron threads", keyword_info: {}, keyword_properties: {}, search_intent_info: {} }; // the provider knows nothing about this one
@@ -140,8 +133,7 @@ describe("keyword ideas: one request per 200 seeds, and nothing missing turned i
     const keys: string[] = []; const hit = harness(ideas, { claimEvidenceFetch: async (p: { cacheKey: string }) => { keys.push(p.cacheKey); return { outcome: "ready", payload: ideas, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0 }; } }); const same = await keywordIdeasBatched([" Saffron ", "rosewater", "saffron"], IDS, hit.deps); const flipped = await keywordIdeasBatched(["rosewater", "saffron"], IDS, hit.deps);
     expect([same[0]!.state, flipped[0]!.state, hit.calls.fetch.length]).toEqual(["hit", "hit", 0]); // a cached equivalent is served, nothing is re-bought
     expect(new Set(keys).size).toBe(1); // the same themes in any order, spelling or duplication are ONE identity
-  });
-});
+  });});
 describe("page intersection: ONE paid comparison for the whole page set", () => {
   const W1 = "https://alpha.example/guide", W2 = "https://beta.example/faq", W3 = "https://beta.example/guide", W4 = "https://beta.example/list", OWN = "https://mysite.example/saffron"; // canonical (sorted) slot order
   const at = (slot: string, rank: number, url: string) => ({ [slot]: { type: "organic", rank_group: rank, rank_absolute: rank + 2, url, title: "t", domain: new URL(url).hostname } });
@@ -168,8 +160,7 @@ describe("page intersection: ONE paid comparison for the whole page set", () => 
     expect([p.keywords[3]!.searchVolume, p.keywords[3]!.difficulty, p.keywords[3]!.mainIntent, p.keywords[3]!.competition, p.keywords[3]!.competitionLevel]).toEqual([null, null, null, null, null]); // unsent stays unknown, never 0
     const read = comparePageCoverage(p); expect([read.shared.map((s) => s.keyword), read.winnerPublishers, read.uncoveredByOwned.length]).toEqual([["saffron grades", "buy saffron online"], ["alpha.example", "beta.example"], 2]); // the three-slot publisher votes ONCE, so its 9,900 keyword never reads as shared
     expect([read.largestSearchVolume, read.keywordsWithVolume, read.ownedHost, read.ownedRepresentation, read.ownedCoverageShare, read.ownedHoldsMaterialShare, read.intent]).toEqual([2400, 2, "mysite.example", "excluded", null, null, "unknown"]); // the largest single figure plus a count, NEVER the 4,000 sum; an excluded owner is unmeasured, not zero
-  });
-});
+  });});
 describe("envelope parsing + method-aware resolution", () => {
   it("the Labs fixture through providerCall parses to nonempty keyword items, and a hit parses identically", async () => {
     const fresh = harness(labsKeywordsForSiteLive); const r1 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, fresh.deps); if (r1.state !== "ok") throw new Error(r1.state); const parsed = parseCapability("labs_keywords_for_site", r1.envelope); expect(parsed?.length).toBe(2); expect(parsed![0]).toMatchObject({ keyword: "video editing app for ipad pro", searchVolume: 30, difficulty: 60, intent: "transactional" });
@@ -196,5 +187,4 @@ describe("envelope parsing + method-aware resolution", () => {
   it("a model-cache READ FAILURE fails closed: no model, a bounded no-model result, and ZERO provider calls", async () => {
     const outage = harness(llmResponsesTaskPostAck, { modelsBody: STD, cacheRead: async () => { throw new Error("records down"); } }); expect(await resolveEngineModel("chatgpt", outage.deps)).toBeNull(); // a records outage is NOT a cache miss
     const noModel = await providerCall("llm_chatgpt", { user_prompt: "hi", web_search: true }, IDS, outage.deps); expect([noModel.state, noModel.state === "not_configured" && noModel.detail.includes("usable chatgpt model"), outage.calls.fetch.length]).toEqual(["not_configured", true, 0]); // not even the FREE models GET
-  });
-});
+  });});

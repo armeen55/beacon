@@ -51,8 +51,7 @@ describe("many at once is one trip, and still one shipment each", () => {
     surf.rebuilds = 0; led.flip.mockClear();
     const again = await mark({ proposalIds: ids });
     expect(again.done, "nothing is recorded twice").toBe(0);
-    expect(again.already).toBe(20); });
-});
+    expect(again.already).toBe(20); });});
 describe("nothing is marked done that no record stands behind", () => {
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");

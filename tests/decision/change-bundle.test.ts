@@ -1467,5 +1467,4 @@ describe("distinct atomic changes on one page do not suppress each other", () =>
     // AND THE RULE STILL HOLDS WHERE IT MUST: the same title, and the same question however spelled, collide.
     expect(mutationKey(at("/farsi-numbers", "title", "a"))).toBe(mutationKey(at("/farsi-numbers", "title", "b")));
     expect(mutationKey(at("/farsi-numbers", "section", "Persian Numbers 0-9 Names And Symbols"))).toBe(zero);
-    expect(mutationKey(at("/cities", "title"))).not.toBe(title); });
-});
+    expect(mutationKey(at("/cities", "title"))).not.toBe(title); });});

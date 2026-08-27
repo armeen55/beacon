@@ -95,8 +95,7 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     const d = mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), collectTask: boom, callProvider: boom }); const out = await unit(d, [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "chatgpt", slot: 0, day: DAY_A }]);
     expect([out.status, touched, rows.map((r) => [r.prompt_id, r.status, r.completed_at != null, !!r.failure_reason])]).toEqual(["done", 0, [["p1", "unavailable", true, true]]]);
     // AND ONLY WHILE THE PLANNER STILL SAYS IT IS OWED: an identity whose stored row is already terminal never reaches this plan, so nothing is rewritten and nothing is bought.
-    rows.length = 0; await unit(d, [{ promptId: "p2", version: 1, text: "where to buy saffron", engine: "gemini", slot: 0, day: DAY_A }]); expect(rows.some((r) => r.prompt_id === "p1")).toBe(false);
-  });
+    rows.length = 0; await unit(d, [{ promptId: "p2", version: 1, text: "where to buy saffron", engine: "gemini", slot: 0, day: DAY_A }]); expect(rows.some((r) => r.prompt_id === "p1")).toBe(false);});
   it("a quarantined POST is plain unavailable coverage: the CANONICAL row goes terminal too, and the day completes on it", async () => { const store = memStore(); let calls = 0; const rows: AiObservationRecord[] = [];
     const out = await unit(mk(store, { recordObservation: async (r: AiObservationRecord) => void rows.push(r), callProvider: async () => { calls += 1; return err("quarantined", "ck-q"); } })); // Aug 4: two quarantined pairs went `unsupported` in memory and `failed` on the stored row, so the planner saw them owed on every window and 138 of 140 repeated for nine hours
     expect([out.status, calls]).toEqual(["done", 4]); // one ambiguous key never deadlocks the phase: every pair got its turn and the phase is finished
@@ -105,8 +104,7 @@ describe("research funnel - basis-scoped discovery + isolation", () => {
     const out2 = await unit(mk(memStore(), { callProvider: async () => (first ? ((first = false), ok(aiAnswer({ citations: [] }))) : err("quarantined", "ck-q")) }));
     expect([out2.status, out2.detail]).toEqual(["done", "1 of today's 4 prompt checks came back; the other 3 were unavailable from the provider this round. Tomorrow's round asks those again."]);
     expect(store.peek("tp", BASIS)!.prompts.pairs.every((p) => p.status === "unsupported" && p.observedAt && p.requestedAt === undefined)).toBe(true); // explicit, dated, unavailable, and never stamped with a stale ask
-  });
-});
+  });});
 describe("research funnel - SERP current set, freshness, and recovery", () => {
   const retainedState = (keywords: string[]): FunnelState => { const s = emptyFunnelState("ts", BASIS); // the agenda reads the profile and my own page queries; both injected, so nothing reaches the network
     s.discovery.retained = keywords.map((keyword, i) => ({ keyword, searchVolume: 90 - i, competition: 0.3, difficulty: null, intent: null, discoveredVia: "site" as const })); return s; };
@@ -511,8 +509,7 @@ describe("research funnel - canonical snapshot carries the research bundle", () 
     expect(snapshot.research.winningPages[0]!.examplePrompts).toEqual(["where to buy saffron"]);
     expect(snapshot.research.receipt.retained).toBe(1); expect(snapshot.research.receipt.missing).toBe(2); // one unanswered pair + one unavailable search
     expect(snapshot.research.receipt.spentUsd).toBe(0.5); expect(snapshot.research.receipt.cached).toBe(3); // THIS run, not the lifetime totals
-    expect(snapshot.keywordDemand.some((k) => k.query === "saffron price")).toBe(true);
-  });
+    expect(snapshot.keywordDemand.some((k) => k.query === "saffron price")).toBe(true);});
   it("carries every keyword's OWN discovery route and seed theme through, and the provider's own competition label", async () => { const s = emptyFunnelState("tl", BASIS);
     const routes = ["site", "ranked", "related", "suggestion", "gsc", "profile", "ideas"] as const; // every route a keyword can arrive by
     s.discovery.retained = routes.map((discoveredVia, i) => ({ keyword: `kw ${discoveredVia}`, searchVolume: 10 + i, competition: 0.9, difficulty: null, intent: null, discoveredVia, ...(i % 2 ? { seed: `theme ${i}` } : {}) }));

@@ -13,8 +13,7 @@ const VALID = { field: "title", before: "Nowruz", after: "Nowruz Traditions: Per
   rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }],
   confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
-  proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },
-};
+  proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
 const REQ = { kind: "atomic_edit" as const, system: "You improve one on-page field.",
   user: "Page: Nowruz. Field to edit: title. Current title: Nowruz.", grounded: "nowruz traditions persian new year customs haft-seen" };
 /** A per-account partitioned cache mirroring storeCacheImpl's isolation, plus call captures so we can assert callStructuredLLM threaded the right account through. */
@@ -25,10 +24,8 @@ function partitionedCache() {
     read: async (tenantId, key) => { reads.push({ tenantId, key }); return (store.get(tenantId) ?? []).find((e) => e.key === key) ?? null; },
     write: async (tenantId, entry) => { store.set(tenantId, [...(store.get(tenantId) ?? []).filter((e) => e.key !== entry.key), { ...entry, tenantId }]); },
     recentTexts: async (tenantId, kind) => { recents.push({ tenantId, kind });
-      return (store.get(tenantId) ?? []).filter((e) => e.kind === kind && typeof e.primaryText === "string").map((e) => e.primaryText as string); },
-  };
-  return { impl, store, reads, recents };
-}
+      return (store.get(tenantId) ?? []).filter((e) => e.kind === kind && typeof e.primaryText === "string").map((e) => e.primaryText as string); },};
+  return { impl, store, reads, recents };}
 /** A completion double that replays a value queue and counts calls. A value may carry the provider's usage RECEIPT, which is the only thing that is ever billed. */
 const RECEIPT = { tenantId: "provider", responseId: "resp_1", requestedModel: "gpt-5-mini", servedModel: "gpt-5-mini", status: "completed", createdAt: 1, inputTokens: 900, outputTokens: 120, costUsd: 0.0031, retryCount: 0 };
 function seam(values: Array<{ value: unknown; provenance?: typeof RECEIPT } | { error: string; retryable: boolean }>) {

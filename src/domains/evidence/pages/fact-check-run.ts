@@ -60,6 +60,9 @@ function sourceClassOf(domain: string): SourceKind {
 }
 /** One of these alone may carry a confirmation. */
 const AUTHORITATIVE = new Set<SourceKind>(["scholarly", "dictionary", "encyclopedia"]);
+/** How much of a proposed replacement its own sources have to carry before it may replace published words. */
+const SUPPORTED_SHARE = 0.6;
+const FILLER = new Set(["that", "this", "with", "from", "have", "which", "meaning", "means", "name", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about"]);
 /** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
 const CREDIBLE = new Set<SourceKind>(["news"]);
 /** Never read at all: user-generated, video and baby-name mills. */
@@ -80,8 +83,7 @@ export function claimTypeOf(subject: string, current: string): ClaimType {
   if (/\b(located|capital|province|region|city of|river|mountain|border)\b/.test(t)) return "geography";
   if (/\b(model|version|specification|dimensions|weight|material|capacity|voltage)\b/.test(t)) return "specification";
   if (/\b(is a|was a|founder|ceo|author|invented|composer|poet|king|shah)\b/.test(t)) return "entity_fact";
-  return "definition";
-}
+  return "definition";}
 
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has",
   "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over"]);
@@ -96,8 +98,7 @@ export function sourceQueryFor(type: ClaimType, subject: string, current: string
     const k = t.toLowerCase();
     if (!t || seen.has(k)) continue;
     if (/[\d°]/.test(k) || (k.length >= 3 && !STOP.has(k))) { seen.add(k); toks.push(t); }
-    if (toks.length >= 14) break;
-  }
+    if (toks.length >= 14) break;}
   const hint = type === "word_meaning" ? " meaning etymology" : type === "date_or_event" ? " history" : "";
   return `${toks.join(" ")}${hint}`.trim();
 }
@@ -116,8 +117,7 @@ export function claimIdentity(subject: string, current: string, locator?: string
 export function tokenFingerprintOf(subject: string, current: string): string {
   const toks = `${subject} ${current}`.toLowerCase().replace(/[^\p{L}\p{N}° ]+/gu, " ").split(/\s+/)
     .filter((t) => t.length > 0 && (/[\d°]/.test(t) || (t.length >= 4 && !STOP.has(t))));
-  return [...new Set(toks)].sort().join(" ");
-}
+  return [...new Set(toks)].sort().join(" ");}
 
 const CLAIM_SYSTEM = 'You read one web page and list the statements on it that an outside source could confirm or contradict. '
   + 'Return ONLY {"statements":[{"subject","current","locator"}]}: `subject` is what the statement is about as the page writes it; '
@@ -148,8 +148,7 @@ const SCRIPT_OF: Record<string, RegExp> = {
   russian: /[\u0400-\u04FF]/, ukrainian: /[\u0400-\u04FF]/, bulgarian: /[\u0400-\u04FF]/,
   greek: /[\u0370-\u03FF]/, hebrew: /[\u0590-\u05FF]/, hindi: /[\u0900-\u097F]/, sanskrit: /[\u0900-\u097F]/,
   chinese: /[\u4E00-\u9FFF]/, japanese: /[\u3040-\u30FF\u4E00-\u9FFF]/, korean: /[\uAC00-\uD7AF]/,
-  armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,
-};
+  armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,};
 
 /** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
  *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
@@ -180,8 +179,7 @@ type FactCheckCursor = {
   /** How many of this page version's claims are researched, out of how many are inventoried SO FAR. */
   checked: number; total: number;
   /** True ONLY when every stored section was inventoried AND every claim is current. */
-  pageComplete: boolean;
-};
+  pageComplete: boolean;};
 
 type FactCheckUnitDeps = {
   read: StructuredRead;
@@ -196,8 +194,7 @@ type FactCheckUnitDeps = {
   readCoverage?: () => Promise<InventoryCoverage | null>;
   writeCoverage?: (cov: InventoryCoverage) => Promise<boolean>;
   /** The absolute instant this unit must be finished by. */
-  deadlineAt: number;
-};
+  deadlineAt: number;};
 
 /** WHAT ONE UNIT DID. `advanced` = durable progress was STORED (a claim banked, or the next section
  *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the
@@ -229,8 +226,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // skip for ever the exact claim it was repaired to research. Its evidence is archived and the claim re-opens.
   const obsolete = inventory.filter((h) => h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION);
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
-    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));
-  }
+    inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));}
 
   // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition
   // seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks rotation over the
@@ -262,8 +258,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       // longer carries, becomes history now rather than a second live instruction beside its own replacement.
       const body = page.body.toLowerCase();
       await supersedeStaleFacts(tenantId, page.path, hash, (current) => body.includes(current.trim().toLowerCase()))
-        .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });
-    }
+        .catch((e) => { log.warn("[fact-check] stale claims could not be retired", { tenantId, page: page.path, error: String(e) }); return 0; });}
     // THE INVENTORY AND ITS COVERAGE ARE THE CURSOR, stored BEFORE one claim is researched. A write that did
     // not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
@@ -295,8 +290,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (!settled.has(tokenFingerprintOf(o.subject, o.current))) { next = o; break; }
     const ok = await recordFactChecks(tenantId, page.path, [{ ...o, state: "superseded",
       note: "Duplicate of a proposition already checked at this page version." }]).catch(() => 0);
-    if (ok > 0) owed = owed.filter((x) => x !== o);
-  }
+    if (ok > 0) owed = owed.filter((x) => x !== o);}
   const progress = { page: page.path, pageContentHash: hash, evidenceBasis: d.basis,
     checked: inventory.length - owed.length, total: inventory.length };
   const covered = cov.coveredChars >= cov.totalChars;
@@ -315,8 +309,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     log.info("[fact-check] one claim researched", { tenantId, page: page.path, subject: claim.subject, type, confidence: row.confidence, banked });
     // A WRITE THAT DID NOT LAND IS A FAILED UNIT: advancing past a claim nothing stored would skip it forever.
     return banked > 0 ? { status: "advanced", banked, cursor: advance }
-      : fail("store_write_failed", cursor, "the result could not be stored, so this claim is still owed");
-  };
+      : fail("store_write_failed", cursor, "the result could not be stored, so this claim is still owed");};
   const base = { page: page.path, statementKey: next.statementKey, state: "checked" as const, rulesVersion: VERIFICATION_RULES_VERSION, subject: claim.subject, current: claim.current,
     literal: null, usage: null, alsoAt: claim.locator ? [claim.locator] : [],
     pageContentHash: hash, pageLocator: claim.locator, sourceReadAt: null as string | null,
@@ -335,9 +328,14 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // QUALIFYING candidates.
   const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
+  // A SITE MAY NOT VOUCH FOR ITSELF. This store's own rule is that a page's words are evidence of what it says
+  // and never proof that it is true, and nothing enforced it: live, the Nazanin correction cited
+  // iranopedia.com/persian-female-first-names, which is the page being corrected, and was banked as sourced.
+  const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
   const candidates = organic
     .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" }))
     .filter((c) => !REJECTED.has(c.kind))
+    .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
     .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
     .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0))
     .slice(0, CANDIDATES);
@@ -345,8 +343,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // results none of which clears the policy is an unresolved question, and the claim stays owed.
   if (organic.length === 0) {
     return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
-      verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });
-  }
+      verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });}
   if (candidates.length === 0) return fail("source_quality_unresolved", cursor,
     `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`);
   // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia
@@ -363,8 +360,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; continue; }
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });
-  }
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });}
   if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`);
 
   // 5. JUDGE against the passages only.
@@ -390,8 +386,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const quote = (sup.quote ?? "").trim();
     if (quote.length === 0) continue;
     const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
-    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }
-  }
+    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }}
   // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT. Every supporting passage now
   // has to be about the SAME name in the SAME language, and the two halves of that are checked separately: the
   // reader names the subject it read, and the code checks the half it can check for itself. Live, Wikipedia's
@@ -426,7 +421,16 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // authorizes replacing published words on its own (Codex, 2026-08-19).
   const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
-  const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable ? "confirmed"
+  // AND A REPLACEMENT HAS TO BE FOUND IN THE SOURCE, NOT MERELY NEAR IT. A passage about the right subject can
+  // still fail to say the thing being proposed: live, the Maryam correction proposed "beloved; wished-for
+  // child" over a quote deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over a
+  // quote reading "noble, of good family", and Mina proposed a meaning with no quote under it at all. Partial
+  // support authorizes only the part that is supported, so a proposal the read passages do not carry is held
+  // below confirmed rather than thrown away: the claim is still real, the wording is just not sourced yet.
+  const read = supporters.map((p) => norm(p.text)).join(" ");
+  const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
+  const carried = words.length === 0 || words.filter((w) => read.includes(w)).length / words.length >= SUPPORTED_SHARE;
+  const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
     proposed: confidence === "unsupported" ? null : (v.proposed?.trim() || null),
@@ -434,7 +438,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : " The wording proposed here is not carried by any passage that was read, so it is held below confirmed until a source says it."}`.trim() });
 }
 
 type FactCheckPassDeps = {
@@ -451,8 +455,7 @@ type FactCheckPassDeps = {
   searchSources: (query: string) => Promise<SearchAnswer>;
   fetchSource: (url: string) => Promise<SourceAnswer>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
-  writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;
-};
+  writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
 
 type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: number;
   pagesComplete: number; attempts: number; failure?: UnitFailure; reason?: string };
@@ -481,14 +484,10 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       if (out.status === "advanced") {
         progressed = true; banked += out.banked;
         const back = await d.refreshHeld(page.path).catch(() => null);
-        if (back) held = [...held.filter((h) => h.page !== page.path), ...back];
-      }
-      if (out.status === "done" || out.cursor?.pageComplete) { pagesComplete += 1; break; }
-    }
-  }
+        if (back) held = [...held.filter((h) => h.page !== page.path), ...back];}
+      if (out.status === "done" || out.cursor?.pageComplete) { pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
   if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
   return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts,
-    ...(progressed || pagesComplete > 0 ? {} : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };
-}
+    ...(progressed || pagesComplete > 0 ? {} : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };}

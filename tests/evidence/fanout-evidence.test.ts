@@ -11,8 +11,7 @@ const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservati
 describe("recurrence is distinct days and assistants, never row totals", () => {
   it("counts five same-day same-engine executions as ONE day and ONE assistant, and it is not material", () => {
     const rows = Array.from({ length: 5 }, (_, i) => obs({ observationId: `o${i}` })); const [r] = buildFanoutEvidence(rows, SITE).rows;
-    expect([r!.executions, r!.days, r!.engines, r!.parents.length, r!.material]).toEqual([5, 1, ["chatgpt"], 1, false]);
-  });
+    expect([r!.executions, r!.days, r!.engines, r!.parents.length, r!.material]).toEqual([5, 1, ["chatgpt"], 1, false]);});
   it("earns materiality on time, or on breadth that already cost something, and says which", () => {
     const days = ["2026-08-01", "2026-08-02", "2026-08-03"].map((d, i) => obs({ observationId: `d${i}`, reportingDay: d })); const overDays = buildFanoutEvidence(days, SITE).rows[0]!;
     expect([overDays.material, overDays.materialBecause]).toEqual([true, "ran on 3 separate days"]);
@@ -27,8 +26,7 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     expect(bare.material).toBe(false); expect(bare.materialBecause).toContain("not a pattern yet");
     // THE SAME SHAPE WITH A CONSEQUENCE: a page of this account was read for it and credited to somebody else.
     const costly = coincidence.map((o) => ({ ...o, retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] })); const withCost = buildFanoutEvidence(costly, SITE).rows[0]!;
-    expect(withCost.material).toBe(true); expect(withCost.materialBecause).toContain("read for it and passed over");
-  });
+    expect(withCost.material).toBe(true); expect(withCost.materialBecause).toContain("read for it and passed over");});
   it("keeps every exact wording that collapsed onto one search, most executed first", () => {
     const rows = [obs({ observationId: "v1", fanOutQueries: ["haft seen set delivery"] }),
       obs({ observationId: "v2", reportingDay: "2026-08-02", fanOutQueries: ["haft seen set delivery"] }),
@@ -49,18 +47,14 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
       citations: Array.from({ length: 7 }, (_, j) => ({ url: `https://rival${j}.example/a`, domain: `rival${j}.example` })) }));
     const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.ownPages).toEqual([{ url: "https://own.example/haft-seen", cited: 0, retrieved: 3, retrievedNotCited: 3 }]);
     expect([r.rivalPages.length, r.rivalPagesTotal]).toEqual([5, 7]); // five shown, seven said out loud
-    expect(r.observationIdsTruncated).toBe(false);
-  });
+    expect(r.observationIdsTruncated).toBe(false);});
   it("never merges two models or two modes into one instrument", () => {
     const rows = [obs({ observationId: "m1", modelServed: "gpt-5", observationMode: "web" }),
       obs({ observationId: "m2", reportingDay: "2026-08-02", modelServed: "gpt-5.1", observationMode: "web" })];
-    const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.models.map((m) => m.modelServed)).toEqual(["gpt-5", "gpt-5.1"]);
-  });
+    const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.models.map((m) => m.modelServed)).toEqual(["gpt-5", "gpt-5.1"]);});
   it("never lists the tracked question itself as a search the assistant thought of", () => {
     const echo = obs({ fanOutQueries: ["Where to buy a haft seen set?", "haft seen set delivery"] }); const rows = buildFanoutEvidence([echo], SITE).rows;
-    expect(rows.map((r) => r.query)).toEqual(["haft seen set delivery"]);
-  });
-});
+    expect(rows.map((r) => r.query)).toEqual(["haft seen set delivery"]);});});
 describe("where the site stood is five different worlds, with an honest denominator", () => {
   it("says cited, read and passed over, never you, not credited, or unreported, off the same rows Visibility renders", () => {
     const cited = obs({ citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([cited], SITE).rows[0]!.ownState).toBe("cited");
@@ -77,20 +71,17 @@ describe("where the site stood is five different worlds, with an honest denomina
     const scraper = obs({ observationId: "s1" }); const responses = obs({ observationId: "s2", engine: "gemini", observationMode: "standardized_response" });
     expect(buildFanoutEvidence([scraper], SITE).rows[0]!.sourceSemantics).toBe("selected_or_relied_on"); expect(buildFanoutEvidence([scraper, responses], SITE).rows[0]!.sourceSemantics).toBe("mixed");
     const unknown = obs({ observationMode: undefined }); // saying nothing is never evidence of absence
-    expect(buildFanoutEvidence([unknown], SITE).rows[0]!.ownState).toBe("not_credited");
-  });
+    expect(buildFanoutEvidence([unknown], SITE).rows[0]!.ownState).toBe("not_credited");});
   it("keeps the reporting denominator beside every claim and ranks rivals by answers crediting them", () => {
     const rows = [obs({ observationId: "a" }), obs({ observationId: "b", engine: "gemini", citations: null })]; const [r] = buildFanoutEvidence(rows, SITE).rows;
-    expect([r!.executions, r!.reportingAnswers, r!.rivalPages[0]!.domain]).toEqual([2, 1, "rival.example"]);
-  });
+    expect([r!.executions, r!.reportingAnswers, r!.rivalPages[0]!.domain]).toEqual([2, 1, "rival.example"]);});
   it("rolls up each owned page's cited, read, and read-passed-over counts from the same canonical rows", () => {
     const rows = [
       obs({ observationId: "r1", citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }], retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }),
       obs({ observationId: "r2", engine: "gemini", retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }),
     ];
     const [p] = ownedPageAiRollup(rows, SITE); expect([p!.url, p!.cited, p!.retrieved, p!.retrievedNotCited, p!.engines]).toEqual(["https://own.example/haft-seen", 1, 2, 1, ["chatgpt", "gemini"]]);
-  });
-});
+  });});
 /** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never a hardcoded phrase list (Codex, 2026-08-21). */
 describe("the canonical outline arrives without site furniture", () => {
   it("strips a heading printed across the site and keeps every page's own sections", async () => {
@@ -107,6 +98,4 @@ describe("the canonical outline arrives without site furniture", () => {
       research: src(emptyResearchEvidence()), aiAnswersUnread: false });
     const outlines = snap.ownedPages.map((p) => p.content?.outline ?? []);
     expect(outlines.flat()).not.toContain("Explore More"); // chrome on every page is not content anywhere
-    expect(outlines.flat()).not.toContain("Related Articles"); expect(outlines.flat().sort()).toEqual(["Haft Seen Explained", "Nowruz Recipes", "Sizdah Bedar"]);
-  });
-});
+    expect(outlines.flat()).not.toContain("Related Articles"); expect(outlines.flat().sort()).toEqual(["Haft Seen Explained", "Nowruz Recipes", "Sizdah Bedar"]);});});

@@ -13,8 +13,7 @@ function stubFetch(chain: Record<string, { status: number; location?: string }>)
     calls.push({ url: String(url), init: (init ?? {}) as RequestInit });
     const hop = chain[String(url)] ?? { status: 200 }; const headers = { get: (h: string) => (h.toLowerCase() === "location" ? hop.location ?? null : null) };
     return { status: hop.status, headers, body: null } as unknown as Response; });
-  return { impl: impl as unknown as typeof fetch, calls };
-}
+  return { impl: impl as unknown as typeof fetch, calls };}
 describe("citation normalization (Slice 6I)", () => {
   it("resolves a wrapper through wrapper-only hops, keeps order/mode, never requests the final host or non-wrappers", async () => {
     const WRAP2 = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/DeF"; const { impl, calls } = stubFetch({ [WRAP]: { status: 302, location: WRAP2 }, [WRAP2]: { status: 301, location: REAL } });
@@ -33,5 +32,4 @@ describe("citation normalization (Slice 6I)", () => {
     expect(new Set(budget.calls.map((c) => c.url)).size).toBe(10); const late = stubFetch({});
     await resolveCitationTargets([app(WRAP)], late.impl, Date.now() - 1);
     expect(late.calls).toHaveLength(0); // a spent unit deadline resolves nothing, raw evidence kept
-  });
-});
+  });});

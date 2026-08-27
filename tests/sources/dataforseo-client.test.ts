@@ -10,8 +10,7 @@ describe("DataForSEO env truth", () => {
   it("the cap never resolves to unlimited", () => {
     expect(monthlyCapUsd(ENV)).toBe(DEFAULT_MONTHLY_CAP_USD); expect(monthlyCapUsd({ ...ENV, DATAFORSEO_MONTHLY_CAP_USD: "12.5" } as never)).toBe(12.5);
     expect(monthlyCapUsd({ ...ENV, DATAFORSEO_MONTHLY_CAP_USD: "-3" } as never)).toBe(DEFAULT_MONTHLY_CAP_USD); // never unlimited
-  });
-});
+  });});
 describe("the shared transport core", () => {
   it("returns the body with the provider-reported cost (falling back to the estimate) and never throws", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ cost: 0.004, tasks: [] }), { status: 200 }));

@@ -14,14 +14,12 @@ const page = (domain: string, headings: string[], over: Record<string, unknown> 
   url: `https://${domain}/persian-rugs`, domain,
   extract: { title: "Persian rugs explained", h1: "Persian rugs explained", wordCount: 1400, headings,
     faqCount: 3, openingSample: "A Persian rug is a hand knotted floor covering woven in Iran by families who have done it for generations.",
-    entityNames: ["Tabriz", "Kashan"], hasList: true, hasTable: false, ...over },
-});
+    entityNames: ["Tabriz", "Kashan"], hasList: true, hasTable: false, ...over },});
 const WINNERS = [
   page("guide.example", ["What a Persian rug is", MADE, CARE]),
   page("museum.example", ["What a Persian rug is", MADE, "Where they come from"]),
   page("weavers.example", [MADE, CARE, "How to tell a real one"]),
-  page("atlas.example", ["What a Persian rug is", CARE, "Where they come from"]),
-];
+  page("atlas.example", ["What a Persian rug is", CARE, "Where they come from"]),];
 const OWNED = page("mysite.example", ["Our rug collection"], { hasList: false, entityNames: [] });
 const facts = () => extractPageFacts(WINNERS);
 const ownedFacts = () => extractPageFacts([OWNED])[0]!;
@@ -35,8 +33,7 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
   ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [0, 1, 2] }],
   disagreements: ["Some of them treat the region as the subject and others treat the craft as the subject."],
   uniqueNotCommon: [{ detail: "one of them lays the knot counts out in a table", seenOn: [1] }],
-  ...over,
-});
+  ...over,});
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };
@@ -57,8 +54,7 @@ describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
     const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
-    expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);
-  });
+    expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);});
   // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
   it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => {
     const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool });
@@ -81,8 +77,7 @@ describe("the one reading a case may buy", () => {
       { questionsAnswered: [`What is ${RUN}?`] },
       { uniqueNotCommon: [{ detail: `one of them opens by calling it ${RUN}`, seenOn: [1] }] },
       { commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] },         // on no page it cited
-      { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },
-    ];
+      { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },];
     for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
     // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
     const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete }); expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); });

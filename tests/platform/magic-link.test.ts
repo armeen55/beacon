@@ -17,5 +17,4 @@ describe("magic link sending never shows provider text", () => {
       BUSY, BUSY, "Sign-in emails were requested too quickly. Wait a minute, then try once more.", null]);
     for (const r of [thrown, returned, limited]) expect(r.error).not.toMatch(/DOCTYPE|Unexpected token|AuthApiError|FATAL|[{<]/);
     expect(otp).toHaveBeenCalledTimes(4); // one provider call per request: no automatic retry, so never a duplicate sign-in email
-  });
-});
+  });});

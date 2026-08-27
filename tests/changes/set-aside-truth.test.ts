@@ -43,13 +43,11 @@ const emptyView = (demotedStaleBasis: number): ChangesView => ({ proposals: [], 
   readyZeroHint: null, receiptLine: null, surfaceComputedAt: "2026-07-27T00:00:00.000Z", surfaceBuilding: false });
 async function renderDetail(): Promise<string> {
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
-  return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(ID) }) }) as ReactElement);
-}
+  return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(ID) }) }) as ReactElement);}
 async function renderChanges(view: ChangesView): Promise<string> {
   vi.mocked((await import("@/app/(shell)/changes-data")).loadChangesView).mockResolvedValue(view);
   const { ChangesSection } = await import("@/app/(shell)/changes/page");
-  return renderToStaticMarkup(await ChangesSection() as ReactElement);
-}
+  return renderToStaticMarkup(await ChangesSection() as ReactElement);}
 describe("a direct link renders only what the ranked list would, and always lands somewhere honest", () => {
   beforeEach(() => vi.clearAllMocks());
   /** Serve one stored row at the link and render it. `retired` is what a history-including read finds. */
@@ -58,8 +56,7 @@ describe("a direct link renders only what the ranked list would, and always land
     vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); // the bar the account holds NOW
     vi.mocked(loadChangeProposal).mockImplementation(async (_t: string, _id: string, o?: { retired?: string }) =>
       (o?.retired === "include" ? retired ?? p : p) as ChangeProposal | null);
-    return renderDetail();
-  }
+    return renderDetail();}
   it("hands over the exact edits for current work, and no copy at all for a change I set aside", async () => {
     const live = await link(bundled(NOW)); // the row IS the current bar's work
     expect([live.includes(EXACT), live.includes("Mark done"), live.includes("This idea was set aside")]).toEqual([true, true, false]);
@@ -73,9 +70,7 @@ describe("a direct link renders only what the ranked list would, and always land
       { ...b, components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous" }] },
       { ...b, receipt: { items: [{ ...b.receipt.items[0]!, observedAt: cold }], missing: [], freshestObservedAt: cold } },
     ]) {
-      const html = await link({ ...bundled(NOW), bundle } as ChangeProposal); expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);
-    }
-  });
+      const html = await link({ ...bundled(NOW), bundle } as ChangeProposal); expect([html.includes(EXACT), html.includes("Mark done")], JSON.stringify(bundle.components[0])).toEqual([false, false]);}});
   /** P1-2. The picker pre-ticked EVERY piece with no memory of what is already recorded, so the obvious next press offered to record a component I am already measuring. It now opens on what is genuinely still theirs to do. */
   it("opens the picker on the pieces nobody has recorded yet", async () => {
     const b = bundled(NOW).bundle!;
@@ -131,8 +126,7 @@ describe("an account that skipped the connectors still reaches its own Today", (
       vi.doMock("@/lib/seed-data.server", () => ({ hasActiveExperiment: async () => false }));
       vi.doMock("@/lib/connector-store", () => ({ hasAnyConnectedDataSource: async () => false }));
       vi.doMock("@/lib/persistence/repositories", () => ({ getRepository: repo }));
-      return (await import("@/app/(shell)/today-gate-data")).loadTodayV2GateData();
-    };
+      return (await import("@/app/(shell)/today-gate-data")).loadTodayV2GateData();};
     const held = (tracked: unknown[]) => () => ({ forTenant: () => ({ getPromptAnswerObservations: async () => [], getTrackedPrompts: async () => tracked }) });
     expect([(await gate(held([{ is_active: true, tags: ["core_v1"] }]))).isDemoMode, (await gate(held([]))).isDemoMode]).toEqual([false, true]);
     const blind = await gate(() => { throw new Error("database unreachable"); }); // A read I could not take is not proof the account is empty, so it may not send them to the connect prompt.

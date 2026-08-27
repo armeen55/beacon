@@ -26,5 +26,4 @@ describe("the rule boxes on Settings", () => {
     expect(rulesOf()).toEqual({ editorial: ["Keep it short"], bannedTerms: ["Farsi"] }); });
   it("words the operator types still land", async () => {
     expect(await saveSetup({ ...base, bannedTermsText: "cheap, spammy", editorialRulesText: "Never say cheap" })).toEqual({ success: true });
-    expect(rulesOf()).toEqual({ editorial: ["Never say cheap"], bannedTerms: ["cheap", "spammy"] }); });
-});
+    expect(rulesOf()).toEqual({ editorial: ["Never say cheap"], bannedTerms: ["cheap", "spammy"] }); });});

@@ -9,14 +9,11 @@ import {
   GSC_SA_ROW_LIMIT,
 } from "@/lib/connectors/gsc/search-analytics";
 function fixture(name: string): unknown {
-  return JSON.parse(readFileSync(resolve(__dirname, "fixtures", name), "utf-8"));
-}
+  return JSON.parse(readFileSync(resolve(__dirname, "fixtures", name), "utf-8"));}
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+    headers: { "Content-Type": "application/json" },});}
 describe("GSC searchanalytics.query contract", () => {
   it("parses the documented row shape: keys[] in dimension order + 4 numeric metrics", async () => {
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
@@ -30,10 +27,8 @@ describe("GSC searchanalytics.query contract", () => {
         siteUrl: "sc-domain:fixture-content.example",
         startDate: "2026-07-01",
         endDate: "2026-07-01",
-        dimensions: ["page", "query"],
-      },
-      { fetchImpl },
-    );
+        dimensions: ["page", "query"],},
+      { fetchImpl },);
     expect(rows).not.toBeNull(); expect(rows).toHaveLength(3);
     for (const row of rows!) {
       // keys arrive in REQUEST dimension order: [page, query].
@@ -43,8 +38,7 @@ describe("GSC searchanalytics.query contract", () => {
       // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
       expect(row.ctr).toBeGreaterThanOrEqual(0); expect(row.ctr).toBeLessThanOrEqual(1);
       // position is a 1-based average.
-      expect(row.position).toBeGreaterThanOrEqual(1);
-    }
+      expect(row.position).toBeGreaterThanOrEqual(1);}
     // Our REQUEST contract: the body carries the fields Google documents.
     const sent = JSON.parse(String(calls[0]!.init?.body));
     expect(sent).toMatchObject({
@@ -54,9 +48,7 @@ describe("GSC searchanalytics.query contract", () => {
       type: "web",
       rowLimit: GSC_SA_ROW_LIMIT,
       startRow: 0,
-      dataState: "final",
-    });
-  });
+      dataState: "final",});});
   it("a body with NO rows key (quiet day) parses to [] rather than null/throw", async () => {
     const fetchImpl = (async () => jsonResponse({ responseAggregationType: "byPage" })) as typeof fetch;
     const rows = await gscSearchAnalyticsQuery(
@@ -65,23 +57,16 @@ describe("GSC searchanalytics.query contract", () => {
         siteUrl: "sc-domain:fixture-content.example",
         startDate: "2026-07-01",
         endDate: "2026-07-01",
-        dimensions: ["page"],
-      },
-      { fetchImpl },
-    );
-    expect(rows).toEqual([]);
-  });
-});
+        dimensions: ["page"],},
+      { fetchImpl },);
+    expect(rows).toEqual([]);});});
 describe("GSC sites.list contract", () => {
   it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
     const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch; const sites = await gscListSites("test-token", { fetchImpl });
     // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
     expect(sites).toHaveLength(3);
     for (const s of sites) {
-      expect(typeof s.siteUrl).toBe("string"); expect(typeof s.permissionLevel).toBe("string");
-    }
+      expect(typeof s.siteUrl).toBe("string"); expect(typeof s.permissionLevel).toBe("string");}
     expect(pickGscPropertyForDomain(sites, "fixture-content.example")).toBe("sc-domain:fixture-content.example");
     // Unverified-only domains resolve to null (we cannot read their analytics).
-    expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();
-  });
-});
+    expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();});});

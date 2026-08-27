@@ -22,8 +22,7 @@ const FINDING: CauseFinding = {
   explanation: "2 of your own pages come up for \"nowruz traditions\", so Google is choosing between them every time somebody searches it.",
   competingExplanations: [{ cause: "ctr_snippet", reason: "a sharper line cannot fix two of your own pages competing for the same search" }],
   falsifier: "If my next look shows only one page of yours coming up for \"nowruz traditions\", this is not the explanation.",
-  notConsidered: [{ cause: "technical_indexability", missing: "I do not hold this page's indexing or canonical state." }],
-};
+  notConsidered: [{ cause: "technical_indexability", missing: "I do not hold this page's indexing or canonical state." }],};
 const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: ID, kind: "existing_edit", pagePath: "/nowruz-guide", pageUrl: "https://site.example/nowruz-guide", pageLabel: "Nowruz guide",
   primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "needs_review",
@@ -61,15 +60,13 @@ const viewOf = (rows: ChangeProposal[]): ChangesView => ({
   surfaceComputedAt: "2026-07-31T00:00:00.000Z", surfaceBuilding: false });
 async function renderList(view: ChangesView): Promise<string> {
   const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
-  return renderToStaticMarkup(createElement(ChangesListClient, { view }));
-}
+  return renderToStaticMarkup(createElement(ChangesListClient, { view }));}
 async function renderDetail(p: ChangeProposal): Promise<string> {
   const { loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
   vi.mocked(loadChangeProposal).mockResolvedValue(p);
   vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
-  return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);
-}
+  return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
@@ -83,8 +80,7 @@ describe("a ranked card explains itself without being opened", () => {
     expect(ready, "proven").not.toContain("Proven"); expect(ready, "tier").toContain("Page-only");
     // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS NOT WAITING ON ANYBODY'S TASTE: it is defective work, and the lane says whose problem it is. The safety hold above still reads "Needs your review", because that one really is the operator's call.
     const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
-    expect(bad, "fault").toContain("Beacon must improve"); expect(bad, "reason").toContain("it repeats what stays on the page below it");
-  });
+    expect(bad, "fault").toContain("Beacon must improve"); expect(bad, "reason").toContain("it repeats what stays on the page below it");});
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",

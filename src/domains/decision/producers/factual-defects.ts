@@ -115,8 +115,10 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       const list = byPage.get(key) ?? []; list.push(c); byPage.set(key, list);
     }
     // THE PAGE VERSION DECISION CAN ACTUALLY SEE: a correction is work only while the page still says what it objected to, so the hash is recomputed from the same stored words. Bounded to pages holding one.
-    const candidateUrls = [...byPage].filter(([k, rows]) => owned.has(k) && authorizedCorrections(rows).length > 0)
-      .map(([k]) => owned.get(k)!.url);
+    // EVERY OWNED PAGE THIS ACCOUNT HAS CHECKED, not only the ones still authorizing work. Scoping this to pages
+    // with a live correction meant a page whose corrections ALL lost their evidence was never read, so it was
+    // never judged, so its stale cards could never be withdrawn: the one case the withdrawal below exists for.
+    const candidateUrls = [...byPage].filter(([k]) => owned.has(k)).map(([k]) => owned.get(k)!.url);
     const pageHashes = new Map<string, string>();
     if (candidateUrls.length > 0) {
       const [{ loadOwnedPageBodies }, { pageHashOf }] = await Promise.all([
@@ -179,6 +181,24 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           publish: "manual", createdAt: now.toISOString(),
         });
       }
+    }
+    // A CORRECTION CARD EXISTS ONLY WHILE ITS CORRECTION IS AUTHORIZED. These cards deliberately carry no bundle,
+    // so the stale sweep cannot reach them, and nothing else could either: a card minted on evidence later found
+    // to be about the wrong subject stayed Ready for ever, which is a false confirmation preserved purely because
+    // a card already existed. This producer owns every `fact-` id, so it retires exactly the ones it did not
+    // re-emit. NARROW AND FAIL-CLOSED: only pages whose body actually loaded this pass are judged, because
+    // `authorizedCorrections` compares a page hash and a failed body read would otherwise retire every correction
+    // on the site at once, which is how three consecutive passes once destroyed the operator's finished work.
+    const judged = new Set([...pageHashes.keys()].map((k) => pathOf(owned.get(k)!.url).toLowerCase()));
+    const emitted = new Set(cards.map((c) => c.id));
+    const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
+    for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
+      const id = p.id.split("::");
+      // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
+      // page hash, so without one every correction on the site reads as unauthorized at once.
+      if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "")) continue;
+      await withdrawChangeProposal(p, "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => false);
+      log.info("[factual-defects] a correction lost its evidence and was withdrawn", { tenantId, id: p.id });
     }
     log.info("[factual-defects] banked checks turned into work", { tenantId, cards: cards.length, checks: checks.length });
     return { cards, complete: true };

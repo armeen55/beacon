@@ -126,9 +126,7 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);
-    await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);
-  });
-});
+    await expect(syncImportRuns([{ id: "r1", tenant_id: "" } as unknown as Parameters<typeof syncImportRuns>[0][number]], "")).rejects.toThrow(/tenantId must be a non-empty string/);});});
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
@@ -147,8 +145,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]);
     expect(typeof row.business_name === "string" && (row.business_name as string).length > 0, "business_name is NOT NULL").toBe(true);
     // A colliding id already owned by someone else is refused, never adopted.
-    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });
-  });
+    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });});
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -159,10 +156,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
         // First call: the row does NOT exist yet (cold signup race)…
         if (loads === 1) return null;
         // …then the durable row lands.
-        return row as never;
-      },
-      save: async () => ({ ok: true }),
-    });
+        return row as never;},
+      save: async () => ({ ok: true }),});
     try {
       const first = await bp.loadBusinessProfile("tenant-cold");
       expect(first.name.value).toBe(""); // honest empty, not another business
@@ -173,9 +168,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       expect(loads).toBe(before);
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
-      bp.__resetBusinessProfileCacheForTests();
-    }
-  });
+      bp.__resetBusinessProfileCacheForTests();}});
   it("a transient repository failure recovers on the next read", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -184,10 +177,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       load: async () => {
         calls++;
         if (calls === 1) throw new Error("transient network failure");
-        return { schemaVersion: 2, name: { value: "Recovered Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as never;
-      },
-      save: async () => ({ ok: true }),
-    });
+        return { schemaVersion: 2, name: { value: "Recovered Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as never;},
+      save: async () => ({ ok: true }),});
     try {
       const first = await bp.loadBusinessProfile("tenant-flaky");
       expect(first.name.value).toBe(""); // fail-generic now…
@@ -195,9 +186,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       expect(second.name.value).toBe("Recovered Co"); // …retry succeeded
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
-      bp.__resetBusinessProfileCacheForTests();
-    }
-  });
+      bp.__resetBusinessProfileCacheForTests();}});
   it("one account's cached identity can never serve another account", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -206,25 +195,21 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
         id === "tenant-a"
           ? ({ schemaVersion: 2, name: { value: "Account A", origin: "operator_confirmed", confidence: 1, sourceUrls: [] } } as never)
           : null,
-      save: async () => ({ ok: true }),
-    });
+      save: async () => ({ ok: true }),});
     try {
       const a = await bp.loadBusinessProfile("tenant-a"); expect(a.name.value).toBe("Account A");
       const b = await bp.loadBusinessProfile("tenant-b"); expect(b.name.value).toBe("");
       expect(b.accountId).toBe("tenant-b");
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
-      bp.__resetBusinessProfileCacheForTests();
-    }
-  });
+      bp.__resetBusinessProfileCacheForTests();}});
   it("a historical pre-canonical row maps into canonical sections with legacy provenance and preserved raw JSON", async () => {
     const bp = await import("@/domains/account/business-profile");
     const legacyRow = {
       name: "Historic Publisher", businessType: "content_publisher", contentSiteMode: true, services: ["guides"],
       serviceTerms: ["reference articles"], locations: ["US"], keyPages: ["/about"], contentRules: ["Use plain English."],
       flaggedTerms: ["cheap"], authoritativeSourceDomains: ["wikipedia.org"], primaryCompetitors: ["rival.example"],
-      yelpBusinessId: "legacy-yelp", revenueModel: { kind: "rpm", rpmUsd: 5 },
-    };
+      yelpBusinessId: "legacy-yelp", revenueModel: { kind: "rpm", rpmUsd: 5 },};
     const profile = bp.profileFromRow("tenant-hist", legacyRow as never); expect(profile.schemaVersion).toBe(2);
     expect(profile.name.value).toBe("Historic Publisher"); expect(profile.name.origin).toBe("legacy");
     expect(profile.businessType.value).toBe("content_publisher"); expect(profile.siteArchetype.value).toBe("content_site");
@@ -236,8 +221,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     expect(profile.legacy).toEqual(legacyRow);
     // Removed contract fields do not surface as active truth.
     expect("yelpBusinessId" in profile).toBe(false); expect("revenueModel" in profile).toBe(false);
-    expect("domain" in profile).toBe(false);
-  });
+    expect("domain" in profile).toBe(false);});
   it("active customer copy uses the BusinessProfile name, never the provisional signup seed", async () => {
     vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-copy" }));
     vi.doMock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -248,11 +232,9 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       signup_date: "2026-01-01", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === account.id ? account : null),
-      getAccountBySlug: async () => null,
-    });
+      getAccountBySlug: async () => null,});
     bp.seedBusinessProfileForTests("tenant-copy", {
-      name: { value: "Confirmed Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },
-    });
+      name: { value: "Confirmed Co", origin: "operator_confirmed", confidence: 1, sourceUrls: [] },});
     try {
       const { loadSetup } = await import("@/app/(shell)/settings/config/actions"); const view = await loadSetup();
       expect(view.name).toBe("Confirmed Co"); expect(view.name).not.toContain("seed-name");
@@ -262,9 +244,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       bp.setBusinessProfileRepositoryForTests(null);
       bp.__resetBusinessProfileCacheForTests();
       vi.doUnmock("@/lib/tenant-context");
-      vi.doUnmock("next/cache");
-    }
-  });
+      vi.doUnmock("next/cache");}});
   it("the account store resolves through the injected scoped repository and fails to no-account, never a default", async () => {
     const store = await import("@/domains/account/tenants/store");
     const memA = {
@@ -272,17 +252,14 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       signup_date: "2026-01-01", tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     store.setAccountRepositoryForTests({
       getAccountById: async (id) => (id === memA.id ? memA : null),
-      getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),
-    });
+      getAccountBySlug: async (slug) => (slug === memA.slug ? memA : null),});
     try {
       expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a"); expect(await store.getTenant("tenant-absent")).toBeNull();
       await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
       // Website is the canonical projection of the account's one domain.
       const { websiteOf } = await import("@/domains/account/tenants/types"); expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
     } finally {
-      store.setAccountRepositoryForTests(null);
-    }
-  });
+      store.setAccountRepositoryForTests(null);}});
   it("lifecycle: a failed or anomalous account read resolves unavailable, never a redirect or a paused lockout", async () => {
     const store = await import("@/domains/account/tenants/store"); const { resolveAccountAccess, requireReadyAccount, AccountUnavailableError } = await import("@/domains/account/lifecycle");
     const base = { id: "tenant-lc", slug: "lc", provisional_name: "", domain: "lc.example", signup_date: "2026-01-01",
@@ -311,7 +288,4 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       repo(withStatus({ status: "active", domain: "" }));
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard?step=1") });
     } finally {
-      store.setAccountRepositoryForTests(null);
-    }
-  });
-});
+      store.setAccountRepositoryForTests(null);}});});
