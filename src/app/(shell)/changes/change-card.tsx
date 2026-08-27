@@ -95,18 +95,22 @@ function splitReason(text: string): { body: string; caveat: string | null } {
 
 /** THE NUMBERS THIS CHANGE IS ABOUT, read back out of the evidence the row already carries and never invented:
  *  a figure I cannot find prints nothing at all. */
+/** THE FIGURES ON THE CARD, READ OFF THE ROW AND NEVER OUT OF ITS PROSE. This scraped `whyItMatters` and the
+ *  evidence hints for five hand-written phrasings, and the producers stopped writing every one of them: on the
+ *  live account it found a number on 0 of 37 ranked cards, while the rows themselves carried
+ *  `demandImpressions90d` of 16,493, 31,863 and 54,938 the whole time. A number a card is ranked on is a TYPED
+ *  FIELD, so it is read as one, and a wording change can never silently empty the strip again. */
 function statsOf(p: ChangeProposal): { value: string; label: string }[] {
-  const text = `${p.whyItMatters} ${(p.evidence?.hints ?? []).join(" ")}`;
-  const grab = (re: RegExp): string | null => re.exec(text)?.[1] ?? null;
-  const short = p.upsidePerMonth != null && p.upsidePerMonth > 0
-    ? Math.round(p.upsidePerMonth).toLocaleString("en-US")
-    : grab(/about ([\d,]+) clicks are being left/) ?? grab(/about ([\d,]+) fewer clicks/);
+  const n = (v: number): string => Math.round(v).toLocaleString("en-US");
   const one = (v: string | null, plural: string, singular: string): [string | null, string] =>
     [v, v === "1" ? singular : plural];
+  const shown = p.demandImpressions90d != null && p.demandImpressions90d > 0 ? n(p.demandImpressions90d) : null;
+  // What it is RANKED on, in the same 28-day unit the receipt states. A shortfall with no cause named yet is
+  // still MEASURED, so it shows; the receipt is what says whether a cause has been found for it.
+  const short = p.impactScore != null && p.impactScore > 0 ? n(p.impactScore) : null;
   return [
-    one(grab(/: ([\d,]+) views/) ?? grab(/showed up in Google ([\d,]+) times/), "views in Google", "view in Google"),
-    one(grab(/([\d,]+) clicks?, position/) ?? grab(/got ([\d,]+) clicks?/), "clicks it earned", "click it earned"),
-    one(short, "clicks a month short", "click a month short"),
+    one(shown, "times shown in Google", "time shown in Google"),
+    one(short, "clicks over 28 days it is short", "click over 28 days it is short"),
   ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
 }
 

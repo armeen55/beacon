@@ -36,7 +36,7 @@ const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and
  *  waits alike: the old per-page nesting advertised four and allowed twelve (Codex, 2026-08-18). */
 export const ATTEMPTS_PER_PASS = 4;
-/** Failures about ONE CLAIM, not the account: set aside and carry on. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "source_quality_unresolved"]);
+/** About ONE CLAIM, not the account: set aside, carry on. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "source_quality_unresolved"]);
 
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
 const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhoda\.ut\.ac\.ir|vajehyab\.com|abadis\.ir|collinsdictionary\.com)$/i;
@@ -187,7 +187,7 @@ type FactCheckUnitDeps = {
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string) => Promise<SourceAnswer>;
   page: { url: string; path: string; body: string };
-  /** Claims this pass already failed on: set aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
+  /** Claims this pass already failed on: aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
   /** Checks already on file for this page, so a current one is skipped and a stale one is redone. */
   held?: readonly FactCheck[];
@@ -202,7 +202,7 @@ type FactCheckUnitDeps = {
  *  claim is still owed, which is not the same answer and must never move a run on to publishing. */
 type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
   cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string;
-  /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set aside one that will not resolve and reach the next. */ attempted?: string };
+  /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set one aside and reach the next. */ attempted?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
 const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string, attempted?: string): FactCheckUnitResult =>
@@ -213,7 +213,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const { tenantId, page, now } = d;
   if (!page.body.trim()) return fail("no_page_body", null, "no stored words for this page");
   const hash = pageHashOf(page.body);
-
   // 1. THE CLAIM INVENTORY FOR THIS PAGE VERSION AND ITS COVERAGE, READ BACK FROM THE STORE: a lease lost mid
   // page resumes where it stopped, and completeness outlives the pass. Coverage is what keeps a long page
   // honest: the first 12,000 characters are a SECTION, never the page (Codex, 2026-08-18).
@@ -222,14 +221,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const covRead = d.readCoverage ? await d.readCoverage().catch(() => null) : null;
   let cov: InventoryCoverage = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
-
   // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
   // researched by a query built from the subject alone, and reading it as current would have made the engine
   // skip for ever the exact claim it was repaired to research. Its evidence is archived and the claim re-opens.
   const obsolete = inventory.filter((h) => h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION);
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));}
-
   // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition
   // seeded it for a funded candidate that was refused for lacking exactly that fact, so it outranks rotation over the
   // page's own existing statements: without this the pass spent its budget re-checking claims the page already makes
@@ -237,12 +234,11 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (cov.coveredChars < cov.totalChars) {
-    // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty reads as prudence
-    // and is a deadlock: a unit settles at most ONE claim, so a page owing more claims than the run has paid
-    // units never reads another character. Live 2026-08-27: bumping to rules v4 re-opened 21 claims on the names
-    // page, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while its other ~160 entries
-    // were neither owed nor checked nor anywhere. Extraction is what gives an entry a disposition at all and is
-    // four calls at about two cents here, so it no longer queues behind research.
+    // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a
+    // unit settles at most ONE claim, so a page owing more claims than the run has paid units never reads
+    // another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left
+    // coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an
+    // entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
     const answer = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
@@ -288,7 +284,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       state: "owed" as const, checkedAt: now.toISOString() }))];
     owed = seededFirst(inventory.filter((h) => h.state === "owed")); // a freshly inventoried section may not bury it either
   }
-
   // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is
   // superseded for free, never researched and paid for again.
   const settled = new Set(inventory.filter((h) => h.state === "checked").map((h) => tokenFingerprintOf(h.subject, h.current)));
@@ -464,7 +459,7 @@ type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: num
  *  the remaining allowance against it proves nothing. */
 export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckPassResult> {
   let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0;
-  const setAside = new Set<string>();
+  const setAside = new Set<string>(); let lastPerClaim: { failure: UnitFailure; reason: string } | null = null;
   let held = d.held;
   for (const page of d.pages) {
     if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
@@ -480,11 +475,11 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         read: d.read, searchSources: d.searchSources, fetchSource: d.fetchSource,
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a
-      // spent budget or an outage, which repeat; wrong for a failure ABOUT ONE CLAIM, because the owed order is
-      // stable, so it returned to the head every pass. Live: one claim whose sources would not parse returned
-      // `fetch_refused` at $0 on five passes while 167 others were never reached. Set aside for THIS pass only.
+      // spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable
+      // so it returned to the head every pass. Live: `fetch_refused` at $0 on five passes while 167 others were
+      // never reached once. Set aside for THIS pass only; it is owed again on the next.
       if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
-        setAside.add(out.attempted); continue; }
+        setAside.add(out.attempted); lastPerClaim = { failure: out.failure!, reason: out.reason ?? "" }; continue; }
       if (out.status === "failed")
         return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: out.failure, reason: out.reason };
       if (out.status === "advanced") {
@@ -495,5 +490,9 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
   if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
+  // A PASS THAT SET EVERY CLAIM ASIDE DID NOT RUN OUT OF LEASE, and saying so PAUSES the run: `lease_exhausted`
+  // is a hard stop. The last real reason is carried out of the loop and reported as itself.
   return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts,
-    ...(progressed || pagesComplete > 0 ? {} : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };}
+    ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
+      ? { failure: lastPerClaim.failure, reason: lastPerClaim.reason }
+      : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };}

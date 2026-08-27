@@ -268,8 +268,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     // $0 on five consecutive passes. Ending the pass on any failed unit is right for a spent budget or an
     // outage, which repeat; the owed order is stable, so a failure ABOUT ONE CLAIM put that claim back at the
     // head every time and 167 other owed claims were never reached once.
-    const body = "Alpha means one. Beta means two. Gamma means three.";
-    const owed = ["Alpha", "Beta", "Gamma"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
+    const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";
+    const owed = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
       current: `${subject} means something`, pageContentHash: pageHashOf(body) }));
     db.cov = { pageContentHash: pageHashOf(body), coveredChars: body.length, totalChars: body.length } as never;
     const asked: string[] = [];
@@ -279,10 +279,14 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       read: reader({ claims: { statements: [] }, judge: CONFIRMS }),
       searchSources: async (query: string) => { asked.push(query); return SOURCE; },
       fetchSource: async () => ({ hold: "refused" as const }) } as never);
-    const subjects = new Set(["alpha", "beta", "gamma"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
-    expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of three owed claims across ${asked.length} searches`).toBe(3);
+    const subjects = new Set(["alpha", "beta", "gamma", "delta"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
+    expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of the owed claims across ${asked.length} searches`).toBeGreaterThanOrEqual(3);
     // and the pass ends honestly rather than on the first claim it could not resolve
-    expect(out.attempts).toBeGreaterThanOrEqual(3); });
+    expect(out.attempts).toBeGreaterThanOrEqual(3);
+    // AND IT NEVER CALLS THIS A SPENT LEASE. `lease_exhausted` is a HARD STOP that pauses the whole research
+    // run, so reporting it here would have stopped the run over sources that merely refused.
+    expect(out.failure).not.toBe("lease_exhausted");
+    expect(out.failure).toBe("fetch_refused"); });
 
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
