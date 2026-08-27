@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { assertRowsScopedToTenant, dualWriteUpsertScoped } from "@/lib/persistence/dual-write";
 import { log } from "@/lib/logger";
 import { serializeChangeProposal, deserializeChangeProposal, type BundleComponentKind, type ChangeProposal } from "./contracts";
+import { rankProposals } from "./rank-proposals";
 import { confirmedVersion, deliverableGaps, openHold } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
 import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
@@ -39,8 +40,7 @@ const FAMILY_BY_KIND: Record<BundleComponentKind, ActionFamily> = {
   table_or_list_add: "section-family", internal_links: "links-family", internal_link_add: "links-family",
   internal_link_remove: "links-family", anchor_text: "links-family", schema: "technical-family",
   canonical: "technical-family", redirect: "technical-family", noindex: "technical-family",
-  navigation: "technical-family", consolidation: "consolidation", new_page: "new_page",
-};
+  navigation: "technical-family", consolidation: "consolidation", new_page: "new_page",};
 /** BLAST RADIUS ORDER. A bundle touching several families is named by the biggest thing it does: moving the page outranks rewriting the body. Deterministic, so one bundle always lands on the same identity. */
 const FAMILY_PRECEDENCE: readonly ActionFamily[] = ["new_page", "consolidation", "technical-family", "accuracy-family", "section-family", "links-family", "title-family"];
 /** PURE: which family this change belongs to, off a bundle's components or an atomic edit's own field. THE ONE ANSWER: the id a producer mints, the `changeFamily` it stamps and the identity this store files it under all read it here, so a page can hold a snippet rewrite and a body rebuild at once without either wearing the other's name. Structural on purpose, so a producer can ask before it has a whole proposal to hand. */
@@ -51,28 +51,24 @@ export function actionFamilyOf(p: Pick<ChangeProposal, "kind" | "bundle" | "reco
   const change = p.recommendedChange;
   if (change.kind === "new_page") return "new_page";
   return change.field === "title" || change.field === "meta" || change.field === "h1"
-    ? "title-family" : "section-family";
-}
+    ? "title-family" : "section-family";}
 
 /** The subject segment of the proposal's own id (`tenant::subject::kind::suffix`): the page for an edit, the research case for a new page. Derived FROM the id, so one id can never need two current rows. */
 function anchorOf(p: ChangeProposal): string { const parts = p.id.split("::");
-  return (parts.length >= 3 ? (parts[1] ?? "") : (p.pagePath ?? p.pageUrl ?? p.pageLabel ?? "")).trim().toLowerCase();
-}
+  return (parts.length >= 3 ? (parts[1] ?? "") : (p.pagePath ?? p.pageUrl ?? p.pageLabel ?? "")).trim().toLowerCase();}
 
 /** The site this change lands on, from its own URL. Informational: the index is keyed on account, case,  page and family. */
 function siteOf(p: ChangeProposal): string {
   const url = (p.pageUrl ?? "").trim(); if (!url) return "";
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace(/^www\./, "").toLowerCase(); }
-  catch { return url.toLowerCase(); }
-}
+  catch { return url.toLowerCase(); }}
 
 type Identity = { site: string; case_id: string; page_key: string; action_family: ActionFamily; mutation_key: string }; /** WHAT THIS ROW WRITES is `mutationFootprint`, shared with the queue so storage and presentation cannot drift; `mutation_key` is its SORTED TEXT and the index over it is a backstop against an EXACT duplicate only, because a bundle writing {title, meta} and a plain title rewrite hold different text and still collide over the title, which is why real overlap is decided by `footprintsOverlap` against the decoded rows. NO_FIELD_KIND names the kinds no `recommendedChange.field` can express, kept for the producer's sweep, which may only retire work it could have re-derived and never mints one. */
 export const NO_FIELD_KIND: ReadonlySet<string> = new Set(["anchor_text", "internal_link_add", "internal_link_remove", "table_or_list_add", "schema", "canonical", "redirect", "noindex", "navigation"]);
 /** PURE: the hypothesis this proposal is an answer to. */
 function identityOf(p: ChangeProposal): Identity { const anchor = anchorOf(p);
   return { site: siteOf(p), case_id: p.kind === "new_page" ? anchor : "",
-    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: footprintKey(p) };
-}
+    page_key: p.kind === "new_page" ? "" : anchor, action_family: actionFamilyOf(p), mutation_key: footprintKey(p) };}
 
 /** THE READINGS THEMSELVES, in the order the receipt carries them. ORDER IS KEPT HERE on purpose: this feeds `proposalFingerprint`, whose whole job is "did anything at all about this row change", and loosening it would rewrite every stored row once for no gain. The refusal below sorts its own copy instead. */
 /** WHICH STORED ANSWERS a reading came out of is MATERIAL: the same sentence read off a different answer is different evidence, and leaving the id out let it change underneath a live proposal for free. A line SEVERAL answers stand behind is material in ALL of them, so swapping one member moves this and the whole proposal with it, while the sort here means merely reordering the same support moves neither. Both appends are CONDITIONAL and the plural is fixed first purely so the order never wobbles: a row carrying no id, or the singular id alone, computes byte for byte what it always did and is never churned. */
@@ -81,8 +77,7 @@ const evidenceMaterial = (p: ChangeProposal): unknown[] => (p.bundle?.receipt.it
 /** PURE: what this change STANDS ON, and nothing about how it reads. Two drafts off the same readings share it; one reading taken again, added or dropped moves it. SORTED, so a producer that merely reorders its receipt cannot quietly lift a refusal the operator meant to stand. AN ATOMIC CHANGE HAS NO RECEIPT, and hashing an empty list gave every one of them the same constant: they matched each other unconditionally and stayed shut for ever on an unchanged basis. What one of those stands on is the frozen evidence summary it carries  and the exact edit it argues for, so that is what it is asked about. */
 function evidenceFingerprint(p: ChangeProposal): string {
   const material = p.bundle ? evidenceMaterial(p) : [p.evidence, p.recommendedChange];
-  return createHash("sha256").update(JSON.stringify(material.map((m) => JSON.stringify(m)).sort())).digest("hex").slice(0, 16);
-}
+  return createHash("sha256").update(JSON.stringify(material.map((m) => JSON.stringify(m)).sort())).digest("hex").slice(0, 16);}
 
 /** PURE: the fingerprint of everything an operator would act on. EXCLUDES createdAt and anything else that moves on its own, so a pass re-deriving the same decision writes nothing. THE REASONING IS MATERIAL: leaving `causeFinding` out let a re-stamped cause short-circuit as "unchanged" and never persist. */
 export function proposalFingerprint(p: ChangeProposal): string {
@@ -106,23 +101,19 @@ export function proposalFingerprint(p: ChangeProposal): string {
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
     // WHERE THE RANKING PUT IT IS MATERIAL. Leaving the receipt out meant a row written before its pass had ranked anything computed "unchanged" against the ranked version of itself, so every card the $0 producers mint sat on file for ever with no receipt and nothing could say why it ranked where it did. CONDITIONAL, exactly like the answer ids above: an unranked row hashes byte for byte what it always did, so nothing on file is rewritten once just to say the identical thing.
-    ...(p.rankingReceipt ? { rank: [p.rankingReceipt.score, p.whyRankedAboveNext ?? null, p.demandImpressions90d ?? null] } : {}),
-  };
-  return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);
-}
+    ...(p.rankingReceipt ? { rank: [p.rankingReceipt.score, p.whyRankedAboveNext ?? null, p.demandImpressions90d ?? null] } : {}),};
+  return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);}
 
 /** WHY this change exists, on its own column so the reasoning reads without unpacking the whole proposal. Never a second source of truth: every field here is copied off the payload below it. */
 const decisionReceipt = (p: ChangeProposal): Record<string, unknown> => ({
   cause: p.diagnosisCause ?? null, why_it_matters: p.whyItMatters, confidence: p.confidence, limitations: p.limitations,
-  receipt: p.bundle ? { items: p.bundle.receipt.items, missing: p.bundle.receipt.missing, freshest_observed_at: p.bundle.receipt.freshestObservedAt } : null,
-});
+  receipt: p.bundle ? { items: p.bundle.receipt.items, missing: p.bundle.receipt.missing, freshest_observed_at: p.bundle.receipt.freshestObservedAt } : null,});
 // ── stored rows ───────────────────────────────────────────────────────────────
 
 /** `status` is `unknown` on purpose: a pre-rename row carries an old word and the bridge below is the ONE  place that word is understood. */
 type CanonRow = {
   id: string; proposal_version: number; status: unknown; terminal_disposition: TerminalDisposition | null;
-  superseded_by: string | null; basis: string | null; payload: unknown;
-};
+  superseded_by: string | null; basis: string | null; payload: unknown;};
 
 /** The columns every canonical read needs: identity, stage, disposition and pointer, and the payload. */
 const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, superseded_by, basis, payload";
@@ -130,16 +121,14 @@ const CANON_COLUMNS = "id, proposal_version, status, terminal_disposition, super
 /** Parse one stored payload through the contract. The database speaks only the three lifecycle words (the  contract migration closed the union), so nothing is normalized on the way in. */
 function decode(payload: unknown): ChangeProposal | null {
   if (payload == null) return null;
-  return deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));
-}
+  return deserializeChangeProposal(typeof payload === "string" ? payload : JSON.stringify(payload));}
 
 const rowFor = (p: ChangeProposal, ident: Identity, version: number): Record<string, unknown> => ({
   id: p.id, tenant_id: p.tenantId, ...ident, proposal_version: version, basis: p.basis ?? null,
   // A DRAFT SAVE NEVER TOUCHES THE LIVE RANKING (Codex, 2026-08-23). Clearing the stamp on every save meant a regeneration pass un-ranked nine live rows and THEN failed to publish, so the database's own paging and the surviving customer release disagreed about order: a split brain manufactured by a failed build. The rank a row holds stays exactly as the last COMMITTED release stamped it (stampQueueRanking is the only writer), and a row whose position is stale is re-stamped when the next whole release commits, never un-ranked in between. A row that lives again is still no longer retired: the reason clears with the disposition, or a live row wears two states at once (operator, 2026-08-17). The objection survives on the answering draft's limitations.
   status: p.status, terminal_disposition: null, superseded_by: null, withdrawn_reason: null,
   payload: JSON.parse(serializeChangeProposal(p)) as unknown,
-  decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),
-});
+  decision_receipt: decisionReceipt(p), ranking_receipt: p.rankingReceipt ?? null, updated_at: new Date().toISOString(),});
 
 /** Set (or, on a rollback, clear) one row's disposition. Fail-closed: a write that changed no row fails. WHY IT WAS RETIRED IS WRITTEN WITH IT. A withdrawal is permanent in practice (the skip set feeds off it and a save under the same basis is refused), and every one of them looked identical afterwards, so the night a sweep took the operator's open cards there was nothing on the rows to tell them apart from the ones a safety gate had genuinely refused. Pre-migration the write retries without the column rather than  failing the retirement itself. */
 async function setDisposition(tenantId: string, id: string, disposition: TerminalDisposition | null, supersededBy: string | null, reason: string | null = null): Promise<boolean> {
@@ -149,8 +138,7 @@ async function setDisposition(tenantId: string, id: string, disposition: Termina
   if (error && (error.code === "PGRST204" || /column/i.test(error.message ?? ""))) ({ data, error } = await write(base));
   if (!error && data && data.length > 0) return true;
   log.error("[proposal-store] disposition write did not land", { id, disposition, error: error?.message ?? "no row" });
-  return false;
-}
+  return false;}
 // ── writes ────────────────────────────────────────────────────────────────────
 
 /** The one token that lets a save move a row INTO implemented. It is module-private and handed out only by transitionProposalToImplemented, so "done" is reachable through the orchestrated transaction alone: a direct save carrying the implemented status without it is refused. The incident repair that orphaned  three implementations was exactly such a save. */
@@ -165,8 +153,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const held = await loadChangeProposal(proposal.tenantId, proposal.id).catch(() => null);
     if (held?.status !== "implemented_pending_verification") {
       log.error("[proposal-store] a save may not move a row into implemented; use the mark-implemented transaction", { tenantId: proposal.tenantId, id: proposal.id });
-      return "failed";
-    }
+      return "failed";}
   }
   // Every real id is minted `${tenantId}::...` by this kernel. An id wearing another account's prefix is a crafted call an id-keyed upsert would land on that account's row, so it is refused before any read.
   if (!proposal.id.startsWith(`${proposal.tenantId}::`)) {
@@ -399,8 +386,19 @@ export async function readQueuePage(
         laneById[p.id] = stamped === "ready" || stamped === "research" ? stamped : "todo";
       }
     }
+    // A RECEIPT FROM RULES THAT NO LONGER DECIDE IS NOT AN EXPLANATION. The ORDER is recomputed at every
+    // release and stamped on the row, but the receipt beside it rides in the payload, written when the row was
+    // last saved and never again. Live on this account: 12 of 31 rows still carried a `treatment` factor worth
+    // -45 that was deleted on 2026-08-26, so opening "How this was worked out" on a 2 minute change worth 98
+    // clicks read back "rewriting a line of metadata is the kind of change that has lost here", and the factors
+    // shown summed to -15.57 while the rank it actually holds comes from +29.43. The first screen never showed
+    // this because that path ranks as it builds; every LANE view comes through here, which is how the operator
+    // works. So the rows are re-ranked as they are read and each one carries today's reasoning. The stored
+    // ORDER is left exactly as it is: this replaces the explanation, never the position.
+    const fresh = new Map(rankProposals(rows).map((p) => [p.id, p]));
+    const explained = rows.map((p) => fresh.get(p.id) ?? p);
     // `more` is what the DATABASE said, never count arithmetic: a short raw page means the lane is exhausted. The count is what the lane holds LESS what this page just refused, never the raw stamp: offering to show more of a number that includes changes I will not hand over is a promise the next press cannot keep. `dropped` carries this page.s refusals on, so the caller takes DEEPER ones off the same count as it learns of them. No scan: I only ever subtract what I have actually read.
-    return { rows, laneById, dropped: read.length - rows.length, release,
+    return { rows: explained, laneById, dropped: read.length - rows.length, release,
       total: Math.max(rows.length, (counted.count ?? rows.length) - (read.length - rows.length)),
       nextRank: read[read.length - 1]?.queue_rank ?? at, more: read.length === limit };
   } catch (e) {

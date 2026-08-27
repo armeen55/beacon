@@ -99,6 +99,25 @@ describe("Today and Changes answer one question once", () => {
       (await loadTodayView()).today.headerSentence.includes("Your changes could not be read just now")]).toEqual([false, true, false, 0, false, false]);
     releaseFails.value = false; }); });
 describe("one release identity, or no release at all", () => {
+  it("serves the reasoning the rules that stand today produce, never the one banked when the row was saved", async () => {
+    // THE ORDER is recomputed at every release and stamped on the row; the RECEIPT beside it rode in the
+    // payload, written when the row was last saved and never again. Live, 12 of 31 rows still carried a
+    // `treatment` factor worth -45 that had been deleted, so a 2 minute change worth 98 clicks explained itself
+    // with "rewriting a line of metadata is the kind of change that has lost here" and showed factors summing
+    // to -15.57 while the rank it actually held came from +29.43. Lane views all come through this read.
+    const one = ALL[0]!;
+    db.rows = [seed(one)];
+    // The stale receipt lives in the STORED JSON, exactly as it does on the account: a row saved under the old
+    // rules and never saved again since they changed.
+    const payload = db.rows[0]!.payload as { proposal: Record<string, unknown> };
+    payload.proposal.rankingReceipt = { score: -15.57, directional: true, basis: "banked under rules that no longer decide anything",
+      factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] };
+    payload.proposal.whyRankedAboveNext = "ranked here by a rule that is gone";
+    await stamp("rel-1", [{ id: one.id, lane: "ready" }]);
+    const got = (await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows[0] as unknown as { rankingReceipt?: { factors?: { name: string }[]; score?: number } };
+    expect(got.rankingReceipt?.factors?.some((f) => f.name === "treatment"), "a deleted factor may not explain a live rank").toBe(false);
+    expect(got.rankingReceipt?.score).not.toBe(-15.57); });
+
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
     const view = await buildChangesViewUncached(T, "rel-9");
     expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
