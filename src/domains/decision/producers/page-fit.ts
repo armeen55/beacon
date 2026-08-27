@@ -32,7 +32,8 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
    *  says so in the same currency the boundary and the ranking read everywhere else. */
   cause?: CauseFinding };
 /** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
-export const MAX_PER_PRODUCER = 5, NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
+export const MAX_PER_PRODUCER = 5;
+const THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3; // NEAR_MISS_MIN, NEAR_MISS_MAX and MIN_IMPRESSIONS lived here too, exported and imported by nothing: `producers/extra` declares its own. Deleted rather than left to read as a shared bound.
 /** THE PAGES AN ESSAY NEVER GOES ON: the home page, and the shop rails. A storefront answers with products, so "add a section answering this question" there is work nobody would ever publish. */
 export const STOREFRONT = /(^|[/-])(explore|shop|store|categor(y|ies)|collections?|product|cart|checkout)([/-]|$)/i;
 /** A search asking WHICH SITES cover something wants a directory, and no page of this account is the answer to it. A question where somebody DESCRIBES THEMSELVES is their own situation, not a search. */

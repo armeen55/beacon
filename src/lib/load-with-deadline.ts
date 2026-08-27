@@ -14,7 +14,7 @@
  * the caller's own `.catch` / try-catch fail-soft path, same as before.
  */
 
-export const DEFAULT_DEADLINE_MS = 5000;
+const DEFAULT_DEADLINE_MS = 5000; // internal: both defaults below read it and nothing outside this file ever did
 
 type DeadlineResult<T> =
   | { timedOut: false; data: T }

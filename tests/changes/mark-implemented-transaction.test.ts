@@ -7,7 +7,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
 vi.mock("@/lib/persistence/repositories", () => ({ getRepository: () => ({ forTenant: () => ({}) }) }));
-vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
+const surf = vi.hoisted(() => ({ rebuilds: 0 }));
+vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surf.rebuilds += 1; } }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadChangeProposal: async () => stored.proposal, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
@@ -34,6 +35,24 @@ const change = (after = AFTER): ChangeProposal => ({
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
 beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
+describe("many at once is one trip, and still one shipment each", () => {
+  it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
+    // Every card owned its own server action, and Next runs those strictly one at a time: twenty cards meant
+    // twenty round trips and twenty full surface rebuilds, thirty to sixty seconds of Saving for work the
+    // operator had already finished. The recording underneath stays atomic; the TRIP is what is shared.
+    const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
+    stored.proposal = change(); surf.rebuilds = 0;
+    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
+    const out = await mark({ proposalIds: ids });
+    expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1);
+    expect(out.done + out.already, "and every id is answered").toBe(20);
+    expect(led.flip).toHaveBeenCalledTimes(20); // still one atomic transition each
+    // AND IT IS IDEMPOTENT: pressing the same twenty again records nothing new and rebuilds nothing new.
+    surf.rebuilds = 0; led.flip.mockClear();
+    const again = await mark({ proposalIds: ids });
+    expect(again.done, "nothing is recorded twice").toBe(0);
+    expect(again.already).toBe(20); });
+});
 describe("nothing is marked done that no record stands behind", () => {
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");

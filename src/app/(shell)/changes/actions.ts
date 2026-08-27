@@ -156,6 +156,8 @@ export async function markProposalImplementedAction(args: {
   destructiveConfirmed?: boolean;
   /** WHERE THE NEW PAGE IS LIVE. Required for a new page, which has no address until they publish it. */
   liveUrl?: string;
+  /** Set only by the many-at-once path below, which rebuilds the surfaces ONCE after the whole batch instead of once per card. Harmless if a client sets it: that path always rebuilds afterwards. */
+  deferSurfaces?: boolean;
 }): Promise<MarkProposalImplementedResponse> {
   const action = "markProposalImplemented";
   const t0 = Date.now();
@@ -234,9 +236,7 @@ export async function markProposalImplementedAction(args: {
     if (!ok) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
-    await invalidateCoreSurfaces().catch(() => {});
-    revalidatePath("/changes");
-    revalidatePath("/", "layout");
+    if (!args.deferSurfaces) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };
@@ -247,6 +247,34 @@ export async function markProposalImplementedAction(args: {
     log.error("markProposalImplemented: failed", { proposalId: args.proposalId, error: err instanceof Error ? err.message : String(err) });
     return { success: false, error: "That could not be recorded just now. Press it again in a moment." };
   }
+}
+
+/** MANY AT ONCE, BECAUSE THAT IS HOW AN OPERATOR ACTUALLY WORKS. Every card owned its own server action, and
+ *  Next runs those strictly one at a time, so twenty cards meant twenty round trips, twenty ledger reads and
+ *  twenty full surface rebuilds: thirty to sixty seconds of "Saving..." for work the operator finished in one
+ *  sitting. The recording underneath stays ATOMIC, one shipment per change exactly as before; what is shared is
+ *  the trip and the rebuild. IDEMPOTENT by construction: a change already being measured answers that it is,
+ *  and says so per id rather than failing the batch. A press that records nothing still rebuilds nothing. */
+export async function markManyImplementedAction(args: { proposalIds: string[]; operatorNote?: string }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string }> {
+  const ids = [...new Set((args.proposalIds ?? []).filter((x) => typeof x === "string" && x.trim()))];
+  if (ids.length === 0) return { success: false, done: 0, already: 0, failed: [], note: "No changes were selected." };
+  if (!(await canPublishForCurrentTenant())) return { success: false, done: 0, already: 0, failed: [], note: "You do not have permission to mark these changes implemented." };
+  const failed: { id: string; error: string }[] = []; let done = 0, already = 0;
+  // BOUNDED, and small on purpose: every one of these writes a shipment and reads the ledger, so a wide fan-out
+  // would trade the operator's wait for the database's. Four at a time is fast and cannot stampede.
+  for (let i = 0; i < ids.length; i += 4) {
+    const slice = ids.slice(i, i + 4);
+    const answers = await Promise.all(slice.map(async (id) => ({ id,
+      r: await markProposalImplementedAction({ proposalId: id, deferSurfaces: true, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) })
+        .catch((e: unknown) => ({ success: false as const, error: e instanceof Error ? e.message : "that could not be recorded" })) })));
+    for (const { id, r } of answers) {
+      if (!r.success) failed.push({ id, error: r.error ?? "that could not be recorded" });
+      else if ((r.note ?? "").includes("already on file")) already += 1; else done += 1; }
+  }
+  if (done > 0 || already > 0) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
+  const parts = [done > 0 ? `${done} recorded` : null, already > 0 ? `${already} already being measured` : null,
+    failed.length > 0 ? `${failed.length} could not be recorded` : null].filter(Boolean);
+  return { success: failed.length < ids.length, done, already, failed, note: `${parts.join(", ")}.` };
 }
 
 /** STEP TWO OF THE TWO-STEP HOLD, AND THE ONLY WAY A CHANGE THAT MOVES OR HIDES A PAGE BECOMES WORK. Step one has always existed: a redirect, a merge, a canonical or a de-index is minted `needs_review` and the queue says so. Step two did not, so every one of them was held for a confirmation nobody could give and none could ever be pasted. The operator reads the pieces, the addresses, the destination, the copy, the risks and the evidence on the change's own detail page and confirms THAT version. NOTHING IS TRUSTED FROM THE SCREEN: the row is re-read here and every gate is asked again at the moment of the mutation, because the page could have been open since before the copy was redrafted, before the cause was re-judged or before the bar moved. Never automatic: this runs on a press and on nothing else. */

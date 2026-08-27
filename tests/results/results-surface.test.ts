@@ -10,25 +10,21 @@ const SHIPPED = "2026-05-01";
 const WINDOWS = evaluateWindows(SHIPPED, NOW, "2026-06-01");
 const win = (day: 7 | 14 | 28, over: Partial<KernelInput["windows"][number]> = {}) => ({
   day, ran: true, adjustedClicksLift: 40, adjustedCtrLift: 0.02, adjustedPosLift: 0,
-  adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,
-});
+  adjustedImpressionsLift: 120, controlsUsed: 3, treatedPostImpressions: 5000, ...over,});
 const input = (over: Partial<KernelInput> = {}): KernelInput => ({
   id: "c1", page: "https://site.com/nowruz", path: "/nowruz", actionType: "section_add",
   shippedAt: SHIPPED, implementedAt: SHIPPED, baselineImpressions: 9100, baselineClicks: 200,
   windows: [win(7), win(14), win(28)],
-  componentKinds: ["title", "section_add"], diagnosisCause: "ctr_snippet", evidenceItemCount: 6, ...over,
-});
+  componentKinds: ["title", "section_add"], diagnosisCause: "ctr_snippet", evidenceItemCount: 6, ...over,});
 const VERIFICATION: ShipmentVerification = { status: "partially_verified", checkedAt: "2026-05-03T09:00:00Z",
   components: [{ kind: "title", state: "verified", note: null }] };
 const shipment = (over: Partial<ShipmentPresentation> = {}): ShipmentPresentation => ({
   read: evaluateChange(input(), WINDOWS, []), implementedAt: `${SHIPPED}T12:00:00Z`, verification: VERIFICATION,
   baseline: { clicks: 200, impressions: 9100, windowDays: 28, capturedAt: `${SHIPPED}T12:00:00Z` },
-  basisMove: { clicks: 61, impressions: 900 }, ...over,
-});
+  basisMove: { clicks: 61, impressions: 900 }, ...over,});
 const first = (over: Partial<ShipmentPresentation> = {}) => {
   const rows = buildResultsView([shipment(over)], NOW).rows;
-  return (["worked", "down", "flat", "reading"] as const).map((g) => rows[g][0]).find((r) => r != null)!;
-};
+  return (["worked", "down", "flat", "reading"] as const).map((g) => rows[g][0]).find((r) => r != null)!;};
 const measuring = evaluateChange(input({ windows: [] }), evaluateWindows(SHIPPED, new Date("2026-05-03T00:00:00Z"), "2026-05-03"), []);
 const lost = { adjustedClicksLift: -30, adjustedImpressionsLift: -50 };
 const declined = evaluateChange(input({ windows: [win(7, lost), win(14, lost), win(28, lost)] }), WINDOWS, []);
@@ -45,8 +41,7 @@ describe("the numbers at the top", () => {
     expect(view.header.appearances).toEqual({ value: "+70", positive: true, note: "+120 from wins, -50 from the rest" }); expect(view.header.window).toBe("Across the 3 changes that finished their 28 day read.");
     const mature = (["worked", "down", "flat"] as const).flatMap((g) => view.rows[g]);  // AND THEY RECONCILE: the totals are exactly the mature rows a customer can see, added up.
     expect([mature.reduce((t, r) => t + shown(r.liftLabel), 0), mature.reduce((t, r) => t + shown(r.impressionsLabel), 0)]).toEqual([10, 70]);
-    expect([view.header.reading.value, view.counts, view.defaultGroup]).toEqual(["1", { worked: 1, down: 1, flat: 1, reading: 1 }, "worked"]);
-  });
+    expect([view.header.reading.value, view.counts, view.defaultGroup]).toEqual(["1", { worked: 1, down: 1, flat: 1, reading: 1 }, "worked"]);});
   // ONE MATURITY RULE, BOTH SIDES: a shared-credit read sat in flight in the ledger bands and finished on Results, so Today said "out of 12 finished" over a header saying 14.
   it("settles a shared-credit read the same way in the ledger bands and on Results", () => {
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), ["c2"]); const view = buildResultsView([shipment({ read: sharedCredit }), shipment({ read: early })], NOW);
@@ -54,35 +49,28 @@ describe("the numbers at the top", () => {
   it("never says nothing worked out of nothing: with no read finished it says when the first one lands", () => {
     const view = buildResultsView([shipment({ read: measuring })], new Date("2026-05-03T00:00:00Z"));
     expect([view.header.worked.value, view.header.worked.isCount, view.header.appearances.value, view.header.window]).toEqual(["First result lands May 8", false, "Not enough read yet", "Nothing has finished its 28 day read yet."]);
-    expect(view.defaultGroup).toBe("reading");
-  });
-});
+    expect(view.defaultGroup).toBe("reading");});});
 describe("one change gets one line", () => {
   it("puts a win in Worked with its own number, its bar and its appearances", () => {
     const row = first(); expect([row.group, row.verdictWord, row.dot, row.bar! > 0, row.barOpacity]).toEqual(["worked", "Worked", "emerald", true, 1]);
     expect([row.liftLabel, row.impressionsLabel, row.readLabel, row.pipCaption, row.work]).toEqual(["+40 clicks ahead", "+120 shown", "28 day read done", "Done May 29", "a new section"]);
-    expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);
-  });
+    expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);});
   it("calls a loss a loss, holds an early lean as still reading, and never grades them on different rules", () => {
     expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Went down", "-30 clicks behind", "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed."]);
     // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading, which is what the header already claimed, and the running estimate stays on screen beside it.
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []);
-    expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);
-  });
+    expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);});
   it("claims no number on a read shared with a later change, and keeps the estimate visible as shared credit", () => {
     const row = buildResultsView([shipment({ read: sharedCredit })], NOW).rows.flat[0]!; expect([row.verdictWord, row.liftLabel, row.impressionsLabel, row.bar]).toEqual(["Shared with a later change", null, null, null]);
     expect(row.chip).toEqual({ text: "Shared with a later change", amber: true });
     expect(row.happened).toBe("1 other change landed on this page at the same time, so the credit is shared. Estimated lift: 40 clicks ahead of pages that were not changed, held as shared credit rather than a win.");
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] }); expect(row.nextStep).toBe("Two changes share these days. Make the next change on this page on its own, then measure it.");
     expect(first({ read: cutOff }).pips.map((p) => p.state)).toEqual(["read", "shared", "shared"]);  // AND A READ A LATER CHANGE CUT SHORT IS PAINTED AS SHARED FROM THE DAY IT WAS CUT, never as this change's own.
-    expect(first({ read: cutOff }).caveats[0]).toBe("This page changed again on May 10. The days after that belong to both changes.");
-  });
+    expect(first({ read: cutOff }).caveats[0]).toBe("This page changed again on May 10. The days after that belong to both changes.");});
   it("says what has been read instead of a number while a change is still reading", () => {
     const rows = buildResultsView([shipment({ read: measuring })], new Date("2026-05-03T00:00:00Z")).rows; const row = rows.reading[0]!;
     expect([row.group, row.verdictWord, row.dot, row.liftLabel, row.impressionsLabel, row.bar]).toEqual(["reading", "Reading", "sky", null, null, null]);
-    expect([row.readLabel, row.pipCaption, row.happened, row.nextStep]).toEqual(["Nothing read yet", "Next May 8", "Nothing read yet. The first result lands May 8.", "Nothing to do until the next read lands May 8."]);
-  });
-});
+    expect([row.readLabel, row.pipCaption, row.happened, row.nextStep]).toEqual(["Nothing read yet", "Next May 8", "Nothing read yet. The first result lands May 8.", "Nothing to do until the next read lands May 8."]);});});
 describe("opening a change says what happened, against what, and what to do next", () => {
   it("gives one sentence, the before and after, the dates and what it carries forward", () => {
     const row = first(); expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
@@ -94,19 +82,15 @@ describe("opening a change says what happened, against what, and what to do next
   it("names the pages it stood against, and only calls them similar once it can back that", () => {
     const row = first({ controlsReceipt: [{ path: "/a", reasons: ["same page type: city", "traffic within 5x", "4,000 impressions against 9,100 on the changed page"] }, { path: "/b", reasons: [] }] });
     expect(row.comparedAgainst).toEqual(["/a (same kind of page; similar traffic)", "/b"]); // said in words, and a reason with no plain wording is dropped rather than printed raw
-    expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of similar pages that were not changed.");
-  });
+    expect(row.happened).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of similar pages that were not changed.");});
   it("shows the site's own before and after, labeled unadjusted, where no fair comparison exists", () => {
     const row = first({ read: evaluateChange(input({ windows: [win(28, { controlsUsed: 1, treatedDelta: 17 })] }), WINDOWS, []) });  // Too few pages to stand behind it is NOT too little data: the days ran, so the page's own move is shown.
     expect(row.happened).toBe("Ran 28 days. A fair comparison is not available: too few pages on this site can stand behind this one."); expect(row.unadjustedNote).toBe("Before 200 clicks / After 217 clicks, unadjusted: the site moved too.");
-    expect([first().unadjustedNote, first({ read: measuring }).unadjustedNote]).toEqual([null, null]);
-  });
+    expect([first().unadjustedNote, first({ read: measuring }).unadjustedNote]).toEqual([null, null]);});
   it("never invents a date or a number it was not given", () => {
     const bare = first({ implementedAt: null, baseline: null, verification: null, basisMove: null });
     expect([bare.timeline[0], bare.timeline[1], bare.chip, bare.numbers]).toEqual([{ label: "Marked done, date not kept", done: true }, { label: "Live page not read yet", done: false }, { text: "Live page not read yet", amber: false }, null]);
-    const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } }); expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No Google traffic on file.", null]);
-  });
-});
+    const noTraffic = first({ baseline: { clicks: 0, impressions: 0, windowDays: 28, capturedAt: SHIPPED } }); expect([noTraffic.numbersNote, noTraffic.impressionsLabel]).toEqual(["No Google traffic on file.", null]);});});
 /** THREE SENTENCES TOLD EVERY OPERATOR TO PUT THE OLD WORDING BACK, including the ones whose change was a redirect or an internal link, where there was no wording to restore. One step per family of work, in win/loss/flat order. */
 describe("the next step belongs to the kind of work that was done", () => {
   const dir = (v: number) => ({ adjustedClicksLift: 40 * v, adjustedCtrLift: 0.02 * v, adjustedPosLift: v });
@@ -124,22 +108,18 @@ describe("the next step belongs to the kind of work that was done", () => {
   it("never asks for wording back where no wording was changed, and waits where it cannot judge", () => {
     for (const a of ["internal_link_add", "redirect", "canonical", "anchor_text"]) for (const v of [1, 0, -1]) expect(step(a, v), `${a} at ${v}`).not.toMatch(/wording|title/i);
     const dud = first({ read: evaluateChange(input({ actionType: "other" }), WINDOWS, []) }); // nothing can grade it, so nothing is claimed
-    expect([dud.verdictWord, dud.liftLabel, dud.bar, dud.nextStep]).toEqual(["Not judged", null, null, "Nothing to wait for on this one."]); expect(dud.happened).toMatch(/^Recorded, and not judged/);
-  });
-});
+    expect([dud.verdictWord, dud.liftLabel, dud.bar, dud.nextStep]).toEqual(["Not judged", null, null, "Nothing to wait for on this one."]); expect(dud.happened).toMatch(/^Recorded, and not judged/);});});
 /** THE SAME TWO VOCABULARIES REACH THE SCREEN. A row's action word is a KIND ("title") or the FAMILY the bundle producer stamps ("title-family"). Only the kinds were mapped, so every bundle this account shipped read as the shrug "this change" while a real label existed. And a change nothing can compare says which. */
 describe("what the screen calls the work, and what it will not promise", () => {
   it("names a family spelling in the operator's words, never as a shrug and never as its slug", () => {
     for (const [action, work] of [["title-family", "the title and headline"], ["section-family", "the content on the page"],
       ["links-family", "the internal links"], ["technical-family", "the technical setup"], ["title", "the page title"]] as const)
-      expect(first({ read: evaluateChange(input({ actionType: action }), WINDOWS, []) }).work).toBe(work);
-  });
+      expect(first({ read: evaluateChange(input({ actionType: action }), WINDOWS, []) }).work).toBe(work);});
   it("says what is missing when the change is recorded and no fair comparison exists", () => {
     const said = (m: string) => first({ read: measuring, measurement: m as never }).happened;
     expect(said("insufficient_comparison")).toBe("Recorded. A fair comparison is not available yet: too few similar pages on this site can stand behind this one.");
     expect([said("measurement_unavailable").slice(0, 55), said("verification_needed").slice(0, 30), said("measuring").slice(0, 17)])
-      .toEqual(["Recorded. A fair comparison is not available yet: Searc", "Recorded from what was applied", "Nothing read yet."]);
-  });
+      .toEqual(["Recorded. A fair comparison is not available yet: Searc", "Recorded from what was applied", "Nothing read yet."]);});
   it("prints no slug, no raw date stamp, no lab word, no first person and no dash", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: cutOff }),
       shipment({ read: sharedCredit }), shipment({ implementedAt: null, baseline: null, verification: null, basisMove: null })], NOW);
