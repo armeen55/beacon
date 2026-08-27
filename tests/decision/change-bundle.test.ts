@@ -425,6 +425,29 @@ describe("the complete change universe answers for itself", () => { it("round-tr
     expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected"); // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]); }); });
+describe("a held body claim on one outside source asks for its second source, typed", () => {
+  it("mints the factual_source requirement for the claim's own proposition, and only for the single-source case", () => {
+    // LIVE: the finished takbir answer (the queue's #2 traffic opportunity, 84 clicks over 28 days) sat in
+    // review with a writer-authored hold "rests on one encyclopedia source" that matched no typed fault, so the
+    // lane printed "nothing has read them for sense yet" over a cure nothing was fetching. The condition is
+    // structural, never a sentence: an unpromoted section or answer whose external support is one fact-* id.
+    const held = prop({ status: "needs_review", pageUrl: "https://www.iranopedia.com/iran-flags/iran-islamic-republic-flag-history",
+      recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Why the Takbir appears twenty-two times." },
+      claims: [{ text: "The Takbir is repeated 11 times along each band, reminiscent of 22 Bahman.", supportedBy: ["fact-1"] },
+        { text: "The design changed in 1980.", supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: repeated 11 times along each band." }, { id: "page-copy-1", fact: "the page's own line" }] } as never);
+    const verdict = openHold(held);
+    expect(verdict.need?.kind).toBe("factual_source");
+    expect(verdict.need?.reasonCode).toBe("single_source");
+    expect(verdict.need?.missingTopic).toContain("22 Bahman"); // the claim's own proposition, so the acquisition researches THIS
+    // Two independent sources already on file: nothing further is asked for.
+    const twoSources = prop({ ...held, claims: [{ text: "A claim.", supportedBy: ["fact-1", "fact-2"] }],
+      supportFacts: [{ id: "fact-1", fact: "one" }, { id: "fact-2", fact: "two" }] } as never);
+    expect(openHold(twoSources).need).toBeUndefined();
+    // A ready row cleared review, and a title is not a body claim: neither asks.
+    expect(openHold(prop({ ...held, status: "ready" } as never)).need).toBeUndefined();
+    expect(openHold(prop({ ...held, recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } } as never)).need).toBeUndefined(); }); });
+
 describe("traffic is the objective and every other factor may only discount it", () => {
   // LIVE, 2026-08-27: five of the top seven slots held 30 minute AEO cards carrying no click figure while a two
   // minute change with 98 clicks a month of measured shortfall sat at rank 12. 66 points were reachable with no

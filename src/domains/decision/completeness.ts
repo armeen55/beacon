@@ -63,7 +63,7 @@ const UNJUDGED = "The exact words are written and nothing has read them for sens
 /** THE ONE HOLD THAT IS GENUINELY THE OPERATOR'S CALL, named so callers can tell it from a defect Beacon owns: stamping this sentence as a typed fault would flip a safety confirmation into "Beacon must improve this". */
 const DANGER = "This one moves or hides a page, so it takes the deliberate confirmation on its own page rather than a plain yes.";
 /** WHY A CHANGE SHORT OF READY IS SHORT OF READY, AND WHO MAY ANSWER IT. IMPERFECT WORK STAYS VISIBLE (operator, 2026-08-15): a gate decides which lane a genuine opportunity is shown in and which controls its card carries, never whether the operator sees it at all. `lane` is `research` while nothing exact is written and `review` once the exact copy exists; `why` is the reasons already stored on the row, said back where the work is read; `blocking` is the first reason THIS SCREEN offers to hold the yes back, a fast, friendlier read for the card, never the sole gate: the row itself is re-asked, by the real functions and not by their prose, at the one door that can actually write `ready` (proposal-store's answerReviewedProposal). HARD is a fact about the work: an unwritten deliverable, a blank, a claim the evidence it names does not carry, a page mapping its own diagnosis refuses, copy whose place on the page can no longer be checked, and a change that moves or hides a page (which keeps its own two-step confirmation). SOFT is editorial judgement alone: the words are there, every deterministic check passed, and nothing has read them for sense. PURE, so the queue, the card and the server action ask ONE question and no screen can offer a control the server refuses. */
-export function openHold(p: ChangeProposal): { lane: "review" | "research"; why: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; need?: { kind: "factual_source"; query: string; url?: string; reasonCode: string } } {
+export function openHold(p: ChangeProposal): { lane: "review" | "research"; why: string[]; blocking: string | null; faulted: boolean; safetyHold: boolean; need?: { kind: "factual_source"; query: string; url?: string; reasonCode: string; missingTopic?: string } } {
   const gaps = deliverableGaps(p), c = p.recommendedChange, faults = p.faults ?? p.limitations.filter((l) => GATE_WORDS.test(l));
   const hard = [...gaps, ...p.limitations.filter((l) => HARD_LIMITATION.test(l))];
   // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
@@ -76,10 +76,23 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // CTR gap says what a page's positions usually earn, never what this wording recovers, so "about 176 clicks short" beside a title change is a promise the evidence never made.
   const says = c.kind === "existing_edit" ? c.after : "";
   // A CLAIM RULE MAY NOT FIRE ON A ROW THAT CARRIES NO CLAIMS BY CONSTRUCTION. A bundle's proposal literal never sets `claims` (its provenance is the receipt), so `(p.claims ?? []).some(...)` was false unconditionally and this rule held EVERY bundle whose components[0] copy said "national flag" or "official", vacuously and forever: the flag bundle sat stored `ready` and rendered in review off exactly this. The rule judges rows that DECLARE claims; a bundle answers on its receipt, whose integrity gate already ran at mint. AND THE HOLD NAMES ITS OWN CURE, TYPED: "held until a source is on file" was a dead end the customer could not act on and nothing was fetching, so the verdict now carries the exact factual_source requirement the runtime's acquisition already executes.
-  let need: { kind: "factual_source"; query: string; url?: string; reasonCode: string } | null = null;
+  let need: { kind: "factual_source"; query: string; url?: string; reasonCode: string; missingTopic?: string } | null = null;
   if (!p.bundle && /\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(says) && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-")))) {
     hard.push("It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.");
     need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsourced" };
+  }
+  // A BODY CLAIM STANDING ON EXACTLY ONE OUTSIDE SOURCE NAMES ITS OWN CURE: a second independent source. The
+  // takbir answer sat in review with a writer-authored hold ("rests on one encyclopedia source") that matches no
+  // typed fault, so the lane said "nothing has read them for sense yet" over a cure nothing was fetching: the
+  // finished substantive answer for the queue's #2 traffic opportunity was a dead end. Read structurally, never
+  // from the sentence: an unpromoted section or answer whose external support is one distinct fact-* id mints
+  // the factual_source requirement for THAT claim's own proposition, and the runtime's acquisition researches
+  // it, banks the second source, and the next redraft clears the hold on evidence rather than on taste.
+  if (!need && !p.bundle && p.status === "needs_review" && c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) {
+    const factBacked = (p.claims ?? []).filter((x) => x.supportedBy.some((id) => id.startsWith("fact-")));
+    const distinctFacts = new Set(factBacked.flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-"))));
+    if (distinctFacts.size === 1 && factBacked[0])
+      need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "single_source", missingTopic: factBacked[0].text };
   }
   if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "")) hard.push("Its reason promises clicks a wording change has never been shown to recover, so it is held until the ownership work it belongs to is finished.");
   // THE SAFETY HOLD LIFTS WHEN THE OPERATOR HAS ANSWERED IT, on the exact version they read: pushed unconditionally,
