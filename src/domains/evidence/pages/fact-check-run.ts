@@ -26,7 +26,11 @@ const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
 const RESERVE_MS = 8_000;
 /** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted
  *  and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). */
-export const EXTRACT_CHUNK = 12_000;
+/** A SECTION SMALL ENOUGH THAT ONE EXTRACTION CAN READ IT WHOLE. At 12,000 a dense list page handed the reader
+ *  its entire body at once and the forty-statement schema cap silently decided what was inventoried: 194 name
+ *  entries went in and 33 came out, with the page then marked complete. Smaller sections cost one cheap
+ *  extraction each and are resumable by the coverage cursor, so a long page is READ rather than sampled. */
+export const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
 const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and
