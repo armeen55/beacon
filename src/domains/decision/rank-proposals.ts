@@ -55,7 +55,10 @@ type Factor = Receipt["factors"][number];
  * NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number
  * on the screen is always the change with the most riding on it.
  */
-const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+const MAX = { visibility: 120 } as const;
+/** HOW FAR EACH FACTOR MAY DISCOUNT what is riding on a change, and none of them may ADD to it. These were
+ *  additive ceilings, which put 66 points of promotion within reach of a card carrying no traffic at all. */
+const FLOOR = { evidence: 0.85, causeFit: 0.6, strategic: 0.95, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const;
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
 /** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT
@@ -69,6 +72,10 @@ const COLLECTS = { diagnosed: 0.5, undiagnosed: 0.2 } as const;
 /** Finished readings of one kind of change before this account's own record may set the discount instead of the
  *  prior above. Twelve settled readings exist in total across every family, so today nothing reaches it. */
 const CALIBRATION_MIN = 20;
+/** How far an UNMEASURED proxy (a page's impressions, or how often assistants answered) may reach. Measured
+ *  clicks reach MAX.visibility; a proxy has to stay under what materially sized measured work earns, or the
+ *  proxy decides the queue. */
+const DIRECTIONAL_MAX = 4;
 /** Discounted clicks per point of the visibility band, so it saturates near 480 over 28 days: about the largest
  *  single opportunity a site of this size can honestly carry, and far above any ordinary card. */
 const PER_POINT = 4;
@@ -187,7 +194,12 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
     ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
       value: (MAX.visibility / 3) * Math.min(1, Math.log10(demand / AUDIENCE_FLOOR) / Math.log10(AUDIENCE_FULL / AUDIENCE_FLOOR)) }
     : null;
-  const google = proven && audience && audience.value > proven.value ? { ...audience, input: `${proven.input}, on a page ${audience.input}` } : proven ?? audience;
+  // A MEASURED FIGURE IS WHAT THE CHANGE RIDES, AND THE PAGE'S AUDIENCE IS A FALLBACK, NEVER AN UPGRADE. This
+  // took whichever number was BIGGER, so a change carrying its own measured recovery was scored on its page's
+  // impressions instead: live, a title change with 98 clicks a month of measured shortfall rode 16,493
+  // impressions for 29.56 points where its own measured figure was worth 4.9. That is the comment three lines
+  // above ("a page's traffic is not this change's traffic") contradicted by the next statement.
+  const google = proven ?? audience;
   // THE AI SIDE RANKS IN ITS OWN UNITS, ON RECURRENCE AND STAGE, NEVER ON ROW TOTALS. Answers-times-two let a
   // question asked once across many engines outrank a question asked every day for a week (operator,
   // 2026-08-19). The band fills on distinct days and assistants over the stored window; the stage scales it,
@@ -210,7 +222,24 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       return { input: `asked on ${num(days)} ${days === 1 ? "day" : "days"} across ${num(engines)} ${engines === 1 ? "assistant" : "assistants"}, ${num(a.answers)} stored answers hand ${asked} to ${num(a.citedRivals)} rival ${a.citedRivals === 1 ? "site" : "sites"} ${standing}`,
         value: (MAX.visibility / 3) * spread * closeness * Math.min(1, a.answers / 5) };
     })() : null;
-  const rode = ai && (!google || ai.value > google.value) ? ai : google;
+  // AI EVIDENCE IS EVIDENCE, NEVER A TRAFFIC FIGURE. Taking whichever band was bigger let recurrence and stage,
+  // which are counts of answers, outrank a measured click recovery. It rides only where there is no Google
+  // figure at all, and then as a direction rather than a size.
+  // A PROXY NEVER BEATS A MEASURED FIGURE, BUT PROXIES MAY COMPETE WITH EACH OTHER. Preferring Google outright
+  // meant a page WITH an audience could never count its AI evidence at all, so an AEO card on a page shown
+  // 90,000 times ranked level with one on a page shown none.
+  const proxy = ai && (!google || ai.value > google.value) ? ai : google;
+  const rode = proven ?? proxy;
+  // AND AN UNMEASURED PROXY MAY NOT OUTRANK MATERIALLY SIZED MEASURED WORK. Impressions and answer counts are
+  // both proxies: at a third of the ceiling each was worth 40 points, which is 160 discounted clicks at
+  // PER_POINT, so no measured recovery this account can produce could ever catch one. Capped at DIRECTIONAL_MAX
+  // so proxies still order each other and always sit under real measured work.
+  // SCALED, NEVER CLAMPED. Clamping flattened every proxy onto the ceiling, so recurrence and stage stopped
+  // ordering AEO cards against each other at all (a question asked once ranked level with one asked every day
+  // for a week). The band keeps its whole shape and is rescaled into the directional range, so proxies order
+  // each other exactly as before and simply cannot reach measured work.
+  const ridden = rode && rode !== proven
+    ? { ...rode, value: rode.value * (DIRECTIONAL_MAX / (MAX.visibility / 3)) } : rode;
   // WHAT IS RIDING ON IT, HELD AT THE CONFIDENCE IT HAS EARNED. Unfinished copy and a low reading each
   // shave the worth by a factor and never by a flat fine, so the order stays "largest credible impact
   // first": a page big enough leads even while its words are owed, and the receipt names the discount.
@@ -218,71 +247,85 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const held = (unfinished ? 0.7 : 1) * (p.confidence === "high" ? 1 : p.confidence === "medium" ? 0.85 : 0.7);
   const why = [unfinished ? "the copy is still owed" : null, p.confidence !== "high" ? `confidence is ${p.confidence}` : null]
     .filter(Boolean).join(" and ");
-  const shown = rode && held < 1
-    ? { input: `${rode.input}, counted at ${Math.round(held * 100)} percent because ${why}`, value: rode.value * held }
-    : rode;
+  const shown = ridden && held < 1
+    ? { input: `${ridden.input}, counted at ${Math.round(held * 100)} percent because ${why}`, value: ridden.value * held }
+    : ridden;
   add("visibility", shown?.input
     ?? (claimsAudience ? "no proven figure for what this wins back"
       : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
     shown?.value ?? 0, MAX.visibility);
 
-  // EVIDENCE QUANTITY IS CONFIDENCE, NOT IMPACT (Codex, 2026-08-18). A correction bundle carrying forty
-  // sourced items outranked a supported traffic recovery on receipt volume alone, which optimises for how
-  // much a card can SHOW rather than what it is worth. It is capped hard and reads as confidence, so a
-  // thorough card still cannot buy its way past a card with an audience behind it.
+  // NOTHING BUT TRAFFIC MAY ADD TO WORTH. Every factor below used to be a flat number added to the score, so 66
+  // points were reachable without any traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history
+  // 12) while a measured 98 clicks a month earned 4.9. That is the `treatment` defect in another costume: an
+  // attribute of the CHANGE deciding an order that is supposed to be built from expected visitors. This file's
+  // own header already said the rule ("shave the worth by a factor and never by a flat fine") and then broke it.
+  // Each factor now DISCOUNTS what is riding on the change, and reports the points that discount cost, so the
+  // receipt still adds up to the score and every reason stays visible. A discount can never exceed 1.
+  let running = shown?.value ?? 0;
+  // `max` is THE MOST THIS DISCOUNT COULD HAVE COST on this card, so a factor's contribution still cannot
+  // exceed its own ceiling and the receipt can say "of the N points this could have taken, it took M".
+  const discount = (name: keyof typeof FLOOR, input: string, factor: number): void => {
+    const ceiling = running * (1 - FLOOR[name]);
+    const cost = running * (1 - Math.min(1, Math.max(FLOOR[name], factor)));
+    running -= cost;
+    add(name, input, -cost, round2(ceiling));
+  };
+
+  // EVIDENCE QUANTITY IS CONFIDENCE, NOT IMPACT (Codex, 2026-08-18). A correction bundle carrying forty sourced
+  // items outranked a supported traffic recovery on receipt volume alone, which optimises for how much a card
+  // can SHOW rather than what it is worth. So it buys nothing and its absence costs a little.
   const items = shownEvidence(p);
-  add("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence behind it, which is how sure this is rather than how big it is`,
-    Math.min(MAX.evidence, Math.log10(1 + items) * 4), MAX.evidence);
+  discount("evidence", `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence behind it, which is how sure this is rather than how big it is`,
+    0.85 + 0.15 * Math.min(1, Math.log10(1 + items) / Math.log10(11)));
 
-  if (!cause) add("causeFit", "no cause named for this change yet", 0, MAX.causeFit);
-  else if (!levers || levers.size === 0) add("causeFit", "nothing you can write on the page fixes the cause named here", 0, MAX.causeFit);
-  else add("causeFit", addressed ? `this change works on ${LEVER_WORD[cause] ?? "the cause named here"}`
-    : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`, addressed ? MAX.causeFit : -MAX.causeFit, MAX.causeFit);
+  // A LEVER THAT TREATS THE NAMED CAUSE IS PAID ONCE, INSIDE VISIBILITY, where a diagnosed cause already moves
+  // the collection share from a fifth to a half and a wrong lever already forfeits the whole recovery. The flat
+  // 25 here was a second payment for the same fact, and it was the single biggest reason a 30 minute hypothesis
+  // led a 2 minute measured recovery in the live queue.
+  discount("causeFit", !cause ? "no cause named for this change yet"
+    : !levers || levers.size === 0 ? "nothing you can write on the page fixes the cause named here"
+      : addressed ? `this change works on ${LEVER_WORD[cause] ?? "the cause named here"}`
+        : `this change does not touch ${LEVER_WORD[cause] ?? "the cause named here"}`,
+  !cause || !levers || levers.size === 0 || addressed ? 1 : 0.6);
 
-  // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. The deep bundles carry the joined
-  // prompts on their scope; an AI absence card carries the same fact as its stored answers, and reading only
-  // the bundle scored the one producer that exists BECAUSE customers ask the question as strategically inert.
+  // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. That is demand evidence, and demand
+  // already enters through the figure above, so being in scope buys nothing and being out of it costs a little.
   const prompts = p.bundle?.scope.prompts.length ?? (p.aiImpact && p.aiImpact.answers > 0 ? 1 : 0);
-  add("strategic", `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`, Math.min(MAX.strategic, prompts * 5), MAX.strategic);
+  discount("strategic", `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`,
+    prompts > 0 ? 1 : 0.95);
 
   const minutes = Math.max(0, p.estimatedEffortMinutes);
-  add("effort", `about ${num(minutes)} ${minutes === 1 ? "minute" : "minutes"} of your time`, Math.max(0, MAX.effort - minutes / 6), MAX.effort);
+  discount("effort", `about ${num(minutes)} ${minutes === 1 ? "minute" : "minutes"} of your time`,
+    1 - Math.min(0.25, minutes / 240));
 
   const danger = dangerousComponents(p.bundle?.components ?? []);
   const risky = danger.length > 0 || p.riskLevel === "high";
-  add("risk", risky ? "this one moves or hides a page, so it is held for your confirmation"
+  discount("risk", risky ? "this one moves or hides a page, so it is held for your confirmation"
     : research ? "nothing here goes onto the site, so there is nothing to risk yet"
       : p.riskLevel === "medium" ? "this one touches claims worth reading twice" : "this one is safe to paste",
-  risky ? -MAX.risk : p.riskLevel === "medium" ? -8 : 0, MAX.risk);
+  risky ? 0.6 : p.riskLevel === "medium" ? 0.85 : 1);
 
-  add("overlap", measuring ? "this page already has a change under measurement" : "nothing is being measured on this page",
-    measuring ? -MAX.overlap : 0, MAX.overlap);
+  discount("overlap", measuring ? "this page already has a change under measurement" : "nothing is being measured on this page",
+    measuring ? 0.5 : 1);
 
-  add("confounding", `${num(peers)} other ${peers === 1 ? "change" : "changes"} in this batch land on the same page`,
-    -Math.min(MAX.confounding, peers * 5), MAX.confounding);
+  discount("confounding", `${num(peers)} other ${peers === 1 ? "change" : "changes"} in this batch land on the same page`,
+    1 - Math.min(0.3, peers * 0.1));
 
-  // WHAT THIS KIND OF CHANGE HAS ALREADY DONE HERE. Two changes of equal worth are not equal bets when one family is three readings deep and down on every one of them. Only finished readings vote, and never
-  // enough of them to cross a lifecycle tier: a family with a bad run is ranked lower, never refused.
-  // AND ONLY ON A PAGE THAT COULD SHOW IT. A family 165 clicks up across seven readings says nothing about a
-  // page shown 22 times: that page cannot produce those clicks, so the track record was lifting cards with no
-  // audience at all over rebuilds of pages shown thirty thousand times. No audience, no vote.
-  // THE KIND OF CHANGE NEVER DECIDES, THE EXPECTED TRAFFIC DOES (operator, 2026-08-26). A `treatment` factor
-  // sat here paying +45 to "substantive" families and -45 to metadata ones, a NINETY point swing keyed on a
-  // regex over `changeFamily`, wider than the whole audience band and worth 2,250 clicks of visibility at
-  // `clicks / 25`. It was read off four losses and one win. A 539-click title rewrite ranked BELOW a
-  // three-minute answer block on a page shown 300 times, which is category allocation wearing a track record.
-  // Deleted outright rather than shrunk: what a family has done belongs in confidence below, never in size.
+  // WHAT THIS KIND OF CHANGE HAS ALREADY DONE HERE. Two changes of equal worth are not equal bets when one
+  // family is three readings deep and down on every one of them. Only finished readings vote, and never enough
+  // to invert an order: a family with a bad run is ranked lower, never refused, and a good run buys nothing,
+  // because THE KIND OF CHANGE NEVER DECIDES, THE EXPECTED TRAFFIC DOES (operator, 2026-08-26). A `treatment`
+  // factor sat here paying +45 to "substantive" families and -45 to metadata ones, a ninety point swing keyed
+  // on a regex over `changeFamily`, read off four losses and one win. Deleted outright rather than shrunk.
   const fam = actionFamilyOf(p.changeFamily);
-  const seen = rode ? history?.get(fam) : undefined;
-  // SHRINK HARD, AND TOWARDS NOTHING. A handful of readings is a hint, not a verdict, so the vote is scaled by
-  // `readings / (readings + SHRINK)`: three finished readings move this a quarter of its reach, twenty move it
-  // most of the way. The reach itself is small on purpose. This can shade an order; it can never invert one.
+  const seen = ridden ? history?.get(fam) : undefined;
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
-  const pull = votes ? (seen!.readings / (seen!.readings + HISTORY_SHRINK)) * (seen!.netLift > 0 ? 1 : -1) : 0;
-  add("history", !rode ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
+  const pull = votes && seen!.netLift < 0 ? (seen!.readings / (seen!.readings + HISTORY_SHRINK)) : 0;
+  discount("history", !ridden ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
     : !votes ? "not enough finished readings of this kind of change here to judge it"
     : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} finished readings here, which is too few to weigh heavily`,
-  round2(pull * MAX.history), MAX.history);
+  1 - pull * 0.1);
 
   return { factors: f, directional };
 }
@@ -327,7 +370,7 @@ function whyAbove(next: ChangeProposal, a: Receipt, b: Receipt): string {
       return `${lead} there is more to show for it: ${sep.a.input} against ${sep.b.input}.`;
     case "causeFit":
       // A CARD WITH NO CAUSE NAMED still separates from one whose lever misses its cause, and reading the winner's own input aloud printed "because no cause named for this change yet, and X does not" on the top card.
-      return sep.a.contribution > 0 ? `${lead} ${sep.a.input}, and ${other} does not.`
+      return sep.a.contribution >= 0 ? `${lead} ${sep.a.input}, and ${other} does not.`
         : `${lead} ${other} works on something other than the cause its own evidence names.`;
     case "strategic":
       return `${lead} it covers more of what people ask you: ${sep.a.input} against ${sep.b.input}.`;

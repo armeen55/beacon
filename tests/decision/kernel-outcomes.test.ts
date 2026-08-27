@@ -736,7 +736,11 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
-    expect([fresh.contribution, stale.contribution, stale.input]).toEqual([-30, 0, "nothing is being measured on this page"]); });
+    // The discount is a share of what is riding on the change, so a fresh measurement costs it and a finished
+    // one costs nothing at all. The words are what the operator reads either way.
+    expect(fresh.contribution).toBeLessThan(0);
+    expect([Math.abs(stale.contribution), stale.input]).toEqual([0, "nothing is being measured on this page"]);
+    expect(fresh.input).toBe("this page already has a change under measurement"); });
   /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
     // a merge whose only component cites a comparison its receipt never carried: the live defect, stored

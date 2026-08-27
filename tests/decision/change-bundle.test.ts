@@ -425,16 +425,79 @@ describe("the complete change universe answers for itself", () => { it("round-tr
     expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected"); // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]); }); });
+describe("traffic is the objective and every other factor may only discount it", () => {
+  // LIVE, 2026-08-27: five of the top seven slots held 30 minute AEO cards carrying no click figure while a two
+  // minute change with 98 clicks a month of measured shortfall sat at rank 12. 66 points were reachable with no
+  // traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history 12) and the measured recovery was
+  // worth 4.9. Worse, that card rode its PAGE's 16,493 impressions for 29.56 instead of its own measured figure.
+  const clicky = (over: Record<string, unknown> = {}) => prop({ id: "measured", pagePath: "/cheetah", impactScore: 98,
+    estimatedEffortMinutes: 2, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]), ...over });
+  const aeo = (over: Record<string, unknown> = {}) => prop({ id: "aeo", pagePath: "/phrases", impactScore: null,
+    estimatedEffortMinutes: 30, aiImpact: { answers: 9, days: 7, engines: 4, citedRivals: 3, mentionRate: 0, audienceWeight: null, stage: "owned_retrieved_not_cited" as const }, ...over });
+
+  it("puts a supported click opportunity above an AEO hypothesis that carries no traffic figure", () => {
+    const ranked = rankProposals([aeo(), clicky()]);
+    expect(ranked.map((p) => p.id)).toEqual(["measured", "aeo"]);
+    // AI evidence is still on the receipt; it is simply not a traffic figure.
+    expect(factorOf(ranked[1]!, "visibility")).toBeGreaterThan(0);
+    expect(ranked[1]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("stored answers hand"); });
+
+  it("scores a change on its own measured recovery, never on the impressions of the page it sits on", () => {
+    // THE LIVE DEFECT: the band took whichever number was BIGGER, so the cheetah title change printed "on a page
+    // shown 16,493 times" and was scored 29.56 on impressions while its own measured 98 clicks was worth 4.9.
+    const [only] = rankProposals([clicky({ impactScore: 20, demandImpressions90d: 900_000 })]);
+    const vis = only!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
+    expect(only!.rankingReceipt!.directional, "it holds a measured figure, so the order is a size and not a direction").toBe(false);
+    expect(vis.input).toContain("clicks over 28 days");
+    expect(vis.input, "the page's own audience is not what this change is scored on").not.toContain("900,000"); });
+
+  it("gives identical traffic evidence an identical figure under every label a change can wear", () => {
+    const labels = ["title-family", "section", "factual_correction", "new_page", "ai_answer_gap", "meta", "internal_link"];
+    const seen = labels.map((changeFamily) => factorOf(rankProposals([clicky({ id: changeFamily, changeFamily })])[0]!, "visibility"));
+    expect(new Set(seen).size, `one figure across ${labels.length} labels, got ${JSON.stringify(seen)}`).toBe(1); });
+
+  it("lets an AEO card compete on the audience actually connected to its own page, without calling a citation a click", () => {
+    const connected = aeo({ id: "connected", demandImpressions90d: 90_000 });
+    // The bare card's assistants asked once, on one engine; the connected card's page is shown 90,000 times.
+    const ranked = rankProposals([aeo({ id: "bare", aiImpact: { answers: 2, days: 1, engines: 1, citedRivals: 1, mentionRate: 0, audienceWeight: null, stage: "owned_retrieved_not_cited" as const } }), connected]);
+    expect(ranked[0]!.id).toBe("connected"); // its own page's demand, not a bonus for being AEO
+    // AND NEITHER PROXY CLAIMS A CLICK. Impressions and answer counts order the work; they are never converted
+    // into recovered visitors, and the receipt says the order is a direction rather than a size.
+    for (const p of ranked) {
+      expect(p.rankingReceipt!.directional).toBe(true);
+      expect(p.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).not.toMatch(/click/i);
+      expect(p.rankingReceipt!.basis).toContain("not a promise about size"); } });
+
+  it("never lets anything but traffic add to worth", () => {
+    for (const p of rankProposals([clicky(), aeo(), prop({ id: "plain" })])) {
+      for (const f of p.rankingReceipt!.factors) {
+        if (f.name === "visibility" || f.name === "readiness") continue;
+        expect(f.contribution, `${p.id}.${f.name} may only discount`).toBeLessThanOrEqual(0);
+      } } });
+
+  it("discounts a weakly supported large opportunity below a smaller proven one, and says why on the receipt", () => {
+    const weak = clicky({ id: "weak", impactScore: 150, confidence: "low", researchOnly: true, status: "needs_review" });
+    const solid = clicky({ id: "solid", impactScore: 120, pagePath: "/solid", confidence: "high" });
+    const ranked = rankProposals([weak, solid]);
+    expect(ranked.map((p) => p.id)).toEqual(["solid", "weak"]);
+    expect(ranked[1]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at"); }); });
+
 describe("one score orders every kind of change, and says why", () => { it("puts the lever the evidence named above a bigger one it did not, on the same page", () => {
     const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
     const bigger = prop({ id: "section-add", impactScore: 2000, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "section_add" })]) });
-    const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]); expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")]).toEqual([25, -25]);
-    expect(ranked[0]!.whyRankedAboveNext).toContain("this change works on the line a searcher reads"); expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
+    const ranked = rankProposals([bigger, named]); expect(ranked.map((p) => p.id)).toEqual(["title-fix", "section-add"]); expect([factorOf(ranked[0]!, "causeFit"), factorOf(ranked[1]!, "causeFit")].every((v) => v <= 0), "a lever is discounted or left alone, never promoted").toBe(true);
+    expect(Math.abs(factorOf(ranked[0]!, "causeFit")), "the lever the evidence named is not discounted at all").toBe(0);
+    // A WRONG LEVER FORFEITS THE RECOVERY, so what separates them is TRAFFIC and the sentence says so.
+    expect(ranked[0]!.whyRankedAboveNext).toContain("more is riding on it"); expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
     expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
-    expect([factorOf(ranked[0]!, "confounding"), factorOf(ranked[1]!, "confounding")]).toEqual([-5, -5]); // both changes land on the same page, so each one discounts the other for confounding
+    // Both changes land on the same page, so each one discounts the other for confounding. The discount is a
+    // share of what is riding on each, so the one carrying a recovery pays and the one carrying nothing has
+    // nothing to pay with; both receipts still name the peer.
+    expect(ranked.every((p) => p.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input.includes("1 other change"))).toBe(true);
+    expect(factorOf(ranked[0]!, "confounding")).toBeLessThan(0);
     // a cause NOTHING on the page can fix rewards no lever and punishes none either: those changes rank on everything else
     for (const cause of ["demand_decline", "measuring_change"] as const) { const [only] = rankProposals([prop({ diagnosisCause: cause, bundle: bundleOf([comp({ kind: "title" })]) })]);
-      expect(factorOf(only!, "causeFit")).toBe(0); expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
+      expect(Math.abs(factorOf(only!, "causeFit"))).toBe(0); expect(only!.rankingReceipt!.factors.find((f) => f.name === "causeFit")!.input).toBe("nothing you can write on the page fixes the cause named here");
     } });
   // DRAFT CAPACITY FOLLOWS THIS RANKING, NEVER ARRIVAL ORDER (operator, 2026-08-21): produce-proposals ranks the eligible cards through THIS function before the bounded drafter walks them, so with
   it("puts the sixth-arriving highest-impact card first, so the one drafting slot goes to it", () => { // capacity for one draft, the highest-impact opportunity gets it wherever the producers happened to emit it.
@@ -444,8 +507,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // A page proven to be losing 191 clicks against a description errand on a page shown twice: value leads, and the whole of the errand's speed is worth less than what the losing page has riding on it.
     const losing = prop({ id: "losing", pagePath: "/persian-male-names", impactScore: 191, estimatedEffortMinutes: 30 });
     const errand = prop({ id: "errand", pagePath: "/tiny", impactScore: null, demandImpressions90d: 2, estimatedEffortMinutes: 1 }); const ranked = rankProposals([errand, losing]); expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
-    expect([factorOf(ranked[0]!, "visibility"), factorOf(ranked[1]!, "effort")]).toEqual([8.07, 3.83]); // 191 recoverable clicks at medium confidence: 7.64 counted at 85 percent. The discount is named, never silent.
-    expect(factorOf(ranked[0]!, "visibility")).toBeGreaterThan(factorOf(ranked[1]!, "effort"));
+    expect(factorOf(ranked[0]!, "visibility")).toBe(8.07); // 191 recoverable clicks at medium confidence: 7.64 counted at 85 percent. The discount is named, never silent.
+    // AND BEING QUICK BUYS NOTHING. Speed used to ADD up to 4 points, so an errand on a page shown twice could
+    // climb on how fast it was. Effort may only discount, so the whole of the errand's speed is worth zero.
+    expect(factorOf(ranked[1]!, "effort")).toBeLessThanOrEqual(0);
+    expect(ranked[0]!.rankingReceipt!.factors.filter((f) => f.name !== "visibility").every((f) => f.contribution <= 0), "nothing but traffic may add to worth").toBe(true);
     // THE RECOVERY BELONGS TO THE CAUSE: a lever that does not touch the cause forfeits the figure outright, so a bigger page can never buy a wrong change past the right one however wide the visibility band gets.
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
     expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
@@ -990,7 +1056,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at 60 percent because the copy is still owed and confidence is medium");
     // A PAGE LOSING GROUND ON A SEARCH PEOPLE STILL RUN has levers; a search fewer people run has none, and saying otherwise would score a decline card for a fix that is not one.
     expect([factorOf(rankProposals([prop({ diagnosisCause: "ranking_loss", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit"),
-      factorOf(rankProposals([prop({ diagnosisCause: "demand_decline", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit")]).toEqual([25, 0]); });
+      factorOf(rankProposals([prop({ diagnosisCause: "demand_decline", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit")].every((v) => v <= 0), "having a lever is never worth points, so a decline card cannot be scored for a fix that is not one").toBe(true); });
   it("discounts a dangerous consolidation and a page that already has a change under measurement", () => {
     const safe = prop({ id: "safe", impactScore: 300, pagePath: "/quiet", bundle: bundleOf([comp({ kind: "title" })]) });
     const risky = prop({ id: "risky", impactScore: 300, pagePath: "/merge", status: "needs_review",
@@ -998,18 +1064,18 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) }); const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
     // A DANGEROUS CHANGE IS DISCOUNTED, NOT SUNK, and being held for a look is no longer a score at all: what separates these three is what each costs (a risky lever, -18) and what each would ruin (-30, a second change on a page being read). Whether the risky one may be pasted is settled off this file.
     expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
-    const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBe(-18); // it still ranks, it just ranks with its discount
-    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true); expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBe(-30);
-    expect(factorOf(ranked.find((p) => p.id === "safe")!, "overlap")).toBe(0); expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
+    const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBeLessThan(0); // it still ranks, it just ranks with its discount
+    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true); expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBeLessThan(0);
+    expect(Math.abs(factorOf(ranked.find((p) => p.id === "safe")!, "overlap"))).toBe(0); expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); }); // every factor stays inside its own ceiling, so no single input can quietly decide the order
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]); // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers
-    expect(factorOf(floored!, "evidence")).toBe(0); expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
+    expect(factorOf(floored!, "evidence")).toBeGreaterThanOrEqual(-floored!.rankingReceipt!.factors.find((f) => f.name === "evidence")!.max); expect(floored!.rankingReceipt!.factors.every((f) => f.contribution >= -f.max)).toBe(true);
     // WORTH DECIDES, AND ONLY WORTH: 9,999 clicks proven recoverable outranks none, and the stage a row is at contributes nothing either way. Being safe to paste was worth 250, more than every other factor together.
     expect(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))).toBeGreaterThan(proposalValueScore(floored!));
     const bundled = rankProposals([prop({ diagnosisCause: "incomplete_coverage", bundle: bundleOf([comp({ kind: "section" })]) })]); // the older undifferentiated kinds ARE the levers their newer names describe, on a bundle and on a pre-bundle row alike
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
-    expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")]).toEqual([25, 25]); });
+    expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")].every((v) => Math.abs(v) === 0), "both shapes match their lever, so neither is discounted for it").toBe(true); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
     expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
     // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
@@ -1022,7 +1088,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     void _r; void _w; void _c; void _b;
     const back = deserializeChangeProposal(serializeChangeProposal(old as ChangeProposal)); expect(back).not.toBeNull();
     const [ranked] = rankProposals([back!]); expect(ranked!.rankingReceipt!.factors.map((f) => f.name)).toEqual(["readiness", "visibility", "evidence", "causeFit", "strategic", "effort", "risk", "overlap", "confounding", "history"]);
-    expect(factorOf(ranked!, "causeFit")).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
+    expect(Math.abs(factorOf(ranked!, "causeFit"))).toBe(0); // no diagnosis on the row, so nothing is matched and nothing is punished
     // A ROW WITH NO DIAGNOSIS AND NO RECEIPT STILL RANKS ON WHAT IS RIDING ON IT, and below a change with thirty three times its proven recovery, whatever stage either is at: worth what its own figures say, never less for its age.
     expect(proposalValueScore(back!)).toBeLessThan(proposalValueScore(prop({ status: "needs_review", impactScore: 9999 }))); }); });
 /** READY INTEGRITY (2026-08-15). Three promises about a change that is allowed to read as ready: every published claim stands on the exact evidence it names, the version an operator confirms names everything they read, and banked words are re-read against today's rules before they are served again. */
