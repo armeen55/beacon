@@ -103,6 +103,18 @@ describe("extra readings", () => {
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not be read");});
+  it("buys no new answer while answers already paid for sit unread, and says how many", async () => {
+    // Live, 891 answers carrying $7.75 of paid text had never been analysed, every one dated 2026-08-16 or
+    // later, and the button that buys more still said yes. Buying more of what nobody reads is the one spend
+    // this product can never justify (operator, 2026-08-27).
+    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
+      readMarkers: async () => ({}), writeMarkers: async () => true };
+    const behind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => 891 });
+    expect([behind.granted, behind.due]).toEqual([false, []]);
+    expect(behind.reason).toContain("891 answers already paid for are still waiting to be read");
+    // Caught up, the same day grants normally: the gate is about the backlog, never about the day.
+    expect((await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => 0 })).granted).toBe(true); });
+
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),

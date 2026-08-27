@@ -65,8 +65,7 @@ const legacyRow = (): Row => ({
   baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 },
   target_queries: [], control_pages: [], windows: [], verdict: "measuring", confidence: "low", measured_at: null,
   notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null,
-  created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",
-});
+  created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
 const verification = (status: ShipmentVerification["status"]): ShipmentVerification =>
   ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
 beforeEach(() => {
@@ -83,9 +82,7 @@ beforeEach(() => {
     { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
     { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: false } }, analysisHash: "x", answerHash: "x" },
     { slot: 1, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
-    { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
-  ]);
-});
+    { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },]);});
 describe("the canonical Shipment", () => {
   it("records ONE shipment with the stamp, the components and both starting numbers", async () => {
     await upsertShippedChange(await ship()); expect(db.state.rows).toHaveLength(1);
@@ -109,29 +106,24 @@ describe("the canonical Shipment", () => {
     serve(day(140));
     await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 140, mentioning: 84 });
     db.state.rows = []; db.state.file = []; serve(day(100));
-    await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });
-  });
+    await upsertShippedChange(await ship()); expect((await loadShippedChangesForTenant(T))[0].shipmentBaseline?.ai).toEqual({ day: DAY, checked: 140, analyzed: 100, mentioning: 60 });});
   it("heals a retried press instead of recording the change twice", async () => {
     const first = await ship(); await upsertShippedChange(first);
     const retry = await ship(); await upsertShippedChange(retry);
-    expect(retry.id).toBe(first.id); expect(db.state.rows).toHaveLength(1);
-  });
+    expect(retry.id).toBe(first.id); expect(db.state.rows).toHaveLength(1);});
   it("stores a partial bundle as a partial bundle, and keeps the exact copy each piece carried", async () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: [COMPONENTS[0]] }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual([COMPONENTS[0]]);
     const withCopy = [{ kind: "title", label: "Page title", after: "Nowruz Traditions and the Haft-Seen Table" }];
     db.state.rows = []; db.state.file = [];
-    await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);
-  });
+    await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);});
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship()); const first = (await loadShippedChangesForTenant(T))[0];
     // A recompute arriving a week later with a moved stamp and rewritten baseline.
     await upsertShippedChange({
       ...first, implementedAt: "2026-08-07T00:00:00.000Z",
-      shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" },
-    });
+      shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" },});
     const [after] = await loadShippedChangesForTenant(T); expect(after.implementedAt).toBe(NOW.toISOString());
-    expect(after.shipmentBaseline?.search?.clicks).toBe(9);
-  });
+    expect(after.shipmentBaseline?.search?.clicks).toBe(9);});
   // PIN (B): the operator's words are kept as a NOTE, and the reading is still owed.
   it("keeps what the operator says they did as a note, and still owes the live check", async () => {
     await upsertShippedChange(await ship({

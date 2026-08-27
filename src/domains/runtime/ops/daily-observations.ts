@@ -76,8 +76,7 @@ const retryKey = (o: { promptId: string; version: number; engine: string; slot: 
  *  next pass collects for free and therefore must stay in the plan. */
 function settledForDay(row: ObservedSample, retriesSpent: number): boolean {
   if (row.status === "observed" || row.status === "unavailable" || row.status === "unsupported") return true;
-  return row.status === "failed" && retriesSpent >= FAILED_RETRIES_PER_DAY;
-}
+  return row.status === "failed" && retriesSpent >= FAILED_RETRIES_PER_DAY;}
 
 type ObservationPlanInput = {
   /** The operator's approved questions, each with the series it is on. */
@@ -97,8 +96,7 @@ type ObservationPlanInput = {
   /** How many EXTRA readings per pair the operator has explicitly asked for today (0, 1 or 2). Never
    *  inferred and never defaulted upward: nothing but an explicit ask plans slot 1 or 2. */
   extraSamples?: number;
-  maxBatch?: number;
-};
+  maxBatch?: number;};
 
 type Candidate = { prompt: TrackedQuestion; engine: ObservationEngine; slot: 0 | 1 | 2; lastAt: string };
 
@@ -125,8 +123,7 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
   for (const o of input.observed) {
     const k = pairKey(o.promptId, o.version, o.engine);
     const at = String(o.observedAt ?? o.day ?? "");
-    if (at > (lastAt.get(k) ?? "")) lastAt.set(k, at);
-  }
+    if (at > (lastAt.get(k) ?? "")) lastAt.set(k, at);}
   // Readings whose day is OVER, per pair and per slot: an answer in hand, or an honest terminal state that
   // asking again today cannot improve on.
   const retries = input.retries ?? {};
@@ -136,8 +133,7 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     const k = pairKey(o.promptId, o.version, o.engine);
     const slots = doneToday.get(k) ?? new Set<number>();
     slots.add(o.slot);
-    doneToday.set(k, slots);
-  }
+    doneToday.set(k, slots);}
 
   // One canonical reading, plus exactly as many extra ones as were explicitly asked for, never past three.
   const allowed = 1 + Math.min(MAX_SAMPLES_PER_DAY - 1, Math.max(0, Math.trunc(input.extraSamples ?? 0)));
@@ -154,9 +150,7 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
       // Slots 1 and 2 only on an explicit ask, only after slot 0 landed, never past three.
       if (slots.size >= allowed) continue;
       const next = slots.has(1) ? 2 : 1;
-      candidates.push({ prompt, engine, slot: next as 1 | 2, lastAt: at });
-    }
-  }
+      candidates.push({ prompt, engine, slot: next as 1 | 2, lastAt: at });}}
 
   const engineRank = (e: ObservationEngine) => OBSERVATION_ENGINES.indexOf(e);
   candidates.sort((a, b) =>
@@ -176,19 +170,26 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     if (picked.length >= maxBatch) break;
     if (c.engine === "perplexity" && perp >= PERPLEXITY_PER_PASS) continue;
     if (c.engine === "perplexity") perp += 1;
-    picked.push(c);
-  }
+    picked.push(c);}
   // THE REPORTING DAY TRAVELS WITH THE PLAN. The executor stores it verbatim, so a run resumed past midnight
   // lands its rows on the day it was planning for, which is the day the analysis pass then reads.
   return picked.map((c) => ({
-    promptId: c.prompt.id, version: c.prompt.version, text: c.prompt.text, engine: c.engine, slot: c.slot, day,
-  }));
+    promptId: c.prompt.id, version: c.prompt.version, text: c.prompt.text, engine: c.engine, slot: c.slot, day,}));
 }
 
 /** PURE. Is one MORE reading legitimate today, and what would it be. Refuses while today's one canonical
  *  round is unfinished (an extra read of a few questions before every question has one would tilt the day's
  *  average toward whichever ones got sampled twice), and refuses once every pair has three.
  *  `input.extraSamples` is what was ALREADY granted today, so each press asks for exactly one more. */
+/** Answers on file carrying text nobody has analysed: one narrow count, no rows read. UNREAD_BACKLOG_MAX is how far the reading may fall behind before the buying stops, about one ordinary day of answers. */
+async function unreadAnswerCount(tenantId: string): Promise<number> {
+  const { getSupabaseAdmin } = await import("@/lib/persistence/supabase");
+  const { count, error } = await getSupabaseAdmin().from("ai_observations")
+    .select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).is("analysis", null).not("answer_text", "is", null);
+  if (error) throw new Error(error.message); return count ?? 0;
+}
+const UNREAD_BACKLOG_MAX = 200;
+
 export function extraSampleVerdict(day: string, input: ObservationPlanInput): { granted: boolean; reason: string; due: DueObservation[] } {
   const canonical = planObservations(day, { ...input, extraSamples: 0, maxBatch: Number.MAX_SAFE_INTEGER });
   if (canonical.length > 0) {
@@ -266,6 +267,8 @@ type PlannerDeps = {
   /** The engines this account can be read on. Absent = every engine the provider registry can ask today. */
   engines?: readonly ObservationEngine[];
   unsupportedPairs?: readonly string[];
+  /** How many already-paid answers are on file that nothing has read yet. The test seam for the backlog gate below. */
+  unreadBacklog?: (tenantId: string) => Promise<number>;
   maxBatch?: number;
 };
 
@@ -476,6 +479,13 @@ export async function requestExtraSample(tenantId: string, day: string, opts: Pl
   if (state == null) {
     return { granted: false, reason: "Where today's checks stand could not be read, so no second reading is added on a guess. It is retried on your next visit.", due: [] };
   }
+  // MONEY IS NOT SPENT ON A NEW ANSWER WHILE PAID ANSWERS SIT UNREAD (operator, 2026-08-27). The grant asked
+  // only whether the day had room for another reading, never whether anything had read the last ones. Live, 891
+  // answers carrying $7.75 of paid text had never been analysed, every one of them dated 2026-08-16 or later,
+  // and the button that buys more was still saying yes. Buying more of what nobody is reading is the one spend
+  // this product can never justify, so the refusal names the backlog and the money rather than a policy.
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => 0);
+  if (behind > UNREAD_BACKLOG_MAX) return { granted: false, due: [], reason: `${behind.toLocaleString("en-US")} answers already paid for are still waiting to be read, so no more are bought today. Reading those comes first, and the next fresh round starts once they are read.` };
   const grant = state.markers?.extraSamples;
   const already = grant?.day === day ? grant.granted : 0;
   const verdict = extraSampleVerdict(day, { prompts: state.prompts, observed: state.observed, engines: state.engines,
