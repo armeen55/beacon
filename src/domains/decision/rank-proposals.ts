@@ -20,7 +20,8 @@
  *   risk           a change that moves or hides a page is discounted, never promoted.
  *   overlap        a page already carrying a change under measurement is discounted hard.
  *   confounding    several changes landing on the same page in one batch discount each other.
- *   history        what this KIND of change has actually done on this site, off finished readings only.
+ *   history        what this KIND of change has actually done on this site, off finished readings only, shrunk
+ *                  hard towards nothing: THE KIND OF CHANGE NEVER DECIDES THE ORDER, the expected traffic does.
  *
  * NO INVENTED NUMBERS: with no proven figure the receipt is marked directional and says the order is a direction, not a size. Every ranked proposal carries `rankingReceipt`, and every one but the last carries
  * `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order).
@@ -54,9 +55,9 @@ type Factor = Receipt["factors"][number];
  * NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number
  * on the screen is always the change with the most riding on it.
  */
-const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12, treatment: 45 } as const;
-/** WHAT THIS ACCOUNT'S OWN LEDGER SAYS ABOUT KINDS OF WORK, before any single page's readings are deep enough to vote. Across every change this product has measured, the four losses held at high confidence were all thin-lever edits (two descriptions, one title, one schema block) and the one win held at high confidence added a real section to a thin page. Substantive work is therefore the standing bet and a metadata errand has to beat it on audience alone. */
-const THIN_LEVER = new Set(["meta", "title", "title_meta", "schema"]), SUBSTANTIVE = new Set(["answer", "full_rewrite", "new_page", "section", "content"]); // "content" is what actionFamilyOf returns for section and section-family, so every deep body rebuild this kernel produces scored ZERO treatment while the metadata card beside it took the full -45: the reward for substantive work reached only answer_block and new_page, and a bundle that rewrites a page was ranked as if nobody knew what it was
+const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
+/** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
+const HISTORY_SHRINK = 12;
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
@@ -229,18 +230,23 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // AND ONLY ON A PAGE THAT COULD SHOW IT. A family 165 clicks up across seven readings says nothing about a
   // page shown 22 times: that page cannot produce those clicks, so the track record was lifting cards with no
   // audience at all over rebuilds of pages shown thirty thousand times. No audience, no vote.
+  // THE KIND OF CHANGE NEVER DECIDES, THE EXPECTED TRAFFIC DOES (operator, 2026-08-26). A `treatment` factor
+  // sat here paying +45 to "substantive" families and -45 to metadata ones, a NINETY point swing keyed on a
+  // regex over `changeFamily`, wider than the whole audience band and worth 2,250 clicks of visibility at
+  // `clicks / 25`. It was read off four losses and one win. A 539-click title rewrite ranked BELOW a
+  // three-minute answer block on a page shown 300 times, which is category allocation wearing a track record.
+  // Deleted outright rather than shrunk: what a family has done belongs in confidence below, never in size.
   const fam = actionFamilyOf(p.changeFamily);
-  add("treatment", SUBSTANTIVE.has(fam) ? "adding real content to the page is the only kind of change that has won here at high confidence"
-    : THIN_LEVER.has(fam) ? "rewriting a line of metadata is the kind of change that has lost here at high confidence"
-    : "this kind of change has no track record here either way",
-  SUBSTANTIVE.has(fam) ? MAX.treatment : THIN_LEVER.has(fam) ? -MAX.treatment : 0, MAX.treatment);
   const seen = rode ? history?.get(fam) : undefined;
+  // SHRINK HARD, AND TOWARDS NOTHING. A handful of readings is a hint, not a verdict, so the vote is scaled by
+  // `readings / (readings + SHRINK)`: three finished readings move this a quarter of its reach, twenty move it
+  // most of the way. The reach itself is small on purpose. This can shade an order; it can never invert one.
   const votes = seen && seen.readings >= MIN_FINISHED_READINGS;
+  const pull = votes ? (seen!.readings / (seen!.readings + HISTORY_SHRINK)) * (seen!.netLift > 0 ? 1 : -1) : 0;
   add("history", !rode ? "too little of an audience on this page for what this kind of change has done elsewhere to mean anything here"
     : !votes ? "not enough finished readings of this kind of change here to judge it"
-    : seen!.netLift > 0 ? `this kind of change is ${num(seen!.netLift)} clicks up across ${num(seen!.readings)} finished readings here`
-      : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks down across ${num(seen!.readings)} finished readings here`,
-  !votes ? 0 : seen!.netLift > 0 ? MAX.history : -MAX.history, MAX.history);
+    : `this kind of change is ${num(Math.abs(seen!.netLift))} clicks ${seen!.netLift > 0 ? "up" : "down"} across ${num(seen!.readings)} finished readings here, which is too few to weigh heavily`,
+  round2(pull * MAX.history), MAX.history);
 
   return { factors: f, directional };
 }

@@ -21,6 +21,7 @@ vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, get
 import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
+import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import { fitTenantCtrCurve, defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities"; import { suggestedEdits } from "@/domains/decision/suggested-edits";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
@@ -135,6 +136,16 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     // WHETHER A ROW MAY BE SHOWN IS NOT A SCORE. A row waiting on a look used to be sunk 250 points here, more than every other factor put together, so nothing riding on a change could outweigh it and a description on a page shown three times ranked beside a page bleeding 152 clicks. Settled where it belongs instead: the queue admits only finished work and the surface keeps the two apart.
     const waiting = baseProposal({ id: "waiting", status: "needs_review", impactScore: 9999 });
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), waiting, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["waiting", "small-real-gap", "huge-no-gap"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(baseProposal({ impactScore: 0 }))); });
+  it("ranks a 539-click title rewrite above a 3-minute answer block on a page shown 300 times, because the KIND of change never decides", () => {
+    // A `treatment` factor paid +45 to "substantive" families and -45 to metadata ones, a NINETY point swing read off four losses and one win, worth 2,250 clicks of visibility at `clicks / 25`. Category outranked traffic ninefold, so the biggest recovery on the site sat under a three-minute errand. What a family has done belongs in confidence, never in size (operator, 2026-08-26).
+    const bigTitle = baseProposal({ id: "title-539", changeFamily: "title", impactScore: 539, demandImpressions90d: 30_000, estimatedEffortMinutes: 1 });
+    const smallSection = baseProposal({ id: "section-tiny", changeFamily: "section", impactScore: 0, demandImpressions90d: 300, estimatedEffortMinutes: 3,
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short new answer." } });
+    expect(rankProposals([smallSection, bigTitle]).map((p) => p.id)).toEqual(["title-539", "section-tiny"]);
+    expect(proposalValueScore(bigTitle)).toBeGreaterThan(proposalValueScore(smallSection));
+    // AND A TRACK RECORD MAY SHADE AN ORDER, NEVER INVERT ONE: three finished readings against this family pull a quarter of a twelve point factor, which cannot cross the traffic gap above.
+    const history = new Map([[actionFamilyOf("title"), { readings: 3, netLift: -40 }]]);
+    expect(rankProposals([smallSection, bigTitle], { familyHistory: history }).map((p) => p.id)).toEqual(["title-539", "section-tiny"]); });
   it("treats nothing worth PAYING for as a quiet day for the drafter, while the $0 queue still works it", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns a PAID action
     expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called // The early return used to skip the $0 producers entirely (canonical $0 acceptance run, 2026-08-21).

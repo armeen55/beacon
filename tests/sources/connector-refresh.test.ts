@@ -18,13 +18,15 @@ vi.mock("@/lib/connectors/clarity/sync-daily-metrics", () => ({ syncClarityDaily
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: vi.fn(async () => ({ domain: "example.com" })) }));
 import { syncSucceeded } from "@/lib/connectors/on-use-refresh";
 import { fetchClarityUrlMetrics } from "@/lib/connectors/clarity/client";
+// THE DAY THIS FIXTURE CLAIMS MUST BE THE DAY THE CODE READS. Building it with `toISOString()` made a UTC day while `due-work` compares against the PACIFIC reporting day, so from 17:00 Pacific until midnight the two disagreed, `stockClosed` went false, and this test failed on every machine including CI for about seven hours a day.
+import { reportingDay } from "@/lib/reporting-day";
 beforeEach(() => { state.connected = { google_gsc: true, google_ga4: true, clarity: true }; state.clarityToken = TOKEN; });
 afterEach(() => { vi.unstubAllGlobals(); });
 describe("what a stale source is allowed to open on its own", () => {
   it("GA4 and Clarity are modifiers: only Search Console staleness makes a refresh owed", async () => {
     const { dueWork } = await import("@/domains/runtime/ops/due-work"); // nothing below has ever synced, so every connected source is stale
     const rest = { checks: async () => ({ done: 0, total: 0, answers: 0, unavailable: 0, unsupported: 0, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7,
-      surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1", factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 5, creditHeld: async () => false, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, replenish: { day: new Date().toISOString().slice(0, 10), fingerprint: "b1::v7::settled", attempted: [], closed: "candidates_exhausted" as const } } }) };
+      surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1", factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 5, creditHeld: async () => false, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, replenish: { day: reportingDay(), fingerprint: "b1::v7::settled", attempted: [], closed: "candidates_exhausted" as const } } }) };
     state.connected = { google_gsc: false, google_ga4: true, clarity: true }; expect((await dueWork("t1", new Date(), rest)).due).toEqual([]); // behaviour data going stale never wakes the run
     state.connected = { google_gsc: true, google_ga4: false, clarity: false }; expect((await dueWork("t1", new Date(), rest)).due).toEqual(["refresh_sources"]); // and that refresh still pulls every connected source
     state.throw = true; const blind = await dueWork("t1", new Date(), rest); state.throw = false; expect([blind.readable, blind.due]).toEqual([false, []]); }); // A SOURCE I COULD NOT READ IS NOT A FRESH ONE: this leg swallowed its own failure per provider, so it could never make dueWork unreadable
