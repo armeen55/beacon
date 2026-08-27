@@ -108,9 +108,6 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
     expect([(db.cov as { coveredChars: number }).coveredChars, second.status]).toEqual([long.body.length, "done"]);});
   it("a chunk that filled up to the cap has not been read, and the cursor says where it stopped", async () => {
     // A DENSE LIST PAGE IS THE CASE THIS EXISTS FOR: 194 name entries in 11,600 characters fit inside ONE
-    // 12,000-character chunk, the schema returns at most forty statements, and the page was then marked COVERED.
-    // The other 154 entries became permanently unreachable at that body hash, so "check the page" quietly meant
-    // "sample a fifth of it". A capped extraction now advances only to the end of the last statement it banked.
     const entries = Array.from({ length: 60 }, (_, i) => `Name${i} Meaning: wrong meaning ${i}.`);
     const dense = { url: "https://x.example/dense", path: "/dense", body: entries.join(" ") };
     const capped = { statements: Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `wrong meaning ${i}.`, locator: `Name${i}` })) };
@@ -181,9 +178,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(ok.sourceReadAt).not.toBeNull(); });
   it("a passage about a different name cannot confirm this one, however alike the two are spelled", async () => {
     // THE DARYA/DARIA CASE, live: Wikipedia's "Daria (given name)" is an encyclopedia, is quotable, and lists
-    // "Darya" among its variants, so it authorized a Slavic name descended from Darius as the meaning of
-    // Persian دریا, which means sea. Every test the old chain ran was passing. Rejected here for being the
-    // WRONG SUBJECT and never for its domain: the same encyclopedia confirms when it is about the same word.
     const daria = "Daria is a feminine given name, the Slavic form of Darius, meaning possessing goodness.";
     const darya = "Persian دریا (daryā): sea, ocean, a large body of water.";
     const enc = { organic: [{ domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Daria" }] };
@@ -238,9 +232,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
     // THE DEADLOCK, LIVE. Bumping the verification rules re-opened 21 settled claims on the names page, the owed
-    // queue stood at 33, and because extraction waited for that queue to empty, eighteen consecutive passes left
-    // coverage at 0 of 11,589 characters. A unit settles at most ONE claim, so the page's other ~160 entries were
-    // not owed, not checked, and not anywhere. The wait could never end on its own either.
     const body = Array.from({ length: 60 }, (_, i) => `Name${i} means Meaning${i}.`).join(" ");
     const owedAlready = Array.from({ length: 33 }, (_, i) => row({ statementKey: `owed${i}`, subject: `Old${i}`, pageContentHash: pageHashOf(body) }));
     db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
@@ -265,7 +256,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
   it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
     // LIVE on /persian-female-first-names: one claim whose sources would not parse returned `fetch_refused` at
-    // $0 on five consecutive passes. Ending the pass on any failed unit is right for a spent budget or an
     // outage, which repeat; the owed order is stable, so a failure ABOUT ONE CLAIM put that claim back at the
     // head every time and 167 other owed claims were never reached once.
     const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";

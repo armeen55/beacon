@@ -64,9 +64,6 @@ describe("a description names the subject, never the page's own furniture", () =
     return seen; };
   it("tells the retry which text was rejected, and never asks a kind for a field its own schema lacks", async () => {
     // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
-    // placeholder guard. The retry was told only the category "placeholder", so it returned the identical
-    // output and the second paid call bought nothing. It was ALSO told to include an evidenceRefs entry, which
-    // that schema does not have. Both are kind-agnostic defects; the atomic_edit kind pins the first.
     let second = "";
     const capture: CompleteFn = async (r) => { second = r.system;
       return { value: { ...VALID_ATOMIC_EDIT, rationale: "The title misses what searchers ask [ 1 ] about." } }; };

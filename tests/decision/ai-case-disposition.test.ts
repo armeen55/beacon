@@ -73,9 +73,6 @@ describe("the same account state reads back in the same order, whatever order th
   beforeEach(() => { db.rows.clear(); db.rpcCalls = 0; db.failReads = false; db.failWrites = false; });
   it("returns tied rows in one total order from either arrival order", async () => {
     // LIVE: days/engines/executions leave dozens of rows tied, Postgres returns ties in arbitrary heap order,
-    // and two back-to-back builds of an UNCHANGED account swapped tied rows. The release material moved, so
-    // three operator presses in three minutes each published a "new" release rewriting 15 rows that said
-    // nothing new. The store's own read is the one place every surface goes through, so the order is total here.
     const { recordAiCaseDispositions, readAiCaseDispositions } = await import("@/domains/decision/ai-case-store");
     const tied = ["fanout:zebra", "fanout:apple", "fanout:mango"].map((caseKey) =>
       filed({ caseKey, state: "monitoring", days: 18, engines: 1, executions: 18 }));

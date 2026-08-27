@@ -51,7 +51,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const [moreLanes, setMoreLanes] = useState<Record<string, Lane>>({});
   const [at, setAt] = useState<number>(view.queueCursor?.all ?? view.proposals.length);
   const [release, setRelease] = useState<string | null>(view.surfaceVersion ?? null);
-  const [canMore, setCanMore] = useState<boolean>(view.queueMore?.all ?? true);
+  // READY PAGES ALONE. The one load-more control belongs to the finished lane: it starts at the global
+  // first page's cursor (every ready row at or before it is already on screen, so nothing is skipped and
+  // nothing repeats) and asks the server for ready rows only.
+  const [canMore, setCanMore] = useState<boolean>(true);
   const [moved, setMoved] = useState<{ note: string; total: number } | null>(null);
   const [lost, setLost] = useState<number>(0); // refusals a deeper page found
   const [hidden, setHidden] = useState<string[]>([]);
@@ -71,10 +74,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     return hold.lane === "research" ? "research" : "todo";
   }, [moreLanes, view]);
   const rows = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
-  // ONE ORDER, ONE SET OF NUMBERS. The number on a card was its index WITHIN ITS SECTION, so three cards on one
-  // screen each read "1" while their own sentences ("Ranked ahead of the change for X") name the single global
-  // order they really sit in, pointing at cards under other headings. The position is read off that one order.
-  const placeOf = useMemo(() => new Map(rows.map((p, i) => [p.id, i + 1])), [rows]);
+  // THE VISIBLE SEQUENCE IS THE READY LANE'S OWN, 1..N with no gaps (operator, 2026-08-27): the stored global
+  // rank still orders everything, but a customer reading finished work must never see 1, 5, 11, 19 because
+  // internal lanes sit hidden between them. Each numbered section counts its own cards.
+
   const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);
   // A row carrying BOTH a genuine safety decision AND a Beacon fault belongs to Beacon first: the operator is
   // never asked to authorize work Beacon itself knows is defective (approved contract, 2026-08-27).
@@ -84,7 +87,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // the Ready heading: the whole-lane total from the database, minus what this session finished or skipped.
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
     + Math.max(0, (view.summary.ready ?? 0) - readyRows.length));
-  const remaining = Math.max(0, (view.queueTotal ?? (moved?.total ?? rows.length)) - raw.length - lost);
+  // WHAT IS LEFT TO LOAD IS FINISHED WORK ONLY: the ready lane's own database total minus the ready rows
+  // already on screen. Internal lanes have no pagination to share.
+  const loadedReady = useMemo(() => raw.filter((p) => laneOf(p) === "ready").length, [raw, laneOf]);
+  const remaining = Math.max(0, (moved?.total ?? view.summary.ready ?? 0) - loadedReady - lost);
   const measuring = view.countsUnavailable ? null : view.measuringCountCanonical;
   const wins = view.countsUnavailable ? null : view.wonCountCanonical ?? null;
 
@@ -118,11 +124,28 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         ) : (
           <ul className="list-none space-y-3">
             {readyRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={placeOf.get(p.id) ?? i + 1} ready review={false} caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={i + 1} ready review={false} caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
         )}
+        {canMore && remaining > 0 ? (
+          <button type="button" disabled={loadingMore} data-show-more="true"
+            onClick={() => startLoadMore(async () => {
+              const res = await loadMoreChangesAction({ lane: "ready", cursor: at, releaseId: release });
+              setRelease(res.releaseId);
+              setAt(res.cursor);
+              setCanMore(res.more);
+              setLost((prev) => (res.refreshed ? 0 : prev + res.dropped));
+              setMoved((prev) => (res.refreshed ? { note: res.refreshed, total: res.total } : prev ? { ...prev, total: res.total } : prev));
+              setMoreLanes((prev) => ({ ...prev, ...res.laneById }));
+              setMore((prev) => (res.refreshed ? res.rows : [...prev, ...res.rows]));
+            })}
+            className="w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground tabular-nums hover:text-foreground disabled:opacity-60"
+          >
+            {loadingMore ? "Loading…" : `Show ${Math.min(remaining, CHANGES_PAGE_SIZE).toLocaleString("en-US")} more finished ${remaining === 1 ? "change" : "changes"}`}
+          </button>
+        ) : null}
       </section>
 
       {/* NEEDS YOUR DECISION: the ONE lane that is genuinely the operator's, and only that. A redirect, merge or
@@ -137,7 +160,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           </p>
           <ul className="list-none space-y-3">
             {decisionRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={placeOf.get(p.id) ?? i + 1} review caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={i + 1} review caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
@@ -164,24 +187,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         </details>
       ) : null}
 
-      {canMore && remaining > 0 ? (
-        <button type="button" disabled={loadingMore} data-show-more="true"
-          onClick={() => startLoadMore(async () => {
-            const res = await loadMoreChangesAction({ lane: "all", cursor: at, releaseId: release });
-            setRelease(res.releaseId);
-            setAt(res.cursor);
-            setCanMore(res.more);
-            // A fresh first page's refusals are already out of its own total; only DEEPER pages accumulate.
-            setLost((prev) => (res.refreshed ? 0 : prev + res.dropped));
-            setMoved((prev) => (res.refreshed ? { note: res.refreshed, total: res.total } : prev ? { ...prev, total: res.total } : prev));
-            setMoreLanes((prev) => ({ ...prev, ...res.laneById }));
-            setMore((prev) => (res.refreshed ? res.rows : [...prev, ...res.rows]));
-          })}
-          className="w-full rounded-xl border border-border px-3 py-2 text-[13px] font-semibold text-muted-foreground tabular-nums hover:text-foreground disabled:opacity-60"
-        >
-          {loadingMore ? "Loading…" : remaining <= CHANGES_PAGE_SIZE ? `Show ${remaining} more` : `Show ${CHANGES_PAGE_SIZE} more of ${remaining}`}
-        </button>
-      ) : null}
+      {/* The one load-more lives under Ready above: finished work pages alone, and internal work never
+          shares its pagination (operator, 2026-08-27). */}
 
       {/* THE ONE COMPACT LINE TO MEASUREMENT. Results owns the ledger; this only points at it, and a ledger
           that could not be read gets one compact sentence, never a zero and never an empty claim. */}

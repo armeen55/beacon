@@ -124,6 +124,27 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
+  it("Ready is one sequence, 1..N with no hidden-lane gaps, and Show more pages finished work only", async () => {
+    // The live queue numbered its finished cards 1, 5, 6, 7, 11, 14, 19: the stored global rank leaked through
+    // with holes where internal lanes sat. The customer sequence is the Ready lane's own.
+    const mk = (n: number, lane: "ready" | "todo") => ({ ...atomic(), id: `t::/p${n}::existing_edit::title`, pagePath: `/p${n}`,
+      ...(lane === "todo" ? { status: "needs_review" as const } : {}) } as ChangeProposal);
+    const rows = [mk(1, "ready"), mk(2, "todo"), mk(3, "ready"), mk(4, "todo"), mk(5, "ready")];
+    const view = { ...viewOf(rows), proposals: rows, ready: rows.filter((_, i) => i % 2 === 0),
+      laneById: Object.fromEntries(rows.map((p, i) => [p.id, i % 2 === 0 ? "ready" as const : "research" as const])),
+      summary: { todo: 0, ready: 40, research: 2, implemented: 0, measuring: 0, results: 0 } };
+    const html = await renderList(view);
+    const seq = [...html.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => m[1]);
+    expect(seq, "finished cards count themselves").toEqual(["1", "2", "3"]);
+    expect(html).toContain("Show 25 more finished changes");
+    expect(html, "internal work never shares the finished lane's pagination").not.toMatch(/Show \d+ more of/);
+    // At five hundred finished rows the sequence stays stable and complete.
+    const many = Array.from({ length: 500 }, (_, i) => mk(i + 1, "ready"));
+    const big = await renderList({ ...viewOf(many), summary: { todo: 0, ready: 500, research: 0, implemented: 0, measuring: 0, results: 0 } });
+    const bigSeq = [...big.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
+    expect(bigSeq.length).toBe(500); expect(bigSeq[0]).toBe(1); expect(bigSeq[499]).toBe(500);
+    expect(big).not.toContain("Show "); });
+
   it("attention, treatment and wording are three separately earned answers, never one leap", async () => {
     const P = (over: Partial<ChangeProposal>) => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, causeFinding: undefined, ...over } as ChangeProposal);
     // Onager title: 8,112 impressions justify ATTENTION; with no results-page or winning-page reading, the
