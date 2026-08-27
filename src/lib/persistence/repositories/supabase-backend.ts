@@ -23,7 +23,6 @@ import type {
 import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { Finding } from "@/domains/evidence/scanning/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
-import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -369,19 +368,6 @@ export const supabaseBackend: SeedDataRepository = {
     })) as RecommendationResponse[];
   },
 
-  // Sprint 6A.1 Phase 12 — specific edits read path. Rows are already
-  // snake_cased to match the migration; no key mapping needed.
-  getRecommendedEdits: async () => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("recommended_edits")
-      .select("*");
-    if (error)
-      throw new Error(
-        `Supabase query failed on recommended_edits: ${error.message}`,
-      );
-    return (data ?? []) as unknown as RecommendedEditRow[];
-  },
-
   // Phase 3.5E — hero-surface data. Paged reads defeat PostgREST's default 1000-row cap.
   getDailyMetricSnapshots: async () =>
     queryAllPaged<DailyMetricSnapshot>("daily_metric_snapshots"),
@@ -404,11 +390,6 @@ export const supabaseBackend: SeedDataRepository = {
         selectScoped<ChangelogEntry>("changelog_entries", tenantId),
       getObservationRuns: () =>
         selectScoped<ObservationRun>("observation_runs", tenantId),
-      getRecommendedEdits: async () =>
-        (await selectScoped(
-          "recommended_edits",
-          tenantId,
-        )) as unknown as RecommendedEditRow[],
       getChangeContracts: () =>
         queryMappedScoped<ChangeContract>("change_contracts", tenantId),
       // (Tenant-scoped getPageIssues / getEventDecisions /

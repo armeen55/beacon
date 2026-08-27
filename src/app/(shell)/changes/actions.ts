@@ -7,8 +7,8 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, editLifecycleStatus, openHold, unsettledCause,
-  loadChangeProposal, markRecommendedEditsAsShipped, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
+import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
+  loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, type MeasurementState } from "@/domains/measurement";

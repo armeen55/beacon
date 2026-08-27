@@ -111,11 +111,6 @@ export {
   splitLedgerLifecycle,
 } from "./changes/lifecycle-counts";
 
-// Changes: recommended-edits persistence
-export {
-  editLifecycleStatus,
-  markRecommendedEditsAsShipped,
-} from "./changes/recommended-edits-persistence";
 
 // Changes: action-types
 export {

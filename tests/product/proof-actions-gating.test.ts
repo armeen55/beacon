@@ -21,7 +21,6 @@ vi.mock("@/domains/decision", async () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
   loadChangeProposal: mocks.loadChangeProposal, transitionProposalToImplemented: mocks.transitionProposalToImplemented,
   resolveCurrentBasis: mocks.resolveCurrentBasis,
-  editLifecycleStatus: () => "accepted", markRecommendedEditsAsShipped: async () => ({ flipped: 0, skipped: 0 }),
   // The ONE verdict every door asks, and the kinds that move or hide a page: the REAL ones, so the mutation door under test is gated here exactly as production gates it.
   actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
   openHold: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).openHold, // the REAL one servability verdict, exactly as production gates the press

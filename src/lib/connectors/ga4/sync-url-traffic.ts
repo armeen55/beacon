@@ -21,7 +21,7 @@
  *
  * Reuses the EXACT same helpers the operator refresh action uses
  * (`getGoogleConnectorToken("ga4")` → `token.ga4_property_id` →
- * `getRecommendedEdits()` → `computeRefreshDateRange()` →
+ * `loadShippedChangesForTenant()` → `computeRefreshDateRange()` →
  * `persistGa4UrlTraffic()`), minus the operator-mode gate — the nightly
  * job is the trusted runner context, same as the GSC sync step. The
  * date range is bounded by `computeRefreshDateRange` (90-day default,
@@ -40,7 +40,7 @@ import {
   updateConnectorToken,
 } from "@/lib/connector-store";
 import { refreshGoogleAccessToken } from "@/lib/connectors/google-auth";
-import { getRepository } from "@/lib/persistence/repositories";
+import { loadShippedChangesForTenant } from "@/domains/measurement/proof-gsc/shipped-change-store";
 import {
   deriveSyncFailureEscalation,
   listRecentRefreshRuns,
@@ -86,10 +86,11 @@ export async function syncGa4UrlTrafficForTenant(args: {
     return { synced: false, reason: "no_property" };
   }
 
-  // Bound the pull to the same window the operator refresh uses: 90-day
-  // default, expanded back only to the earliest shipped edit's live_at.
-  const edits = await getRepository().forTenant(tenantId).getRecommendedEdits();
-  const { startDate, endDate } = computeRefreshDateRange(edits, now);
+  // Bound the pull to the same window the operator refresh uses: 90-day default, expanded back only to the
+  // earliest shipped change's stamp. READ OFF THE SHIPMENT LEDGER, the one canonical record of what shipped
+  // when: this used to read the retired recommended_edits lifecycle, whose writers are deleted.
+  const shipped = await loadShippedChangesForTenant(tenantId).catch(() => []);
+  const { startDate, endDate } = computeRefreshDateRange(shipped.map((r) => ({ live_at: r.implementedAt })), now);
 
   const result = await persistGa4UrlTraffic({
     tenantId,

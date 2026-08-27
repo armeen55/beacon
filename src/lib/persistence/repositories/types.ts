@@ -11,7 +11,6 @@ import type {
 import type { RobotsStateFile } from "@/domains/evidence/pages/robots-parser";
 import type { ObservationRun } from "@/domains/evidence/observations/types";
 import type { RecommendationResponse } from "@/domains/evidence/product/recommendation-response-store";
-import type { RecommendedEditRow } from "@/domains/decision/changes/recommended-edits-persistence";
 import type { DailyMetricSnapshot } from "@/domains/evidence/daily-metric-snapshots/types";
 import type { TrackedEntity } from "@/domains/evidence/ai-visibility/tracked-entities";
 import type { TrackedPrompt } from "@/domains/evidence/ai-visibility/tracked-prompts";
@@ -80,7 +79,6 @@ export interface SeedDataRepository {
 
   // Sprint 6A.1 Phase 12 (2026-04-24) — specific edits read path.
   // Fetched fresh per request on /recommendations (Sprint 1 pattern).
-  getRecommendedEdits(): Promise<RecommendedEditRow[]>;
 
   // Phase 3.5E — hosted hero-surface data (visibility score / rankings /
   // competitor comparison / entity universe). File backend wraps existing
@@ -160,7 +158,6 @@ export interface TenantRepository {
    * tenant-routed disk. FAIL-LOUD on missing table.
    */
   setRobotsState(state: RobotsStateFile): Promise<void>;
-  getRecommendedEdits(): Promise<RecommendedEditRow[]>;
   getRecommendationResponses(): Promise<RecommendationResponse[]>;
   /** Night-shift (2026-06-11) — tenant-scoped change contracts. */
   getChangeContracts(): Promise<ChangeContract[]>;

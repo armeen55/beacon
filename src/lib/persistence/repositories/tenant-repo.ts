@@ -54,8 +54,6 @@ export function buildTenantRepo(
       filterByTenantId(await base.getPageSnapshots(), tenantId),
     getPageSnapshotLinkGraphs: async () =>
       filterByTenantId(await base.getPageSnapshotLinkGraphs(), tenantId),
-    getRecommendedEdits: async () =>
-      filterByTenantId(await base.getRecommendedEdits(), tenantId),
     getRecommendationResponses: async () =>
       filterByTenantId(await base.getRecommendationResponses(), tenantId),
     getChangelogEntries: async () =>

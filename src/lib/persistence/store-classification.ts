@@ -33,7 +33,6 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "customer-surface",
   "results-surface",
   "proof-gsc-ledger",
-  "recommended-edits",
   // Per account, never shared: one account must never be served text generated for another.
   "llm-call-cache",
   "llm-budget", // per-account file cap backstop (the durable Supabase ledger is authoritative)
