@@ -23,7 +23,8 @@ const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input:
   return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] };
 const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
-  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }] };
+  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }],
+  subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry defines the Persian word" }] };
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] };
 const PASSAGE = "Persian افسانه: tale, story, fable, legend.";
 const coverage = () => ({ readCoverage: async () => db.cov as InventoryCoverage | null,
@@ -161,20 +162,57 @@ describe("one pass, one global claim allowance", () => { beforeEach(reset);
 });
 describe("what may authorize replacing published words", () => { beforeEach(reset);
   it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
-    const weak = "Afsaneh is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
+    const weak = "Afsaneh (افسانه) is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
     const split = async (url: string) => ({ text: url.includes("wiktionary") ? PASSAGE : weak });
     // The model says the dictionary supports it, quoting a sentence only the weaker page carries.
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://en.wiktionary.org/x", quote: weak }] } }) });
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://en.wiktionary.org/x", quote: weak }],
+        subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] } }) });
     const bad = db.rows[0] as FactCheck; expect([bad.agreement, bad.confidence === "confirmed", bad.sources.find((x) => x.url.includes("wiktionary"))!.says]).toEqual(["none_found", false, ""]);
     db.rows = []; // attributed honestly, the weaker page supports it alone and still cannot confirm it
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://behindthename.com/x", quote: weak }] } }) });
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://behindthename.com/x", quote: weak }],
+        subjects: [{ url: "https://behindthename.com/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] } }) });
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]);
     db.rows = [];
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
     expect(ok.sourceReadAt).not.toBeNull(); });
+  it("a passage about a different name cannot confirm this one, however alike the two are spelled", async () => {
+    // THE DARYA/DARIA CASE, live: Wikipedia's "Daria (given name)" is an encyclopedia, is quotable, and lists
+    // "Darya" among its variants, so it authorized a Slavic name descended from Darius as the meaning of
+    // Persian دریا, which means sea. Every test the old chain ran was passing. Rejected here for being the
+    // WRONG SUBJECT and never for its domain: the same encyclopedia confirms when it is about the same word.
+    const daria = "Daria is a feminine given name, the Slavic form of Darius, meaning possessing goodness.";
+    const darya = "Persian دریا (daryā): sea, ocean, a large body of water.";
+    const enc = { organic: [{ domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Daria" }] };
+    const claim = { statements: [{ subject: "Darya", current: "Beauty, elegance, and charm.", locator: "Darya" }] };
+    const judged = (text: string, sameEntity: boolean, language: string, script: string | null) => ({
+      verdict: "page_wrong", proposed: "possessing goodness", confidence: "confirmed", literal: "", usage: "", note: "",
+      supporting: [{ url: "https://en.wikipedia.org/x", quote: text }],
+      subjects: [{ url: "https://en.wikipedia.org/x", sameEntity, language, script, why: "w" }] });
+    // The reader says outright it read a different name: nothing supports the claim, however authoritative it is.
+    await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
+      searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
+      read: reader({ claims: claim, judge: judged(daria, false, "Slavic", null) }) });
+    const wrong = db.rows[0] as FactCheck;
+    expect([wrong.agreement, wrong.confidence === "confirmed"]).toEqual(["none_found", false]);
+    expect(wrong.note).toContain("about a different subject or language");
+    // And a reader that CLAIMS the same subject is still checked: a passage with no Persian in it has not shown
+    // the Persian word it says it is defining, so the claim stays below confirmed rather than taking its word.
+    db.rows = [];
+    await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
+      searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
+      read: reader({ claims: claim, judge: judged(daria, true, "Persian", "دریا") }) });
+    expect((db.rows[0] as FactCheck).confidence === "confirmed").toBe(false);
+    // The SAME encyclopedia, about the SAME word, in its own script, does confirm.
+    db.rows = [];
+    await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
+      searchSources: async () => enc, fetchSource: async () => ({ text: darya }),
+      read: reader({ claims: claim, judge: { ...judged(darya, true, "Persian", "دریا"), proposed: "sea, ocean" } }) });
+    const right = db.rows[0] as FactCheck;
+    expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
+
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",
@@ -189,7 +227,11 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
-      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "" }).success).toBe(true);
+      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "",
+      subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] }).success).toBe(true);
+    // A judgement that names no subject at all cannot be read: whose name it is about is not optional.
+    expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
+      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale" }], note: "" }).success).toBe(false);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);
   });
   it("reads a source through the REAL provider parser, not a shape invented to match", async () => {
@@ -222,12 +264,12 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     const fetched: string[] = [];
     const out = await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE,
       fetchSource: async (url: string) => { fetched.push(url); return split(url); },
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }] } }) });
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     expect(out.status).toBe("advanced"); // NOT none_found and NOT source_quality_unresolved
     expect([fetched.length, fetched.some((u) => u.includes("youtube"))]).toEqual([2, false]); // video excluded
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
   it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE, fetchSource: split,
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }] } }) });
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence

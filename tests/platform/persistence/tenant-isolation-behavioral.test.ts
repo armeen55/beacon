@@ -7,9 +7,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
     const handler = mem.upsert;
     if (!handler) throw new Error("test: no section may reach the supabase client");
-    return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler(table, rows) }) }) };
-  },
-}));
+    return { from: (table: string) => ({ upsert: (rows: unknown[]) => ({ select: async () => handler(table, rows) }) }) };},}));
 import { buildTenantRepo } from "@/lib/persistence/repositories/tenant-repo";
 import type { SeedDataRepository } from "@/lib/persistence/repositories/types";
 import type { CrawlFrontierState } from "@/domains/evidence/scanning/crawl-frontier";
@@ -36,56 +34,45 @@ describe("buildTenantRepo behavioral isolation", () => {
       getTrackedEntities: async () => ALL_ENTITIES,
       forTenant: (tenantId: string) => buildTenantRepo(fake as SeedDataRepository, tenantId),
     } as unknown as SeedDataRepository;
-    return fake;
-  }
+    return fake;}
   it("a populated tenant gets ONLY its own tracked prompts + entities", async () => {
     const repoA = buildTenantRepo(fakeBase(), "tenant-a"); const prompts = await repoA.getTrackedPrompts();
     const entities = await repoA.getTrackedEntities(); expect(prompts.map((p) => p.id).sort()).toEqual(["p-a-1", "p-a-2"]);
-    expect(entities.map((e) => e.id)).toEqual(["e-a-1"]);
-  });
+    expect(entities.map((e) => e.id)).toEqual(["e-a-1"]);});
   it("an empty tenant gets [] even though the base holds other tenants' rows", async () => {
     const repoB = buildTenantRepo(fakeBase(), "tenant-b-empty"); expect(await repoB.getTrackedPrompts()).toEqual([]);
-    expect(await repoB.getTrackedEntities()).toEqual([]);
-  });
+    expect(await repoB.getTrackedEntities()).toEqual([]);});
   it("two populated tenants are mutually isolated (disjoint id sets)", async () => {
     const base = fakeBase();
     const [promptsA, promptsC] = await Promise.all([
       buildTenantRepo(base, "tenant-a").getTrackedPrompts(),
-      buildTenantRepo(base, "tenant-c").getTrackedPrompts(),
-    ]);
+      buildTenantRepo(base, "tenant-c").getTrackedPrompts(),]);
     const aIds = new Set(promptsA.map((p) => p.id));
     for (const p of promptsC) expect(aIds.has(p.id)).toBe(false);
-    expect(promptsA.length).toBe(2); expect(promptsC.length).toBe(1);
-  });
-});
+    expect(promptsA.length).toBe(2); expect(promptsC.length).toBe(1);});});
 // ── B. dual-write validation layer ──────────────────────────────────────────
 describe("dual-write tenant validation (fires before any I/O)", () => {
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
-    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results")).not.toThrow();
-  });
+    expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: TENANT }], TENANT, "results")).not.toThrow();});
   it("dualWriteUpsertScoped rejects global tables, mismatches, and empty tenantIds", async () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
     // Valid input with an unreachable client FAILS CLOSED - never a silent no-op success.
-    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);
-  });
+    await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);});
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
     expect(GLOBAL_TABLES.has("tenants")).toBe(true); expect(GLOBAL_TABLES.has("business_config")).toBe(true);
     for (const t of ["results", "page_snapshots", "recommended_edits", "observation_runs", "pages"]) {
       expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);
     }
     // Night-shift 2026-06-11: the two index tables LEFT the global set.
-    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);
-  });
+    expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);});
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
     const original = { id: "r1", tenant_id: "" }; const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
     expect(out).toEqual([{ id: "r1", tenant_id: TENANT }, { id: "r2", tenant_id: TENANT }, { id: "r3", tenant_id: TENANT }]); expect(original.tenant_id).toBe("");
-    expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/); expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);
-  });
-});
+    expect(() => tenantizeRows([{ id: "r1", tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/); expect(() => tenantizeRows([], "", "results")).toThrow(/tenantId must be a non-empty string/);});});
 describe("a canonical write that did not land never reads as done", () => {
   const ROW = [{ tenant_id: TENANT, id: "r1" }];
   it("only rows Postgres hands back count as written: an error throws, zero rows throws, an empty batch never reaches the client", async () => {
@@ -116,8 +103,7 @@ describe("a canonical write that did not land never reads as done", () => {
       loadState: async () => ({ ...state }), saveState: async (s) => { saved.push(s); },
       syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => { throw new Error("the snapshot rows were rejected"); } } });
     // The cursor never advanced: no saved state, nothing counted as crawled.
-    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]); expect(out.detail).toMatch(/^snapshot_write_failed:/); });
-});
+    expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]); expect(out.detail).toMatch(/^snapshot_write_failed:/); });});
 // ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk one wins silently in production. Supabase unless the operator asks for files out loud.
 describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
   it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
@@ -136,9 +122,7 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
       expect(usesSupabase()).toBe(false);
       process.env.DATA_SOURCE = "supabase";
       expect(usesSupabase()).toBe(true);
-    } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }
-  });
-});
+    } finally { if (held === undefined) delete process.env.DATA_SOURCE; else process.env.DATA_SOURCE = held; vi.doUnmock("@/lib/persistence/repositories"); vi.resetModules(); }});});
 describe("Tier A sync* helpers stay tenant-wired", () => {
   it("runtime: a representative Tier A helper rejects a cross-tenant row and an empty tenantId", async () => {
     await expect(syncImportRuns([{ id: "r1", tenant_id: OTHER } as unknown as Parameters<typeof syncImportRuns>[0][number]], TENANT)).rejects.toThrow(/tenant mismatch/);

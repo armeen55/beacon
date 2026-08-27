@@ -129,11 +129,27 @@ const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGE
   + 'verdict: page_correct | page_wrong | page_imprecise | undecidable. confidence: confirmed | likely | disputed | unsupported. '
   + '`supporting` is one entry PER SOURCE that actually supports your answer: {"url": the source URL exactly as given, "quote": a sentence copied VERBATIM from THAT source\'s own passage}. '
   + 'Never repeat one sentence across sources, and never list a source you cannot quote. If you can quote none, answer unsupported and propose nothing. '
-  + 'Distinguish literal etymology from modern usage: a page recording a live usage is not automatically wrong. Never invent a replacement.';
+  + 'Distinguish literal etymology from modern usage: a page recording a live usage is not automatically wrong. Never invent a replacement. '
+  + '`subjects` is one entry PER SOURCE you quoted: {"url", "sameEntity", "language", "script", "why"}. sameEntity is TRUE only when the passage is about the SAME name, word or entity the page is talking about, in the SAME language. '
+  + 'A source that merely SPELLS the name the same way, or lists it as a variant of a different language\'s name, is a DIFFERENT subject and sameEntity is false. '
+  + '`language` is the language the passage says the subject belongs to. `script` is the subject written in its own script when the passage gives it, else null.';
 
 type Extracted = { statements: { subject: string; current: string; locator?: string }[] };
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
-  confidence: FactCheck["confidence"]; supporting: { url: string; quote: string }[]; note: string };
+  confidence: FactCheck["confidence"]; supporting: { url: string; quote: string }[]; note: string;
+  subjects?: { url: string; sameEntity: boolean; language: string; script: string | null; why: string }[] };
+
+/** THE SCRIPT A LANGUAGE IS WRITTEN IN, for the one half of subject identity code can check without asking
+ *  anybody: a passage claiming to define a Persian word, that contains no Perso-Arabic character anywhere, has
+ *  not shown the word it is defining. Generic and open: a language absent here simply skips this test rather
+ *  than failing it, so this is never a list of approved subjects. */
+const SCRIPT_OF: Record<string, RegExp> = {
+  persian: /[\u0600-\u06FF]/, farsi: /[\u0600-\u06FF]/, arabic: /[\u0600-\u06FF]/, urdu: /[\u0600-\u06FF]/,
+  russian: /[\u0400-\u04FF]/, ukrainian: /[\u0400-\u04FF]/, bulgarian: /[\u0400-\u04FF]/,
+  greek: /[\u0370-\u03FF]/, hebrew: /[\u0590-\u05FF]/, hindi: /[\u0900-\u097F]/, sanskrit: /[\u0900-\u097F]/,
+  chinese: /[\u4E00-\u9FFF]/, japanese: /[\u3040-\u30FF\u4E00-\u9FFF]/, korean: /[\uAC00-\uD7AF]/,
+  armenian: /[\u0530-\u058F]/, georgian: /[\u10A0-\u10FF]/, thai: /[\u0E00-\u0E7F]/,
+};
 
 /** WHY A PAID DOOR GAVE NOTHING, carried end to end. `capped` = the budget refused it, `waiting` = a posted
  *  task has not answered, `refused` = it answered and the answer would not validate, `unavailable` = it could
@@ -369,13 +385,40 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // contains it, so one sentence attributed to several publishers supports exactly the one it came from.
   const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
   const verified = new Map<string, string>(); // passage url -> its own verified quote
+  const vouchedAs = new Map<string, string>(); // passage url -> the url the reader NAMED for it, so the subject it vouched for is found even when a quote resolves to a different passage than the one claimed
   for (const sup of v.supporting ?? []) {
     const quote = (sup.quote ?? "").trim();
     if (quote.length === 0) continue;
     const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
-    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) verified.set(p.url, quote);
+    if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }
   }
-  const supporters = passages.filter((p) => verified.has(p.url));
+  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT. Every supporting passage now
+  // has to be about the SAME name in the SAME language, and the two halves of that are checked separately: the
+  // reader names the subject it read, and the code checks the half it can check for itself. Live, Wikipedia's
+  // "Daria (given name)" is an encyclopedia, is quotable, and lists "Darya" among its variants, so it
+  // authorized a Slavic name descended from Darius as the meaning of Persian دریا, which means sea. Nothing in
+  // the old chain could tell those two names apart, because every test it ran was passing.
+  const said = new Map((v.subjects ?? []).map((x) => [x.url, x]));
+  const vouched = passages.filter((p) => {
+    if (!verified.has(p.url)) return false;
+    const about = said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? "");
+    if (!about || !about.sameEntity) return false;  // unvouched, or a different name however alike it is spelled
+    // A SCRIPT NAMED IS A SCRIPT THAT MUST BE THERE. Where the reader says the subject is written a particular
+    // way, that writing has to appear in the passage it read, and where the language has a script of its own
+    // the passage has to carry it. Both are checkable without asking anybody, so both are checked here.
+    const script = (about.script ?? "").trim();
+    if (script && !p.text.includes(script)) return false;
+    const of = SCRIPT_OF[about.language.trim().toLowerCase()];
+    return !of || of.test(p.text); });
+  const langOf = (p: { url: string }): string => (said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? ""))?.language.trim().toLowerCase() ?? "";
+  // AND SUPPORTERS MAY NOT DISAGREE ABOUT WHOSE NAME IT IS. Two passages naming two different languages are
+  // about two different words however alike they look, so the account keeps the language its best source read
+  // and sets the others aside rather than averaging a Slavic name and a Persian one into one meaning.
+  const lead = vouched.find((p) => AUTHORITATIVE.has(p.kind)) ?? vouched[0];
+  const leadLang = lead ? langOf(lead) : "";
+  const identified = vouched.filter((p) => langOf(p) === leadLang);
+  const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
+  const supporters = identified;
   // AGREEMENT IS DISTINCT PUBLISHERS, counted, never accepted from the model.
   const agreement: FactCheck["agreement"] = supporters.length > 1 ? "multiple_agree"
     : supporters.length === 1 ? "single_source" : "none_found";
@@ -391,7 +434,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}`.trim() });
 }
 
 type FactCheckPassDeps = {

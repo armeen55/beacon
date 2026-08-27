@@ -19,8 +19,7 @@ function row(over: RowOver = {}): AiObservationRecord {
     cost_usd: 0, status: "observed", failure_reason: null, answer_text: "an answer", answer_hash: "abc",
     journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null },
     analysis, analysis_hash: analysis ? "abc" : null, ...rest, // A settled reading carries the ANSWER's own hash: the whole answer was read. A stored partial deliberately carries a different hash, which is exactly what keeps it out of every denominator.
-  } as AiObservationRecord;
-}
+  } as AiObservationRecord;}
 const link = (domain: string) => ({ url: `https://${domain}/page`, domain, title: null });
 /** A store that answers like the real one: only the slot and the day range that were ASKED for, a named range read whole, and a fixed count never exceeded. A module that asks for the newest N rows and narrows to its range afterwards gets a truncated history here, exactly as it does in production. */
 const reader = (rows: AiObservationRecord[]) =>
@@ -36,8 +35,7 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p2", mentioned: false }),
       row({ day: "2026-07-20", prompt_id: "p3", mentioned: null }), // answered, never analyzed
       row({ day: "2026-07-21", prompt_id: "p1", mentioned: null }),
-      row({ day: "2026-07-21", prompt_id: "p2", mentioned: null }),
-    ]);
+      row({ day: "2026-07-21", prompt_id: "p2", mentioned: null }),]);
     const days = allDays(await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-22", readObservations })); expect(days.map((d) => d.day)).toEqual(["2026-07-20", "2026-07-21"]);
     expect(days[0]).toMatchObject({ observed: 3, analyzed: 2, mentioning: 1, mentionRate: 0.5 }); // Three answers came back; two of them were read closely; one of those two named the account.
     expect(days[1]).toMatchObject({ observed: 2, analyzed: 0, mentioning: 0, mentionRate: null }); // NOTHING was read closely on the 21st, so the rate is null. Zero would claim AI never named them.
@@ -57,28 +55,23 @@ describe("the daily AI trend, over stored answers only", () => {
     const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
     expect(day).toMatchObject({
       citationSample: 3, ownedCiting: 2, ownedCitationRate: 0.667, ownedCitationRank: 2,
-      retrievalSample: 2, ownedRetrieved: 2, retrievedNotCited: 1, retrievedNotCitedRate: 0.5,
-    });
-  });
+      retrievalSample: 2, ownedRetrieved: 2, retrievedNotCited: 1, retrievedNotCitedRate: 0.5,});});
   it("counts a page of yours read and passed over even when the answer credited a DIFFERENT page of yours", async () => {
     // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit anybody on this site" answers yes here and reports zero, so the page the engine actually read and then ignored disappears behind a neighbour of its own that happened to get the credit.
     const readObservations = reader([row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: {
       fan_outs: null, brand_mentions: null, web_search_reported: null,
       retrieved_results: [{ url: `https://${SITE}/guide`, domain: SITE, title: null }],
       cited_sources: [{ url: `https://${SITE}/other`, domain: SITE, title: null }] } })]);
-    const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day).toMatchObject({ retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, retrievedNotCitedRate: 1 });
-  });
+    const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day).toMatchObject({ retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, retrievedNotCitedRate: 1 });});
   it("says null for retrieved-but-not-cited when the journey never recorded what was read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]); const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
     expect(day.retrievalSample).toBe(0); expect(day.retrievedNotCitedRate).toBeNull();
-    expect(day.ownedCitationRate).toBeNull(); expect(day.ownedCitationRank).toBeNull();
-  });
+    expect(day.ownedCitationRate).toBeNull(); expect(day.ownedCitationRank).toBeNull();});
   it("keeps the extra volatility samples out of the trend entirely", async () => {
     const readObservations = reader([
       row({ day: "2026-07-20", prompt_id: "p1", mentioned: false }),
       row({ day: "2026-07-20", prompt_id: "p1", sample_slot: 1, mentioned: true }),
-      row({ day: "2026-07-20", prompt_id: "p1", sample_slot: 2, mentioned: true }),
-    ]);
+      row({ day: "2026-07-20", prompt_id: "p1", sample_slot: 2, mentioned: true }),]);
     const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations }));
     expect(day).toMatchObject({ observed: 1, analyzed: 1, mentioning: 0, mentionRate: 0 }); // Slot 0 said no. Two extra samples said yes and neither one may move the line.
   });
@@ -96,14 +89,11 @@ describe("the daily AI trend, over stored answers only", () => {
     expect(days[0].byEngine).toEqual([
       // `analyzed` is each engine's OWN denominator, and it is smaller than what came back while a day is still being read: a per-engine share used to have no denominator at all and had to borrow the day's pooled one, which reports one fraction over four engines that are nothing like each other.
       { engine: "chatgpt", modelServed: "gpt-5", mode: "api", asked: 3, observed: 2, analyzed: 1, mentioning: 1, citedOwned: 0 },
-      { engine: "claude", modelServed: "claude-4", mode: "api", asked: 1, observed: 1, analyzed: 1, mentioning: 0, citedOwned: 0 },
-    ]);
-  });
+      { engine: "claude", modelServed: "claude-4", mode: "api", asked: 1, observed: 1, analyzed: 1, mentioning: 0, citedOwned: 0 },]);});
   it("asks the store for the day range and the first readings, so nothing is narrowed after the read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]); await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-21", readObservations });
     // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the newest days and on samples this trend then throws away, so the older half of the range vanishes. AND IT ASKS FOR WHAT IT READS: the overview projection, never the whole row, whose answer text and stored verdict are megabytes a trend never opens.
-    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0, projection: "overview" });
-  });
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0, projection: "overview" });});
   /** `prompts` questions x four engines x `days` days of first readings: the shape a real account stores. */
   const history = (days: number, prompts: number) =>
     Array.from({ length: days }).flatMap((_, d) => Array.from({ length: prompts }).flatMap((__, p) =>
@@ -115,29 +105,23 @@ describe("the daily AI trend, over stored answers only", () => {
     expect(rows).toHaveLength(3920); const report = await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-28", readObservations: reader(rows) });
     const days = allDays(report);
     expect([observedIn(report), days[0]!.day, days.at(-1)!.day, days.length]).toEqual([3920, "2026-07-01", "2026-07-28", 28]); // A 2,000 row cap over the newest readings held about a fortnight, so a 28 day report was half a month.
-    expect(observedIn(await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-30", readObservations: reader(history(30, 50)) }))).toBe(6000);
-  });
+    expect(observedIn(await aiOutcomes(T, { from: "2026-07-01", to: "2026-07-30", readObservations: reader(history(30, 50)) }))).toBe(6000);});
   it("never reads another account's answers", async () => {
     const readObservations = reader([
       row({ day: "2026-07-20", prompt_id: "p1", mentioned: true }),
-      row({ day: "2026-07-20", prompt_id: "p9", tenant_id: "acct-b", mentioned: true }),
-    ]);
-    const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day.observed).toBe(1);
-  });
-});
+      row({ day: "2026-07-20", prompt_id: "p9", tenant_id: "acct-b", mentioned: true }),]);
+    const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day.observed).toBe(1);});});
 describe("the model and mode boundary", () => {
   it("splits the series the day an engine changes model, and names the break", async () => {
     const readObservations = reader([
       row({ day: "2026-07-20", model_served: "gpt-5", mentioned: true }),
       row({ day: "2026-07-21", model_served: "gpt-5", mentioned: true }),
       row({ day: "2026-07-22", model_served: "gpt-5.5", mentioned: false }),
-      row({ day: "2026-07-23", model_served: "gpt-5.5", mentioned: false }),
-    ]);
+      row({ day: "2026-07-23", model_served: "gpt-5.5", mentioned: false }),]);
     const { segments } = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-23", readObservations }); expect(segments).toHaveLength(2);
     expect(segments[0]).toMatchObject({ from: "2026-07-20", to: "2026-07-21", boundary: null }); expect(segments[1]).toMatchObject({ from: "2026-07-22", to: "2026-07-23" });
     expect(segments[1].boundary).toEqual([
-      { engine: "chatgpt", day: "2026-07-22", fromModel: "gpt-5", toModel: "gpt-5.5", fromMode: "api", toMode: "api" },
-    ]);
+      { engine: "chatgpt", day: "2026-07-22", fromModel: "gpt-5", toModel: "gpt-5.5", fromMode: "api", toMode: "api" },]);
     expect(segments[1].models).toEqual([{ engine: "chatgpt", modelServed: "gpt-5.5", mode: "api" }]);
   });
   it("splits on a mode change too, and a silent engine never breaks the line on its own", async () => {
