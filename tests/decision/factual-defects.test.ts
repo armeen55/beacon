@@ -36,33 +36,27 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
-    // A CORRECTION CARD IS NOT SELF-JUSTIFYING. These cards carry no bundle so the stale sweep cannot reach them,
-    // and nothing else could either, so a card minted on evidence later found to be about the wrong subject stood
-    // Ready for ever. Live, six did: one cited Wikipedia's Slavic "Daria" for Persian darya.
+    // A CORRECTION CARD IS NOT SELF-JUSTIFYING: minted on evidence later found to be about the wrong subject,
+    // six stood Ready for ever (one cited Wikipedia's Slavic "Daria" for Persian darya).
     const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh";
     const dead = "t::/persian-female-first-names::existing_edit::fact-darya";
     store.rows = [{ id: live }, { id: dead }, { id: "t::/other::existing_edit::fact-elsewhere" }];
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([dead]);
-    // AND FAIL-CLOSED. authorizedCorrections compares a page hash, so a body read that fails would otherwise
-    // retire every correction on the site at once: three consecutive passes once destroyed finished work that way.
+    // FAIL-CLOSED: a failed body read must not retire every correction on the site at once.
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });
 
   it("turns forty sourced corrections into forty separately ranked changes that nothing can retire together", async () => {
-    // ONE CORRECTION IS ONE CHANGE (operator, 2026-08-26). Forty of these used to be ONE row of forty components. On
-    // 2026-08-23 a stale sweep withdrew that row with "the producer that owns this family rewrote it and did not
-    // re-emit this card" and all forty of the operator's best work died in a single write.
+    // ONE CORRECTION IS ONE CHANGE (operator, 2026-08-26): forty as ONE row died in a single stale-sweep write.
     checks.rows = many(40);
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards).toHaveLength(40);
     expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40);
-    // NO SHARED MUTATION, so the store cannot collapse them and the queue cannot deduplicate them onto one page slot.
     expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40);
     expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
-    // NO BUNDLE, so the stale sweep (which only reaches rows carrying one) can never take them.
     expect(cards.every((c) => c.bundle === undefined)).toBe(true);
     // AND NO CAP: the queue is unlimited, so nothing is held back "behind this batch".
     expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
@@ -73,8 +67,10 @@ describe("a page's own statements against their sources", () => {
       before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry');
     expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
-    expect(card!.supportFacts?.[0]!.fact).toContain("behindthename.com");
-    expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1"]);
+    // ONE SUPPORT PER QUOTED SOURCE, carrying the passage itself; an empty banked quote counts for nothing.
+    expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]);
+    expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend"');
+    expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
     for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) {
@@ -104,41 +100,46 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
     expect(out[1]!.recommendedChange, "a held correction keeps its exact words").toEqual(cards[1]!.recommendedChange); });
-  it("says on the card itself why a replacement cannot stand there, without waiting for anyone to be paid", async () => {
-    // LIVE: five of seven correction cards on the account carried a replacement that cannot stand where it goes
-    // ("light", "beloved", "like the moon", "Night; dark"), and the only gate that says so was reachable through
-    // the PAID reviewer. With the provider out of credit that review never runs, so the cards sat in the
-    // operator's queue with nothing on them saying why they were not offered.
+  it("a sourced gloss is shaped into the line it replaces, and only its shape", async () => {
+    // LIVE: all eight cards for the biggest recovery page were held for ever because the mint pasted the raw
+    // fragment ("light") over "Meaning:Bright, radiant, or glowing."; one span swallowed the name heading.
     checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light" }),
-      check({ subject: "Anahita", current: "Meaning:Persian goddess of water.", proposed: "Anahita is an Iranian goddess associated with water." })];
+      check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark" }),
+      check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart" })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
-    expect(by.get("noor")!.limitations[0]).toContain("mid-sentence");
-    expect(by.get("anahita")!.limitations[0]).toContain("has not read this correction yet"); });
+    const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
+    expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning:Light." });
+    expect(rc("leila").after, "a semicolon list becomes the page's own prose").toBe("Meaning:Night, or dark.");
+    expect(rc("alborz")).toMatchObject({ before: "Meaning:Shining like a heavenly flower.", after: "Meaning:Mountain Rampart." });
+    expect(by.get("noor")!.limitations[0], "nothing deterministic holds a composed line").toContain("has not read this correction yet");
+    // A point replacement is not weighed as a 15-to-400-word section; a real section stub still fails.
+    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
+    expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
+    expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).join(" ")).toContain("its copy is");
+    const { openHold } = await import("@/domains/decision/completeness");
+    expect(openHold(by.get("noor")!).need).toBeUndefined();
+    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light",
+      sources: [{ url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia", says: "The name Noor means \"light\"" }] })];
+    const one = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
+    expect(one.supportFacts).toHaveLength(1); expect(openHold(one).need?.reasonCode).toBe("single_source"); });
 
-  it("a sourced meaning that cannot stand where it goes is held before anyone is paid to read it", async () => {
-    // ALL THREE ARE LIVE ROWS. A source can be right about the etymology and still not be publishable copy:
-    // "Meaning:Beauty, elegance, and charm." replaced by "possess or maintain; well, good" leaves the page
-    // reading "Meaning:possess or maintain; well, good", and the Jasmine row proposed the name itself.
-    checks.rows = [check({ subject: "Darya", current: "Meaning:Beauty, elegance, and charm.", proposed: "possess or maintain; well, good" }),
-      check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine" }),
-      check({ subject: "Leila", current: "Meaning:Beauty and purity", proposed: "night; dark" }),
+  it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
+    // The label prefix must not smuggle "Meaning:Jasmine." past the name gate, and the reviewer reads the
+    // exact passages: its source-consistency charge was being asked over an empty source line.
+    checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine" }),
       check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly." })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    let asked = 0;
-    const complete = async (i: { user: string }) => { asked = (i.user.match(/possess|Jasmine|night; dark|Bestowing/g) ?? []).length;
+    let user = "";
+    const complete = async (i: { user: string }) => { user = i.user;
       return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly" }] } }; };
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     const by = new Map(out.map((c) => [c.id.split("fact-")[1], c]));
-    expect(by.get("darya")!.status).toBe("needs_review");
-    expect(by.get("darya")!.limitations[0]).toContain("mid-sentence");
-    expect(by.get("leila")!.status).toBe("needs_review");
-    expect(by.get("leila")!.limitations[0]).toContain("dictionary entry");
     expect(by.get("jasmine")!.status).toBe("needs_review");
     expect(by.get("jasmine")!.limitations[0]).toContain("the name itself as the name's meaning");
-    // The one that fits IS offered, and is the ONLY one the paid reviewer was shown.
     expect(by.get("atossa")!.status).toBe("ready");
-    expect(asked, "the unfit corrections never reached the paid call").toBe(1); });
+    expect(user, "the reviewer was shown the banked passage, not a bare url").toContain('says: "legend"');
+    expect(user.includes("Jasmine"), "the unfit correction never reached the paid call").toBe(false); });
 
   it("promotes nothing when the review cannot be read, and loses nothing", async () => {
     const cards = await cardsOf(2);

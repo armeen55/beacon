@@ -22,26 +22,28 @@ const pathOf = (url: string): string => {
   if (url.startsWith("/")) return url.split(/[?#]/)[0]!.replace(/\/+$/, "") || "/";
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 const n = (x: number): string => x.toLocaleString("en-US");
-const sourceLine = (c: FactCheck): string => c.sources.slice(0, 2).map((s) => s.url).join(", ");
 
-/** One banked check as one copy-ready component: the exact words on the page, the exact replacement, where else the same statement appears, and the source that authorizes it. */
-function componentOf(c: FactCheck, index: number): BundleComponent {
-  const also = c.alsoAt.filter(Boolean);
-  return {
-    kind: "factual_correction",
-    label: c.subject,
-    before: c.current,
-    after: c.proposed!,
-    evidenceKeys: [`fact-${index + 1}`],
-    risk: "review",
-    where: also.length > 0
-      ? `The "${c.subject}" entry, and the same statement at: ${also.slice(0, 3).join("; ")}`
-      : `The "${c.subject}" entry`,
-    objective: `${c.subject} stops stating a meaning its own sources contradict.`,
-    mechanism: `${c.agreement === "multiple_agree" ? "Multiple independent sources agree" : "The source of record says"} ${c.proposed}${c.literal && c.literal !== c.proposed ? ` (literally ${c.literal})` : ""}.`,
-    sourcePack: { sourceRequirements: c.sources.slice(0, 3).map((s) => `${s.kind}: ${s.url}`),
-      factRequirements: [`${c.subject} means ${c.proposed}`, ...(c.usage ? [`In modern use: ${c.usage}`] : [])] },
-  };
+/** THE SPAN THE CORRECTION ACTUALLY REWRITES. The extractor quotes exactly, and its exact quote sometimes opens
+ *  with the name heading itself ("Alborz\nMeaning:..."): a replacement targeted at that whole quote would delete
+ *  the name from the page. The heading is not what is wrong, so when the first line is the subject and nothing
+ *  else, the replaced span is everything after it. Shape only: no other narrowing is ever guessed. */
+function replacedSpanOf(c: FactCheck): string {
+  const lines = c.current.split("\n").map((l) => l.trim()).filter(Boolean);
+  return lines.length > 1 && lines[0]!.toLowerCase() === c.subject.trim().toLowerCase()
+    ? lines.slice(1).join("\n") : c.current.trim();
+}
+
+/** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. The verified meaning arrives as the source's own fragment
+ *  ("light", "Night; dark"), and pasted verbatim over "Meaning:Bright, radiant, or glowing." it deletes the
+ *  page's label and leaves a lowercase stub mid-line: every live correction card was held on exactly that.
+ *  SHAPE ONLY, NO VOCABULARY: the label prefix is the page's own, capitalization and the closing stop mirror the
+ *  words being replaced, and a semicolon list becomes the ", or " prose the page's sibling entries already use.
+ *  Not one word is added that the passage did not carry. */
+function composedReplacement(before: string, proposed: string): string {
+  const prefix = /^([\p{L}][\p{L} ]{1,23}:\s*)/u.exec(before)?.[1] ?? "";
+  const gloss = proposed.trim().replace(/\s*;\s*/g, ", or ").replace(/^\p{Ll}/u, (ch) => ch.toUpperCase());
+  const stop = /[.!?]["')\]]?\s*$/.test(before) && !/[.!?]["')\]]?$/.test(gloss) ? "." : "";
+  return `${prefix}${gloss}${stop}`;
 }
 
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
@@ -96,7 +98,12 @@ const subjectOf = (c: ChangeProposal): string => /^The "(.+?)" entry/.exec(c.rec
  *  it, because a deterministic gate does not have moods and does not cost anything to run. */
 function unfitToStandIn(before: string | null, after: string, subject: string): string | null {
   const a = after.trim(), b = (before ?? "").trim(), bare = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-  if (bare(a) === bare(subject)) return "it offers the name itself as the name's meaning, which tells a reader nothing";
+  // The name check reads the words INSIDE the page's own label: composed copy carries the "Meaning:" prefix the
+  // page carries, and "Meaning:Jasmine." offering Jasmine as Jasmine's meaning is exactly the empty answer this
+  // gate exists for, prefix or no prefix.
+  const label = /^([\p{L}][\p{L} ]{1,23}:\s*)/u.exec(b)?.[1] ?? "";
+  const core = label && a.startsWith(label) ? a.slice(label.length) : a;
+  if (bare(core) === bare(subject)) return "it offers the name itself as the name's meaning, which tells a reader nothing";
   if (b === "") return null; // nothing is being replaced, so there is no shape to match
   if (/[.!?]["')\]]?$/.test(b) && !/[.!?]["')\]]?$/.test(a)) return "the words it replaces finish a sentence and these do not, so the page would be left mid-sentence";
   if (a.includes(";") && !b.includes(";")) return "it lists alternative glosses where the page carries prose, which reads as a dictionary entry rather than as the page";
@@ -105,10 +112,15 @@ function unfitToStandIn(before: string | null, after: string, subject: string): 
 
 async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { tenantId: string; now: Date;
   attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal[]> {
+  // THE REVIEWER READS THE QUOTES. Its charge has always included "is it consistent with the quoted source",
+  // and the parts it was handed carried no sourcePack, so that question was asked over an empty source line:
+  // the one reader between a sourced correction and a paying customer was judging blind. The card's own
+  // supportFacts are the exact passages, so they ride along.
   const parts = cards.map((c): BundleComponent => ({ kind: "factual_correction", label: c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? c.pagePath ?? "") : "",
     before: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.before : null,
     after: c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "",
     evidenceKeys: ["fact-1"], risk: "review",
+    sourcePack: { sourceRequirements: (c.supportFacts ?? []).map((f) => f.fact), factRequirements: [] },
     ...(c.recommendedChange.kind === "existing_edit" && c.recommendedChange.where ? { where: c.recommendedChange.where } : {}) }));
   if (parts.length === 0) return [...cards];
   const unfit = new Map<number, string>();
@@ -182,24 +194,32 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         const where = also.length > 0
           ? `The "${c.subject}" entry, and the same statement at: ${also.slice(0, 3).join("; ")}`
           : `The "${c.subject}" entry`;
-        const source = `The page says ${c.subject} means "${c.current}". ${c.sources[0]?.kind ?? "The source"} ${sourceLine(c)} gives ${c.proposed}.`;
+        const before = replacedSpanOf(c), after = composedReplacement(before, c.proposed!);
+        // THE EXACT PASSAGES, ONE SUPPORT PER QUOTED SOURCE. The card used to carry one summary sentence naming
+        // urls, so the paid reviewer was asked "is it consistent with the quoted source" over no quote at all,
+        // and the proof receipt could show a reader nothing a source actually said. A source whose banked quote
+        // is empty was never read into evidence here and never counts toward how many sources stand under this.
+        const quoted = c.sources.filter((s) => s.says.trim() !== "").slice(0, 3)
+          .map((s, j) => ({ id: `fact-${j + 1}`, fact: `${s.kind} ${s.url} says: "${s.says.trim()}"` }));
+        const support = quoted.length > 0
+          ? quoted : [{ id: "fact-1", fact: `${c.sources[0]?.kind ?? "The source"} ${c.sources[0]?.url ?? ""} was read and gives ${c.proposed}.` }];
         cards.push({
           id: `${tenantId}::${path.toLowerCase()}::existing_edit::fact-${slugOf(c.subject) || i + 1}`, tenantId, kind: "existing_edit",
           pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
           opportunityType: `Correct what ${path} says ${c.subject} means`,
           changeFamily: "factual_correction", status: "needs_review",
-          recommendedChange: { kind: "existing_edit", field: "section", before: c.current, after: c.proposed!, where },
-          claims: [{ text: `${c.subject} means ${c.proposed}, not "${c.current}".`, supportedBy: ["fact-1"] }],
-          supportFacts: [{ id: "fact-1", fact: source }],
-          whyItMatters: `${path} tells readers ${c.subject} means "${c.current}". Its own sources of record say otherwise, and a page that states a wrong meaning is harder to trust than one that says less.`,
+          recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
+          claims: [{ text: `${c.subject} means ${c.proposed}, not "${before}".`, supportedBy: support.map((s) => s.id) }],
+          supportFacts: support,
+          whyItMatters: `${path} tells readers ${c.subject} means "${before}". Its own sources of record say otherwise, and a page that states a wrong meaning is harder to trust than one that says less.`,
           operatorSteps: [`Open the site editor on ${path}`, `Find ${where.replace(/^The /, "the ")}`,
-            `Replace "${c.current}" with "${c.proposed}"`, "Mark it done here"],
+            `Replace "${before}" with "${after}"`, "Mark it done here"],
           estimatedEffortMinutes: 2, riskLevel: "medium", confidence: "high",
           // THE FREE GATE RUNS AT MINT, NOT ONLY INSIDE THE PAID REVIEW. `unfitToStandIn` costs nothing and needs
           // nobody's permission, and it was reachable only through the paid reviewer: while the provider is out
           // of credit that review never runs, so five of the seven live corrections sat in the operator's queue
           // with a replacement that cannot stand where it goes and NO reason on the card saying so.
-          limitations: [unfitToStandIn(c.current, c.proposed!, c.subject)
+          limitations: [unfitToStandIn(before, after, c.subject)
             ?? "Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking.",
             "The page's own words were treated as evidence of what it says, never as proof they are true."],
           causeFinding: { cause: "factual_error", action: "section", evidenceKeys: ["fact-1"],
@@ -208,7 +228,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
             notConsidered: [{ cause: "ranking_loss", missing: "whether this wrong meaning costs the page positions is a separate question with separate evidence, and nothing here ties the two together." }],
             falsifier: `If the next check run finds ${path} already carries the corrected wording, this retires itself.` },
           diagnosisCause: "factual_error",
-          evidence: { query: `${path} factual accuracy`, hints: [source], evidenceRefCount: 1 },
+          evidence: { query: `${path} factual accuracy`, hints: support.map((s) => s.fact), evidenceRefCount: support.length },
           impactScore: null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,
           publish: "manual", createdAt: now.toISOString(),
         });
