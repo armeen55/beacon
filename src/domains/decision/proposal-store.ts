@@ -170,9 +170,10 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
   }
   // Every real id is minted `${tenantId}::...` by this kernel. An id wearing another account's prefix is a crafted call an id-keyed upsert would land on that account's row, so it is refused before any read.
   if (!proposal.id.startsWith(`${proposal.tenantId}::`)) {
-    log.error("[proposal-store] the id does not belong to this account, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id });
-    return "failed";
-  }
+    log.error("[proposal-store] the id does not belong to this account, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id }); return "failed"; }
+  // A ROW NOTHING CAN READ BACK IS WORSE THAN NO ROW: an empty `after` passes every gate above and fails the contract's own schema, so it landed, `loadChangeProposal` answered null for ever, the surface served nothing, and the overlap rule below counted it as an unreadable neighbour and BLOCKED the two real changes queued behind it on the same page.
+  if (!decode(JSON.parse(serializeChangeProposal(proposal)) as unknown)) {
+    log.error("[proposal-store] this proposal does not survive its own contract, so nothing is saved", { tenantId: proposal.tenantId, id: proposal.id }); return "failed"; }
   const ident = identityOf(proposal);
   try {
     const sb = getSupabaseAdmin();
@@ -180,10 +181,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     const { data, error } = await sb.from(TABLE).select(CANON_COLUMNS).eq("tenant_id", proposal.tenantId)
       .eq("case_id", ident.case_id).eq("page_key", ident.page_key).order("id", { ascending: true }).limit(200);
     if (error) {
-      log.error("[proposal-store] canonical read failed, nothing was written", {
-        tenantId: proposal.tenantId, id: proposal.id, error: error.message });
-      return "failed";
-    }
+      log.error("[proposal-store] canonical read failed, nothing was written", { tenantId: proposal.tenantId, id: proposal.id, error: error.message }); return "failed"; }
     // WHAT THIS CHANGE COLLIDES WITH, never everything that merely shares its page: a table row and a heading both stand, while a bundle rewriting a title takes over the plain title rewrite. A row that will not decode is KEPT, because an unreadable neighbour is not proof of no conflict. The id is looked up separately too, since it may have been filed under a DIFFERENT family last time.
     const onPage = ((data ?? []) as CanonRow[]).map((r) => ({ row: r, stored: r.id === proposal.id ? null : decode(r.payload) }));
     const rows = onPage.filter((e) => e.row.id === proposal.id || !e.stored || footprintsOverlap(e.stored, proposal)).map((e) => e.row);
@@ -201,7 +199,8 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       const stored = decode(r!.payload);
-      return !stored || evidenceFingerprint(stored) === evidenceFingerprint(proposal); })) return "refused";
+      // AN UNREADABLE ROW MAY ONLY REFUSE ITSELF: "unreadable is not moved" is right about THIS id and wrong about a neighbour, and once the sibling read widened to the whole page one undecodable retired row refused every new change there. To refuse, the store must be able to SHOW the evidence has not moved, which it cannot do about a row it cannot read.
+      return stored ? evidenceFingerprint(stored) === evidenceFingerprint(proposal) : r!.id === proposal.id; })) return "refused";
 
     // Nothing material changed: no write, no new timestamp, so a refreshed surface never reads yesterday's thinking as today's work.
     if (mine && mine.terminal_disposition == null) {
