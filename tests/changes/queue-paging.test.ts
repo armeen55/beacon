@@ -101,7 +101,6 @@ describe("Today and Changes answer one question once", () => {
 describe("one release identity, or no release at all", () => {
   it("serves the reasoning the rules that stand today produce, never the one banked when the row was saved", async () => {
     // THE ORDER is recomputed at every release and stamped on the row; the RECEIPT beside it rode in the
-    // payload, written when the row was last saved and never again. Live, 12 of 31 rows still carried a
     // `treatment` factor worth -45 that had been deleted, so a 2 minute change worth 98 clicks explained itself
     // with "rewriting a line of metadata is the kind of change that has lost here" and showed factors summing
     // to -15.57 while the rank it actually held came from +29.43. Lane views all come through this read.

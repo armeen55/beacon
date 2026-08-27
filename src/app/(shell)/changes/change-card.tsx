@@ -321,16 +321,27 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
                 </ul>
               </div>
             ) : null}
+            {/* WHY THIS TYPE OF ACTION, only when something actually chose it: a bundle's objective or the
+                treatment the diagnosis named. Attention evidence chooses nothing, so most cards honestly show
+                nothing here, and what else was weighed rides with it in the record's own sentence. */}
+            {proof.whyAction || proof.alternative ? (
+              <div className="space-y-1" data-proof-action="true">
+                <p className="text-[12px] font-semibold text-foreground">Why this action</p>
+                {proof.whyAction ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.whyAction}</p> : null}
+                {proof.alternative ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.alternative}</p> : null}
+              </div>
+            ) : null}
             {/* WHY THESE EXACT WORDS. A different question from the one above, and answered with different
                 evidence: what the copy asserts, and the words carrying THAT assertion. A claim shows only the
                 evidence it names, because a source standing beside a sentence it never touched is how a receipt
                 starts lying. Demand is not listed here: a search proves a page is wanted, never that a sentence
                 is the right sentence. */}
-            {proof.wording.length > 0 || proof.queryEcho || proof.shape ? (
+            {proof.wording.length > 0 || proof.queryEcho || proof.shape || proof.wordingBasis ? (
               <div className="space-y-1" data-proof-wording="true">
                 <p className="text-[12px] font-semibold text-foreground">Why these words</p>
                 {proof.queryEcho ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.queryEcho}</p> : null}
                 {proof.shape ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.shape}</p> : null}
+                {proof.wordingBasis ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-wording-basis="true">{proof.wordingBasis}</p> : null}
                 <ul className="list-disc space-y-1 pl-4 text-[12px] leading-relaxed text-muted-foreground">
                   {proof.wording.map((w, i) => (
                     <li key={i}>{w.claim}

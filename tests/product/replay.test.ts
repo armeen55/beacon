@@ -196,8 +196,6 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(ok.res.paid.receipts.every((r) => r.outcome !== "produced" || env.store.has(String(r.key)) || ok.landed.length > 0)).toBe(true);
     expect(ok.calls).toBeGreaterThan(0);
     // ONE LANDING PER DURABLY KEPT ROW, at the settlement and nowhere else. A second land on the same row (the editor
-    // landing again after the settlement already had) only shows at a deficit of TWO or more: it closed the pass a row
-    // early and reported the queue full while it was still short, which starved every replenish drive in production.
     const two = await drive(2, []);
     expect(two.res.paid.readyShortfall).toBe(2 - two.landed.length); // the receipt owns up to exactly what the store took, at a deficit the old double landing lied about
     expect(two.calls).toBeGreaterThanOrEqual(ok.calls); // and a bigger deficit never does less work
@@ -220,9 +218,6 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
       const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, readyTarget: 1 });
       return { res, calls: seam.calls(), kept: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true).length }; };
     // PRE-EXISTING STOCK CONFIRMS AND NEVER LANDS: the caller's deficit already subtracted the rows Ready on file, so
-    // re-serving one must not fill the shortfall again (that double-count deadlocked the queue at four of five while
-    // every dispatch burned a drive to stand still). The store confirms it, the receipt says produced, and the pass
-    // keeps working the shortfall with fresh drafting.
     const early = await run([]);
     expect(early.kept >= 1).toBe(true);
     expect(early.res.paid.receipts.some((r) => r.outcome === "produced")).toBe(true);

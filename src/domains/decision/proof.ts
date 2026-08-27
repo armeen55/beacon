@@ -22,8 +22,19 @@ export type ProofReceipt = {
    *  evidence carried a date. `seen` is formatted from the stored instant alone, never from the reader's clock:
    *  a relative age rendered on the server and rehydrated in the browser disagrees with itself. */
   opportunity: { fact: string; seen: string | null }[];
+  /** WHY THIS TYPE OF ACTION treats the diagnosed cause: a bundle's own objective, or the treatment the
+   *  diagnosis itself named. Null when nothing diagnosed an action, which is honest and common: attention
+   *  evidence never explains why a title change beats a section, so nothing here may guess one. */
+  whyAction: string | null;
+  /** What else was weighed and why it lost, in the record's own sentence. The competing cause's internal slug
+   *  is never printed; only its written reason is. Null when no meaningful alternative was recorded. */
+  alternative: string | null;
   /** What the copy asserts, and the exact evidence carrying THAT assertion and never another claim's. */
   wording: { claim: string; because: string[] }[];
+  /** THE HONEST BASIS OF THE WORDING for families where wordings compete (title, description, heading): when no
+   *  results-page pattern, winning-page reading or modeled shape backs these exact words, the receipt says so
+   *  and claims no superiority. Null when wording-class evidence exists or the family does not compete. */
+  wordingBasis: string | null;
   /** The search this page already appears for, when the finished words actually use it. */
   queryEcho: string | null;
   /** Where the SHAPE of the copy came from, when it was modeled on something rather than guessed. */
@@ -97,17 +108,40 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
     ? "No cause is named for it yet, so this is the order to work in, not a promise about size." : null;
   const ranksHere = [demand, explained ?? order].filter(Boolean).join(" ") || null;
 
+  // WHY THIS ACTION, said only by something that actually chose it: a bundle states its own objective, and a
+  // diagnosis that named a treatment names it here. Attention evidence chooses nothing, so a card with neither
+  // says nothing, which is the whole point: impressions justify looking, never a particular kind of edit.
+  const ACTION_PHRASE: Record<string, string> = { title: "a title change", meta: "a description change", opening_answer: "an opening answer",
+    section: "a section change", full_page: "a full page rewrite", new_page: "a new page", consolidate: "consolidating the competing pages", watch: "watching before acting" };
+  const diagnosedAction = p.causeFinding?.action ? ACTION_PHRASE[p.causeFinding.action] ?? null : null;
+  const whyAction = p.bundle?.objective
+    ?? (diagnosedAction ? sentence(`The diagnosis that named this cause also named the treatment: ${diagnosedAction}`) : null);
+
+  // WHAT ELSE WAS WEIGHED, in the record's own written reason. The competing cause's internal slug never
+  // prints; a bundle's recorded alternative names its option outright.
+  const alt = p.bundle?.alternatives?.[0] ?? null;
+  const competing = p.causeFinding?.competingExplanations?.[0] ?? null;
+  const alternative = alt ? sentence(`Considered instead: ${alt.option}. It lost because ${alt.reason}`)
+    : competing ? sentence(`Also weighed and set aside: ${competing.reason}`) : null;
+
   // Every support id a claim names, resolved to the words it actually carries. A claim shows ITS OWN evidence
   // and never the bundle's other sources: an unrelated source standing beside a sentence it never touched is
   // the exact way a receipt starts lying.
   const facts = new Map((p.supportFacts ?? []).map((f) => [f.id, f.fact]));
-  const wording = (p.claims ?? [])
-    .map((c) => ({ claim: c.text, because: c.supportedBy.map((id) => facts.get(id)).filter((f): f is string => !!f) }))
-    .filter((w) => w.because.length > 0);
+  const items = p.bundle?.receipt.items ?? [];
+  // A BUNDLE'S WORDING PROVENANCE IS PER COMPONENT AND NEVER POOLED: each piece shows only the receipt items
+  // its own evidenceKeys name, so a fact banked for one piece can never dress up its neighbour.
+  const byKey = new Map(items.map((i) => [i.key, i.fact]));
+  const wording = p.bundle
+    ? p.bundle.components.map((c) => ({ claim: c.objective?.trim() || c.label,
+        because: (c.evidenceKeys ?? []).map((k) => byKey.get(k)).filter((f): f is string => !!f) }))
+      .filter((w) => w.because.length > 0)
+    : (p.claims ?? [])
+      .map((c) => ({ claim: c.text, because: c.supportedBy.map((id) => facts.get(id)).filter((f): f is string => !!f) }))
+      .filter((w) => w.because.length > 0);
 
   // The measured record: the receipt's typed items where a bundle wrote one, the producer's own evidence
   // sentences otherwise, because most finished rows on the live account carry no bundle at all.
-  const items = p.bundle?.receipt.items ?? [];
   const opportunity = items.length > 0
     ? items.map((i) => ({ fact: i.fact, seen: seenOn(i.observedAt) }))
     : (p.evidence?.hints ?? []).map((h) => ({ fact: h, seen: null }));
@@ -119,6 +153,15 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
   const queryEcho = searchable(p) && after.toLowerCase().includes(q.toLowerCase())
     ? `${quoted(q)} is the search already bringing people to this page, and the new wording uses it.` : null;
 
-  return { ranksHere, opportunity, wording, queryEcho, shape: p.modeledOn ?? null,
+  // "BEST" IS A CLAIM THAT NEEDS WORDING-CLASS EVIDENCE, and where none exists the receipt says so instead of
+  // implying it. Only the families where wordings genuinely compete are asked; a factual correction's words
+  // stand on their quotes and a section's on its claims.
+  const field = p.recommendedChange.kind === "existing_edit" ? p.recommendedChange.field : null;
+  const wordingEvidence = !!p.modeledOn || items.some((i) => i.kind === "serp" || i.kind === "winning_page");
+  const wordingBasis = (field === "title" || field === "meta" || field === "h1") && !wordingEvidence && p.changeFamily !== "factual_correction"
+    ? "The wording is composed from this page and its search. No results page or winning page was checked against these exact words, so they are offered as a supported improvement, not as proven better than alternatives."
+    : null;
+
+  return { ranksHere, whyAction, alternative, opportunity, wording, wordingBasis, queryEcho, shape: p.modeledOn ?? null,
     limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? [])].map((l) => l.trim()).filter(Boolean) };
 }

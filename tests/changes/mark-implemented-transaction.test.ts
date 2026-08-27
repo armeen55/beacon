@@ -38,8 +38,6 @@ beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     // Every card owned its own server action, and Next runs those strictly one at a time: twenty cards meant
-    // twenty round trips and twenty full surface rebuilds, thirty to sixty seconds of Saving for work the
-    // operator had already finished. The recording underneath stays atomic; the TRIP is what is shared.
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
     stored.proposal = change(); surf.rebuilds = 0;
     const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;

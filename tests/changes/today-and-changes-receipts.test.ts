@@ -124,6 +124,36 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
+  it("attention, treatment and wording are three separately earned answers, never one leap", async () => {
+    const P = (over: Partial<ChangeProposal>) => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, causeFinding: undefined, ...over } as ChangeProposal);
+    // Onager title: 8,112 impressions justify ATTENTION; with no results-page or winning-page reading, the
+    // receipt says the wording is offered as supported, never proven better, and no action was diagnosed.
+    const title = proofOf(P({ demandImpressions90d: 8112, impactScore: 74, primaryQuery: "onager" }));
+    expect(title.whyAction).toBeNull(); expect(title.wordingBasis).toContain("not as proven better");
+    expect(JSON.stringify(title)).not.toMatch(/proven best|better CTR|beats the/i);
+    // Iran flag meta: with a real results-page reading on file, the honesty line is not needed.
+    const withSerp = proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "New description." },
+      bundle: { ...proposal().bundle!, receipt: { items: [{ key: "k1", kind: "serp", fact: "The results page for this search leads with 1979.", observedAt: null }], missing: [], freshestObservedAt: null } } }));
+    expect(withSerp.wordingBasis).toBeNull();
+    // Kerman typo: a factual correction's words stand on quotes, not on wording competition.
+    expect(proofOf(P({ changeFamily: "factual_correction", recommendedChange: { kind: "existing_edit", field: "meta", before: "x ,", after: "x," } })).wordingBasis).toBeNull();
+    // A diagnosed cause names its treatment and its rejected alternative IN ITS OWN SENTENCE, slug never shown.
+    const diagnosed = proofOf(P({ causeFinding: { ...FINDING, cause: "retrieved_not_cited", action: "section",
+      explanation: "Assistants read this page and quote somebody else.", competingExplanations: [{ cause: "ctr_snippet", reason: "the line a searcher reads cannot fix an answer assistants never lift" }] } }));
+    expect(diagnosed.whyAction).toBe("The diagnosis that named this cause also named the treatment: a section change.");
+    expect(diagnosed.alternative).toContain("the line a searcher reads cannot fix");
+    expect(diagnosed.alternative).not.toContain("ctr_snippet");
+    // A bundle's wording provenance is PER COMPONENT and never pooled across its receipt.
+    const b = proofOf(P({ bundle: { ...proposal().bundle!, alternatives: [{ option: "Rewrite the title", reason: "it cannot fix two of your pages competing" }],
+      components: [{ kind: "title", label: "Page title", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"], objective: "Say what this page answers." },
+        { kind: "h1", label: "Heading", risk: "safe", before: "c", after: "d", evidenceKeys: ["k2"], objective: "Match the heading to it." }],
+      receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions for that search.", observedAt: null },
+        { key: "k2", kind: "page_extract", fact: "The page's own heading says otherwise.", observedAt: null }], missing: [], freshestObservedAt: null } } }));
+    expect(b.whyAction).toBe(proposal().bundle!.objective);
+    expect(b.alternative).toBe("Considered instead: Rewrite the title. It lost because it cannot fix two of your pages competing.");
+    expect(b.wording).toEqual([{ claim: "Say what this page answers.", because: ["1,200 impressions for that search."] },
+      { claim: "Match the heading to it.", because: ["The page's own heading says otherwise."] }]); });
+
   it("the rendered card leads with the proof line and no bare check count survives anywhere", async () => {
     const html = await renderList(viewOf([{ ...atomic(), demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag" } as ChangeProposal]));
     expect(html).toContain("Why this ranks here:");
@@ -148,16 +178,12 @@ describe("a ranked card explains itself without being opened", () => {
     for (const s of ["Proven", "Page-only", "Source-backed", "Search-results-backed"]) expect(ready, s).not.toContain(s);
     expect(ready, "the row says what backs it").toContain("Why this ranks here:");
     // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS BEACON'S PROBLEM, never the operator's: it renders only
-    // as the compact background status, with no card, no controls and no internal refusal text, even when the
-    // same row also carries a safety decision, because nobody is asked to authorize known-defective work.
     const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
     expect(bad, "no card").not.toContain('data-change-card="true"');
     expect(bad, "background").toContain("Beacon is working on 1 more opportunity");
     for (const never of ["Beacon must improve", "it repeats what stays on the page below it", "Needs your decision"]) expect(bad, never).not.toContain(never);});
   it("every Ready card is impossible to misunderstand: action, target, current, new, location, untouched, named button", async () => {
     // THE ZERO-INTERPRETATION CONTRACT (operator, 2026-08-27): at ten to thirty applied changes a day, "does
-    // this replace something? where does it go?" is the product's whole cost. Four representative shapes, each
-    // read off the CANONICAL recommendedChange and never off prose.
     const shape = (over: Partial<ChangeProposal>) => ({ ...atomic(), bundle: undefined, ...over } as ChangeProposal);
     // 1. A title REPLACEMENT: old words shown struck through, new words beside a button naming the object.
     const title = await renderList(viewOf([shape({})]));

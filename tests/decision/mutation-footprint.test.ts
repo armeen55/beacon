@@ -67,8 +67,6 @@ describe("what a change actually writes", () => {
 
   it("a new page collides only with another page for the same demand, never with edits to a page it shares words with", () => {
     // A REAL BRIEF CARRIES A BUNDLE: a title and a meta for a page that does not exist yet. Asking the components
-    // before the kind read that as writing the title of the EMPTY path, so every brief in the account computed
-    // `::title`, all of them collided, and three ready briefs served one. Built the way production mints them.
     const brief = (q: string) => withPieces(`brief-${q}`, [piece("title", { after: q }), piece("meta")],
       { kind: "new_page", pagePath: null, pageUrl: null, primaryQuery: q,
         recommendedChange: { kind: "new_page", proposedTitle: q, metaDescription: "m", openingAnswer: "o", outline: [], faqQuestions: [], schemaTypes: [] } });

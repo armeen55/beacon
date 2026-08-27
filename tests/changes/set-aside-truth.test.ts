@@ -144,8 +144,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
     // THE APPROVED CONTRACT (operator, 2026-08-27): Beacon's unfinished writing is Beacon's responsibility and is
-    // never offered to the customer as work. A held draft renders as ONE compact background row with a detail
-    // link, never as a card with copy, controls, or its internal hold reasons.
     expect(html).toContain("Beacon is working on 2 more opportunities");
     expect(html).toContain("Writing and checking the exact change. It appears above when it is finished.");
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);

@@ -428,9 +428,6 @@ describe("the complete change universe answers for itself", () => { it("round-tr
 describe("a held body claim on one outside source asks for its second source, typed", () => {
   it("mints the factual_source requirement for the claim's own proposition, and only for the single-source case", () => {
     // LIVE: the finished takbir answer (the queue's #2 traffic opportunity, 84 clicks over 28 days) sat in
-    // review with a writer-authored hold "rests on one encyclopedia source" that matched no typed fault, so the
-    // lane printed "nothing has read them for sense yet" over a cure nothing was fetching. The condition is
-    // structural, never a sentence: an unpromoted section or answer whose external support is one fact-* id.
     const held = prop({ status: "needs_review", pageUrl: "https://www.iranopedia.com/iran-flags/iran-islamic-republic-flag-history",
       recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Why the Takbir appears twenty-two times." },
       claims: [{ text: "The Takbir is repeated 11 times along each band, reminiscent of 22 Bahman.", supportedBy: ["fact-1"] },
@@ -450,9 +447,6 @@ describe("a held body claim on one outside source asks for its second source, ty
 
 describe("traffic is the objective and every other factor may only discount it", () => {
   // LIVE, 2026-08-27: five of the top seven slots held 30 minute AEO cards carrying no click figure while a two
-  // minute change with 98 clicks a month of measured shortfall sat at rank 12. 66 points were reachable with no
-  // traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history 12) and the measured recovery was
-  // worth 4.9. Worse, that card rode its PAGE's 16,493 impressions for 29.56 instead of its own measured figure.
   const clicky = (over: Record<string, unknown> = {}) => prop({ id: "measured", pagePath: "/cheetah", impactScore: 98,
     estimatedEffortMinutes: 2, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]), ...over });
   const aeo = (over: Record<string, unknown> = {}) => prop({ id: "aeo", pagePath: "/phrases", impactScore: null,
@@ -493,8 +487,6 @@ describe("traffic is the objective and every other factor may only discount it",
 
   it("holds a STORED ready card whose copy the rules now refuse, not only a new draft", async () => {
     // LIVE: /discover-iran sat in the Ready lane carrying "Discover Iran on Iranopedia, a page about Iran from
-    // Iranopedia, with Iran as its clear focus and Iranopedia as the source." The gate that refuses that line
-    // ran at draft time only, so it stopped new copy and left the banked row exactly where it was.
     const stored = prop({ id: "tenant-iranopedia::/discover-iran::existing_edit::missing_description",
       pageUrl: "https://www.iranopedia.com/discover-iran", pagePath: "/discover-iran", status: "ready",
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source." },
@@ -505,9 +497,6 @@ describe("traffic is the objective and every other factor may only discount it",
 
   it("never prints a bare zero at the operator, it says the thing in words", () => {
     // OPERATOR VOICE RULE: never a bare zero. "Why this one ranks where it does" printed "0 questions your
-    // customers actually ask are in scope" and "0 other changes in this batch land on the same page" as
-    // reasons, which explains nothing and reads as a broken counter. The factor stays visible, because the
-    // receipt names every input it read; only the wording changes.
     const [only] = rankProposals([clicky({ id: "alone" })]);
     for (const f of only!.rankingReceipt!.factors) {
       expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);
@@ -539,8 +528,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(ranked[0]!.whyRankedAboveNext).toContain("more is riding on it"); expect(ranked[0]!.whyRankedAboveNext).not.toMatch(/[—–]|experiment|control|baseline|treatment|SERP/i);
     expect(ranked[1]!.whyRankedAboveNext).toBeUndefined(); // nothing sits below the last one
     // Both changes land on the same page, so each one discounts the other for confounding. The discount is a
-    // share of what is riding on each, so the one carrying a recovery pays and the one carrying nothing has
-    // nothing to pay with; both receipts still name the peer.
     expect(ranked.every((p) => p.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input.includes("1 other change"))).toBe(true);
     expect(factorOf(ranked[0]!, "confounding")).toBeLessThan(0);
     // a cause NOTHING on the page can fix rewards no lever and punishes none either: those changes rank on everything else
@@ -920,8 +907,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const landed = await run(1, true);
       expect(landed.asked).toBe(1);
       // TWO owed and the store keeps each: exactly two drafts, never one. A second land on the same kept row (the
-      // editor landing again after the settlement already had) closed a deficit of two after ONE row, so every
-      // replenish drive in production stopped a row short of its own target (final review, P1).
       expect((await run(2, true)).asked).toBe(2);
       // One owed and the store keeps NOTHING: the same copy is written and the shortfall still stands, so the walk carries on to every remaining candidate instead of closing on work nobody can act on.
       const lost = await run(1, false);
