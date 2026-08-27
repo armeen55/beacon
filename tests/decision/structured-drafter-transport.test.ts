@@ -62,6 +62,24 @@ describe("a description names the subject, never the page's own furniture", () =
     await draftAtomicEditStructured({ query: "shir o khorshid shirt", pageLabel: "Shir o Khorshid Shirt", field, currentValue: null, tenantId: "t",
       outline: ["Shir o Khorshid Vertical Stripe Shirt", "Does this ship internationally?", "What is the return policy?", "Cotton, mid-weight, regular fit"] }, { complete: capture });
     return seen; };
+  it("tells the retry which text was rejected, and never asks a kind for a field its own schema lacks", async () => {
+    // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
+    // placeholder guard. The retry was told only the category "placeholder", so it returned the identical
+    // output and the second paid call bought nothing. It was ALSO told to include an evidenceRefs entry, which
+    // that schema does not have. Both are kind-agnostic defects; the atomic_edit kind pins the first.
+    let second = "";
+    const capture: CompleteFn = async (r) => { second = r.system;
+      return { value: { ...VALID_ATOMIC_EDIT, rationale: "The title misses what searchers ask [ 1 ] about." } }; };
+    await callStructuredLLM({ ...REQ, complete: capture });
+    expect(second, "the retry is shown the exact offending text").toContain("[ 1 ]");
+    // atomic_edit DOES carry evidenceRefs, so the instruction still belongs on this kind.
+    expect(second).toContain("evidenceRefs");
+    let judgeRetry = "";
+    const judge: CompleteFn = async (r) => { judgeRetry = r.system; return { value: { verdict: "not a valid judgement [ 2 ]" } }; };
+    await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.",
+      user: "Judge it.", grounded: "a passage", complete: judge } as never);
+    expect(judgeRetry, "a judgement has no evidenceRefs field, so it is never asked for one").not.toContain("evidenceRefs"); });
+
   it("keeps the questions out of a meta and leaves every other field alone", async () => {
     const meta = await ask("meta"), title = await ask("title");
     expect(meta.user).toContain("Cotton, mid-weight, regular fit"); // the real attribute survives

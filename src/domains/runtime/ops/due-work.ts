@@ -375,7 +375,11 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
   // A CLAIM THE PAGE MAKES AND NOBODY HAS CHECKED IS OWED WORK, and an account that has never checked one owes
   // its first pass. Without this the phase was reachable only on a fresh daily cycle, which is one page's worth
   // of statements a day at best. An unreadable count is never a quiet "nothing owed": it says nothing here.
-  if (facts.value && (facts.value.owed > 0 || !facts.value.everChecked)) due.push("check_page_facts");
+  // AND NOT WHILE THE PROVIDER THAT HAS TO JUDGE IT IS OUT OF CREDIT. Checking a claim buys a search and a page
+  // fetch from one provider and then asks a SECOND one to read them. With the credit stop on, the first two are
+  // still bought in full and the unit dies at the judge, so the account pays for evidence nothing can weigh.
+  // Live on 2026-08-27: the balance emptied mid-run and the remaining passes bought searches to no purpose.
+  if (facts.value && (facts.value.owed > 0 || !facts.value.everChecked) && !creditHeld.value) due.push("check_page_facts");
   if (notesMoved) due.push("decide_and_prepare");
   // TWO SEPARATE DEBTS UNDER ONE NAME, and the first one gates the second: a change I have never checked on
   // the live page cannot be measured at all (isDueForMeasure refuses it), and a change whose window has

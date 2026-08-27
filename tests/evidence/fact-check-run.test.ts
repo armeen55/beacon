@@ -81,6 +81,9 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     for (const hold of ["capped", "waiting", "unavailable"] as const) expect((await unit({ held, searchSources: async () => ({ hold }) })).failure).toBe(`search_${hold}`);
     expect((await unit({ held, read: reader({ claims: CLAIMS, judge: null }) })).failure).toBe("judge_unavailable");
     expect((await unit({ held, read: async () => ({ hold: "refused" as const }) })).failure).toBe("judge_refused"); // refused is not unavailable
+    // Each case above also reads a section now, so this one starts from a page nobody has read: extraction is
+    // no longer skipped just because something is owed, which is what unblocked the names page.
+    reset(); db.cov = null;
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
   });
@@ -232,6 +235,33 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     // replace anything yet: partial support authorizes only the part that is supported.
     expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
     expect(r.note).toContain("not carried by any passage that was read"); });
+
+  it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
+    // THE DEADLOCK, LIVE. Bumping the verification rules re-opened 21 settled claims on the names page, the owed
+    // queue stood at 33, and because extraction waited for that queue to empty, eighteen consecutive passes left
+    // coverage at 0 of 11,589 characters. A unit settles at most ONE claim, so the page's other ~160 entries were
+    // not owed, not checked, and not anywhere. The wait could never end on its own either.
+    const body = Array.from({ length: 60 }, (_, i) => `Name${i} means Meaning${i}.`).join(" ");
+    const owedAlready = Array.from({ length: 33 }, (_, i) => row({ statementKey: `owed${i}`, subject: `Old${i}`, pageContentHash: pageHashOf(body) }));
+    db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
+    const found = Array.from({ length: 12 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
+    await unit({ page: { ...PAGE, body }, held: owedAlready, searchSources: async () => ({ hold: "unavailable" as const }),
+      read: reader({ claims: { statements: found }, judge: CONFIRMS }) });
+    // A section was read and banked even though 33 claims were already waiting, so every entry it names now has
+    // a disposition of its own instead of being invisible behind the queue.
+    expect(db.owed.length, "the section was inventoried rather than queued behind research").toBe(12);
+    expect((db.cov as unknown as { coveredChars: number }).coveredChars).toBeGreaterThan(0);
+
+    // AND THE CAP IS MEASURED ON WHAT CAME BACK, NOT ON WHAT SURVIVED THE DEDUPE. Forty returned, most of them
+    // already known, so the deduped list is short: reading the short list says "not capped" and jumps the cursor
+    // over the whole chunk, dropping everything past statement forty in silence.
+    db.rows = []; db.owed = []; db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
+    const full = Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
+    const known = full.slice(0, 35).map((c, i) => row({ statementKey: claimIdentity(c.subject, c.current, null), subject: c.subject, current: c.current, state: "checked" as const, pageContentHash: pageHashOf(body) }));
+    await unit({ page: { ...PAGE, body }, held: known, searchSources: async () => ({ hold: "unavailable" as const }),
+      read: reader({ claims: { statements: full }, judge: CONFIRMS }) });
+    const advanced = (db.cov as unknown as { coveredChars: number }).coveredChars;
+    expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
 
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");

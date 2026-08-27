@@ -234,8 +234,16 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // and reported the reading as acquired, while the writer still had nothing new to cite.
   const seededFirst = (rows: typeof inventory) => [...rows].sort((a, b) => (b.pageLocator === "missing" ? 1 : 0) - (a.pageLocator === "missing" ? 1 : 0));
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
-  if (owed.length === 0 && cov.coveredChars < cov.totalChars) {
-    // EXTRACT THE NEXT SECTION. Only when nothing already inventoried is owed: research first, read on.
+  if (cov.coveredChars < cov.totalChars) {
+    // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty reads as prudence
+    // and is a deadlock: a unit settles at most ONE claim, so a page owing more claims than the run has paid
+    // units never reads another character, and the wait cannot end on its own (a claim that fails the same way
+    // every time sits at the head of a stably ordered queue for ever, and every rules bump refills that queue
+    // with the whole inventory). Live 2026-08-27: bumping to rules v4 re-opened 21 claims on the names page,
+    // the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while its other ~160 entries were
+    // neither owed nor checked nor anywhere. Extraction is what gives an entry a disposition at all, and it is
+    // four calls at about two cents here, so it no longer queues behind research. One claim is still researched
+    // below, on the inventory this just widened.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
     const answer = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
@@ -243,6 +251,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       grounded: chunk, projectedCostUsd: 0.02, maxTokens: 3000 }).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in answer) return fail(`extraction_${answer.hold}`, null, `the page's checkable statements are ${answer.hold}, so nothing was inventoried`);
     const extracted = answer.value;
+    const returned = ((extracted as unknown as Extracted).statements ?? [])
+      .filter((s) => s.subject?.trim() && s.current?.trim()).map((s) => s.current.trim());
     const knownIds = new Set(inventory.map((h) => h.statementKey));
     const knownProps = new Set(inventory.map((h) => tokenFingerprintOf(h.subject, h.current)));
     const claims = ((extracted as unknown as Extracted).statements ?? [])
@@ -264,13 +274,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
     // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP. The schema returns at most CLAIM_CAP
-    // statements, so on a dense list page (194 name entries in 11,600 characters) one 12,000-character chunk
-    // swallowed the whole body, banked forty statements, and marked the page COVERED: the other 154 entries
-    // became permanently unreachable at that body hash, and "check the page" silently meant "sample a fifth of
-    // it". When the cap is hit, the cursor advances only to the end of the LAST STATEMENT actually inventoried,
-    // found in the chunk by its own wording, so the next pass resumes exactly where this one stopped reading.
-    // Nothing is re-banked when it does: identity and proposition both dedupe above.
-    const last = claims.length >= CLAIM_CAP ? claims[claims.length - 1]!.current : null;
+    // statements, so one oversized chunk once swallowed a 194-entry page, banked forty and marked it COVERED:
+    // the other 154 became unreachable at that hash and "check the page" silently meant "sample a fifth of it".
+    // When the cap is hit the cursor advances only to the end of the last statement read, found by its own
+    // wording, so the next pass resumes there; nothing is re-banked, because both filters above dedupe.
+    // MEASURED ON WHAT CAME BACK, NEVER ON WHAT SURVIVED THAT DEDUPE: a chunk returning exactly the cap and then
+    // losing rows to it read as "not capped", and the cursor jumped the whole chunk. Same hole, wrong list.
+    const last = returned.length >= CLAIM_CAP ? returned[returned.length - 1]! : null;
     const at = last ? chunk.toLowerCase().lastIndexOf(last.toLowerCase().slice(0, 60)) : -1;
     const read = at >= 0 ? Math.max(1, at + Math.min(last!.length, 60)) : chunk.length;
     cov = { pageContentHash: hash, coveredChars: Math.min(cov.coveredChars + read, page.body.length), totalChars: page.body.length };
@@ -329,8 +339,8 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
   // A SITE MAY NOT VOUCH FOR ITSELF. This store's own rule is that a page's words are evidence of what it says
-  // and never proof that it is true, and nothing enforced it: live, the Nazanin correction cited
-  // iranopedia.com/persian-female-first-names, which is the page being corrected, and was banked as sourced.
+  // and never proof it is true, and nothing enforced it: live, the Nazanin correction cited the page it was
+  // correcting, iranopedia.com/persian-female-first-names, and banked it as sourced.
   const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
   const candidates = organic
     .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" }))
@@ -387,28 +397,25 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (quote.length === 0) continue;
     const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
     if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }}
-  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT. Every supporting passage now
-  // has to be about the SAME name in the SAME language, and the two halves of that are checked separately: the
-  // reader names the subject it read, and the code checks the half it can check for itself. Live, Wikipedia's
-  // "Daria (given name)" is an encyclopedia, is quotable, and lists "Darya" among its variants, so it
-  // authorized a Slavic name descended from Darius as the meaning of Persian دریا, which means sea. Nothing in
-  // the old chain could tell those two names apart, because every test it ran was passing.
+  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT. A supporting passage has to be
+  // about the SAME name in the SAME language, checked in two halves: the reader names the subject it read, and
+  // the code checks the half it can check itself. Live, Wikipedia's "Daria (given name)" is an encyclopedia, is
+  // quotable, and lists "Darya" among its variants, so it authorized a Slavic name descended from Darius as the
+  // meaning of Persian دریا, which is sea. Every test the old chain ran was passing.
   const said = new Map((v.subjects ?? []).map((x) => [x.url, x]));
   const vouched = passages.filter((p) => {
     if (!verified.has(p.url)) return false;
     const about = said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? "");
     if (!about || !about.sameEntity) return false;  // unvouched, or a different name however alike it is spelled
-    // A SCRIPT NAMED IS A SCRIPT THAT MUST BE THERE. Where the reader says the subject is written a particular
-    // way, that writing has to appear in the passage it read, and where the language has a script of its own
-    // the passage has to carry it. Both are checkable without asking anybody, so both are checked here.
+    // A SCRIPT NAMED IS A SCRIPT THAT MUST BE THERE: the writing the reader names has to appear in the passage
+    // it read, and a language with a script of its own has to carry it. Both are checkable, so both are.
     const script = (about.script ?? "").trim();
     if (script && !p.text.includes(script)) return false;
     const of = SCRIPT_OF[about.language.trim().toLowerCase()];
     return !of || of.test(p.text); });
   const langOf = (p: { url: string }): string => (said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? ""))?.language.trim().toLowerCase() ?? "";
-  // AND SUPPORTERS MAY NOT DISAGREE ABOUT WHOSE NAME IT IS. Two passages naming two different languages are
-  // about two different words however alike they look, so the account keeps the language its best source read
-  // and sets the others aside rather than averaging a Slavic name and a Persian one into one meaning.
+  // AND SUPPORTERS MAY NOT DISAGREE ABOUT WHOSE NAME IT IS. Two passages naming two languages are about two
+  // words however alike they look, so the account keeps the language its best source read and drops the rest.
   const lead = vouched.find((p) => AUTHORITATIVE.has(p.kind)) ?? vouched[0];
   const leadLang = lead ? langOf(lead) : "";
   const identified = vouched.filter((p) => langOf(p) === leadLang);
@@ -422,11 +429,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
   // AND A REPLACEMENT HAS TO BE FOUND IN THE SOURCE, NOT MERELY NEAR IT. A passage about the right subject can
-  // still fail to say the thing being proposed: live, the Maryam correction proposed "beloved; wished-for
-  // child" over a quote deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over a
-  // quote reading "noble, of good family", and Mina proposed a meaning with no quote under it at all. Partial
-  // support authorizes only the part that is supported, so a proposal the read passages do not carry is held
-  // below confirmed rather than thrown away: the claim is still real, the wording is just not sourced yet.
+  // still fail to say the proposed thing: live, Maryam proposed "beloved; wished-for child" over a quote
+  // deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over a quote reading "noble, of
+  // good family", and Mina proposed a meaning with no quote at all. Partial support authorizes only the part
+  // supported, so an uncarried proposal is held below confirmed, not thrown away: the claim is still real.
   const read = supporters.map((p) => norm(p.text)).join(" ");
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
   const carried = words.length === 0 || words.filter((w) => read.includes(w)).length / words.length >= SUPPORTED_SHARE;

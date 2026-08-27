@@ -601,6 +601,18 @@ describe("the due-work runtime: a day is not a unit of work", () => {
   const today = () => new Date(NOW).toISOString().slice(0, 10);
   const completedToday = (): RR.ResearchRun[] => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done" })); return rows; };
   /** PHASE 5D. ONE canonical answer to "is anything owed", so a day whose AI answers are all collected is not therefore finished: the website may still be two hundred pages unread, and answers already bought may have no verdict on them yet. Both used to be invisible to the recovery opener. */
+  it("does not buy evidence for a claim while the provider that has to judge it is out of credit", async () => {
+    // Checking one claim buys a search and a page fetch from one provider and then asks a SECOND to read them.
+    // With the credit stop on, the first two were still bought in full and the unit died at the judge, so the
+    // account paid for evidence nothing could weigh. Live on 2026-08-27, mid-run, for the rest of that run.
+    const owing = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 140, total: 140, answers: 140, due: 0 }),
+      run: async () => ({ progress: { decided: { basis: "b1", rowVersion: 1 }, replenish: { day: reportingDay(NOW), fingerprint: "b1::v1::settled", attempted: [], closed: "candidates_exhausted" as const } }, open: false }), basis: async () => "b1", evidenceVersion: async () => 1,
+      surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
+      pagesToCrawl: async () => false, answersToAnalyze: async () => false, readyStock: async () => 5,
+      factDebt: async () => ({ owed: 33, everChecked: true }) };
+    expect((await dueWork(T, new Date(NOW), { ...owing, creditHeld: async () => false })).due).toContain("check_page_facts");
+    expect((await dueWork(T, new Date(NOW), { ...owing, creditHeld: async () => true })).due).not.toContain("check_page_facts"); });
+
   it("still owes work on a day whose answers are complete when the website is unread or the bought answers have not been read closely, and owes nothing when both are terminal", async () => {
     const quiet = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 140, total: 140, answers: 140, due: 0 }),
       run: async () => ({ progress: { decided: { basis: "b1", rowVersion: 1 }, replenish: { day: reportingDay(NOW), fingerprint: "b1::v1::settled", attempted: [], closed: "candidates_exhausted" as const } }, open: false }), basis: async () => "b1", evidenceVersion: async () => 1,

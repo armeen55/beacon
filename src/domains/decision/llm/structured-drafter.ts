@@ -405,7 +405,12 @@ function runContentFirewalls(
   opts?: { deferSuperlativeCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
-  if (/\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.test(blob)) return { ok: false, reason: "placeholder" };
+  // NAME THE THING THAT WAS REJECTED. A bare "placeholder" tells a retry only its category, so it returns the
+  // identical output and the second paid call buys nothing, which is exactly what happened on the live fact
+  // judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage is a bracket pair, and the retry
+  // had no way to know that was the offending text. `invented_numbers` below already reports its own match.
+  const placeholder = /\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.exec(blob);
+  if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
   if (!opts?.deferSuperlativeCheck && SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
   const invented = findUngroundedNumbers(blob, ledger);
@@ -580,7 +585,11 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         // W5 (J-71): the first answer was under the 80-word floor - retry asking for the full band rather than an "invalid output" correction. Pilot loop 4 (2026-07-10): a live re-run showed the model can lengthen a too-thin answer by adding a FRESH ungrounded superlative ("a leading classical vocalist") instead of more grounded facts - the same loophole SUPERLATIVE_REPHRASE_INSTRUCTION already closes for a superlative- triggered retry, but this retry reason never carried that reminder. State it here too, so lengthening never trades away groundedness. Pilot loop 6 (2026-07-11): also closes with NO_NEW_NUMBERS_RETRY_REMINDER so lengthening never trades away groundedness for an invented number either - the same reminder every other rephrase-class retry carries.
         system = `${req.system}\n\nYour previous answer stopped before it answered the search. Complete it, grounded ONLY in the evidence provided. Add the missing length with MORE grounded facts (names, dates, honors, works) - do NOT introduce a new superlative or ranking claim while lengthening it. ${NO_NEW_NUMBERS_RETRY_REMINDER}`;
       } else {
-        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems and include at least one non-empty evidenceRefs entry.`;
+        // AND ONLY ASK FOR A FIELD THIS KIND ACTUALLY HAS. The evidenceRefs sentence was appended to every retry
+        // of every kind, so a judgement whose schema has no such field was told to fill one in, which is an
+        // instruction it can only fail or fabricate against.
+        const wantsRefs = "evidenceRefs" in ((schema as unknown as { shape?: Record<string, unknown> }).shape ?? {});
+        system = `${req.system}\n\nYour previous output was rejected: ${errors.slice(-3).join(" | ")}. Fix exactly those problems${wantsRefs ? " and include at least one non-empty evidenceRefs entry" : ""}.`;
         // R16 numeric repair: when the failure was an ungrounded number, inject the CORRECT grounded numbers so the retry can fix the figure instead of guessing again. One repair retry, then fail closed.
         if (errors.some((e) => e.startsWith("firewall:invented_numbers"))) {
           const nums = groundedNumberList(ledger);
