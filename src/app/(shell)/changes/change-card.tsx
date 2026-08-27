@@ -11,7 +11,8 @@ import Link from "next/link";
 import { Pill, type PillIntent } from "@/components/ui/pill";
 // A client bundle cannot import the server-only kernel facade, so the ONE pure rule for what is dangerous and
 // the ONE stable name for a piece come from the contract module itself rather than a copy of them living here.
-import { componentIdOf, dangerousComponents, receiptComposition } from "@/domains/decision/contracts";
+import { componentIdOf, dangerousComponents } from "@/domains/decision/contracts";
+import { proofOf } from "@/domains/decision/proof";
 import { confirmedVersion, openHold } from "@/domains/decision/completeness";
 import type { ChangeBundle, ChangeProposal } from "@/domains/decision";
 import { markProposalImplementedAction } from "./actions";
@@ -127,37 +128,6 @@ function splitReason(text: string): { body: string; caveat: string | null } {
   return { body: parts.filter((s) => s !== caveat).join(" "), caveat };
 }
 
-/** THE NUMBERS THIS CHANGE IS ABOUT, read back out of the evidence the row already carries and never invented:
- *  a figure I cannot find prints nothing at all. */
-/** THE FIGURES ON THE CARD, READ OFF THE ROW AND NEVER OUT OF ITS PROSE. This scraped `whyItMatters` and the
- *  evidence hints for five hand-written phrasings, and the producers stopped writing every one of them: on the
- *  live account it found a number on 0 of 37 ranked cards, while the rows themselves carried
- *  `demandImpressions90d` of 16,493, 31,863 and 54,938 the whole time. A number a card is ranked on is a TYPED
- *  FIELD, so it is read as one, and a wording change can never silently empty the strip again. */
-function statsOf(p: ChangeProposal): { value: string; label: string }[] {
-  const n = (v: number): string => Math.round(v).toLocaleString("en-US");
-  const one = (v: string | null, plural: string, singular: string): [string | null, string] =>
-    [v, v === "1" ? singular : plural];
-  const shown = p.demandImpressions90d != null && p.demandImpressions90d > 0 ? n(p.demandImpressions90d) : null;
-  // What it is RANKED on, in the same 28-day unit the receipt states. A shortfall with no cause named yet is
-  // still MEASURED, so it shows; the receipt is what says whether a cause has been found for it.
-  const short = p.impactScore != null && p.impactScore > 0 ? n(p.impactScore) : null;
-  return [
-    one(shown, "times shown in Google", "time shown in Google"),
-    one(short, "clicks over 28 days it is short", "click over 28 days it is short"),
-  ].filter((r): r is [string, string] => r[0] != null).map(([value, label]) => ({ value, label }));
-}
-
-/** WHO IS ABOVE HIM TODAY, in the receipt's own words. The winning-page, competitor and results-page facts already open with the site's own domain, and the ones that read a page carry what it runs; this lifts the first fact that actually names a site and says it once, loudly, instead of leaving it folded inside the checks list. Nothing is invented: a receipt with no domain in it gets no line at all. */
-function beatenBy(b: ChangeBundle | undefined): string | null {
-  const named = (b?.receipt.items ?? [])
-    .filter((i) => i.kind === "winning_page" || i.kind === "competitor" || i.kind === "serp")
-    .map((i) => i.fact.trim())
-    .filter((f) => /\b[a-z0-9][a-z0-9-]*(\.[a-z0-9-]+)+\b/i.test(f));
-  // The fact that says who is ON TOP beats the fact that says who merely appears; either way it is the receipt's own sentence.
-  return named.find((f) => /led by|holds|wins|#1/i.test(f)) ?? named[0] ?? null;
-}
-
 /** The pieces of a bundle, named the way the server names them, so a tick here is the tick it asks for again. */
 const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, i) => ({
   id: componentIdOf(c, i), kind: c.kind, label: c.label,
@@ -181,13 +151,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   const parts = bundle?.components.length ?? 1;
   const held = dangerousComponents(bundle?.components ?? []).map((c) => c.label);
   const { body, caveat } = useMemo(() => splitReason(proposal.whyItMatters), [proposal.whyItMatters]);
-  const stats = useMemo(() => statsOf(proposal), [proposal]);
+  const proof = useMemo(() => proofOf(proposal), [proposal]);
   const { field, before, after } = beforeAfter(proposal);
-  // THE SAME SENTENCE THREE TIMES IS NOT THREE REASONS: the strongest reason is printed only when it says
-  // something the headline and the paragraph above it did not already say.
-  const reason = (bundle?.confidenceReasons[0] ?? bundle?.receipt.items[0]?.fact ?? "").trim();
-  const strongest = reason && reason !== body.trim() && reason !== primaryAction(proposal).trim() ? reason : null;
-  const checks = bundle?.receipt.items.map((it) => it.fact) ?? (proposal.evidence?.hints ?? []);
   // ONE NUMBER PER STEP, AND NO BLANK ROWS. Producers write steps both ways ("1. Open the editor" and "Open the editor"), so a step carrying its own number printed "1. 1. Open the editor" beside the span below, and a step that came through empty printed a bare "1." with nothing after it.
   const steps = (proposal.operatorSteps ?? []).map((s) => (s ?? "").replace(/^\s*\d+[.)]\s*/, "").trim()).filter(Boolean);
   // THE PAGE, SAID THE WAY A PERSON SAYS IT. The headline was the raw slug ("/famous-iranian-comedians"), which
@@ -235,13 +200,13 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
       </button>
 
       <div className="space-y-3 px-4 pb-4">
-        {stats.length > 0 ? (
-          <p className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground" data-change-stats="true">
-            {stats.map((s) => (
-              <span key={s.label}>
-                <span className="text-[14px] font-semibold tabular-nums text-foreground">{s.value}</span> {s.label}
-              </span>
-            ))}
+        {/* WHY THIS SITS HERE, in one sentence carrying its own figures. Two bare numbers used to stand here
+            under vague labels ("30,423 times shown in Google") with no search named and no window on the first
+            of them; the sentence says the same measured figures, says which search earned them and over how
+            long, and prints nothing at all where nothing was measured. */}
+        {proof.ranksHere ? (
+          <p className="text-[13px] leading-relaxed text-foreground" data-ranks-here="true">
+            <span className="font-semibold">Why this ranks here:</span> {proof.ranksHere}
           </p>
         ) : null}
 
@@ -327,9 +292,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
           {merge && proposal.estimatedEffortMinutes > 0 ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
           <Pill intent={chip.intent}>{chip.label}</Pill>
-          {checks.length > 0 ? (
-            <Pill intent="measuring">{bundle ? `Backed by ${receiptComposition(bundle.receipt.items)}` : `Backed by ${checks.length} check${checks.length === 1 ? "" : "s"}`}</Pill>
-          ) : null}
         </p>
 
         {held.length > 0 ? (
@@ -341,18 +303,10 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
 
         {open ? (
           <div className="space-y-3 border-t border-border pt-3">
-            {/* THE ONE LINE THAT ARGUES THIS CHANGE: the site sitting above him and what it runs, in the receipt's
-                own words. Self hiding, because a receipt that names nobody may not imply one. */}
-            {beatenBy(bundle) ? (
-              <p className="rounded-md border border-border bg-surface-inset px-3 py-2 text-[13px] leading-relaxed text-foreground" data-who-beats-you="true">
-                Who beats you today: {beatenBy(bundle)}
-              </p>
-            ) : null}
             {body ? <p className="text-[13px] leading-relaxed text-muted-foreground">{body}</p> : null}
             {caveat ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-change-caveat="true">&#9432; {caveat}</p>
             ) : null}
-            {strongest ? <p className="text-[13px] leading-relaxed text-muted-foreground">Strongest reason: {strongest}</p> : null}
             {YEAR_QUERY.test(proposal.primaryQuery) ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-year-note="true">{YEAR_NOTE}</p>
             ) : null}
@@ -364,10 +318,38 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
                 </ol>
               </div>
             ) : null}
-            {checks.length > 0 ? (
-              <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
-                {checks.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
+            {/* WHY THIS OPPORTUNITY: what was actually measured, each line already a sentence its producer wrote
+                with its own numbers, dated where the evidence carried a date. */}
+            {proof.opportunity.length > 0 ? (
+              <div className="space-y-1" data-proof-opportunity="true">
+                <p className="text-[12px] font-semibold text-foreground">Why this opportunity</p>
+                <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-checks-list="true">
+                  {proof.opportunity.map((o, i) => (
+                    <li key={i}>{o.fact}{o.seen ? <span className="text-muted-foreground/70"> (seen {o.seen})</span> : null}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {/* WHY THESE EXACT WORDS. A different question from the one above, and answered with different
+                evidence: what the copy asserts, and the words carrying THAT assertion. A claim shows only the
+                evidence it names, because a source standing beside a sentence it never touched is how a receipt
+                starts lying. Demand is not listed here: a search proves a page is wanted, never that a sentence
+                is the right sentence. */}
+            {proof.wording.length > 0 || proof.queryEcho || proof.shape ? (
+              <div className="space-y-1" data-proof-wording="true">
+                <p className="text-[12px] font-semibold text-foreground">Why these words</p>
+                {proof.queryEcho ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.queryEcho}</p> : null}
+                {proof.shape ? <p className="text-[12px] leading-relaxed text-muted-foreground">{proof.shape}</p> : null}
+                <ul className="list-disc space-y-1 pl-4 text-[12px] leading-relaxed text-muted-foreground">
+                  {proof.wording.map((w, i) => (
+                    <li key={i}>{w.claim}
+                      <ul className="list-none space-y-0.5 pt-0.5 pl-0 text-muted-foreground/80">
+                        {w.because.map((b, j) => <li key={j}>Rests on: {b}</li>)}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : null}
             {/* THE SEARCH THIS CHANGE ANSWERS, AND WHAT WAS DECIDED ABOUT IT, read off the ONE case file
                 Visibility reads. Two screens deriving that verdict separately is how one of them offered work
@@ -375,11 +357,14 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
             {caseLine ? (
               <p className="text-[12px] leading-relaxed text-muted-foreground" data-ai-case="true">{caseLine}</p>
             ) : null}
-            {proposal.limitations.length > 0 ? (
+            {/* EVIDENCE AND LIMITS: what Beacon looked for and does not have, said in the same place as what it
+                does. Where sources disagree the disagreement is stated here and nothing above upgrades it into
+                confidence about the wording. */}
+            {proof.limits.length > 0 ? (
               <div className="space-y-1">
-                <p className="text-[12px] font-semibold text-foreground">What to keep in mind</p>
+                <p className="text-[12px] font-semibold text-foreground">Evidence and limits</p>
                 <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground" data-guess-caution="true">
-                  {proposal.limitations.map((l, i) => <li key={i}>{l}</li>)}
+                  {proof.limits.map((l, i) => <li key={i}>{l}</li>)}
                 </ul>
               </div>
             ) : null}

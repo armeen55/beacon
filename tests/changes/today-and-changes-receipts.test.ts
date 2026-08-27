@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement, type ReactElement } from "react";
 import type { CauseFinding, ChangeProposal, RankedProposalQueue } from "@/domains/decision";
+import { proofOf } from "@/domains/decision/proof";
 import type { ChangesView } from "@/app/(shell)/changes-data";
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => { const redirected = (u: string) => { throw new Error(`NEXT_REDIRECT:${u}`); };
@@ -67,6 +68,69 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
+/** THE TWO ANSWERS, AND THE WALL BETWEEN THEM. "Backed by 3 checks" was the whole argument on five of seven live
+ *  finished cards: a count that reads the same whether it stands on a 90-day search record or one look at the page.
+ *  Search demand may never be offered as proof of WORDING, and a source proving a fact may never be offered as proof
+ *  of TRAFFIC. Every clause is composed from a typed field, so an absent field prints nothing at all. */
+describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
+  const rank = (directional: boolean) => ({ score: 5, factors: [], directional, basis: "b" });
+  const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);
+  const NEVER = ["will earn", "will recover", "guarantee", "expect to gain", "sources agree", "Backed by"];
+
+  it("search-backed: names the search and BOTH windows, states the diagnosed defect, promises no traffic", () => {
+    const r = proofOf(P({ demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag", rankingReceipt: rank(false),
+      causeFinding: { ...FINDING, explanation: "Two of your own pages come up for this search" } }));
+    expect(r.ranksHere).toBe('This page was shown 30,423 times for "iran flag" over 90 days and is short about 76 clicks in the last 28. Two of your own pages come up for this search.');
+    for (const n of NEVER) expect(r.ranksHere!, n).not.toContain(n); });
+
+  it("AEO: names the question and the exact citation stage, and never invents a gap nobody measured", () => {
+    const ai = (stage: NonNullable<ChangeProposal["aiImpact"]>["stage"]) => proofOf(P({ primaryQuery: "basic Persian phrases", rankingReceipt: rank(true),
+      aiImpact: { answers: 3, mentionRate: 0, citedRivals: 8, audienceWeight: 1011, days: 3, engines: 1, stage } })).ranksHere!;
+    expect(ai("owned_retrieved_not_cited")).toBe('Assistants answered "basic Persian phrases" 3 times on 3 separate days, and assistants read this page and quoted somebody else.');
+    // NEVER REACHED is not READ AND PASSED OVER, and an engine that does not report its sources measured nothing.
+    expect(ai("rivals_cited_own_not_retrieved")).toContain("never reached this page and quoted 8 other sites");
+    const unreported = ai("citations_unreported");
+    expect(unreported).toContain("do not report which sources they used");
+    for (const n of ["quoted somebody else", "never reached", "not among the sources"]) expect(unreported, n).not.toContain(n); });
+
+  it("a claim shows the evidence IT names and never another claim's source", () => {
+    const r = proofOf(P({ claims: [{ text: "The flag changed in July 1980.", supportedBy: ["fact-1"] }, { text: "The Lion and Sun is older.", supportedBy: ["owned-page-1"] }],
+      supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: adopted 1980." }, { id: "owned-page-1", fact: "/iran-flags: standardised under the Pahlavi era." }] }));
+    expect(r.wording).toEqual([{ claim: "The flag changed in July 1980.", because: ["Wikipedia, Flag of Iran: adopted 1980."] },
+      { claim: "The Lion and Sun is older.", because: ["/iran-flags: standardised under the Pahlavi era."] }]);
+    // A SOURCE PROVES ITS FACT, NEVER THE TRAFFIC: the demand figure never appears beside the words it did not write.
+    expect(JSON.stringify(r.wording)).not.toContain("30,423");
+    // A named id nothing carries is dropped, never printed as a bare symbol.
+    expect(proofOf(P({ claims: [{ text: "x", supportedBy: ["page-copy-9"] }], supportFacts: [] })).wording).toEqual([]); });
+
+  it("page-only repair: explains the defect, invents no demand, and apologises for nothing", () => {
+    const r = proofOf(P({ demandImpressions90d: null, impactScore: 4, primaryQuery: "/persian-rugs/kerman-rug factual accuracy",
+      pagePath: "/persian-rugs/kerman-rug", causeFinding: undefined, rankingReceipt: rank(true) }));
+    // The synthetic label a correction is filed under is NOT a search, so it is never quoted as one.
+    expect(r.ranksHere).toBe("About 4 clicks over 28 days are missing here. No cause is named for it yet, so this is the order to work in, not a promise about size.");
+    expect(r.ranksHere!).not.toContain("factual accuracy"); });
+
+  it("a sparse row renders what it has, omits what it lacks, and invents no zero", () => {
+    const r = proofOf(P({ demandImpressions90d: null, impactScore: null, aiImpact: undefined, causeFinding: undefined, rankingReceipt: undefined, evidence: undefined }));
+    expect(r.ranksHere).toBeNull(); expect(r.wording).toEqual([]); expect(r.opportunity).toEqual([]);
+    expect(r.limits).toEqual([]); expect(r.shape).toBeNull();
+    // A row with NO evidence at all can still honestly say where its words came from: the copy really does
+    // carry the search this page already appears for, and that is checked against the copy, not assumed.
+    expect(r.queryEcho).toBe('"nowruz traditions" is the search already bringing people to this page, and the new wording uses it.');
+    expect(proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Nothing relevant." } })).queryEcho).toBeNull(); });
+
+  it("evidence that disagrees is stated as a limit and never upgraded into confidence about the words", () => {
+    const r = proofOf(P({ limitations: ["Two sources give different dates for the 1980 change."] }));
+    expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
+    expect(JSON.stringify(r)).not.toContain("agree"); });
+
+  it("the rendered card leads with the proof line and no bare check count survives anywhere", async () => {
+    const html = await renderList(viewOf([{ ...atomic(), demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag" } as ChangeProposal]));
+    expect(html).toContain("Why this ranks here:");
+    expect(html).toContain("shown 30,423 times for &quot;iran flag&quot; over 90 days and is short about 76 clicks in the last 28");
+    for (const n of ["Backed by", "Who beats you today", "Strongest reason"]) expect(html, n).not.toContain(n); });
+});
+
 describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
