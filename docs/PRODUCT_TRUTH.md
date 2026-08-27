@@ -124,11 +124,11 @@ explains where the business stands, and every action lives in Changes.
 
 Analysis is Beacon's work; a customer-facing Change contains the complete deliverable: exactly what to add,
 replace, delete, move, link, redirect or create, exactly where, and the final copy whenever copy is involved
-(operator-approved 2026-08-14). An unfinished but genuine opportunity is visible in Changes, separated from the
-execution-ready lane (operator-approved 2026-08-15): review drafts show their copy, placement, hold reason and
-evidence; researched ones show what is known and what is missing. Gates set the lane, label and controls, never
-visibility; only duplicates, refused mappings, contradicted or unsupported ideas and sub-floor gaps stay hidden.
-Neither is ever called finished, and a human approval answers editorial judgement only. Zero finished is honest.
+(operator-approved 2026-08-14). The default Changes experience shows only finished, implementation-ready work
+(operator-approved 2026-08-27, superseding the 2026-08-15 visible-unfinished-work rule): unfinished writing,
+failed drafts and evidence debt never appear as customer-facing cards; internal work is one collapsed status
+line. "Needs your decision" exists only for genuinely non-delegable owner choices (redirect, merge, canonical,
+deleting material content, legal or brand judgement), never Beacon's own defective work. Zero shown is honest.
 
 Canonical lifecycle: `needs_review -> ready -> implemented_pending_verification -> measuring -> result`.
 

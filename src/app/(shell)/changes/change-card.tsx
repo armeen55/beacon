@@ -59,11 +59,27 @@ const CATEGORY: [RegExp, string][] = [
   [/::title(-family)?$/, "Title"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
 ];
 const INLINE_PIECES = 4; /** How many steps a card shows in full before the list becomes the detail page's job: a two or three step treatment is read here, a forty-item correction bundle is not. */
+/** THE OBJECT THIS CHANGE TOUCHES, in the customer's own words, read off the canonical field and never off
+ *  prose. "One edit" told the operator nothing, and "Copy new section" appeared on things that were not
+ *  sections; at ten to thirty applied changes a day, guessing the object is the product's real cost. */
+const TARGET_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading", section: "section", answer_block: "answer", internal_link: "link" };
+function targetWordOf(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return "page";
+  return TARGET_WORD[c.field] ?? fieldWord(c.field);
+}
+/** Add, Replace or Create: what the operator DOES, decided by whether canonical `before` carries the old words. */
+function actionWordOf(p: ChangeProposal): string {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return "Create";
+  return c.before ? "Replace" : c.field === "section" || c.field === "answer_block" ? "Add" : "Set";
+}
 function categoryOf(p: ChangeProposal, isNew: boolean, parts: number): string {
-  if (isNew) return "New page";
+  if (isNew) return "Create page";
   const named = CATEGORY.find(([re]) => re.test(p.id))?.[1];
   if (named) return named;
-  return parts > 1 ? `${parts} edits together` : "One edit";
+  if (parts > 1) return `${parts} edits together`;
+  return `${actionWordOf(p)} ${targetWordOf(p)}`;
 }
 
 /** The exact primary action in one line: a bundle's objective, the producer's own headline when it wrote a
@@ -74,6 +90,22 @@ function primaryAction(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
   return `Update the ${fieldWord(c.field)} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
+}
+
+/** WHAT DOES NOT CHANGE, said out loud where omission could cause a mistake. Derived from the canonical
+ *  field's own scope, never invented: a title edit touches the title tag by definition, an added section
+ *  deletes nothing by definition. Where nothing mechanical can be said, nothing is said. */
+function untouchedOf(p: ChangeProposal): string | null {
+  const c = p.recommendedChange;
+  if (c.kind !== "existing_edit") return null;
+  switch (c.field) {
+    case "title": return "Only the title tag changes. The heading and page text stay as they are.";
+    case "meta": return "Only the description changes. Nothing on the page itself changes.";
+    case "h1": return "Only this heading changes. The text under it stays as it is.";
+    case "section": case "answer_block":
+      return c.before ? "Only this passage changes. Everything around it stays." : "This adds new copy. Nothing on the page is deleted.";
+    default: return null;
+  }
 }
 
 /** THE WORDS THERE NOW AND THE WORDS TO PUT THERE, off the same field the detail page renders. */
@@ -251,33 +283,34 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               <p className="text-[12px] leading-relaxed text-muted-foreground">
                 Now: <span className="line-through">{before}</span>
               </p>
-            ) : isNew ? null : field === "section" || field === "answer block" ? (
-              /* NEW COPY REPLACES NOTHING, and a replacement never reads as an absence: "there is no section on
-                 the page today" under a correction of existing statements was plainly false. */
-              <p className="text-[12px] italic text-muted-foreground">This adds new copy; nothing on the page is replaced.</p>
-            ) : null /* AND NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
-                 not carry the old words, never that the page has none, and producers fill it inconsistently: five
-                 live Ready cards announced "There is no description on the page today" directly above their own
-                 "Where it goes" line quoting the description they replace. The card said both things at once. */}
+            ) : null /* NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
+                 not carry the old words, never that the page has none. The adds-new-copy fact now lives on the
+                 one untouched-scope line below, so the card says it once. */}
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">
                 <span className="font-normal text-muted-foreground">{isNew ? `Page ${field}: ` : "Change to: "}</span>{after}
               </p>
+              {/* THE BUTTON NAMES THE REAL OBJECT: "Copy new section" on a title, and "Copy draft" anywhere,
+                  both made the operator re-read the card to learn what they were holding. */}
               <CopyButton text={after} onToast={onToast}
-                label={review ? "Copy draft" : `Copy ${isNew ? "" : "new "}${field} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
+                label={`Copy ${targetWordOf(proposal)} · ${effortLabel(proposal.estimatedEffortMinutes)}`} />
             </div>
             {/* WHERE IT GOES BELONGS TO THE FINISHED CARD MOST OF ALL. This line was rendered inside the held-draft
                 box, so the one card an operator is meant to act on was the one card that never said where its copy
                 lands: paste-ready work, no place to paste it. A section names its heading and the line it follows,
                 a field edit replaces its own line and names none, and the card prints whichever it has. */}
             {placement ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-placement="true">Where it goes: {placement}</p> : null}
+            {untouchedOf(proposal) ? <p className="text-[12px] leading-relaxed text-muted-foreground" data-untouched="true">{untouchedOf(proposal)}</p> : null}
           </div>
         )}
 
         {hold ? (
           <div className="space-y-1 rounded-md border border-border bg-surface-inset px-3 py-2" data-held-reason="true">
-            <p className="text-[12px] font-semibold text-foreground">A draft, not finished work. Why it is held:</p>
+            {/* Only the DECISION lane renders cards in review now, so this heading frames the operator's own
+                call rather than Beacon's internal QA ("A draft, not finished work" is banned customer language
+                under the 2026-08-27 contract: unfinished work never wears a card at all). */}
+            <p className="text-[12px] font-semibold text-foreground">What you are deciding:</p>
             <ul className="list-disc space-y-0.5 pl-4 text-[12px] leading-relaxed text-muted-foreground">
               {hold.why.map((w, i) => <li key={i}>{w}</li>)}
             </ul>

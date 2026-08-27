@@ -33,7 +33,9 @@ const PREPARING: [RegExp, string][] = [
   [/::duplicate_heading$/, "Writing a distinct heading from this page's own stored copy."],
 ];
 const preparingLine = (p: ChangeProposal): string =>
-  PREPARING.find(([re]) => re.test(p.id))?.[1] ?? "Preparing the exact change from stored evidence.";
+  // A held draft is Beacon's own unfinished responsibility, summarized without offering its copy as work.
+  p.status === "needs_review" && p.researchOnly !== true ? "Writing and checking the exact change. It appears above when it is finished."
+    : PREPARING.find(([re]) => re.test(p.id))?.[1] ?? "Preparing the exact change from stored evidence.";
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
   // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads, matched on
@@ -74,8 +76,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // order they really sit in, pointing at cards under other headings. The position is read off that one order.
   const placeOf = useMemo(() => new Map(rows.map((p, i) => [p.id, i + 1])), [rows]);
   const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);
-  const reviewRows = useMemo(() => rows.filter((p) => laneOf(p) === "todo"), [rows, laneOf]);
-  const preparingRows = useMemo(() => rows.filter((p) => laneOf(p) === "research"), [rows, laneOf]);
+  // A row carrying BOTH a genuine safety decision AND a Beacon fault belongs to Beacon first: the operator is
+  // never asked to authorize work Beacon itself knows is defective (approved contract, 2026-08-27).
+  const decisionRows = useMemo(() => rows.filter((p) => { if (laneOf(p) !== "todo") return false; const h = openHold(p); return h.safetyHold && !h.faulted; }), [rows, laneOf]);
+  const preparingRows = useMemo(() => rows.filter((p) => { if (laneOf(p) === "research") return true; if (laneOf(p) !== "todo") return false; const h = openHold(p); return !(h.safetyHold && !h.faulted); }), [rows, laneOf]);
   // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE (2026-08-15), and it must be true of every row under
   // the Ready heading: the whole-lane total from the database, minus what this session finished or skipped.
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
@@ -121,29 +125,32 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         )}
       </section>
 
-      {/* TWO DIFFERENT THINGS WEAR ONE LABEL NO LONGER: a draft Beacon's own gates already refused is NOT waiting on anybody's taste, and calling it "Needs your review" hands a known failure back as if the reader were the missing ingredient. Copy nothing has objected to is the only kind that owes a judgement. Read off the row's own blocking reason, so a card moves the moment its stored reasons change. */}
-      {([["Beacon must improve", reviewRows.filter((p) => openHold(p).faulted)], ["Needs your review", reviewRows.filter((p) => !openHold(p).faulted)]] as const)
-        .filter(([, rows]) => rows.length > 0).map(([title, rows]) => (
-        <section key={title} className="space-y-3" data-lane-review="true">
+      {/* NEEDS YOUR DECISION: the ONE lane that is genuinely the operator's, and only that. A redirect, merge or
+          removal is complete work awaiting an authority Beacon does not have. Everything else held in review is
+          Beacon's own unfinished responsibility (weak writing, missing evidence, an unread evaluator) and is
+          never offered to the customer as work: at ten to thirty applied changes a day, inspecting Beacon's QA
+          debt was the operator's single biggest time sink (operator-approved contract, 2026-08-27). */}
+      {decisionRows.length > 0 ? (
+        <section className="space-y-3" data-lane-decision="true">
           <p className="text-[14px] font-semibold tabular-nums text-foreground">
-            {title}: {rows.length.toLocaleString("en-US")} {rows.length === 1 ? "draft" : "drafts"}
+            Needs your decision: {decisionRows.length.toLocaleString("en-US")}
           </p>
           <ul className="list-none space-y-3">
-            {rows.map((p, i) => (
+            {decisionRows.map((p, i) => (
               <ChangeCard key={p.id} proposal={p} rank={placeOf.get(p.id) ?? i + 1} review caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
         </section>
-      ))}
+      ) : null}
 
       {/* BEACON IS PREPARING: internal work, collapsed and compact. Each row is one sentence about what
           Beacon is doing; the full evidence stays on the row's own detail page, one click away. */}
       {preparingRows.length > 0 ? (
         <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
           <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
-            Future opportunities ({preparingRows.length.toLocaleString("en-US")})
-            <span className="ml-2 font-normal text-muted-foreground">Evidence Beacon is still gathering. Nothing here is yours to do yet.</span>
+            Beacon is working on {preparingRows.length.toLocaleString("en-US")} more {preparingRows.length === 1 ? "opportunity" : "opportunities"}
+            <span className="ml-2 font-normal text-muted-foreground">Writing, checking and evidence still in progress. Nothing here is yours to do yet.</span>
           </summary>
           <ul className="list-none space-y-1 px-4 pb-3">
             {preparingRows.map((p) => (

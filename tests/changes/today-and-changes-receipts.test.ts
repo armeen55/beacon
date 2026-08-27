@@ -71,16 +71,44 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
-    for (const s of ["One edit", "Copy new title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
+    // THE CHIP AND THE BUTTON NAME THE REAL OBJECT (operator contract, 2026-08-27): "One edit" and "Copy new
+    // title" both made the operator work out what they were holding.
+    for (const s of ["Replace title", "Copy title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your review", "Why it is held", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
-    for (const s of ["Copy new title", "Mark done"]) expect(held, s).not.toContain(s);
+    // A dangerous consolidation is complete work awaiting the operator's own authority: the ONE lane that is
+    // genuinely theirs, framed as the decision rather than as Beacon's internal hold.
+    for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
+    for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
     // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED. The ready lane passed a bare `proven` on every row, so the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all. This row is Ready and has none either, so it may not wear the chip that says its argument was checked outside this account.
     expect(ready, "proven").not.toContain("Proven"); expect(ready, "tier").toContain("Page-only");
-    // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS NOT WAITING ON ANYBODY'S TASTE: it is defective work, and the lane says whose problem it is. The safety hold above still reads "Needs your review", because that one really is the operator's call.
+    // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS BEACON'S PROBLEM, never the operator's: it renders only
+    // as the compact background status, with no card, no controls and no internal refusal text, even when the
+    // same row also carries a safety decision, because nobody is asked to authorize known-defective work.
     const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
-    expect(bad, "fault").toContain("Beacon must improve"); expect(bad, "reason").toContain("it repeats what stays on the page below it");});
+    expect(bad, "no card").not.toContain('data-change-card="true"');
+    expect(bad, "background").toContain("Beacon is working on 1 more opportunity");
+    for (const never of ["Beacon must improve", "it repeats what stays on the page below it", "Needs your decision"]) expect(bad, never).not.toContain(never);});
+  it("every Ready card is impossible to misunderstand: action, target, current, new, location, untouched, named button", async () => {
+    // THE ZERO-INTERPRETATION CONTRACT (operator, 2026-08-27): at ten to thirty applied changes a day, "does
+    // this replace something? where does it go?" is the product's whole cost. Four representative shapes, each
+    // read off the CANONICAL recommendedChange and never off prose.
+    const shape = (over: Partial<ChangeProposal>) => ({ ...atomic(), bundle: undefined, ...over } as ChangeProposal);
+    // 1. A title REPLACEMENT: old words shown struck through, new words beside a button naming the object.
+    const title = await renderList(viewOf([shape({})]));
+    for (const said of ["Replace title", "Copy title", "Nowruz", "Nowruz Traditions and the Haft-Seen Table", "Only the title tag changes. The heading and page text stay as they are."]) expect(title, said).toContain(said);
+    // 2. An ADDED section: no false absence claim, and the untouched line says nothing is deleted.
+    const section = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The ranking is top heavy. Tehran holds 8,693,700 people.", where: "As the final paragraph of the lead, directly above the H2." } })]));
+    for (const said of ["Add section", "Copy section", "Where it goes: As the final paragraph of the lead", "This adds new copy. Nothing on the page is deleted."]) expect(section, said).toContain(said);
+    expect(section).not.toContain("There is no");
+    // 3. A description replacement names ITS object, never "section".
+    const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
+    for (const said of ["Replace description", "Copy description", "Only the description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
+    expect(meta).not.toContain("Copy section");
+    // 4. A replaced passage: the untouched line bounds the blast radius.
+    const passage = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: "Tehran is by far the biggest city.", after: "Cities like Yazd and Kerman are globally known.", where: "The paragraph immediately below the table." } })]));
+    for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });
+
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
     const html = await renderList(viewOf([proposal()]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",

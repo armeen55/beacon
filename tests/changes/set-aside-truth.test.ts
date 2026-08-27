@@ -143,16 +143,21 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    for (const said of ["Needs your review: 1 draft", EXACT, "Copy draft", "Why it is held", "Future opportunities (1)"]) expect(html).toContain(said);
+    // THE APPROVED CONTRACT (operator, 2026-08-27): Beacon's unfinished writing is Beacon's responsibility and is
+    // never offered to the customer as work. A held draft renders as ONE compact background row with a detail
+    // link, never as a card with copy, controls, or its internal hold reasons.
+    expect(html).toContain("Beacon is working on 2 more opportunities");
+    expect(html).toContain("Writing and checking the exact change. It appears above when it is finished.");
+    for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);
     expect(html).not.toMatch(/Proven|Mark done|Still missing/);
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
       .toEqual([0, 1, 1, ["review", "research"], undefined, "No finished change is ready today. The next one lands here the moment the exact work is written."]);
-    expect(html.match(/data-change-card="true"/g)?.length).toBe(1); }); // the draft is a card once, and preparing rows are their own compact shape
+    expect(html.match(/data-change-card="true"/g) ?? []).toHaveLength(0); }); // no unfinished work wears a card
   it("shows all 12 preparing opportunities as compact rows with detail links, never as essays and never as Ready", async () => {
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
-    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Future opportunities (12)"),
+    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is working on 12 more opportunities"),
       html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
       .toEqual([12, 12, true, false, true, false]); });
   it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
