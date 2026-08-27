@@ -263,6 +263,27 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const advanced = (db.cov as unknown as { coveredChars: number }).coveredChars;
     expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
 
+  it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
+    // LIVE on /persian-female-first-names: one claim whose sources would not parse returned `fetch_refused` at
+    // $0 on five consecutive passes. Ending the pass on any failed unit is right for a spent budget or an
+    // outage, which repeat; the owed order is stable, so a failure ABOUT ONE CLAIM put that claim back at the
+    // head every time and 167 other owed claims were never reached once.
+    const body = "Alpha means one. Beta means two. Gamma means three.";
+    const owed = ["Alpha", "Beta", "Gamma"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
+      current: `${subject} means something`, pageContentHash: pageHashOf(body) }));
+    db.cov = { pageContentHash: pageHashOf(body), coveredChars: body.length, totalChars: body.length } as never;
+    const asked: string[] = [];
+    const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed,
+      pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }],
+      refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true,
+      read: reader({ claims: { statements: [] }, judge: CONFIRMS }),
+      searchSources: async (query: string) => { asked.push(query); return SOURCE; },
+      fetchSource: async () => ({ hold: "refused" as const }) } as never);
+    const subjects = new Set(["alpha", "beta", "gamma"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
+    expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of three owed claims across ${asked.length} searches`).toBe(3);
+    // and the pass ends honestly rather than on the first claim it could not resolve
+    expect(out.attempts).toBeGreaterThanOrEqual(3); });
+
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
     const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",

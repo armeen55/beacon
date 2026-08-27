@@ -36,6 +36,7 @@ const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and
  *  waits alike: the old per-page nesting advertised four and allowed twelve (Codex, 2026-08-18). */
 export const ATTEMPTS_PER_PASS = 4;
+/** Failures about ONE CLAIM, not the account: set aside and carry on. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "source_quality_unresolved"]);
 
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
 const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhoda\.ut\.ac\.ir|vajehyab\.com|abadis\.ir|collinsdictionary\.com)$/i;
@@ -60,8 +61,7 @@ function sourceClassOf(domain: string): SourceKind {
 }
 /** One of these alone may carry a confirmation. */
 const AUTHORITATIVE = new Set<SourceKind>(["scholarly", "dictionary", "encyclopedia"]);
-/** How much of a proposed replacement its own sources have to carry before it may replace published words. */
-const SUPPORTED_SHARE = 0.6;
+/** How much of a proposed replacement its sources must carry before it may replace published words. */ const SUPPORTED_SHARE = 0.6;
 const FILLER = new Set(["that", "this", "with", "from", "have", "which", "meaning", "means", "name", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about"]);
 /** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
 const CREDIBLE = new Set<SourceKind>(["news"]);
@@ -187,6 +187,7 @@ type FactCheckUnitDeps = {
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string) => Promise<SourceAnswer>;
   page: { url: string; path: string; body: string };
+  /** Claims this pass already failed on: set aside for the rest of it, never for ever. */ skip?: ReadonlySet<string>;
   tenantId: string; now: Date; basis: string | null;
   /** Checks already on file for this page, so a current one is skipped and a stale one is redone. */
   held?: readonly FactCheck[];
@@ -200,11 +201,12 @@ type FactCheckUnitDeps = {
  *  inventoried). `done` = this page version owes nothing at full coverage. `failed` = nothing advanced and the
  *  claim is still owed, which is not the same answer and must never move a run on to publishing. */
 type FactCheckUnitResult = { status: "advanced" | "done" | "failed"; banked: number;
-  cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string };
+  cursor: FactCheckCursor | null; failure?: UnitFailure; reason?: string;
+  /** WHICH CLAIM THIS UNIT TOOK ON, so a pass may set aside one that will not resolve and reach the next. */ attempted?: string };
 
 const enough = (deadlineAt: number, need: number): boolean => Date.now() + need + RESERVE_MS <= deadlineAt;
-const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string): FactCheckUnitResult =>
-  ({ status: "failed", banked: 0, cursor, failure, reason });
+const fail = (failure: UnitFailure, cursor: FactCheckCursor | null, reason: string, attempted?: string): FactCheckUnitResult =>
+  ({ status: "failed", banked: 0, cursor, failure, reason, ...(attempted ? { attempted } : {}) });
 
 /** ONE unit: at most one claim researched (or one section inventoried), everything durable before it returns. */
 export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckUnitResult> {
@@ -237,13 +239,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   if (cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty reads as prudence
     // and is a deadlock: a unit settles at most ONE claim, so a page owing more claims than the run has paid
-    // units never reads another character, and the wait cannot end on its own (a claim that fails the same way
-    // every time sits at the head of a stably ordered queue for ever, and every rules bump refills that queue
-    // with the whole inventory). Live 2026-08-27: bumping to rules v4 re-opened 21 claims on the names page,
-    // the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while its other ~160 entries were
-    // neither owed nor checked nor anywhere. Extraction is what gives an entry a disposition at all, and it is
-    // four calls at about two cents here, so it no longer queues behind research. One claim is still researched
-    // below, on the inventory this just widened.
+    // units never reads another character. Live 2026-08-27: bumping to rules v4 re-opened 21 claims on the names
+    // page, the queue stood at 33, and eighteen passes left coverage at 0 of 11,589 while its other ~160 entries
+    // were neither owed nor checked nor anywhere. Extraction is what gives an entry a disposition at all and is
+    // four calls at about two cents here, so it no longer queues behind research.
     if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", null, "not enough of this lease remains to read the page");
     const chunk = page.body.slice(cov.coveredChars, cov.coveredChars + EXTRACT_CHUNK);
     const answer = await d.read({ kind: "fact_claim_extraction", system: CLAIM_SYSTEM,
@@ -273,13 +272,11 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     // not land is a failed unit: researching against an inventory nobody stored is how page two was lost.
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
-    // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP. The schema returns at most CLAIM_CAP
-    // statements, so one oversized chunk once swallowed a 194-entry page, banked forty and marked it COVERED:
-    // the other 154 became unreachable at that hash and "check the page" silently meant "sample a fifth of it".
-    // When the cap is hit the cursor advances only to the end of the last statement read, found by its own
-    // wording, so the next pass resumes there; nothing is re-banked, because both filters above dedupe.
-    // MEASURED ON WHAT CAME BACK, NEVER ON WHAT SURVIVED THAT DEDUPE: a chunk returning exactly the cap and then
-    // losing rows to it read as "not capped", and the cursor jumped the whole chunk. Same hole, wrong list.
+    // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a
+    // 194-entry page, banked forty and marked it COVERED, so "check the page" meant "sample a fifth of it". The
+    // cursor now advances only to the end of the last statement read, found by its own wording, and nothing is
+    // re-banked because both filters above dedupe. MEASURED ON WHAT CAME BACK, never on what survived that
+    // dedupe: a chunk returning exactly the cap and then losing rows read as "not capped".
     const last = returned.length >= CLAIM_CAP ? returned[returned.length - 1]! : null;
     const at = last ? chunk.toLowerCase().lastIndexOf(last.toLowerCase().slice(0, 60)) : -1;
     const read = at >= 0 ? Math.max(1, at + Math.min(last!.length, 60)) : chunk.length;
@@ -297,6 +294,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const settled = new Set(inventory.filter((h) => h.state === "checked").map((h) => tokenFingerprintOf(h.subject, h.current)));
   let next: FactCheck | null = null;
   for (const o of owed) {
+    if (d.skip?.has(o.statementKey)) continue; // this pass already tried it and it did not resolve
     if (!settled.has(tokenFingerprintOf(o.subject, o.current))) { next = o; break; }
     const ok = await recordFactChecks(tenantId, page.path, [{ ...o, state: "superseded",
       note: "Duplicate of a proposition already checked at this page version." }]).catch(() => 0);
@@ -331,16 +329,15 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable
   // each leave the claim OWED under their own name, and only a readable answer with no qualifying source
   // banks `none_found`.
-  if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`);
+  if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
   // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and
   // filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever
   // saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts
   // QUALIFYING candidates.
   const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
-  // A SITE MAY NOT VOUCH FOR ITSELF. This store's own rule is that a page's words are evidence of what it says
-  // and never proof it is true, and nothing enforced it: live, the Nazanin correction cited the page it was
-  // correcting, iranopedia.com/persian-female-first-names, and banked it as sourced.
+  // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page
+  // it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
   const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
   const candidates = organic
     .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" }))
@@ -355,7 +352,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     return bank({ ...base, proposed: null, sources: [], agreement: "none_found", confidence: "unsupported",
       verdict: "undecidable", note: "The search was readable and returned nothing at all for this claim, so nothing is proposed." });}
   if (candidates.length === 0) return fail("source_quality_unresolved", cursor,
-    `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`);
+    `the search returned ${organic.length} results and none clears the source policy, so this claim is still owed`, next.statementKey);
   // PUBLISHER-DIVERSE PICKS: the second fetch prefers a DIFFERENT source class, so two generic encyclopedia
   // pages are not taken merely because they rank first (Codex, 2026-08-18).
   const second = candidates.slice(1).find((c) => c.kind !== candidates[0]!.kind) ?? candidates[1];
@@ -371,7 +368,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; continue; }
     if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });}
-  if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`);
+  if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey);
 
   // 5. JUDGE against the passages only.
   if (!enough(d.deadlineAt, 20_000)) return fail("lease_exhausted", cursor, "no lease left to judge this claim");
@@ -397,25 +394,22 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     if (quote.length === 0) continue;
     const p = passages.find((x) => x.url === sup.url) ?? passages.find((x) => norm(x.text).includes(norm(quote)));
     if (p && norm(p.text).includes(norm(quote)) && !verified.has(p.url)) { verified.set(p.url, quote); vouchedAs.set(p.url, sup.url); }}
-  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT. A supporting passage has to be
-  // about the SAME name in the SAME language, checked in two halves: the reader names the subject it read, and
-  // the code checks the half it can check itself. Live, Wikipedia's "Daria (given name)" is an encyclopedia, is
-  // quotable, and lists "Darya" among its variants, so it authorized a Slavic name descended from Darius as the
-  // meaning of Persian دریا, which is sea. Every test the old chain ran was passing.
+  // A QUOTE PROVES THE SOURCE SAID IT, NEVER THAT IT SAID IT ABOUT THIS SUBJECT: a passage has to be about the
+  // SAME name in the SAME language. The reader names the subject it read and the code checks the half it can.
+  // Live, Wikipedia's "Daria (given name)" is quotable and lists "Darya" as a variant, so it authorized a Slavic
+  // name descended from Darius as the meaning of Persian دریا, sea. Every test the old chain ran was passing.
   const said = new Map((v.subjects ?? []).map((x) => [x.url, x]));
   const vouched = passages.filter((p) => {
     if (!verified.has(p.url)) return false;
     const about = said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? "");
     if (!about || !about.sameEntity) return false;  // unvouched, or a different name however alike it is spelled
-    // A SCRIPT NAMED IS A SCRIPT THAT MUST BE THERE: the writing the reader names has to appear in the passage
-    // it read, and a language with a script of its own has to carry it. Both are checkable, so both are.
+    // A SCRIPT NAMED IS A SCRIPT THAT MUST BE THERE, and a language with one of its own has to carry it.
     const script = (about.script ?? "").trim();
     if (script && !p.text.includes(script)) return false;
     const of = SCRIPT_OF[about.language.trim().toLowerCase()];
     return !of || of.test(p.text); });
   const langOf = (p: { url: string }): string => (said.get(p.url) ?? said.get(vouchedAs.get(p.url) ?? ""))?.language.trim().toLowerCase() ?? "";
-  // AND SUPPORTERS MAY NOT DISAGREE ABOUT WHOSE NAME IT IS. Two passages naming two languages are about two
-  // words however alike they look, so the account keeps the language its best source read and drops the rest.
+  // AND SUPPORTERS MAY NOT DISAGREE ABOUT WHOSE NAME IT IS: the account keeps the language its best source read.
   const lead = vouched.find((p) => AUTHORITATIVE.has(p.kind)) ?? vouched[0];
   const leadLang = lead ? langOf(lead) : "";
   const identified = vouched.filter((p) => langOf(p) === leadLang);
@@ -428,11 +422,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // authorizes replacing published words on its own (Codex, 2026-08-19).
   const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
-  // AND A REPLACEMENT HAS TO BE FOUND IN THE SOURCE, NOT MERELY NEAR IT. A passage about the right subject can
-  // still fail to say the proposed thing: live, Maryam proposed "beloved; wished-for child" over a quote
-  // deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over a quote reading "noble, of
-  // good family", and Mina proposed a meaning with no quote at all. Partial support authorizes only the part
-  // supported, so an uncarried proposal is held below confirmed, not thrown away: the claim is still real.
+  // AND A REPLACEMENT HAS TO BE FOUND IN THE SOURCE, NOT MERELY NEAR IT: live, Maryam proposed "beloved" over a
+  // quote deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over one reading "noble,
+  // of good family", and Mina proposed a meaning with no quote at all. Partial support authorizes only the part
+  // supported, so an uncarried proposal is held below confirmed rather than thrown away.
   const read = supporters.map((p) => norm(p.text)).join(" ");
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
   const carried = words.length === 0 || words.filter((w) => read.includes(w)).length / words.length >= SUPPORTED_SHARE;
@@ -471,6 +464,7 @@ type FactCheckPassResult = { status: "advanced" | "done" | "failed"; banked: num
  *  the remaining allowance against it proves nothing. */
 export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckPassResult> {
   let banked = 0, pagesComplete = 0, attempts = 0, progressed = false, opened = 0;
+  const setAside = new Set<string>();
   let held = d.held;
   for (const page of d.pages) {
     if (attempts >= ATTEMPTS_PER_PASS || Date.now() >= d.deadlineAt) break;
@@ -482,9 +476,15 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: "lease_lost", reason: "the lease was lost, so nothing further was researched" };
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
-        held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body },
+        held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
         read: d.read, searchSources: d.searchSources, fetchSource: d.fetchSource,
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
+      // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a
+      // spent budget or an outage, which repeat; wrong for a failure ABOUT ONE CLAIM, because the owed order is
+      // stable, so it returned to the head every pass. Live: one claim whose sources would not parse returned
+      // `fetch_refused` at $0 on five passes while 167 others were never reached. Set aside for THIS pass only.
+      if (out.status === "failed" && out.attempted && PER_CLAIM.has(out.failure ?? "")) {
+        setAside.add(out.attempted); continue; }
       if (out.status === "failed")
         return { status: banked > 0 ? "advanced" : "failed", banked, pagesComplete, attempts, failure: out.failure, reason: out.reason };
       if (out.status === "advanced") {
