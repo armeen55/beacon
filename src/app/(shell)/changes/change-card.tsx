@@ -29,12 +29,6 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
   low: { intent: "neutral", label: "Low risk" }, medium: { intent: "waiting", label: "Medium risk" },
   high: { intent: "attention", label: "High risk" },
 };
-/** HOW PROVEN THIS EDIT IS, READ OFF ITS OWN EVIDENCE AND NOTHING ELSE: 0 stands on a source outside this account, 1 on a live results page or a page that beats you, 2 on neither. It USED TO TAKE `proven` from the caller and the ready lane passed a bare `proven` on every row, so being FINISHED printed as being PROVED: the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all, its one claim standing on nothing but the page it rewrites. Readiness is a queue fact, evidence is a claim about the world, and one may never be shown as the other. The list sorts on the SAME number the chip renders. */
-const evidenceTier = (p: ChangeProposal): 0 | 1 | 2 => { const k = new Set((p.bundle?.receipt.items ?? []).map((i) => i.kind));
-  return k.has("independent_source") ? 0 : k.has("serp") || k.has("winning_page") || k.has("ai_observation") ? 1 : 2; };
-/** EVIDENCE STRENGTH, NOT READINESS. Every card here is finished work, so the chip says how strong the argument behind it is and nothing about whether it can be done. "Best guess" said the second thing and was wrong. WHERE THE ARGUMENT COMES FROM, NEVER WHETHER IT WORKED. "Proven" said a source had been collected and let a reader hear that every claim was checked and the change would land; neither follows, and proof is something Results earns AFTER a measurement. These name the provenance and stop. */
-const TIER_CHIP: { intent: PillIntent; label: string }[] = [{ intent: "live", label: "Source-backed" },
-  { intent: "measuring", label: "Search-results-backed" }, { intent: "waiting", label: "Page-only" }];
 
 /** Today, in the operator's words, for the sentence a just-finished card prints. */
 const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
@@ -162,8 +156,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
   // and de-slugging a title truncates it at its first slash and eats its punctuation.
   const pageTitle = proposal.pagePath ? pageLabel(proposal.pagePath) : (proposal.pageLabel || "This page");
   const secondary = path === pageTitle ? null : path;
-  const tier = evidenceTier(proposal);
-  const chip = TIER_CHIP[tier]!;
   // A MERGE IS READ, NEVER PASTED: it moves several pages at once, so it carries ordered steps instead of a copy box. EVERYTHING ELSE IS A PASTE, because nothing instruction-shaped reaches this list any more: the completeness boundary keeps a card that tells the operator to go and write the work out of the queue entirely, so the "Read this twice, then:" framing and the research branch it carried are gone with it.
   const merge = isConsolidation(proposal);
   const recordDone = () => { setDone(true); onDone(proposal.id); };
@@ -291,7 +283,6 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         <p className="flex flex-wrap items-center gap-1.5" data-change-facts="true">
           {merge && proposal.estimatedEffortMinutes > 0 ? <Pill>about {effortLabel(proposal.estimatedEffortMinutes)}</Pill> : null}
           <Pill intent={RISK[proposal.riskLevel].intent}>{RISK[proposal.riskLevel].label}</Pill>
-          <Pill intent={chip.intent}>{chip.label}</Pill>
         </p>
 
         {held.length > 0 ? (

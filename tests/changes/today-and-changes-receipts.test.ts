@@ -144,8 +144,9 @@ describe("a ranked card explains itself without being opened", () => {
     // genuinely theirs, framed as the decision rather than as Beacon's internal hold.
     for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
     for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
-    // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED. The ready lane passed a bare `proven` on every row, so the Asiatic cheetah card said "Proven" beside "Backed by 1 check" while carrying no receipt at all. This row is Ready and has none either, so it may not wear the chip that says its argument was checked outside this account.
-    expect(ready, "proven").not.toContain("Proven"); expect(ready, "tier").toContain("Page-only");
+    // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED, and neither is a provenance GUESS: the chip that replaced `proven` read bundle receipt kinds alone, so on the live account five rows standing on a 90-day Google record and one standing on three assistant answers all said "Page-only" beside a sentence citing those very figures. The proof line names the evidence this row has, so no card wears a tier its own sentence contradicts.
+    for (const s of ["Proven", "Page-only", "Source-backed", "Search-results-backed"]) expect(ready, s).not.toContain(s);
+    expect(ready, "the row says what backs it").toContain("Why this ranks here:");
     // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS BEACON'S PROBLEM, never the operator's: it renders only
     // as the compact background status, with no card, no controls and no internal refusal text, even when the
     // same row also carries a safety decision, because nobody is asked to authorize known-defective work.
