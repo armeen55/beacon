@@ -146,6 +146,33 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     // AND A TRACK RECORD MAY SHADE AN ORDER, NEVER INVERT ONE: three finished readings against this family pull a quarter of a twelve point factor, which cannot cross the traffic gap above.
     const history = new Map([[actionFamilyOf("title"), { readings: 3, netLift: -40 }]]);
     expect(rankProposals([smallSection, bigTitle], { familyHistory: history }).map((p) => p.id)).toEqual(["title-539", "section-tiny"]); });
+  it("never renders an uncalibrated prior as a measured figure, and says which half is assumed", () => {
+    // 0.5 and 0.2 are POLICY, not measurements (operator, 2026-08-27). A prior multiplied by a real number is a
+    // PRIORITY, and printing it as expected clicks makes invented certainty look empirical.
+    const card = baseProposal({ impactScore: 400, diagnosisCause: undefined });
+    const shown = rankProposals([card])[0]!.rankingReceipt!;
+    const vis = shown.factors.find((f) => f.name === "visibility")!.input;
+    expect(vis, "the measured half is named first").toContain("400 clicks over 28 days");
+    expect(vis, "and the assumed half is named as policy").toContain("this product's policy and not a figure measured here");
+    expect(vis).not.toContain("expected");
+    expect(shown.basis, "an undiagnosed card says outright it is an order and not a size").toContain("not a promise about size");
+    // And where a cause IS diagnosed, the summary still refuses to read as a forecast.
+    expect(rankProposals([baseProposal({ impactScore: 400, diagnosisCause: "ctr_snippet",
+      recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]!
+      .rankingReceipt!.basis).toContain("not a forecast");
+    // A family with too few finished readings may not speak: twelve settled readings exist account-wide.
+    const thin = new Map([[actionFamilyOf("title"), { readings: 3, netLift: 900 }]]);
+    expect(rankProposals([card], { familyHistory: thin })[0]!.rankingReceipt!.factors
+      .find((f) => f.name === "visibility")!.input).toContain("not a figure measured here"); });
+
+  it("changing only the treatment label cannot move the traffic estimate", () => {
+    // The kind of work describes an opportunity. It never prices one.
+    const same = { impactScore: 400, demandImpressions90d: 9_000 };
+    const worth = (family: string): number => rankProposals([baseProposal({ ...same, changeFamily: family })])[0]!
+      .rankingReceipt!.factors.find((f) => f.name === "visibility")!.contribution;
+    const labels = ["title", "meta", "section", "answer", "new_page", "schema", "full_rewrite"];
+    expect(new Set(labels.map(worth)).size, "one traffic figure, whatever the work is called").toBe(1); });
+
   it("treats nothing worth PAYING for as a quiet day for the drafter, while the $0 queue still works it", async () => {
     reset(snap([WINNER])); let called = 0; const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, complete: async () => { called += 1; return { error: "the drafter must never run when nothing earned an action", retryable: false }; } }); // nothing earns a PAID action
     expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called // The early return used to skip the $0 producers entirely (canonical $0 acceptance run, 2026-08-21).

@@ -5,36 +5,29 @@ const db = vi.hoisted(() => {
   /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
   const state = {
     rows: [] as Row[], file: [] as Row[], offline: false,
-    upsertError: null as Row | null, updateError: null as Row | null,
-  };
-  return { state, client: {} as Record<string, unknown> };
-});
+    upsertError: null as Row | null, updateError: null as Row | null,};
+  return { state, client: {} as Record<string, unknown> };});
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
 vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },
-}));
+  getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },}));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
 vi.mock("@/lib/persistence/json-store", () => ({
   readStore: async () => db.state.file,
-  writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; },
-}));
+  writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; },}));
 vi.mock("@/lib/tenant", () => ({ getDataDir: () => "/tmp/beacon-fixture" }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => {} }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({
-  readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map(),
-}));
+  readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map(),}));
 /** The comparison set this account's site can offer, which the recording seam asks for and never depends on. */
 const ctl = vi.hoisted(() => ({ pages: [] as string[] }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
   loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }),
-  assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,
-}));
+  assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,}));
 vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
-  ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records,
-}));
+  ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records,}));
 /** The settle pass's own three seams: what it measured, and the two things a fresh verdict is worthless without. */
 const settle = vi.hoisted(() => ({ pass: vi.fn(), rebuilt: [] as string[], harvested: [] as string[] }));
 vi.mock("@/domains/measurement/proof-gsc/auto-measure-pass", () => ({ autoMeasureDuePass: settle.pass }));
@@ -59,8 +52,7 @@ const origin = (over: Record<string, unknown> = {}) => ({
   proposalId: `${T}::/nowruz-guide::existing_edit::bundle`, proposalVersion: "v-abc123",
   basis: "basis_today::d6", caseId: null,
   bundleHypothesis: "Say what the searcher asked for in the line Google shows.",
-  componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,
-});
+  componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,});
 const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
   tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz",
   // A record needs its comparison pages to be worth writing at all, so the writer itself refuses fewer than two.

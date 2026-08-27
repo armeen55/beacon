@@ -15,23 +15,19 @@ describe("inside a no-spend scope nothing is bought, and nothing pretends it fai
     const outcome = await runWithoutSpending(() => openAIStructuredResponse(args));
     expect(outcome.kind).toBe("blocked_budget"); // the state every caller already reads as "did not buy"
     expect(fetchSpy).not.toHaveBeenCalled(); // and it never reached the network to find that out
-    if (outcome.kind === "blocked_budget") expect(outcome.reason).toContain("paused");
-  });
+    if (outcome.kind === "blocked_budget") expect(outcome.reason).toContain("paused");});
   it("closes the provider door the same way, leaving the work owed rather than failed", async () => {
     const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
     const result = await runWithoutSpending(() => providerCall(
       "serp_organic" as never, { keyword: "haft seen set" } as never, { tenantId: "tenant-fx", unitKey: "u1" }));
     expect(result.state).toBe("capped"); // owed, not failed: a paused day is not an outage
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
+    expect(fetchSpy).not.toHaveBeenCalled();});
   it("is ambient, so a path nobody remembered to thread the flag through still refuses", async () => {
     const deepInside = async () => ({ refused: spendingRefused() }); expect(await runWithoutSpending(() => deepInside())).toEqual({ refused: true });
     expect(await deepInside()).toEqual({ refused: false }); // and it never leaks outside its own call stack
   });
   it("does not leak across a paid pass that runs after it", async () => {
-    await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); }); expect(spendingRefused()).toBe(false);
-  });
-});
+    await runWithoutSpending(async () => { expect(spendingRefused()).toBe(true); }); expect(spendingRefused()).toBe(false);});});
 /** THE ONE GATE IS INSIDE THE BODY all four rebuild doors share, so a fifth door added later inherits it. */
 describe("a paused account rebuilds its surface and buys nothing, whatever the caller asked for", () => {
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
@@ -50,10 +46,8 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
         // ASKED FROM INSIDE THE PRODUCER, which is the only place the answer means anything.
         const { spendingRefused: refused } = await import("@/lib/spend-scope");
         seen.push({ opts, refusedInside: refused() });
-        return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 };
-      },
-      reconcileImplementedWithoutShipment: async () => undefined,
-    }));
+        return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 };},
+      reconcileImplementedWithoutShipment: async () => undefined,}));
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
     // The caller asks for five paid drafts. The pause outranks it.
     await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null); expect(seen).toHaveLength(1);
@@ -61,8 +55,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     expect(seen[0]!.opts).toMatchObject({ maxDrafts: 0 }); // and the pause outranked the caller's ask
     expect(calls.claims).toContain("surface-claims"); // the cross-instance hold was taken at the boundary
     expect(calls.releases).toContain("surface-claims:hold-1"); // and freed with ITS OWN token, build or no build
-    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();
-  });
+    vi.doUnmock("@/lib/persistence/json-store"); vi.doUnmock("@/domains/runtime"); vi.doUnmock("@/domains/decision"); vi.resetModules();});
   it("hands a second instance the release on file instead of building twice", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
     const held = [{ schemaVersion: 2, tenantId: "tenant-fx", computedAt: "2026-08-20T00:00:00.000Z",
@@ -72,8 +65,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "running" as const }));
     vi.doMock("@/domains/decision", () => ({
       produceProposalsForTenant: async () => { built += 1; return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 }; },
-      reconcileImplementedWithoutShipment: async () => undefined,
-    }));
+      reconcileImplementedWithoutShipment: async () => undefined,}));
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release"); const out = await refreshCustomerSurface("tenant-fx");
     expect(built).toBe(0); // the other dispatcher owns the build
     expect(out).toBe(held[0]); // this one serves what is already published

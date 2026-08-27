@@ -58,13 +58,19 @@ type Factor = Receipt["factors"][number];
 const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
-/** THE CHANCE A CHANGE ACTUALLY COLLECTS THE SHORTFALL IT NAMES. Stated, bounded and the same for every kind of
- *  work: what separates the two is whether the cause is diagnosed and the lever treats it, never what family the
- *  change belongs to. Deliberately conservative, because a measured shortfall is what a page is LOSING and not a
- *  promise of what one edit wins back. */
+/** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT
+ *  MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a
+ *  prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes
+ *  invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the
+ *  lever treats it, never what family the change belongs to. They become measurements only when this account's
+ *  own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says
+ *  "assumed" out loud and names the sample it does not have. */
 const COLLECTS = { diagnosed: 0.5, undiagnosed: 0.2 } as const;
-/** Expected clicks per point of the visibility band, so it saturates near 480 more clicks over 28 days: about the
- *  largest single opportunity a site of this size can honestly carry, and far above any ordinary card. */
+/** Finished readings of one kind of change before this account's own record may set the discount instead of the
+ *  prior above. Twelve settled readings exist in total across every family, so today nothing reaches it. */
+const CALIBRATION_MIN = 20;
+/** Discounted clicks per point of the visibility band, so it saturates near 480 over 28 days: about the largest
+ *  single opportunity a site of this size can honestly carry, and far above any ordinary card. */
 const PER_POINT = 4;
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
@@ -87,6 +93,10 @@ const LEVER_WORD: Partial<Record<Cause, string>> = {
 };
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+const clamp01 = (n: number): number => Math.min(1, Math.max(0.05, n));
+/** This account's finished readings for THIS change's family, or undefined. Read once so the discount above and the small history factor below can never disagree about the same ledger. */
+const seenFor = (history: FamilyHistory | null, p: ChangeProposal): { readings: number; netLift: number } | undefined =>
+  history?.get(actionFamilyOf(p.changeFamily));
 const num = (n: number): string => Math.round(n).toLocaleString();
 
 /** HOW MUCH RECEIPT THIS ONE CAN SHOW, clamped to its own floor: a tampered `evidenceRefCount` must never
@@ -149,12 +159,21 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change
   // does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
   const sized = clicks != null && clicks > 0 && (addressed || !treatable);
-  const expected = !sized ? null : Math.round(clicks! * (addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed));
-  const proven = expected == null ? null : addressed
-    ? { input: `about ${num(expected)} more clicks over 28 days, being half of the ${num(clicks!)} this page's own diagnosis names as recoverable`,
-      value: Math.min(MAX.visibility, expected / PER_POINT) }
-    : { input: `about ${num(expected)} more clicks over 28 days, off ${num(clicks!)} of measured shortfall, cause not yet diagnosed`,
-      value: Math.min(MAX.visibility / 2, expected / PER_POINT) };
+  // WHAT IS MEASURED AND WHAT IS ASSUMED, SAID SEPARATELY. The shortfall is measured; the share of it this change
+  // collects is a policy prior until this account has finished readings enough to calibrate it, so the sentence
+  // reports the measured figure FIRST, then the assumption by name, and calls the product a priority and never a
+  // forecast. A family's own record replaces the prior only past CALIBRATION_MIN readings, and says so when it does.
+  const record = seenFor(history, p), calibrated = record != null && record.readings >= CALIBRATION_MIN;
+  const share = !sized ? 0 : calibrated ? clamp01(record!.netLift / Math.max(1, record!.readings) / 100 + 0.5)
+    : addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed;
+  const priority = !sized ? null : Math.round(clicks! * share);
+  const basis = calibrated ? `a ${Math.round(share * 100)} percent share measured across ${num(record!.readings)} finished readings of this kind of change here`
+    : `an assumed ${Math.round(share * 100)} percent share, which is this product's policy and not a figure measured here`;
+  const proven = priority == null ? null : addressed
+    ? { input: `${num(clicks!)} clicks over 28 days measured as recoverable and the cause diagnosed, so ${num(priority)} is what it is ranked on: ${basis}`,
+      value: Math.min(MAX.visibility, priority / PER_POINT) }
+    : { input: `${num(clicks!)} clicks over 28 days of measured shortfall with no cause diagnosed yet, so ${num(priority)} is what it is ranked on: ${basis}`,
+      value: Math.min(MAX.visibility / 2, priority / PER_POINT) };
   // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
   // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
   // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
@@ -274,7 +293,7 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const items = shownEvidence(p);
   const basis = directional
     ? `No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do.`
-    : `Ranked on the clicks this could add over the next 28 days, off ${num(Math.max(0, p.impactScore ?? 0))} measured as recoverable, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;
+    : `Ranked on a discounted traffic priority, not a forecast: ${num(Math.max(0, p.impactScore ?? 0))} clicks over 28 days measured as recoverable, discounted by an assumed share, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;
   return { score, factors, directional, basis };
 }
 

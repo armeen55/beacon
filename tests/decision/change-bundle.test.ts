@@ -1001,9 +1001,9 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
     // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
     const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([true, 24.23]);
-    expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall, cause not yet diagnosed");
+    expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall with no cause diagnosed yet");
     const [causal] = rankProposals([prop({ impactScore: 570, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) })]);
-    expect([causal!.rankingReceipt!.directional, causal!.rankingReceipt!.basis.includes("off 570 measured as recoverable")]).toEqual([false, true]); });
+    expect([causal!.rankingReceipt!.directional, causal!.rankingReceipt!.basis.includes("570 clicks over 28 days measured as recoverable")]).toEqual([false, true]); });
   it("decodes and ranks a stored row that predates every field this ranking added", () => {
     const { rankingReceipt: _r, whyRankedAboveNext: _w, diagnosisCause: _c, bundle: _b, ...old } = prop({ impactScore: 300, bundle: bundleOf([comp({ kind: "title" })]) });
     void _r; void _w; void _c; void _b;
