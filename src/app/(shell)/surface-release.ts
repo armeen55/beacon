@@ -130,7 +130,9 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  the computed instant, the "ranked N minutes ago" line) is dropped, because none of it is a thing anybody
  *  learned. Cheap and total: a real change to any card, count or position lands in this string. */
 function materialOf(rows: ReadonlyArray<{ id: string; lane: string }>, changes: unknown, today: unknown): string {
-  const clocks = /^(surfaceVersion|surfaceComputedAt|receiptLine|computedAt|releaseId|checkedAt|rankedAt)$/;
+  // `createdAt` and `decidedAt` are on this list because the STORE's own identity already excludes them: a
+  // producer re-derives both on every pass for work nobody changed, so they mark the clock and never the work.
+  const clocks = /^(surfaceVersion|surfaceComputedAt|receiptLine|computedAt|releaseId|checkedAt|rankedAt|createdAt|decidedAt)$/;
   const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable)
     : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>)
       .filter(([k]) => !clocks.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)]))

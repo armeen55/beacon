@@ -27,15 +27,13 @@ export type SourceFreshness = {
   /** How many rows this source contributed (coverage/honesty line). */
   rowsSeen: number;
   /** One plain sentence for a customer-facing "why is this blank" line. */
-  note: string;
-};
+  note: string;};
 // ── per-owned-page evidence (GSC + GA4 + Wix + Clarity + AI joined by URL) ────
 export type OwnedQuerySignal = {
   query: string;
   impressions: number;
   clicks: number;
-  position: number | null;
-};
+  position: number | null;};
 export type OwnedPageContent = {
   title: string | null;
   metaDescription: string | null;
@@ -54,22 +52,19 @@ export type OwnedPageContent = {
   hasCanonicalMismatch?: boolean | null;
   robotsMeta?: string | null;
   /** Where the read of this page actually landed. Absent on captures taken before it was recorded. */
-  finalUrl?: string | null;
-};
+  finalUrl?: string | null;};
 export type OwnedPageSearch = {
   clicks90d: number;
   impressions90d: number;
   ctr90d: number;
   position90d: number;
-  topQueries: OwnedQuerySignal[];
-};
+  topQueries: OwnedQuerySignal[];};
 export type OwnedPageEngagement = {
   sessions28d: number;
   engaged28d: number;
   conversions28d: number;
   /** Real GA4 revenue $, or null when unknown (never 0-for-unknown). */
-  revenueUsd: number | null;
-};
+  revenueUsd: number | null;};
 export type OwnedPageFriction = {
   sessions: number;
   rageClicks: number;
@@ -77,8 +72,7 @@ export type OwnedPageFriction = {
   quickbacks: number;
   scriptErrors: number;
   /** Composite friction score (rage + dead + 2×scriptErrors), for ranking. */
-  frictionScore: number;
-};
+  frictionScore: number;};
 export type OwnedPageEvidence = {
   /** Canonicalized owned page URL (the join key). */
   url: string;
@@ -87,8 +81,7 @@ export type OwnedPageEvidence = {
   engagement: OwnedPageEngagement | null;
   friction: OwnedPageFriction | null;
   /** AI citations of THIS owned page. `count` is DISTINCT ANSWERS that credited it, never repeats inside one. */
-  aiCitations: { count: number; distinctPrompts: number; engines: string[] };
-};
+  aiCitations: { count: number; distinctPrompts: number; engines: string[] };};
 // ── competitor evidence (native AI + SERP citations) ─────────────────────────
 export type CompetitorEvidence = {
   url: string;
@@ -98,8 +91,7 @@ export type CompetitorEvidence = {
   /** Distinct tracked questions that credited it: THE authority on recurrence, and how rivals are ranked. */
   distinctPrompts: number;
   engines: string[];
-  examplePrompts: string[];
-};
+  examplePrompts: string[];};
 // ── demand: keyword volume + AI-answer questions ─────────────────────────────
 export type KeywordDemandSignal = {
   query: string;
@@ -111,8 +103,7 @@ export type KeywordDemandSignal = {
   competition: number | null;
   competitionLevel: "low" | "medium" | "high" | null;
   /** GSC impressions when this query is a real owned/served term, else null. */
-  gscImpressions: number | null;
-};
+  gscImpressions: number | null;};
 export type QuestionDemandSignal = {
   question: string;
   /** Distinct (prompt, engine) pairs that produced this question — the weight. */
@@ -120,8 +111,7 @@ export type QuestionDemandSignal = {
   sourcePrompts: string[];
   source: "native_ai";
   /** Whether an owned page already answers it (best-effort topic match). */
-  coverageStatus: "answered" | "unanswered" | "unknown";
-};
+  coverageStatus: "answered" | "unanswered" | "unknown";};
 // ── derived intelligence (normalized ONCE, not per source) ───────────────────
 export type IntentCluster = {
   key: string;
@@ -620,8 +610,14 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
       p.friction ? [p.friction.frictionScore] : null, p.aiCitations.count])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   const qk = canonicalQueryKey(primaryQuery ?? "");
+  // SORTED, BECAUSE THESE ROWS ARRIVE IN WHATEVER ORDER THE DATABASE FELT LIKE. `pages` and `winners` are sorted
+  // and this was not, so an account holding more than one stored results page for a query hashed a different
+  // identity every pass: live, one job's workKey moved between two builds a minute apart with no evidence change,
+  // re-minting the row and re-stamping the ranking. The docstring above already promised order-free.
   const serp = qk ? snapshot.research.serpEvidence.filter((s) => canonicalQueryKey(s.query) === qk)
-    .map((s) => [s.organic.map((o) => [o.rank, o.url]), s.aiOverview.map((c) => c.url), s.aiMode.map((c) => c.url)]) : [];
+    .map((s) => [[...s.organic].sort((a, b) => a.rank - b.rank || a.url.localeCompare(b.url)).map((o) => [o.rank, o.url]),
+      [...s.aiOverview].map((c) => c.url).sort(), [...s.aiMode].map((c) => c.url).sort()])
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : [];
   const winners = jobWinners(snapshot.research, primaryQuery)
     .map((w) => [canonicalUrlKey(w.url), w.extract ? [w.extract.wordCount, w.extract.headings.length] : null])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
