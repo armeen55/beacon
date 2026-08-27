@@ -31,8 +31,7 @@ type DraftedCopyOptions = { tenantId: string; snapshot: EvidenceSnapshot; now: D
 const slugOf = (p: ChangeProposal): string => p.id.split("::").at(-1) ?? ""; // the producer's own slug, off the id it minted /** The page this card lands on, by either key. */
 function pageFor(snapshot: EvidenceSnapshot, card: ChangeProposal): OwnedPageEvidence | null {
   const url = (card.pageUrl ?? "").trim(), path = (card.pagePath ?? "").trim().toLowerCase();
-  return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;
-}
+  return snapshot.ownedPages.find((p) => (url && canonicalUrlKey(p.url) === canonicalUrlKey(url)) || pathOf(p.url).toLowerCase() === path) ?? null;}
 /** WHETHER COPY IS FINISHED IS NOT A QUESTION ABOUT ITS SPELLING. Two word lists used to answer it: a verb list  called a sentence an instruction, and a vocabulary list called a word invented because the page had not  already printed it. The second refused the one thing an editor is for, a faithful paraphrase. So the editor hands back its HOMEWORK and two gates read it. The deterministic half checks only what code can know: fields  present, no placeholder, every id resolves, the text it replaces and the place it lands are really on the  stored page, the heading is not the tracked question said back, the copy is the length its field takes. Sense is the JUDGE's, and NO JUDGE MEANS NO DELIVERABLE. Dashes, ungrounded figures and destructive replacements stay where they live (validate-proposal, llm/numeric-fidelity): house rules for any copy. */
 type EditorDeliverable = {
   /** Notes from a final round that failed only SOFT rules: the draft is complete and worth a human read, and these ride its limitations. */ softFailures?: readonly string[];
@@ -100,12 +99,10 @@ const addsNothing = (claims: readonly { supportedBy: readonly string[] }[], type
  *  no version, no fact-* evidence. */
 const factHashOf = (body: OwnedPageBody | null): string | null => {
   const joined = body ? [body.title, body.h1, ...(body.headings ?? []), ...(body.passages ?? [])].filter(Boolean).join("\n") : "";
-  return joined.trim() ? pageHashOf(joined) : null;
-};
+  return joined.trim() ? pageHashOf(joined) : null;};
 const authorized = (f: readonly FactCheck[], body: OwnedPageBody | null, basis: string | null): FactCheck[] => {
   const hash = factHashOf(body);
-  return hash == null ? [] : authorizedCorrections(f, { pageContentHash: hash, evidenceBasis: basis });
-};
+  return hash == null ? [] : authorizedCorrections(f, { pageContentHash: hash, evidenceBasis: basis });};
 const REPLACEABLE_MAX = 2_400, MIN_SECTION = 120; const BODY_READ_BOUND = 7; // owned-context refuses a page-body read wider than this and returns NOTHING, so this list may never exceed it
 const PAGE_COPY_BUDGET = 12_000; // characters of the target page a body edit may read, in document order
 const FACTS_IN_PACKET = 8; // one ordering, shared by the packet's `fact-N` ids and the validator's source list
@@ -139,8 +136,7 @@ const evaluator = (tenantId: string, now: Date, meter?: Allowance): JudgeFn => a
       : `The page's own words, whole: ${p.bodyText}`, "", "Return the JSON now."].filter(Boolean).join("\n");
   const r = await callStructuredLLM({ kind: "editor_judgement", tenantId, system: EVALUATOR_SYSTEM, user, grounded: user, projectedCostUsd: 0.01, maxTokens: 2000, timeoutMs: 95_000, now }).catch(() => null);
   spendOf(meter, r);
-  return r?.status === "drafted" ? (r.value as JudgeVerdict) : null;
-};
+  return r?.status === "drafted" ? (r.value as JudgeVerdict) : null;};
 /** THE GATES THAT NEED NO MODEL AND NO FRESH EVIDENCE, so they can be re-read against a STORED piece as well as  a fresh one: markup where a word belongs, a figure that dropped the qualifier its own sentence carried, a  range that is really two neighbours, a rival's name this page never mentions, and the account's own banned words. Split out because a bundle is SERVED FROM REUSE without redrafting, so a piece written before a gate existed outlived the gate that would have refused it. PURE. A DEFINITION THAT REPEATS ITS OWN TERM DEFINES NOTHING: "Goodbye: goodbye." and "Please: please." shipped inside a beginner phrase list on a page that prints خداحافظ (Khodahafez) for exactly that word, four of that answer's eight lines wearing the shape of a glossary entry and teaching nobody anything. Mechanical and general, about the SHAPE of a definition: no word list, no language. */
 function rereadableRefusals(copy: string, p: SourcePacket, heading: string | null = null): string[] {
   const out: string[] = []; if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
@@ -171,8 +167,7 @@ function rereadableRefusals(copy: string, p: SourcePacket, heading: string | nul
   const banned = p.bannedTerms.filter((t) => t.trim() && new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(`${copy} ${heading ?? ""}`)
     && !p.demand.vocabulary.some((v) => new RegExp(`\\b${t.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(v)));
   if (banned.length > 0) out.push(`it uses words this account does not publish: ${banned.slice(0, 3).join(", ")}`);
-  return out;
-}
+  return out;}
 /** THE GRAMMAR OF STATING A LIST IS NOT A FACT ABOUT THE PAGE. This gate is deliberately not a vocabulary test, yet finished sections were refused for the words "include", "means" and "also": carrier verbs and scaffolding that any faithful paraphrase of a list must use and no page's stored copy reliably prints. This closed set names exactly that grammar and nothing else; every noun, adjective and meaning the copy states still has to be carried by a declared claim and the passage it cites (operator, 2026-08-17). */
 const CARRIER = new Set(["include", "includes", "including", "cover", "covers", "carry", "carries", "list", "lists",
   "mean", "means", "meaning", "also", "such", "offer", "offers", "use", "uses", "used", "refer", "refers", "state", "states",
@@ -194,6 +189,14 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   if (unknown.length > 0) out.push(unknown.some((id) => SOURCE_KIND.has(id))
     ? `it cites ${unknown.filter((id) => SOURCE_KIND.has(id)).slice(0, 3).map((id) => `"${id}"`).join(", ")} as evidence, which is a kind of source and not one of the stored ids handed to it: a claim may only name ids like ${Object.keys(p.evidence).slice(0, 3).join(", ")}`
     : `it names evidence that is not on file: ${unknown.slice(0, 3).join(", ")}`);
+  // A SUMMARY IS EXEMPT FROM ADDING INFORMATION, NEVER FROM SAYING ANYTHING. Live in the Ready queue:
+  // "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and
+  // Iranopedia as the source." Twenty two words, two of them three times each, nothing a searcher could learn,
+  // and it passed because descriptions are excused the gain test and nothing else asked. Short copy only: a
+  // body section may repeat its subject as often as the writing needs, a one-line summary may not.
+  const brand = urlKey(p.targetUrl).split("/")[0]?.split(".")[0] ?? "";
+  const named = brand.length > 3 ? d.finalCopy.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w === brand).length : 0;
+  if (named > 1) out.push(`it names ${brand} ${named} times, and a reader already looking at this site learns nothing from being told whose page it is`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check"); if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
   if (d.claims.some((c) => c.supportedBy.some((id) => /^rival-/.test(id)))) out.push("a claim of it stands on a rival page, which is not checked evidence: say it from this page's own words or from a fact-* id, or leave it out");
   // A CLAIM MUST CITE THE EVIDENCE THAT CARRIES IT, checked HERE and not only on the banked re-read: the same drift test ran only after landing, so a draft whose writer mis-aimed its ids (the Topoli gloss cited under another phrase's chunk) was accepted, saved Ready, and demoted by the next pass's re-read. Asymmetric gates are how work lands and then dies; the refusal at draft time is a lesson the retry can fix by re-aiming the id. A RIVAL'S PROSE PROVES NOTHING, and every id the packet carries is otherwise citable, so without the refusal above a competitor's unchecked sentence would authorize finished copy the moment the briefing class arrived. Enforced in code and never only in the prompt: a rule the model is merely asked to follow is not a boundary. What a rival asserts reaches copy through the fact-check path and its `fact-*` id, or not at all.
@@ -234,22 +237,19 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
     if (d.placementAnchor.trim().length > ANCHOR_MAX) out.push("where it goes is a paragraph rather than a place on the page");
     if (/[a-z][A-Z]/.test(d.placementAnchor) || /[!?.][A-Z]/.test(d.placementAnchor.slice(1, -1)) || /\S\s{2,}\S/.test(d.placementAnchor.trim()))
       out.push("where it goes is two page elements glued together, which nobody can find on the rendered page");
-    if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");
-  }
+    if (CHROME_AT.test(d.placementAnchor)) out.push("where it goes is taken from the crawl's own markers, not from the page");}
   if (d.actionType === "internal_link") {
     if (!d.linkTo || !p.ownedPaths.some((x) => x.toLowerCase() === d.linkTo!.toLowerCase())) out.push("the page it links to is not one this account owns");
     if (blankish(d.anchorText) || !flat(d.finalCopy).includes(flat(d.anchorText!))) out.push("the words it puts on the link are not in the sentence it hands over"); }
   if (!(d.implementationMinutes > 0)) out.push("it does not say how long it takes");
-  return [...new Set(out)];
-}
+  return [...new Set(out)];}
 /** A CLOSING SENTENCE THAT ASKS THE READER TO READ THE PAGE IS FILLER WHERE A FACT BELONGS: the description  equivalent of "click here". DETERMINISTIC and about the SHAPE of an imperative, never a vocabulary: the final  sentence, opening on an instruction to read, view, browse, visit or shop. Trimmed where what is left still fills  the field, and otherwise sent back for ONE redraft that is told not to write one. PURE. */
 const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|learn|find|check)\b/i; const NO_CTA = "Write no closing call to action. Never end with an instruction to read, view, browse, visit or shop this page: the last sentence has to carry a fact about the page.";
 export function withoutCta(copy: string, type: EditorDeliverable["actionType"]): string | null {
   // LIST-SHAPED COPY IS READ BY ITS LINES (review, 2026-08-22): with line breaks preserved, the closing CTA is a whole last LINE and the space-suffixed boundaries below never see it, while the " - " boundary would amputate the meaning off an honest "phrase - meaning" list item. Multi-line copy therefore drops a CTA last line whole and keeps every list separator; the single-line path is byte for byte what it was.
   if (copy.includes("\n")) {
     const lines = copy.trim().split("\n"); if (!CTA_TAIL.test(lines[lines.length - 1]!.trim().replace(/^[.;!?\s-]+/, ""))) return copy; const kept = lines.slice(0, -1).join("\n").trim(), [lo0, , unit0] = BAND[type];
-    return kept && (unit0 === "c" ? kept.length : words(kept)) >= lo0 ? kept : null;
-  }
+    return kept && (unit0 === "c" ? kept.length : words(kept)) >= lo0 ? kept : null;}
   // A CLAUSE IS A CLOSING LINE TOO. Cut only on a full stop and the same instruction came back joined on with a dash or a semicolon ("- click to read the focused account"), which is the identical filler wearing different punctuation. THE CUT LEAVES A SENTENCE, NEVER A STUB: whatever the join was, what is left ends its own line.
   const t = copy.trim(), cut = Math.max(t.lastIndexOf(". "), t.lastIndexOf("; "), t.lastIndexOf("! "), t.lastIndexOf("? "), t.lastIndexOf(" - ")); if (cut < 0 || !CTA_TAIL.test(t.slice(cut).replace(/^[.;!?\s-]+/, ""))) return copy;
   const kept = t.slice(0, cut + 1).trim().replace(/[;,-]+$/, "").trim(), [lo, , unit] = BAND[type], done = /[.!?]$/.test(kept) ? kept : `${kept}.`;
@@ -270,8 +270,7 @@ export async function acceptDeliverable(d: EditorDeliverable, p: SourcePacket, j
   // THE EVALUATOR'S OWN SENTENCE IS THE FEEDBACK, not the checkbox labels (Codex, 2026-08-23): the notes name the single worst defect and were being thrown away, so the retry heard "not useful" and never WHY. The note rides first, so the corrective loop repeats the evaluator's exact objection to the writer.
   const reasons = failed.length > 0 && typeof v.notes === "string" && v.notes.trim() ? [`the evaluator's exact objection: ${v.notes.trim()}`, ...failed] : failed;
   const resolution: DraftResolution = failed.length > 0 && v.resolution !== "none" ? v.resolution ?? "none" : "none"; // a refusal's typed step, or "none" when the evaluator refused without one (the deterministic ladder then decides); a PASS never carries one
-  return { reasons, gain: failed.some((r) => GAIN.LINES.has(r)) || (failed.length > 0 && resolution !== "none"), resolution };
-}
+  return { reasons, gain: failed.some((r) => GAIN.LINES.has(r)) || (failed.length > 0 && resolution !== "none"), resolution };}
 /** THE STORED FACTS THIS PAGE'S EDIT IS CHECKED AGAINST, each under an id the drafter is handed and the  deliverable must name back. Nothing here is fetched: it is the snapshot's own capture and this card's own evidence, so "the evidence supports this" is a lookup rather than a belief. AND WHAT THE PAGES THAT WIN THIS SEARCH COVER AND THIS ONE DOES NOT: acquisition banked those reads and nothing ever handed them over, so a refusal for restating the page reopened the job and bought the identical answer again, the evidence moving the fingerprint and never the writing. A `rival-*` id is BRIEFING, the one class no claim may cite; it says what is missing and how the winning answer is shaped, and a fact it asserts still owes the fact-check path. */
 function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPageBody | null, owned: readonly OwnedPageEvidence[], bannedTerms: readonly string[], siblings: ReadonlyMap<string, OwnedPageBody> = new Map(), facts: readonly FactCheck[] = [], basis: string | null = null, research: EvidenceSnapshot["research"] | null = null): SourcePacket {
   const evidence: Record<string, string> = {}; if (page.content?.title) evidence["page-title"] = page.content.title; if (page.content?.h1) evidence["page-h1"] = page.content.h1;
@@ -307,8 +306,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   return { targetUrl: page.url, title: page.content?.title ?? null, h1: page.content?.h1 ?? null, metaDescription: body?.metaDescription ?? page.content?.metaDescription ?? null,
     bodyText: ((body?.passages ?? []).length > 0 ? (body?.passages ?? []).join(" ") : body?.vocabulary ?? "").replace(CHROME, " "), // THE PAGE ONCE, NEVER TWICE: `passages` are chunks OF `vocabulary` (the whole stored body, kept for word-containment checks and never for prompting), so joining both put every page into the packet twice; `remains` was then computed off the second copy, held the entire page, and refused every replacement for repeating what stays below it whatever it said.
     headings: [...(page.content?.outline ?? []), ...(body?.headings ?? [])], evidence, trackedQuestion: card.primaryQuery,
-    ownedPaths: owned.map((o) => pathOf(o.url)), bannedTerms, demand: { preserve, vocabulary, unanswered }, diagnosis: card.evidence.hints, treatment: card.treatment ?? undefined, ...(truncated ? { truncated: true } : {}) };
-}
+    ownedPaths: owned.map((o) => pathOf(o.url)), bannedTerms, demand: { preserve, vocabulary, unanswered }, diagnosis: card.evidence.hints, treatment: card.treatment ?? undefined, ...(truncated ? { truncated: true } : {}) };}
 /** The wiring one editor run needs, and nothing about which card asked for it, so a card's own edit and a sibling page's edit are ONE editor rather than two that drift. */
 type EditorWiring = { tenantId: string; now: Date; complete?: CompleteFn; bypassCache?: boolean; judge?: JudgeFn; refusals?: Map<string, string>;
   /** THE PASS'S OWN HARD ATTEMPT BUDGET, shared by every editor run in it and decremented BEFORE each charged call, so a refusal costs exactly what it cost. It is also where this page's REAL spend is recorded. Absent means one editor run standing on its own. */
@@ -353,8 +351,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     supportFacts: [...new Set(claims.flatMap((c) => [...c.supportedBy]))].filter((id) => !!packet.evidence[id]).map((id) => ({ id, fact: packet.evidence[id]!.slice(0, 1400) })),
     uncertaintyOrOmitted: v.risks, implementationMinutes: v.implementationMinutes || minutes,
     measurementTarget: v.proofPlan.metrics[0] ?? "",
-    ...(field === "internal_link" && link ? { linkTo: link.to, anchorText: link.anchor } : {}),
-  };
+    ...(field === "internal_link" && link ? { linkTo: link.to, anchorText: link.anchor } : {}),};
   // THE MODEL PROPOSES, CODE VERIFIES. A field edit replaces the page's OWN stored line, and a model that paraphrases or re-spaces it by a character was refused outright. A near miss is RESOLVED to the exact stored form here, so what persists is still character-exact to the page; only a `before` naming something else fails. A NEAR MISS IS PUNCTUATION, NOT DISAGREEMENT. The house rule forbids en dashes, so a model asked to echo a stored line containing one rewrites it ("550-330" for "550\u2013330") and the two strings stop matching. They are compared with dashes and their spacing normalized, and the STORED form is what gets written back.
   const norm = (t: string): string => flat(t).replace(/[\u2013\u2014]/g, "-").replace(/\s*-\s*/g, "-"); const near = (a: string, b: string): boolean => norm(a) === norm(b) || norm(a).includes(norm(b)) || norm(b).includes(norm(a));
   // AN ANCHOR IS A SENTENCE A HUMAN CAN FIND. The model may hand back a whole paragraph or a run that starts in the crawl's own markers; the SHORTEST stored sentence carrying it is what an operator can actually look for, so the anchor is resolved to that and only an anchor nothing on the page carries is refused below. THE CLOSING CALL TO ACTION, BEFORE ANY GATE READS THE COPY: trimmed where the field still fills without it, and otherwise ONE redraft that is TOLD not to write one. Recursion, not a loop, so the retry pays the same attempt budget through the same door and a second failure refuses instead of buying a third. THE CTA REPAIR IS DETERMINISTIC AND FREE (Codex, 2026-08-23): the closing line is trimmed when the field still fills, and when too little is left the refusal goes to the PRICED corrective loop like every other lesson, instead of recursively buying a draft the six-unit price never counted.
@@ -377,8 +374,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
     // AMBIGUITY IS A REFUSAL, NEVER A GUESS: two distinct stored sentences sharing the matched prefix means the operator could land the copy in the wrong place, so nothing is rewritten and the card keeps its owed note.
     const cands = [...new Set(packet.bodyText.replace(CHROME, " ").split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
       .filter((t) => t.length > 0 && t.length <= ANCHOR_MAX && flat(t).includes(flat(anchor.slice(0, 60)))))];
-    if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] }); if (cands[0]) deliverable.placementAnchor = cands[0];
-  }
+    if (cands.length > 1) return refuse("where it goes matches more than one place on the page", { reasons: ["where it goes matches more than one place on the page"] }); if (cands[0]) deliverable.placementAnchor = cands[0];}
   if (held && deliverable.beforeText != null && near(held, deliverable.beforeText)) deliverable.beforeText = held;
   // A JUDGING IS A CHARGED CALL LIKE ANY OTHER. It went uncounted entirely, which is how a five-draft cap turned into hundreds of calls; the deterministic half runs first inside `acceptDeliverable`, so an exhausted budget only ever costs the copy a reading it could not pay for, never a refusal the packet could have made for free.
   if (opts.attempts && !opts.judge && (opts.attempts.left -= 1) < 0) { opts.unsettled?.add(DRAFT_BUDGET.keyOf({ pageUrl: packet.targetUrl })); return refuse("this pass has spent its whole attempt budget"); }

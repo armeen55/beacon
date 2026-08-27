@@ -521,6 +521,19 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
       .toEqual([true, true, false]); });
+  it("refuses a summary that sells the site to a reader already standing on it", () => {
+    // LIVE IN THE READY QUEUE, on /discover-iran. Descriptions are excused the information-gain test, because
+    // summarising the page IS a description's job, and nothing else ever asked whether it said anything.
+    const pk = { targetUrl: "https://www.iranopedia.com/discover-iran", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/discover-iran"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
+    const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/discover-iran", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
+    const stuffed = "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source.";
+    expect(meta(stuffed).some((r) => r.includes("names iranopedia 3 times"))).toBe(true);
+    // And the ones beside it in the same queue are untouched: repetition is the fault, not brevity or topic.
+    expect(meta("Iran adopted a new flag in 1979 and redesigned it in 1980. The red emblem arrived with the Takbir written in Kufic script along both bands.")
+      .some((r) => r.includes("names iranopedia"))).toBe(false);
+    expect(meta("An onager is a wild ass native to Iran's deserts, fast, hardy and able to live on very little water. Where it lives and why it is rare.")
+      .some((r) => r.includes("names iranopedia"))).toBe(false); });
+
   // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
   it("never drops a word the page earns clicks on, and demand vocabulary overrides the banned list", () => {
     const body = "Persian boy names with meanings, a list of classic and modern Iranian names for boys.";
