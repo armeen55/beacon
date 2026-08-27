@@ -156,6 +156,11 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(vis, "and the assumed half is named as policy").toContain("this product's policy and not a figure measured here");
     expect(vis).not.toContain("expected");
     expect(shown.basis, "an undiagnosed card says outright it is an order and not a size").toContain("not a promise about size");
+    // AND IT NEVER DENIES A FIGURE IT IS SHOWING. The one sentence used to read "No click figure backs this
+    // one" directly under a factor reading "400 clicks over 28 days of measured shortfall": the same card said
+    // both. What is missing on an undiagnosed row is the CAUSE, not the number.
+    expect(shown.basis).not.toContain("No click figure backs this one");
+    expect(shown.basis).toContain("nothing has named the cause yet");
     // And where a cause IS diagnosed, the summary still refuses to read as a forecast.
     expect(rankProposals([baseProposal({ impactScore: 400, diagnosisCause: "ctr_snippet",
       recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]!

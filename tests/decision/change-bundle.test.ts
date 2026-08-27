@@ -480,6 +480,19 @@ describe("traffic is the objective and every other factor may only discount it",
     const why = staleCopyReasons(stored, new Map(), [], null);
     expect(why.some((r) => r.includes("names iranopedia 3 times")), `got ${JSON.stringify(why)}`).toBe(true); });
 
+  it("never prints a bare zero at the operator, it says the thing in words", () => {
+    // OPERATOR VOICE RULE: never a bare zero. "Why this one ranks where it does" printed "0 questions your
+    // customers actually ask are in scope" and "0 other changes in this batch land on the same page" as
+    // reasons, which explains nothing and reads as a broken counter. The factor stays visible, because the
+    // receipt names every input it read; only the wording changes.
+    const [only] = rankProposals([clicky({ id: "alone" })]);
+    for (const f of only!.rankingReceipt!.factors) {
+      expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);
+    }
+    expect(only!.rankingReceipt!.factors.map((f) => f.name)).toContain("strategic");
+    expect(only!.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input)
+      .toBe("nothing else in this batch lands on the same page"); });
+
   it("never lets anything but traffic add to worth", () => {
     for (const p of rankProposals([clicky(), aeo(), prop({ id: "plain" })])) {
       for (const f of p.rankingReceipt!.factors) {

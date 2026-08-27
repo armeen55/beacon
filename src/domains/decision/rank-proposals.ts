@@ -302,8 +302,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // A CARD BORN FROM A TRACKED QUESTION IS IN SCOPE OF THAT QUESTION. That is demand evidence, and demand
   // already enters through the figure above, so being in scope buys nothing and being out of it costs a little.
   const prompts = p.bundle?.scope.prompts.length ?? (p.aiImpact && p.aiImpact.answers > 0 ? 1 : 0);
-  discount("strategic", `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`,
-    prompts > 0 ? 1 : 0.95);
+  discount("strategic", prompts > 0
+    ? `${num(prompts)} ${prompts === 1 ? "question" : "questions"} your customers actually ask are in scope`
+    : "none of the questions your customers ask cover this one",
+  prompts > 0 ? 1 : 0.95);
 
   const minutes = Math.max(0, p.estimatedEffortMinutes);
   discount("effort", `about ${num(minutes)} ${minutes === 1 ? "minute" : "minutes"} of your time`,
@@ -319,8 +321,10 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   discount("overlap", measuring ? "this page already has a change under measurement" : "nothing is being measured on this page",
     measuring ? 0.5 : 1);
 
-  discount("confounding", `${num(peers)} other ${peers === 1 ? "change" : "changes"} in this batch land on the same page`,
-    1 - Math.min(0.3, peers * 0.1));
+  discount("confounding", peers > 0
+    ? `${num(peers)} other ${peers === 1 ? "change" : "changes"} in this batch ${peers === 1 ? "lands" : "land"} on the same page`
+    : "nothing else in this batch lands on the same page",
+  1 - Math.min(0.3, peers * 0.1));
 
   // WHAT THIS KIND OF CHANGE HAS ALREADY DONE HERE. Two changes of equal worth are not equal bets when one
   // family is three readings deep and down on every one of them. Only finished readings vote, and never enough
@@ -344,9 +348,17 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const { factors, directional } = factorsFor(p, peers, measuring, history);
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
   const items = shownEvidence(p);
-  const basis = directional
-    ? `No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do.`
-    : `Ranked on a discounted traffic priority, not a forecast: ${num(Math.max(0, p.impactScore ?? 0))} clicks over 28 days measured as recoverable, discounted by an assumed share, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;
+  // "DIRECTIONAL" COVERS TWO DIFFERENT SITUATIONS AND ONLY ONE OF THEM HAS NO NUMBER. A card carrying a measured
+  // shortfall with no cause diagnosed yet is directional, and this told the operator "No click figure backs this
+  // one" directly under a factor reading "80 clicks over 28 days of measured shortfall". The card contradicted
+  // itself. What is missing there is the CAUSE, not the figure, so it says that instead.
+  const measured = Math.max(0, p.impactScore ?? 0);
+  const evidenced = `${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do`;
+  const basis = !directional
+    ? `Ranked on a discounted traffic priority, not a forecast: ${num(measured)} clicks over 28 days measured as recoverable, discounted by an assumed share, ${evidenced}.`
+    : measured > 0
+      ? `${num(measured)} clicks over 28 days are measured as missing here and nothing has named the cause yet, so this is the order to work in, not a promise about size. Ranked on that, ${evidenced}.`
+      : `No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${evidenced}.`;
   return { score, factors, directional, basis };
 }
 
