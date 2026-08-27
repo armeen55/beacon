@@ -272,8 +272,16 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // and writes the database is asked for that teach nobody anything. The clocks are stripped, because a
     // timestamp is not something the operator learned.
     if (previous?.material && previous.material === surface.material) {
-      log.info("[surface-release] nothing this release would say has changed, so the ranking and the blob are left exactly as they are", { tenantId, release: previous.releaseId });
-      return previous;
+      // THE CLOCK STILL MOVES, EVEN THOUGH NOTHING ELSE DOES. Returning the stored blob untouched froze
+      // `computedAt` at the last release that differed, and staleness is measured off exactly that field, so
+      // `isCustomerSurfaceStale` became permanently true: every visit scheduled another full rebuild (produce,
+      // build, both GSC reads) only to discard it here, while Changes told the operator "Ranked 3 days ago"
+      // about a queue being re-derived on every page load. The ranking stamp, the release id and every
+      // proposal row are left exactly as they are; only the instant this was last confirmed moves.
+      const confirmed: CustomerSurface = { ...previous, computedAt, today: { ...previous.today, surfaceComputedAt: computedAt } };
+      await writeCustomerSurface(confirmed).catch(() => undefined);
+      log.info("[surface-release] nothing this release would say has changed, so the ranking and the blob are left as they are", { tenantId, release: previous.releaseId });
+      return confirmed;
     }
     const { publishCustomerRelease } = await import("@/domains/decision");
     const { slugForTenantId } = await import("@/lib/tenant-context");

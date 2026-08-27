@@ -251,9 +251,10 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
               /* NEW COPY REPLACES NOTHING, and a replacement never reads as an absence: "there is no section on
                  the page today" under a correction of existing statements was plainly false. */
               <p className="text-[12px] italic text-muted-foreground">This adds new copy; nothing on the page is replaced.</p>
-            ) : (
-              <p className="text-[12px] italic text-muted-foreground">There is no {field} on the page today.</p>
-            )}
+            ) : null /* AND NOTHING IS CLAIMED ABOUT A FIELD NOBODY HANDED OVER. A null `before` means the row did
+                 not carry the old words, never that the page has none, and producers fill it inconsistently: five
+                 live Ready cards announced "There is no description on the page today" directly above their own
+                 "Where it goes" line quoting the description they replace. The card said both things at once. */}
             <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-accent-primary/40 bg-accent-primary/5 px-3 py-2">
               {/* LINE BREAKS ARE PART OF THE DELIVERABLE: a list-shaped answer renders one item per line. */}
               <p className="min-w-0 flex-1 whitespace-pre-line text-[14px] font-semibold leading-relaxed text-foreground">

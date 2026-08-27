@@ -69,6 +69,10 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     return hold.lane === "research" ? "research" : "todo";
   }, [moreLanes, view]);
   const rows = useMemo(() => raw.filter((p) => !hidden.includes(p.id)), [raw, hidden]);
+  // ONE ORDER, ONE SET OF NUMBERS. The number on a card was its index WITHIN ITS SECTION, so three cards on one
+  // screen each read "1" while their own sentences ("Ranked ahead of the change for X") name the single global
+  // order they really sit in, pointing at cards under other headings. The position is read off that one order.
+  const placeOf = useMemo(() => new Map(rows.map((p, i) => [p.id, i + 1])), [rows]);
   const readyRows = useMemo(() => rows.filter((p) => laneOf(p) === "ready"), [rows, laneOf]);
   const reviewRows = useMemo(() => rows.filter((p) => laneOf(p) === "todo"), [rows, laneOf]);
   const preparingRows = useMemo(() => rows.filter((p) => laneOf(p) === "research"), [rows, laneOf]);
@@ -110,7 +114,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
         ) : (
           <ul className="list-none space-y-3">
             {readyRows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={i + 1} ready review={false} caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={placeOf.get(p.id) ?? i + 1} ready review={false} caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>
@@ -126,7 +130,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           </p>
           <ul className="list-none space-y-3">
             {rows.map((p, i) => (
-              <ChangeCard key={p.id} proposal={p} rank={i + 1} review caseLine={caseLineOf(p)}
+              <ChangeCard key={p.id} proposal={p} rank={placeOf.get(p.id) ?? i + 1} review caseLine={caseLineOf(p)}
                 onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
             ))}
           </ul>

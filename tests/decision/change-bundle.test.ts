@@ -523,10 +523,13 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     // AND BEING QUICK BUYS NOTHING. Speed used to ADD up to 4 points, so an errand on a page shown twice could
     // climb on how fast it was. Effort may only discount, so the whole of the errand's speed is worth zero.
     expect(factorOf(ranked[1]!, "effort")).toBeLessThanOrEqual(0);
+    // The errand carries only the ordering floor, and being one minute long cannot lift it past 191 clicks.
+    expect(factorOf(ranked[1]!, "visibility")).toBeLessThan(factorOf(ranked[0]!, "visibility"));
     expect(ranked[0]!.rankingReceipt!.factors.filter((f) => f.name !== "visibility").every((f) => f.contribution <= 0), "nothing but traffic may add to worth").toBe(true);
     // THE RECOVERY BELONGS TO THE CAUSE: a lever that does not touch the cause forfeits the figure outright, so a bigger page can never buy a wrong change past the right one however wide the visibility band gets.
     const wrong = rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "section_add" })]) })]);
-    expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0, true]);
+    // A wrong lever forfeits the 2,000 clicks outright and is left with the ordering floor, nothing more.
+    expect([factorOf(wrong[0]!, "visibility"), wrong[0]!.rankingReceipt!.directional]).toEqual([0.2, true]);
     expect(factorOf(rankProposals([prop({ diagnosisCause: "ctr_snippet", impactScore: 2000, bundle: bundleOf([comp({ kind: "title" })]) })])[0]!, "visibility")).toBe(102); }); // 2,000 recoverable over 28 days, halved by the stated collection chance, capped by the band
   // THE CARD THAT SHIPPED AS READY ON 2026-08-15: its own ranking receipt read "this change does not touch two of your own pages splitting one search", it rewrote the title of ONE of the two pages Google serves for "persian girl names" and left the other exactly as it was, and it sat in the paste-ready lane with a Copy button on it. A RANKING PENALTY IS AN ORDER, NEVER A PERMISSION. A split is settled on every page it names or it is not settled, and a page left alone is a page that got no words whatever reason was recorded beside it.
   it("never reads as ready while it leaves its own diagnosed cause unsettled", () => {
@@ -1102,7 +1105,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const stored = rankProposals([prop({ diagnosisCause: "incomplete_coverage", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A section on roof area." } })]);
     expect([factorOf(bundled[0]!, "causeFit"), factorOf(stored[0]!, "causeFit")].every((v) => Math.abs(v) === 0), "both shapes match their lever, so neither is discounted for it").toBe(true); });
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
-    expect([blind!.rankingReceipt!.directional, factorOf(blind!, "visibility")]).toEqual([true, 0]); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
+    expect(blind!.rankingReceipt!.directional).toBe(true);
+    // It carries a FLOOR rather than nothing, so effort, evidence and risk can still order it against other
+    // figureless cards, and that floor is under the smallest opportunity this queue will ever carry.
+    const smallest = rankProposals([prop({ impactScore: 16, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) })])[0]!;
+    expect(factorOf(blind!, "visibility")).toBeLessThan(factorOf(smallest, "visibility")); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
     // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
     const [sized] = rankProposals([prop({ impactScore: 570 })]); expect([sized!.rankingReceipt!.directional, factorOf(sized!, "visibility")]).toEqual([true, 24.23]);
     expect(sized!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("measured shortfall with no cause diagnosed yet");

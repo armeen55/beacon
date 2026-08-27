@@ -76,6 +76,10 @@ const CALIBRATION_MIN = 20;
  *  clicks reach MAX.visibility; a proxy has to stay under what materially sized measured work earns, or the
  *  proxy decides the queue. */
 const DIRECTIONAL_MAX = 4;
+/** What a change carrying NO figure at all is worth before its own discounts, so effort, evidence and risk can
+ *  still order those cards against each other. Under the smallest real opportunity (MIN_RECOVERABLE_CLICKS at
+ *  the undiagnosed share over PER_POINT), so no amount of being quick can lift one past measured work. */
+const ORDERING_FLOOR = 0.2;
 /** Discounted clicks per point of the visibility band, so it saturates near 480 over 28 days: about the largest
  *  single opportunity a site of this size can honestly carry, and far above any ordinary card. */
 const PER_POINT = 4;
@@ -250,10 +254,16 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const shown = ridden && held < 1
     ? { input: `${ridden.input}, counted at ${Math.round(held * 100)} percent because ${why}`, value: ridden.value * held }
     : ridden;
+  // A CARD WITH NO FIGURE AT ALL STILL HAS TO BE ORDERED. Multiplying nothing leaves nothing, so eleven of the
+  // account's thirty seven live rows scored exactly 0.00 with every factor reporting it had cost 0 of a
+  // possible 0, and a one minute paste tied with an hour of new-page work under "start with whichever suits
+  // your day". They get a floor to be discounted FROM, small enough that the smallest opportunity this queue
+  // will carry (MIN_RECOVERABLE_CLICKS at the undiagnosed share) still outranks every one of them.
+  const base = shown?.value ?? ORDERING_FLOOR;
   add("visibility", shown?.input
-    ?? (claimsAudience ? "no proven figure for what this wins back"
+    ?? (claimsAudience ? "no proven figure for what this wins back, so this sits below anything that has one"
       : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
-    shown?.value ?? 0, MAX.visibility);
+    base, MAX.visibility);
 
   // NOTHING BUT TRAFFIC MAY ADD TO WORTH. Every factor below used to be a flat number added to the score, so 66
   // points were reachable without any traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history
@@ -262,7 +272,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // own header already said the rule ("shave the worth by a factor and never by a flat fine") and then broke it.
   // Each factor now DISCOUNTS what is riding on the change, and reports the points that discount cost, so the
   // receipt still adds up to the score and every reason stays visible. A discount can never exceed 1.
-  let running = shown?.value ?? 0;
+  let running = base;
   // `max` is THE MOST THIS DISCOUNT COULD HAVE COST on this card, so a factor's contribution still cannot
   // exceed its own ceiling and the receipt can say "of the N points this could have taken, it took M".
   const discount = (name: keyof typeof FLOOR, input: string, factor: number): void => {
