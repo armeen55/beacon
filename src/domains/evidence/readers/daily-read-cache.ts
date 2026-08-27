@@ -22,6 +22,20 @@ const STORE = "daily-evidence";
 
 type Row = { tenant_id: string; kind: string; watermark: string; computedAt: string; payload: unknown };
 
+/** ONE BLOB READ PER PASS, NOT FOUR. Each of the four readers asked the store for the whole blob to find its
+ *  own kind, so a single rebuild pulled the same ~700KB four times: the cache that fixed pool saturation was
+ *  quietly the account's biggest egress line (measured live by the cost trace). The blob is shared in-process
+ *  for a few seconds, exactly long enough for one pass's four readers; a write refreshes it. */
+const SHARE_MS = process.env.VITEST === "true" ? 0 : 45_000; // hermetic tests re-read per call, the same convention the credit breaker uses
+const shared = new Map<string, { rows: Row[]; at: number }>();
+async function readRows(tenantId: string): Promise<Row[]> {
+  const held = shared.get(tenantId);
+  if (held && Date.now() - held.at < SHARE_MS) return held.rows;
+  const rows = await readStore<Row>(STORE, [], { tenantId });
+  shared.set(tenantId, { rows, at: Date.now() });
+  return rows;
+}
+
 export async function readThroughDaily<P>(args: {
   tenantId: string; kind: string; watermark: string | null;
   compute: () => Promise<{ payload: P; cacheable: boolean }>;
@@ -30,7 +44,7 @@ export async function readThroughDaily<P>(args: {
   // No watermark means the cheap max(date) probe itself failed: compute live, bank nothing.
   if (watermark) {
     try {
-      const rows = await readStore<Row>(STORE, []);
+      const rows = await readRows(tenantId);
       const mine = rows.find((r) => r.tenant_id === tenantId && r.kind === kind);
       if (mine && mine.watermark === watermark) return mine.payload as P;
     } catch { /* an unreadable store is a cache miss, never an outage */ }
@@ -38,9 +52,11 @@ export async function readThroughDaily<P>(args: {
   const fresh = await args.compute();
   if (watermark && fresh.cacheable) {
     try {
-      const rows = await readStore<Row>(STORE, []);
-      await writeStore<Row>(STORE, [...rows.filter((r) => !(r.tenant_id === tenantId && r.kind === kind)),
-        { tenant_id: tenantId, kind, watermark, computedAt: new Date().toISOString(), payload: fresh.payload }]);
+      const rows = await readRows(tenantId);
+      const next = [...rows.filter((r) => !(r.tenant_id === tenantId && r.kind === kind)),
+        { tenant_id: tenantId, kind, watermark, computedAt: new Date().toISOString(), payload: fresh.payload }];
+      await writeStore<Row>(STORE, next, { tenantId });
+      shared.set(tenantId, { rows: next, at: Date.now() });
     } catch (e) {
       log.warn("[daily-read-cache] the day's row did not persist; served live and the next read pays again", { tenantId, kind, error: e instanceof Error ? e.message : String(e) });
     }

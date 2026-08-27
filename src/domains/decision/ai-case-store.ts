@@ -46,7 +46,13 @@ export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFi
     const { data, error } = await getSupabaseAdmin().from(TABLE)
       .select("case_key,state,query,page_url,stage,proposal_id,reason,days,engines,parents,executions,decided_at")
       .eq("tenant_id", tenantId)
+      // A TOTAL ORDER, OR EVERY BUILD SHUFFLES THE TIES. days/engines/executions leave dozens of rows equal, and
+      // Postgres returns equals in whatever heap order it likes, differently on every read: two back-to-back
+      // builds of an unchanged account swapped tied rows, the release material moved, and every operator press
+      // published a "new" release that said nothing new (three in three minutes, 15 rows rewritten each). The
+      // key also makes the READ_LIMIT cut stable, so which rows are read stops depending on tie luck.
       .order("days", { ascending: false }).order("engines", { ascending: false }).order("executions", { ascending: false })
+      .order("case_key", { ascending: true })
       .limit(READ_LIMIT);
     if (error != null) throw new Error(error.message);
     const rows = ((data ?? []) as Record<string, unknown>[]).map((r) => ({
@@ -56,6 +62,9 @@ export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFi
       days: Number(r.days) || 0, engines: Number(r.engines) || 0, parents: Number(r.parents) || 0,
       executions: Number(r.executions) || 0, decidedAt: String(r.decided_at),
     }));
+    // Sorted here TOO, so the promise ("same account state, same rows, same order") holds whatever the
+    // transport did, and holds in every test that fakes it.
+    rows.sort((a, b) => b.days - a.days || b.engines - a.engines || b.executions - a.executions || a.caseKey.localeCompare(b.caseKey));
     return { state: "read", rows };
   } catch (error) {
     log.warn("[ai-case-store] the filed verdicts could not be read, so no surface claims to know them", { tenantId, error: error instanceof Error ? error.message.slice(0, 160) : String(error) });

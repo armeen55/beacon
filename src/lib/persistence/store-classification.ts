@@ -38,6 +38,8 @@ export const TENANT_SCOPED_STORES = new Set<string>([
   "llm-budget", // per-account file cap backstop (the durable Supabase ledger is authoritative)
   // Searches this account shares words with and owns no page FOR, banked until the coverage walk takes them.
   "coverage-needs",
+  // The day's heavy evidence aggregates, one blob per account: global, every read pulled every tenant's day.
+  "daily-evidence",
 ]);
 
 export const SINGLETON_STORES = new Set<string>([
@@ -53,8 +55,6 @@ export const GLOBAL_STORES = new Set<string>([
   "app-errors",
   "winner-memory",
   "gsc-fresh-tail",
-  // Rows carry tenant_id in-row; the readers run from the scheduler with no ambient tenant context.
-  "daily-evidence",
 ]);
 
 /** Who a store belongs to. `unknown` = registered nowhere, which the runtime chokepoints throw on. */
