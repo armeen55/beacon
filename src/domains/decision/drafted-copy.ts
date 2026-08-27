@@ -140,6 +140,14 @@ const evaluator = (tenantId: string, now: Date, meter?: Allowance): JudgeFn => a
 /** THE GATES THAT NEED NO MODEL AND NO FRESH EVIDENCE, so they can be re-read against a STORED piece as well as  a fresh one: markup where a word belongs, a figure that dropped the qualifier its own sentence carried, a  range that is really two neighbours, a rival's name this page never mentions, and the account's own banned words. Split out because a bundle is SERVED FROM REUSE without redrafting, so a piece written before a gate existed outlived the gate that would have refused it. PURE. A DEFINITION THAT REPEATS ITS OWN TERM DEFINES NOTHING: "Goodbye: goodbye." and "Please: please." shipped inside a beginner phrase list on a page that prints خداحافظ (Khodahafez) for exactly that word, four of that answer's eight lines wearing the shape of a glossary entry and teaching nobody anything. Mechanical and general, about the SHAPE of a definition: no word list, no language. */
 function rereadableRefusals(copy: string, p: SourcePacket, heading: string | null = null): string[] {
   const out: string[] = []; if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
+  // A SHORT LINE MAY NOT SELL THE SITE TO A READER ALREADY STANDING ON IT, and this ran at draft time only, so
+  // it stopped new copy and left every banked row untouched: /discover-iran sat READY carrying "Discover Iran
+  // on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the
+  // source." Both the draft gate and the $0 re-read of stored work come through here. Short copy only, because
+  // a section of real prose may name its subject more than once and a title or description may not.
+  const brand = urlKey(p.targetUrl).split("/")[0]?.split(".")[0] ?? "", short = copy.length <= 200;
+  const names = brand.length > 3 && short ? copy.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w === brand).length : 0;
+  if (names > 1) out.push(`it names ${brand} ${names} times, and a reader already looking at this site learns nothing from being told whose page it is`);
   const echo = copy.split("\n").map((l) => /^\s*[-*\u2022]?\s*([^:\n]{1,40}):\s*(\S.*?)\s*$/.exec(l)).find((m) => !!m && flat(m[1]!.replace(/[^\p{L}\p{N} ]/gu, "")) === flat(m[2]!.replace(/[^\p{L}\p{N} ]/gu, "")));
   if (echo) out.push(`it defines "${echo[1]!.trim()}" as itself, so that line tells a reader nothing`);
   // A FIGURE CARRIES ITS SUBJECT OR IT IS A DIFFERENT FACT: every digit run is traced back to the stored sentence it came out of, and a qualifier that sentence carries and the copy drops changes what the number is ABOUT. DASHES ARE NOT IDENTITY. The house rule rewrites an en dash, so copy saying "7-21" never matched a body saying "7\u201321" and the whole check silently skipped the one sentence that would have refused it: the shipping line went out claiming 7-21 days off a sentence reading "International ... depending on location".
@@ -194,9 +202,6 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   // Iranopedia as the source." Twenty two words, two of them three times each, nothing a searcher could learn,
   // and it passed because descriptions are excused the gain test and nothing else asked. Short copy only: a
   // body section may repeat its subject as often as the writing needs, a one-line summary may not.
-  const brand = urlKey(p.targetUrl).split("/")[0]?.split(".")[0] ?? "";
-  const named = brand.length > 3 ? d.finalCopy.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w === brand).length : 0;
-  if (named > 1) out.push(`it names ${brand} ${named} times, and a reader already looking at this site learns nothing from being told whose page it is`);
   if (d.claims.length === 0) out.push("it makes no claim anybody could check"); if (d.claims.some((c) => c.supportedBy.length === 0 || blankish(c.text))) out.push("one of its claims names no evidence at all");
   if (d.claims.some((c) => c.supportedBy.some((id) => /^rival-/.test(id)))) out.push("a claim of it stands on a rival page, which is not checked evidence: say it from this page's own words or from a fact-* id, or leave it out");
   // A CLAIM MUST CITE THE EVIDENCE THAT CARRIES IT, checked HERE and not only on the banked re-read: the same drift test ran only after landing, so a draft whose writer mis-aimed its ids (the Topoli gloss cited under another phrase's chunk) was accepted, saved Ready, and demoted by the next pass's re-read. Asymmetric gates are how work lands and then dies; the refusal at draft time is a lesson the retry can fix by re-aiming the id. A RIVAL'S PROSE PROVES NOTHING, and every id the packet carries is otherwise citable, so without the refusal above a competitor's unchecked sentence would authorize finished copy the moment the briefing class arrived. Enforced in code and never only in the prompt: a rule the model is merely asked to follow is not a boundary. What a rival asserts reaches copy through the fact-check path and its `fact-*` id, or not at all.
@@ -390,8 +395,7 @@ async function runEditor(packet: SourcePacket, field: EditorField, pageLabel: st
   if (consolidation && carried?.whole && refused.every((r) => r === GAIN.REPEATS_BELOW)) return { ...deliverable, absorbs: carried.repeats };
   if (refused.length > 0 && lastRound && softOnly(refused) && (!read.gain || consolidation)) return { ...deliverable, softFailures: refused.slice(0, 4) };
   if (refused.length > 0) return refuse(refused[0]!, { reasons: refused.slice(0, 3), gain: read.gain, resolution: read.resolution, held: (held ?? "").slice(0, 120), proposed: (deliverable.beforeText ?? "").slice(0, 120), copy: deliverable.finalCopy.slice(0, 200), claims: deliverable.claims.map((c) => `${c.text} <- ${c.supportedBy.join(",")}`).slice(0, 4) });
-  return deliverable;
-}
+  return deliverable;}
 /** THE STORED WORDS OF ONE PAGE, AS A PACKET. Built off the held body alone, so any page of the account whose copy is on file can be edited on its own evidence rather than only the page a card happens to sit on. */
 function packetForBody(body: OwnedPageBody, query: string, hints: readonly string[], ownedPaths: readonly string[], bannedTerms: readonly string[], demand: SourcePacket["demand"] = { preserve: [], vocabulary: [] }): SourcePacket {
   const evidence: Record<string, string> = {}; if (body.title) evidence["page-title"] = body.title; if (body.h1) evidence["page-h1"] = body.h1;
@@ -400,8 +404,7 @@ function packetForBody(body: OwnedPageBody, query: string, hints: readonly strin
   hints.slice(0, 5).forEach((h, i) => { evidence[`case-${i + 1}`] = h; });
   return { targetUrl: body.url, title: body.title, h1: body.h1, metaDescription: body.metaDescription,
     bodyText: [...body.passages, body.vocabulary].join(" ").replace(CHROME, " "),
-    headings: body.headings, evidence, trackedQuestion: query, ownedPaths, bannedTerms, demand };
-}
+    headings: body.headings, evidence, trackedQuestion: query, ownedPaths, bannedTerms, demand };}
 /** ONE FINISHED FIELD ON ONE PAGE OF THIS ACCOUNT, or nothing. Telling sibling pages apart is ONE decision on several addresses, so every address is written through the SAME editor against ITS OWN stored body: same drafter, same deterministic checks, same judge. A refusal anywhere leaves the bundle unfinished, which is what completeness already demands of a change that names more than one page. */
 export async function draftFieldForPage(input: { field: EditorField; body: OwnedPageBody; query: string;
   brief: string; evidenceHints: readonly string[]; ownedPaths: readonly string[]; minutes: number },
@@ -415,8 +418,7 @@ opts: EditorWiring & { bannedTerms?: readonly string[] }): Promise<{ before: str
       "Every claim you make must name the ids above that carry it, and may state nothing those ids do not show. DECLARE A CLAIM FOR EVERY ASSERTION YOUR COPY MAKES: anything the copy says that no claim of yours covers is refused."],
     input.minutes, opts, refuse);
   return done && { before: done.beforeText, after: done.finalCopy, anchor: done.placementAnchor,
-    heading: done.naturalHeading, minutes: done.implementationMinutes };
-}
+    heading: done.naturalHeading, minutes: done.implementationMinutes };}
 /** THE FINISHED BLOCK EACH FAMILY OWES, so a producer's brief and the editor that completes it agree by construction: a missing description gets its line, an answer gap and a thin page get their section, a duplicated heading gets its own H1, and a link brief gets the one sentence that carries the link. A family off this map is a family the editor does not finish. */
 type DraftKind = "description" | "answer" | "h1" | "link" | "title";
 const KIND_OF_SLUG: Partial<Record<string, DraftKind>> = { missing_description: "description", ai_answer_gap: "answer",
@@ -524,10 +526,8 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
       const step = GAIN.resolution(judgeStep, opts.snapshot, card, page, body, checkedAtVersion);
       opts.resolved?.set(key, { resolution: step.resolution, why: lessons.at(-1) ?? "refused" });
       if (step.need) opts.owe?.(key, { ...step.need, reason: lessons.at(-1) ?? step.need.reasonCode });
-      log.info("[drafted-copy] the refusal resolved to a typed next step", { tenantId: opts.tenantId, path: card.pagePath, resolution: step.resolution, ...(step.need ? { kind: step.need.kind, url: step.need.url } : {}) });
-    }
-    return null;
-  }
+      log.info("[drafted-copy] the refusal resolved to a typed next step", { tenantId: opts.tenantId, path: card.pagePath, resolution: step.resolution, ...(step.need ? { kind: step.need.kind, url: step.need.url } : {}) });}
+    return null;}
   // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
   const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
     before: deliverable.beforeText, after: deliverable.finalCopy } },
@@ -547,8 +547,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
   }
   // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
-  return { d: deliverable, ready };
-}
+  return { d: deliverable, ready };}
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
 function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query; const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null; if (!row) return [];
@@ -557,12 +556,9 @@ function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): stri
     const key = canonicalUrlKey(w.url); if (key === mine || !ranked.has(key) || !w.extract) continue;
     for (const h of w.extract.headings) {
       const label = h.replace(/\s+/g, " ").trim(); if (!label || label.length > 60 || words(label) > MAX_HEADING_WORDS || FURNITURE.test(label) || UNSAFE.test(label)) continue; const at = label.toLowerCase(), cur = seen.get(at) ?? { label, on: new Set<string>() };
-      cur.on.add(w.domain); seen.set(at, cur);
-    }
-  }
+      cur.on.add(w.domain); seen.set(at, cur);}}
   return [...seen.values()].filter((h) => h.on.size >= AGREEING_WINNERS)
-    .sort((a, b) => b.on.size - a.on.size || a.label.localeCompare(b.label)).slice(0, MAX_HEADINGS).map((h) => h.label);
-}
+    .sort((a, b) => b.on.size - a.on.size || a.label.localeCompare(b.label)).slice(0, MAX_HEADINGS).map((h) => h.label);}
 /** The same cards, with words wherever this pass could honestly put them. Never adds, drops or reorders a card. Fail-soft: anything that does not land leaves the producer's own card intact. AND THE CARD SAYS WHICH WORK THIS IS, IN THE SAME WORD THE PLACEMENT USED. A rewrite that could not find its passage kept its treatment and rendered the ADD shape, so the card told the operator to start a new section straight after the very section it was written to replace: a restructure shipping as a duplicate. An addition that arrived this way is judged as one, owing information the page does not carry, rather than waved through on the synthesis exception a replacement earns. AND THE WORDS EACH ID STANDS FOR, so the detail page can quote the evidence instead of printing its symbol. AND THE PAGES THAT HOLD WHAT THOSE PAGES DO NOT SAY, INSIDE THE READ'S OWN BOUND. The reader refuses the WHOLE request when it is asked for more pages than its bound, and returns an empty map rather than a short one, so widening this list past that bound did not add siblings: it silently removed every target page's body. Every draft since then was written from titles and headings alone, which is why /funny-farsi-phrases listed eight phrases and could not give one meaning while every gloss sat in the body it never received. Targets first, siblings only into the room that is left. THE CLAIMS AND THE EVIDENCE BEHIND EACH ONE, PERSISTED WITH THE WORDS. "What supports every claim" was answerable only inside the pass that wrote the copy, so nothing on the card could be re-checked. WHO SAID NO, ON THE RECEIPT. A card the pass paid for and did not finish was refused either by the provider (nobody could write it, so it stays owed) or by Beacon's OWN gates reading it against today's evidence (settled, and offering it again every drive is the retry loop this repair exists to stop). ONE ALLOWANCE PER CANDIDATE PAGE, and it was decided before this pass spent anything: a page the plan did not fund gets nothing here however early the editor reaches it. Never an early return: the NEXT card still collects its own. OUT OF TIME IS NOT OUT OF MONEY: a card the drive can no longer start is left exactly as its producer minted it, so it is owed rather than half-bought. AN UNREAD PAGE BUYS NO DRAFT. A zero-word capture is blindness, not content: its own card already names the rendered read as the next step, and no body-dependent copy may stand on words nobody holds. TYPED DEBT SETTLES; AN OWED NOTE WAITS. A card whose refusal resolved to `no_valid_treatment` carries that verdict as a typed fault and an honest sentence, so the queue stops promising a next pass that would buy the same refusal; every other unfinished card keeps the owed note exactly as before. A THIN PAGE WHOSE SECTION COULD NOT BE DRAFTED still leaves with the shape the winners agree on, so its brief carries real subjects rather than only an owed note. AND THE STORE DECIDES WHETHER THIS COUNTED. The caller persists it and answers whether a Ready row durably landed; only that moves the pass's shortfall, so generated, held, refused and lost work all count zero and the walk simply continues to the next candidate. WHERE IT GOES, IN THE PAGE'S OWN WORDS: the anchor the editor found in the stored copy, checked against that copy before it got here. A field edit replaces its own line and names no place. FINISHED WORK IS READY WORK. Copy that cleared the drafter, the deterministic editor contract, the judge and the canon validator is not something waiting on a human look, and leaving it at `needs_review` put it in the same lane, with the same Copy and Mark done, as a card nobody wrote. A REPLACEMENT WHOSE ONLY REMAINING FAULT IS DUPLICATING WHAT STAYS BELOW IS A CONSOLIDATION, not a rewrite to retry: the one liftable block AND the removal of the entries it absorbs are ONE change, said on the card, so the operator makes the page say it once instead of receiving the same rewrite forever while acquisitions that cannot change the page's shape are bought around it. NAMED, OR IT IS NOT A REMOVAL INSTRUCTION. "Remove each entry below that this section now covers" asked the operator to work out which entries those were, on a page of a dozen sections, which is not a change anybody can execute atomically. The entries ride the deliverable, so the card names every one of them. */
 export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: DraftedCopyOptions): Promise<ChangeProposal[]> {
   const opts: DraftedCopyOptions = { ...opts0, resolved: opts0.resolved ?? new Map() }; // ONE resolution ledger for the pass, so the typed-debt stamping below always has the map the drafting wrote into
@@ -644,8 +640,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
               : "This answer is written off the page's own title, headings and stored copy as last read and the stored answers this card cites, so check every word of it is true of the page before you publish it."] };
       out.push(finished);
       await opts.settle?.(finished); // the SETTLEMENT is the one lander; a second land here closed a five-row deficit after three rows
-      continue;
-    }
+      continue;}
     if (slug === "thin_page") {
       const covers = winnersCover(opts.snapshot, page);
       out.push(covers.length === 0 ? { ...card, limitations: [...card.limitations, owedNote("section")] } : { ...card,

@@ -468,6 +468,18 @@ describe("traffic is the objective and every other factor may only discount it",
       expect(p.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).not.toMatch(/click/i);
       expect(p.rankingReceipt!.basis).toContain("not a promise about size"); } });
 
+  it("holds a STORED ready card whose copy the rules now refuse, not only a new draft", async () => {
+    // LIVE: /discover-iran sat in the Ready lane carrying "Discover Iran on Iranopedia, a page about Iran from
+    // Iranopedia, with Iran as its clear focus and Iranopedia as the source." The gate that refuses that line
+    // ran at draft time only, so it stopped new copy and left the banked row exactly where it was.
+    const stored = prop({ id: "tenant-iranopedia::/discover-iran::existing_edit::missing_description",
+      pageUrl: "https://www.iranopedia.com/discover-iran", pagePath: "/discover-iran", status: "ready",
+      recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source." },
+      claims: [{ text: "The page is about Iran.", supportedBy: ["page-copy-1"] }],
+      supportFacts: [{ id: "page-copy-1", fact: "The page covers Iran." }] } as never);
+    const why = staleCopyReasons(stored, new Map(), [], null);
+    expect(why.some((r) => r.includes("names iranopedia 3 times")), `got ${JSON.stringify(why)}`).toBe(true); });
+
   it("never lets anything but traffic add to worth", () => {
     for (const p of rankProposals([clicky(), aeo(), prop({ id: "plain" })])) {
       for (const f of p.rankingReceipt!.factors) {
