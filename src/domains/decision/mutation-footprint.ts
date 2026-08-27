@@ -77,6 +77,13 @@ export function mutationFootprint(p: ChangeProposal): ReadonlySet<string> {
   if (parts.length > 0) return new Set(parts.map((c) => componentToken(c, p)));
   const page = pageToken(p.pagePath ?? p.pageUrl), field = p.recommendedChange.field;
   if (field === "title" || field === "meta" || field === "h1") return new Set([`${page}::${field}`]);
+  // A CHANGE THAT REPLACES A NAMED STRING AT A NAMED PLACE IS A POINT EDIT, not a claim on the whole topic.
+  // Forty sourced corrections on one page ("Darya" says beauty, means sea; "Nazanin" says hope, means beloved)
+  // are forty independently applicable mutations at forty places. Keyed on the topic they would be ONE, and
+  // thirty-nine of the operator's best work would vanish into the fortieth. Only a change with no `before` to
+  // replace is claiming the section itself.
+  const before = (p.recommendedChange.before ?? "").trim(), where = (p.recommendedChange.where ?? "").trim();
+  if (before && where) return new Set([`${page}::point::${placeToken(`${where}|${before}`)}`]);
   return new Set([`${page}::body::${canonicalQueryKey(p.primaryQuery ?? "")}`]);
 }
 

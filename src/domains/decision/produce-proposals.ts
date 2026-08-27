@@ -383,15 +383,15 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     }
   }
   const investigating = candidates.filter((c) => c.action === "research_needed").length, consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
-  for (const c of factual.cards) {
-    if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue;
-    // BEACON REVIEWS ITS OWN CORRECTIONS, ON THE PLAN'S OWN TERMS: the review was priced and ranked with everything else, so it can no longer spend in front of higher-ranked completable work, and an unfunded review leaves the card exactly as minted rather than promoting anything nobody read.
-    const slot = outOfTime() ? null : budget.draw(DRAFT_BUDGET.keyOf(c), DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil((c.bundle?.components.length ?? 1) / 10)));
-    const card = slot ? await defects.FACTUAL_DEFECTS.review(c, { tenantId, now: opts.now ?? new Date(), attempts: slot,
-      ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => c) : c;
-    const p = { ...card, ...(basis ? { basis } : {}) }; if (card === c) file(DRAFT_BUDGET.keyOf(c), "retryable_blocked", false, slot ? undefined : (outOfTime() ? "the drive's time box ended before this page was started" : budget.owed() === 0 ? "the queue's shortfall was already filled, so this work waits for the next short day" : "this page's allowance was already spent by another family on the same page")); // an unfunded review is filed too, never the fault sentence
-    if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && card !== c) await persistAndFile(p, DRAFT_BUDGET.keyOf(c)); else await persistIfChanged(p); }
-  }
+  // ONE PAGE, ONE REVIEW, MANY CARDS. A correction is its own row so nothing can retire forty of them in one write, and the paid review is grouped by page so forty cost one page's worth of calls instead of forty. THE PLAN'S OWN TERMS still apply: an unfunded review promotes nothing and loses nothing.
+  const factualByPage = new Map<string, ChangeProposal[]>();
+  for (const c of factual.cards) { if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue; const k = DRAFT_BUDGET.keyOf(c); const at = factualByPage.get(k); if (at) at.push(c); else factualByPage.set(k, [c]); }
+  for (const [key, group] of factualByPage) {
+    const slot = outOfTime() ? null : budget.draw(key, DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil(group.length / 10)));
+    const reviewed = slot ? await defects.FACTUAL_DEFECTS.review(group, { tenantId, now: opts.now ?? new Date(), attempts: slot, ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => group) : group;
+    const moved = reviewed !== group; if (!moved) file(key, "retryable_blocked", false, slot ? undefined : (outOfTime() ? "the drive's time box ended before this page was started" : "the plan did not fund a review of these corrections"));
+    for (const [i, card] of reviewed.entries()) { const p = { ...card, ...(basis ? { basis } : {}) };
+      if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && moved && i === 0) await persistAndFile(p, key); else await persistIfChanged(p); } } }
   const replacing = [...existing.values()].filter((r) => r.recommendedChange.kind === "existing_edit" && (r.recommendedChange.before ?? "").trim().length >= 20 && (r.recommendedChange.field === "section" || r.recommendedChange.field === "answer_block"))
     .map((r) => r.pageUrl ?? r.pagePath ?? "").filter(Boolean).sort((a, b) => a.localeCompare(b)); // sorted, so the window below is the same window on every instance
   // A DURABLE CURSOR, NEVER A DAY-DERIVED OFFSET: keyed to the day, ten same-day runs inspected the same window and
