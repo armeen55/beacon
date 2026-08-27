@@ -10,6 +10,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
@@ -23,7 +24,22 @@ import {
 // (hero post-pass + the money-leak scan) on one render, cache() dedupes the
 // full-tenant read to a single query per request. Degrades to a no-op outside a
 // React request scope (cron/scripts call it uncached, exactly as before).
-export const loadGa4PageValuesForTenant = cache(loadGa4PageValuesForTenantUncached);
+export const loadGa4PageValuesForTenant = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, Ga4PageValue>> =>
+  readThroughDaily<[string, Ga4PageValue][]>({
+    tenantId, kind: "ga4-values", watermark: await ga4Watermark(tenantId),
+    compute: async () => { const m = await loadGa4PageValuesForTenantUncached(tenantId, now);
+      return { payload: [...m], cacheable: lastReadComplete }; },
+  }).then((entries) => new Map(entries)));
+
+/** GA4's own clock: the newest synced day on file, so a sync landing rows is the one thing that recomputes. */
+async function ga4Watermark(tenantId: string): Promise<string | null> {
+  try {
+    const { data, error } = await getSupabaseAdmin().from("ga4_url_traffic").select("date")
+      .eq("tenant_id", tenantId).order("date", { ascending: false }).limit(1);
+    if (error) return null;
+    return (data?.[0] as { date?: string } | undefined)?.date ?? null;
+  } catch { return null; }
+}
 
 export type Ga4PageValue = {
   page: string;
@@ -38,10 +54,16 @@ const WINDOW_DAYS = 28;
 // GROUP BY RPC (one row per page) would remove the cap entirely.
 const MAX_ROWS = 80_000;
 
+/** Whether the LAST uncached read finished its pagination. Both readers fail SOFT to a partial or empty map,
+ *  so a failed read is indistinguishable from an account with no traffic; the read-through below must never
+ *  bank that as the day's truth. Module-local and set synchronously before each return. */
+let lastReadComplete = true;
+
 async function loadGa4PageValuesForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<Map<string, Ga4PageValue>> {
+  lastReadComplete = true;
   const out = new Map<string, Ga4PageValue>();
   type Row = {
     url: string;
@@ -71,6 +93,7 @@ async function loadGa4PageValuesForTenantUncached(
           tenantId,
           error: error.message,
         });
+        lastReadComplete = false;
         break;
       }
       const batch = (data ?? []) as unknown as Row[];
@@ -78,6 +101,7 @@ async function loadGa4PageValuesForTenantUncached(
       if (batch.length < PAGE) break;
     }
   } catch {
+    lastReadComplete = false;
     return out;
   }
   for (const r of rows) {
@@ -141,12 +165,18 @@ export async function loadGa4SessionSplitForTenant(
 // existing traffic read above. Returns normalized PageRevenueValue per page.
 // ─────────────────────────────────────────────────────────────────────
 
-export const loadGa4PageRevenueForTenant = cache(loadGa4PageRevenueForTenantUncached);
+export const loadGa4PageRevenueForTenant = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, PageRevenueValue>> =>
+  readThroughDaily<[string, PageRevenueValue][]>({
+    tenantId, kind: "ga4-revenue", watermark: await ga4Watermark(tenantId),
+    compute: async () => { const m = await loadGa4PageRevenueForTenantUncached(tenantId, now);
+      return { payload: [...m], cacheable: lastReadComplete }; },
+  }).then((entries) => new Map(entries)));
 
 async function loadGa4PageRevenueForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
 ): Promise<Map<string, PageRevenueValue>> {
+  lastReadComplete = true;
   const out = new Map<string, PageRevenueValue>();
   type Row = {
     url: string;
@@ -194,6 +224,7 @@ async function loadGa4PageRevenueForTenantUncached(
           tenantId,
           error: error.message,
         });
+        lastReadComplete = false;
         return out; // empty → all pages "revenue unknown"
       }
       const batch = (data ?? []) as unknown as Row[];
@@ -225,6 +256,7 @@ async function loadGa4PageRevenueForTenantUncached(
       if (batch.length < PAGE) break;
     }
   } catch {
+    lastReadComplete = false;
     return out; // fail-soft → revenue unknown everywhere
   }
   for (const [page, a] of accs) {

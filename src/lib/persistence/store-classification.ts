@@ -54,6 +54,8 @@ export const GLOBAL_STORES = new Set<string>([
   "app-errors",
   "winner-memory",
   "gsc-fresh-tail",
+  // Rows carry tenant_id in-row; the readers run from the scheduler with no ambient tenant context.
+  "daily-evidence",
 ]);
 
 /** Who a store belongs to. `unknown` = registered nowhere, which the runtime chokepoints throw on. */

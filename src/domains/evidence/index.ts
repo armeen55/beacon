@@ -60,10 +60,9 @@ export type { RelevanceReason, RelevanceVerdict } from "./relevance-gate";
 export { canonicalQueryKey, topicTokens, domainOf, isNoiseDomain, scoreTopicMatch } from "./relevance-gate";
 
 // The six connector readers (public entry points + result types)
-export type { GscPageSignal, GscQuerySignal, GscSiteTotals, GscDecaySignal } from "./readers/gsc-page-signals";
+export type { GscPageSignal, GscQuerySignal, GscDecaySignal } from "./readers/gsc-page-signals";
 export {
   loadGscPageSignalsForTenant,
-  loadGscSiteTotalsForTenant,
   loadGscDecaySignalsForTenant,
 } from "./readers/gsc-page-signals";
 export type { Ga4PageValue } from "./readers/ga4-page-values";

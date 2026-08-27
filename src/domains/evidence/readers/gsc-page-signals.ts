@@ -17,6 +17,7 @@ import { reportingDay } from "@/lib/reporting-day";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { readLastFinalizedDate } from "@/domains/measurement/proof-gsc/gsc-window";
 import { log } from "@/lib/logger";
+import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
 import { densifyDailyClicks } from "@/domains/evidence/gsc/densify-daily-series";
 
 export type GscQuerySignal = {
@@ -199,7 +200,25 @@ async function readGscPageSignalsForDayUncached(tenantId: string, day: string): 
  *  was here and did nothing: every call site handed it a fresh `new Date()` or left the argument off, and
  *  React keys a memo on the arguments it was given. The day is normalized inside the one entry every caller
  *  uses, so there is exactly one slot to share. */
-const readGscPageSignalsForDay = cache(readGscPageSignalsForDayUncached);
+const readGscPageSignalsForDay = cache(async (tenantId: string, day: string): Promise<GscPageSignalsRead> =>
+  readThroughDaily<{ entries: [string, GscPageSignal][]; incomplete: boolean }>({
+    tenantId, kind: "gsc-signals", watermark: await gscWatermark(tenantId),
+    compute: async () => { const r = await readGscPageSignalsForDayUncached(tenantId, day);
+      // A PARTIAL READ IS NEVER BANKED: cached, a truncated window would read back as the account's whole
+      // search truth all day, where today the failure dies with the request.
+      return { payload: { entries: [...r.signals], incomplete: r.incomplete }, cacheable: !r.incomplete }; },
+  }).then((p) => ({ signals: new Map(p.entries), incomplete: p.incomplete })));
+
+/** The data's own clock: the newest finalized day on file. Moves only when a sync lands rows, so it is the
+ *  one honest cache key; null (an unreadable probe) computes live and banks nothing. */
+async function gscWatermark(tenantId: string): Promise<string | null> {
+  try {
+    const { data, error } = await getSupabaseAdmin().from("gsc_daily_rows").select("date")
+      .eq("tenant_id", tenantId).eq("is_final", true).order("date", { ascending: false }).limit(1);
+    if (error) return null;
+    return (data?.[0] as { date?: string } | undefined)?.date ?? null;
+  } catch { return null; }
+}
 
 /** The full read: the signals AND whether they are the whole window. Throws when nothing could be read. */
 export const readGscPageSignalsForTenant = (tenantId: string, now: Date = new Date()): Promise<GscPageSignalsRead> =>
@@ -209,141 +228,6 @@ export const readGscPageSignalsForTenant = (tenantId: string, now: Date = new Da
 export const loadGscPageSignalsForTenant = async (tenantId: string, now: Date = new Date()): Promise<Map<string, GscPageSignal>> =>
   (await readGscPageSignalsForTenant(tenantId, now)).signals;
 
-// ── Site totals slice (2026-06-15) — light per-day site-totals read ──
-
-export type GscSiteTotals = {
-  /** Σ clicks over the trailing 90-day window. */
-  clicks90d: number;
-  /** Σ impressions over the trailing 90-day window. */
-  impressions90d: number;
-  /** Impressions-weighted average position = Σ(position×impr)/Σimpr. */
-  avgPosition90d: number;
-  /** Site CTR = Σclicks/Σimpressions over the window (0–1). */
-  ctr90d: number;
-  /** Σ clicks over the trailing 28 days (for the before/after delta). */
-  clicks28d: number;
-  /** Σ clicks over days 28–56 ago (the prior 28-day window). */
-  clicksPrev28d: number;
-  /**
-   * Per-day click series over the window, ascending by date, ONE entry
-   * per calendar day (clicks summed across all of the tenant's property
-   * rows for that date). This is the same `gsc_daily_totals` read the
-   * aggregates above come from — no extra DB round-trip — surfaced for a
-   * tiny momentum sparkline on the Search card.
-   */
-  dailyClicks: { date: string; clicks: number }[];
-};
-
-/**
- * INSTANT GSC summary read (2026-06-15). The headline GSC stat card needs
- * only site-level totals — total clicks/impressions, impressions-weighted
- * average position, site CTR, and a 28d/prior-28d clicks split for the
- * before/after arrow. The full per-page signal loader
- * (`loadGscPageSignalsForTenant`) reads ~200 pages of page+query grain and
- * takes seconds; this reads the tiny `gsc_daily_totals` table instead —
- * ONE row per (property, day), ~91 rows for a 90-day window — and sums it
- * in a single indexed, tenant-scoped read. That makes the summary card
- * stream instantly.
- *
- * `gsc_daily_totals` is the property-level ungrouped totals row GSC reports
- * per day (the honest property truth — see sync-search-analytics.ts). If a
- * tenant has multiple `property` rows for a given date, we SUM across
- * properties (the page-signal loaders also aggregate every property the
- * tenant has). Positions are impressions-weighted using each day's
- * impressions, exactly mirroring the per-page card's position math.
- *
- * Fail-soft: missing table / no rows / Supabase error → null (→ no GSC
- * card; the caller never shows a zero/empty card).
- */
-export async function loadGscSiteTotalsForTenant(
-  tenantId: string,
-  now: Date = new Date(),
-): Promise<GscSiteTotals | null> {
-  try {
-    const since90 = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
-
-    const sb = getSupabaseAdmin();
-    const { data, error } = await sb
-      .from("gsc_daily_totals")
-      .select("date, clicks, impressions, position")
-      .eq("tenant_id", tenantId)
-      .gte("date", since90)
-      .order("date", { ascending: true });
-    if (error || !data || data.length === 0) return null;
-
-    const rows = data as Array<{
-      date: string;
-      clicks: number | string | null;
-      impressions: number | string | null;
-      position: number | string | null;
-    }>;
-
-    // Anchor the 28d / prior-28d split to the LAST FINALIZED day present in the
-    // data (rows arrive ascending; the sync only persists finalized days, ~3d
-    // behind wall-clock). Anchoring to `now` instead would make the "current"
-    // 28d window ~3 days short vs a full prior 28d, manufacturing a ~11% phantom
-    // CLICK DECLINE on a perfectly flat site (and flipping the headline to
-    // "declining"). Both windows are now exactly 28 finalized days.
-    const end = rows[rows.length - 1]!.date;
-    const endMs = Date.parse(end);
-    const since28 = new Date(endMs - 27 * 86_400_000).toISOString().slice(0, 10);
-    const since56 = new Date(endMs - 55 * 86_400_000).toISOString().slice(0, 10);
-
-    let clicks90d = 0;
-    let impressions90d = 0;
-    let positionWeighted90d = 0;
-    let clicks28d = 0;
-    let clicksPrev28d = 0;
-    // Per-day clicks for the momentum sparkline. A tenant with multiple
-    // `property` rows for one date contributes several rows per day, so we
-    // accumulate clicks per calendar day before emitting (one point/day).
-    // Rows already arrive ascending by date (ORDER BY above); insertion
-    // order into the Map therefore stays ascending.
-    const clicksByDate = new Map<string, number>();
-    for (const r of rows) {
-      const clicks = Number(r.clicks) || 0;
-      const impressions = Number(r.impressions) || 0;
-      const position = Number(r.position) || 0;
-      clicks90d += clicks;
-      impressions90d += impressions;
-      // Impressions-weight each day's position so the site number is
-      // impressions-weighted, never an unweighted average of daily positions.
-      positionWeighted90d += position * impressions;
-      // 28d / prior-28d clicks split (multiple property rows per date sum
-      // naturally — we accumulate per-row, not per-date).
-      if (r.date >= since28) {
-        clicks28d += clicks;
-      } else if (r.date >= since56) {
-        clicksPrev28d += clicks;
-      }
-      clicksByDate.set(r.date, (clicksByDate.get(r.date) ?? 0) + clicks);
-    }
-    if (impressions90d <= 0) return null;
-
-    const dailyClicks = densifyDailyClicks(
-      [...clicksByDate.entries()].map(([date, clicks]) => ({ date, clicks })),
-    );
-
-    return {
-      clicks90d,
-      impressions90d,
-      avgPosition90d: positionWeighted90d / impressions90d,
-      ctr90d: clicks90d / impressions90d,
-      clicks28d,
-      clicksPrev28d,
-      dailyClicks,
-    };
-  } catch (e) {
-    // LOUD, not silent (mirror the loud sibling at the page-signals read): this
-    // feeds the State-of-Union "Your traffic trend" section, which blanks with zero
-    // telemetry on a transient gsc_daily_totals failure. Surface it.
-    log.warn("[gsc-site-totals] read threw — trend section will be empty", {
-      tenantId,
-      error: e instanceof Error ? e.message : String(e),
-    });
-    return null;
-  }
-}
 
 // ── Decay slice (2026-06-12) — split-window decay signals ────────────
 
@@ -514,7 +398,12 @@ async function loadGscDecaySignalsForDayUncached(
 
 /** THE SAME ONE SLOT PER ACCOUNT PER DAY the page signals get. This read was never memoized at all, so the
  *  publish path, the lanes, Visibility and the producer each paid for their own split-window GROUP BY. */
-const loadGscDecaySignalsForDay = cache(loadGscDecaySignalsForDayUncached);
+const loadGscDecaySignalsForDay = cache(async (tenantId: string, day: string): Promise<Map<string, GscDecaySignal>> =>
+  readThroughDaily<{ entries: [string, GscDecaySignal][] }>({
+    tenantId, kind: "gsc-decay", watermark: await gscWatermark(tenantId),
+    compute: async () => { const m = await loadGscDecaySignalsForDayUncached(tenantId, day);
+      return { payload: { entries: [...m] }, cacheable: true }; },
+  }).then((p) => new Map(p.entries)));
 
 export function loadGscDecaySignalsForTenant(
   tenantId: string,

@@ -1,0 +1,46 @@
+/** THE DAY'S HEAVY EVIDENCE IS COMPUTED ONCE, and a failure is never banked as the day's truth. The four
+ *  GSC/GA4 aggregates cost 1.6 to 6.3 seconds of PostgREST pool time each and were re-paid by every scheduler
+ *  tick (request-scoped cache() is a no-op outside a React request), which saturated the 9-connection pool,
+ *  stalled the customer release for 8+ hours and timed out the sign-in membership read on the same jam. */
+import { describe, expect, it, vi, beforeEach } from "vitest";
+const store = vi.hoisted(() => ({ rows: [] as unknown[], readFails: false }));
+vi.mock("@/lib/persistence/json-store", () => ({
+  readStore: async () => { if (store.readFails) throw new Error("store down"); return store.rows; },
+  writeStore: async (_n: string, rows: unknown[]) => { store.rows = rows; },
+}));
+vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
+vi.mock("server-only", () => ({}));
+import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
+
+const read = (watermark: string | null, result: { payload: string; cacheable: boolean }, paid: string[]) =>
+  readThroughDaily<string>({ tenantId: "t", kind: "gsc-signals", watermark,
+    compute: async () => { paid.push(result.payload); return result; } });
+
+describe("the day's heavy evidence is computed once per watermark", () => {
+  beforeEach(() => { store.rows = []; store.readFails = false; });
+
+  it("pays the aggregate once and serves the banked row until the data itself moves", async () => {
+    const paid: string[] = [];
+    expect(await read("2026-08-24", { payload: "monday", cacheable: true }, paid)).toBe("monday");
+    expect(await read("2026-08-24", { payload: "recomputed", cacheable: true }, paid)).toBe("monday");
+    expect(paid, "the second read paid nothing").toEqual(["monday"]);
+    // A sync lands new rows: the watermark moves, and only then is the aggregate paid again.
+    expect(await read("2026-08-25", { payload: "tuesday", cacheable: true }, paid)).toBe("tuesday");
+    expect(paid).toEqual(["monday", "tuesday"]); });
+
+  it("never banks a partial or failed read as the day's truth", async () => {
+    // Both GA4 readers fail SOFT to a partial map, indistinguishable from an account with no traffic. Cached,
+    // that lie would be read back all day; live, it dies with the request.
+    const paid: string[] = [];
+    expect(await read("2026-08-24", { payload: "truncated", cacheable: false }, paid)).toBe("truncated");
+    expect(await read("2026-08-24", { payload: "whole", cacheable: true }, paid)).toBe("whole");
+    expect(paid, "the failed read was not banked, so the next read paid again").toEqual(["truncated", "whole"]); });
+
+  it("computes live and banks nothing when the watermark probe or the store is down", async () => {
+    const paid: string[] = [];
+    expect(await read(null, { payload: "live", cacheable: true }, paid)).toBe("live");
+    expect(store.rows, "no watermark, nothing banked").toEqual([]);
+    store.readFails = true;
+    expect(await read("2026-08-24", { payload: "still live", cacheable: true }, paid)).toBe("still live");
+    expect(paid).toEqual(["live", "still live"]); });
+});
