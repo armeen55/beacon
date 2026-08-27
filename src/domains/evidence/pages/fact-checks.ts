@@ -263,6 +263,10 @@ const editDistanceOver1 = (a: string, b: string): boolean => {
 const definesOtherName = (says: string, subject: string): boolean => {
   const bare = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^a-z]/g, "");
   const who = bare(subject);
+  // "SOMETIMES USED AS a Welsh name" is a claim about a DIFFERENT use of the same spelling, never about this
+  // name's own meaning: the quote crediting Persian Aryana with "silver" was Wikipedia describing the Welsh
+  // elaboration of arian. A primary identity ("is a Persian feminine given name") carries no "used as".
+  if (/\bused as an?\s+\p{Lu}[\p{L}]*(?:\s+\p{L}+){0,2}\s+name\b/u.test(says)) return true;
   return [...says.matchAll(/\bname\s+(\p{Lu}[\p{L}]+)/gu)].some((m) => editDistanceOver1(bare(m[1]!), who));
 };
 

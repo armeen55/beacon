@@ -68,14 +68,14 @@ describe("a page's own statements against their sources", () => {
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
-    // Wikipedia's Maryam quote says the name "may have originated... possibly"; its Ariana quote derives the
-    // meaning from "the Ancient Greek name Ariadne". Both shipped as flat corrections past the model reviewer.
+    // Maryam's quote hedges ("may have... possibly"); Ariana's derives from "the Ancient Greek name Ariadne". Both shipped as flat corrections past the model reviewer.
     const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Maryam", sources: src('The name may have originated from the root mr "love; beloved"') }),
       check({ subject: "Ariana", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
+      check({ subject: "Aryana", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
       check({ subject: "Leila", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    // One edit of distance is a transliteration (Laila/Leila), never a different name; the other two die typed.
+    // "Used as a Welsh name" is another use of the spelling; a word etymology (Arabic layl) is this name's own story; distance one is a transliteration (Laila/Leila), never a different name.
     expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
     for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) {
