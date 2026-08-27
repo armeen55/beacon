@@ -18,7 +18,7 @@
 
 import "server-only";
 
-export type ProfileOrigin = "inferred" | "operator_confirmed" | "legacy";
+type ProfileOrigin = "inferred" | "operator_confirmed" | "legacy";
 
 /** One reusable provenance-carrying section shape. */
 export type ProfileSection<T> = {
@@ -30,7 +30,7 @@ export type ProfileSection<T> = {
 
 export type BusinessType = "local_service" | "content_publisher" | "ecommerce" | "saas" | "other";
 
-export type BusinessConstraints = {
+type BusinessConstraints = {
   factual: string[];
   legal: string[];
   brand: string[];
@@ -110,7 +110,7 @@ export function emptyBusinessProfile(accountId: string, now = ""): BusinessProfi
 }
 
 /** True when no confirmed or inferred business truth exists yet. */
-export function isProfileEmpty(profile: BusinessProfile): boolean {
+function isProfileEmpty(profile: BusinessProfile): boolean {
   return profile.name.value.trim() === "" && profile.businessType.value === null;
 }
 

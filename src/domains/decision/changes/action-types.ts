@@ -64,7 +64,7 @@ const INDEXING_DIRECTIVE_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionT
  * True when the action type's directive changes crawling/indexing. Surfaces use this to render the indexing-safety caveat and suppress the one-tap Accept CTA.
  * Pure; accepts null/undefined (returns false) so callers can pass an optional row field without a guard.
  */
-export function isIndexingDirectiveActionType(
+function isIndexingDirectiveActionType(
   actionType: ActionType | null | undefined,
 ): boolean {
   return actionType != null && INDEXING_DIRECTIVE_ACTION_TYPES.has(actionType);
@@ -74,7 +74,7 @@ export function isIndexingDirectiveActionType(
  * Plain-English HOLD framing shown next to an indexing/crawling directive. Operator-locked copy (#310; destructive-action audit 2026-07-20). A HELD-FOR-
  * REVIEW notice, not a paste-ready caption. Beacon voice, no dashes.
  */
-export const INDEXING_DIRECTIVE_CAVEAT =
+const INDEXING_DIRECTIVE_CAVEAT =
   "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so it is held for review instead of being one tap.";
 
 /**
@@ -99,6 +99,6 @@ const CHANGE_SENTENCE: Record<string, string> = {
 };
 
 /** The sentence for one stored action type, or null when nothing is mapped and the caller's own fallback wins. */
-export function changeSentence(actionType: string | null | undefined): string | null {
+function changeSentence(actionType: string | null | undefined): string | null {
   return CHANGE_SENTENCE[(actionType ?? "").trim().toLowerCase()] ?? null;
 }

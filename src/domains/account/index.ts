@@ -11,20 +11,17 @@
 // BusinessProfile (confirmed structured truth with per-section provenance).
 export type { Account, AccountStatus, Website } from "./tenants/types";
 export { websiteOf } from "./tenants/types";
-export { getTenant, getTenantBySlug } from "./tenants/store";
+export { getTenant } from "./tenants/store";
 export type {
   BusinessProfile,
   ProfileSection,
-  ProfileOrigin,
   BusinessType,
-  BusinessConstraints,
   CompetitorRef,
 } from "./business-profile";
 export {
   loadBusinessProfile,
   saveBusinessProfile,
   emptyBusinessProfile,
-  isProfileEmpty,
   invalidateBusinessProfileCache,
   locationRegexFrom,
   serviceRegexFrom,
@@ -39,7 +36,6 @@ export {
 // Account lifecycle: the ONE resolver that decides ready / incomplete /
 // suspended / unavailable. Every surface gate reads it, so no signed-in
 // customer can land on a dead end.
-export type { AccountAccess } from "./lifecycle";
 export {
   resolveAccountAccess,
   requireReadyAccount,
@@ -54,4 +50,3 @@ export { basisTag } from "./onboarding/basis";
 export { normalizeSiteUrl } from "./onboarding/fetch-site-profile";
 
 // Onboarding: config derivation
-export { deriveAndPersistTenantConfig } from "./onboarding/launch-config";

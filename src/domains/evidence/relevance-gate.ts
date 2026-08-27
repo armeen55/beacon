@@ -15,7 +15,7 @@
  * marketplace / recipe domains are noise unless the topic itself is about them.
  */
 
-export type RelevanceReason =
+type RelevanceReason =
   | "relevant"
   | "weak_topic_fit"
   | "social_noise"
@@ -24,7 +24,7 @@ export type RelevanceReason =
   | "bad_internal_link_target"
   | "empty";
 
-export type RelevanceVerdict = {
+type RelevanceVerdict = {
   relevant: boolean;
   /** 0..1 overlap of distinguishing tokens. */
   score: number;
@@ -174,7 +174,7 @@ export function anchoredTopicMatch(a: string | null | undefined, b: string | nul
 }
 
 /** Core: do two topic strings share a distinguishing token? */
-export function scoreTopicMatch(a: string | null | undefined, b: string | null | undefined): RelevanceVerdict {
+function scoreTopicMatch(a: string | null | undefined, b: string | null | undefined): RelevanceVerdict {
   const ta = topicTokens(a);
   const tb = topicTokens(b);
   if (ta.length === 0 || tb.length === 0) {

@@ -20,7 +20,7 @@ import { log } from "@/lib/logger";
 import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
 import { densifyDailyClicks } from "@/domains/evidence/gsc/densify-daily-series";
 
-export type GscQuerySignal = {
+type GscQuerySignal = {
   query: string;
   clicks: number;
   impressions: number;

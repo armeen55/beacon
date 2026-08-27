@@ -22,15 +22,15 @@ import type { TopicInvestigation } from "@/domains/evidence/topic-investigation"
 
 // ── the contract ─────────────────────────────────────────────────────────────
 
-export type OwnedSignalStrength = "strong" | "weak" | "unknown";
+type OwnedSignalStrength = "strong" | "weak" | "unknown";
 
-export type OwnedSignalKind =
+type OwnedSignalKind =
   | "gsc_exact_query" | "ranks_for_query" | "cited_by_engine" | "ranked_keyword"
   | "same_shape" | "token_overlap" | "body_not_held";
 
 /** ONE reason a page is on the shortlist, with the exact query, prompt or keyword
  *  behind it, so the adjudicator can always check the reason itself. */
-export type OwnedSignal = { kind: OwnedSignalKind; strength: OwnedSignalStrength; basis: string; detail: string };
+type OwnedSignal = { kind: OwnedSignalKind; strength: OwnedSignalStrength; basis: string; detail: string };
 
 export type OwnedCandidate = {
   /** ONE canonical owned URL: host without www plus path, no trailing slash. */

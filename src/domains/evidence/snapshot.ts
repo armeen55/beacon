@@ -18,8 +18,8 @@ export const MANDATORY_SOURCES: readonly EvidenceSourceKind[] = [
   "native_ai",
 ] as const;
 /** fresh — data present and within its freshness window. stale — data present but older than its window (usable, flagged). empty — reader ran clean but returned nothing (no rows yet). failed — reader threw / errored (a real failure, NOT the same as empty). dormant — source intentionally not configured (native AI with no creds). */
-export type SourceStatus = "fresh" | "stale" | "empty" | "failed" | "dormant";
-export type SourceFreshness = {
+type SourceStatus = "fresh" | "stale" | "empty" | "failed" | "dormant";
+type SourceFreshness = {
   source: EvidenceSourceKind;
   status: SourceStatus;
   /** ISO of the newest row this source contributed, or null. */
@@ -53,19 +53,19 @@ export type OwnedPageContent = {
   robotsMeta?: string | null;
   /** Where the read of this page actually landed. Absent on captures taken before it was recorded. */
   finalUrl?: string | null;};
-export type OwnedPageSearch = {
+type OwnedPageSearch = {
   clicks90d: number;
   impressions90d: number;
   ctr90d: number;
   position90d: number;
   topQueries: OwnedQuerySignal[];};
-export type OwnedPageEngagement = {
+type OwnedPageEngagement = {
   sessions28d: number;
   engaged28d: number;
   conversions28d: number;
   /** Real GA4 revenue $, or null when unknown (never 0-for-unknown). */
   revenueUsd: number | null;};
-export type OwnedPageFriction = {
+type OwnedPageFriction = {
   sessions: number;
   rageClicks: number;
   deadClicks: number;
@@ -83,7 +83,7 @@ export type OwnedPageEvidence = {
   /** AI citations of THIS owned page. `count` is DISTINCT ANSWERS that credited it, never repeats inside one. */
   aiCitations: { count: number; distinctPrompts: number; engines: string[] };};
 // ── competitor evidence (native AI + SERP citations) ─────────────────────────
-export type CompetitorEvidence = {
+type CompetitorEvidence = {
   url: string;
   domain: string;
   /** DISTINCT ANSWERS that credited this address. One answer gets one vote however often it repeats itself. */
@@ -93,7 +93,7 @@ export type CompetitorEvidence = {
   engines: string[];
   examplePrompts: string[];};
 // ── demand: keyword volume + AI-answer questions ─────────────────────────────
-export type KeywordDemandSignal = {
+type KeywordDemandSignal = {
   query: string;
   /** Monthly search volume, or null when unknown (never guessed). */
   searchVolume: number | null;
@@ -104,7 +104,7 @@ export type KeywordDemandSignal = {
   competitionLevel: "low" | "medium" | "high" | null;
   /** GSC impressions when this query is a real owned/served term, else null. */
   gscImpressions: number | null;};
-export type QuestionDemandSignal = {
+type QuestionDemandSignal = {
   question: string;
   /** Distinct (prompt, engine) pairs that produced this question — the weight. */
   weight: number;
@@ -113,14 +113,14 @@ export type QuestionDemandSignal = {
   /** Whether an owned page already answers it (best-effort topic match). */
   coverageStatus: "answered" | "unanswered" | "unknown";};
 // ── derived intelligence (normalized ONCE, not per source) ───────────────────
-export type IntentCluster = {
+type IntentCluster = {
   key: string;
   label: string;
   /** Coarse intent bucket derived deterministically from the label tokens. */
   intent: "informational" | "commercial" | "navigational" | "transactional";
   queries: string[];
 };
-export type CannibalizationGroup = {
+type CannibalizationGroup = {
   query: string;
   /** Two+ owned URLs Google MATERIALLY serves for the same query: self-competition. Exactly the addresses a surface may name, so a count and a list can never disagree. */
   competingUrls: string[];
@@ -131,19 +131,19 @@ const MIN_SPLIT_IMPRESSIONS = 50, SPLIT_SHARE = 0.05, MAX_SPLIT_PAGES = 6;
 /** The site root, whatever spelling it arrives in. */
 const isHomeUrl = (url: string): boolean => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") === ""; } catch { return false; } };
-export type ContentGapKind =
+type ContentGapKind =
   | "unanswered_question"
   | "missing_schema"
   | "missing_faq"
   | "thin_vs_competitor";
-export type ContentGap = {
+type ContentGap = {
   kind: ContentGapKind;
   topic: string;
   detail: string;
   ownedUrl: string | null;
   competitorUrl: string | null;
 };
-export type InternalLinkOpportunity = {
+type InternalLinkOpportunity = {
   fromUrl: string;
   toUrl: string;
   /** Suggested anchor (the target's topic label). */
@@ -152,7 +152,7 @@ export type InternalLinkOpportunity = {
 };
 // ── the snapshot ─────────────────────────────────────────────────────────────
 
-export type EvidenceSnapshotScope = {
+type EvidenceSnapshotScope = {
   tenantId: string;
   /** Site host (e.g. "example.com"), or null for a tenant-wide snapshot. */
   site: string | null;

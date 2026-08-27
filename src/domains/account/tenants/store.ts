@@ -88,7 +88,7 @@ export async function getTenant(id: string, opts?: { strict?: boolean }): Promis
   return repository.getAccountById(id, opts?.strict === true);
 }
 
-export async function getTenantBySlug(slug: string): Promise<Account | null> {
+async function getTenantBySlug(slug: string): Promise<Account | null> {
   if (!slug) return null;
   return repository.getAccountBySlug(slug);
 }

@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 import { getTenant } from "./tenants/store";
 import type { Account } from "./tenants/types";
 
-export type AccountAccess =
+type AccountAccess =
   /** Onboarding is done AND its setup truth is proven present; render the product. */
   | { kind: "ready"; account: Account }
   /** Setup is unfinished; the resume destination is /onboard, at `step` when one is known. */

@@ -158,7 +158,7 @@ function staleReadings(p: ChangeProposal, now: Date): boolean {
   return dates.some((d) => d != null && d < floor); // an undated component beside a dated one ages with the change, never against its sibling
 }
 
-export type ProposalVerdict = "ready" | "needs_review" | "rejected";
+type ProposalVerdict = "ready" | "needs_review" | "rejected";
 
 export type ProposalValidation = {
   verdict: ProposalVerdict;
@@ -318,7 +318,7 @@ function isDestructiveEdit(before: string | null, after: string): boolean {
   return false;
 }
 
-export type ValidateProposalOptions = {
+type ValidateProposalOptions = {
   /** The target page's own body text, which turns ON factual entailment. */
   pageBodyText?: string | null;
   /** Flattened evidence text the draft may cite (numbers/facts). */

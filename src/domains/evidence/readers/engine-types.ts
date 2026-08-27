@@ -17,7 +17,7 @@
  *  prompt_answer_observations use these exact strings; "chatgpt" and
  *  "perplexity" intentionally match the existing native-poll platform labels
  *  so historical reads keep working unchanged. */
-export type EngineId = "chatgpt" | "perplexity" | "gemini" | "claude";
+type EngineId = "chatgpt" | "perplexity" | "gemini" | "claude";
 
 export const ALL_ENGINES: readonly EngineId[] = ["chatgpt", "perplexity", "gemini", "claude"];
 

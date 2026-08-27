@@ -36,7 +36,7 @@ import {
 } from "./snapshot";
 import { domainOf } from "./relevance-gate";
 
-export type LoadEvidenceSnapshotOptions = {
+type LoadEvidenceSnapshotOptions = {
   /** Site host (e.g. "iranopedia.com") used to tell owned vs competitor AI
    *  citations apart. Falls back to the most common owned-page host. */
   site?: string | null;

@@ -10,23 +10,9 @@
 // Snapshot: types + builder + helpers
 export type {
   EvidenceSourceKind,
-  SourceStatus,
-  SourceFreshness,
   OwnedQuerySignal,
   OwnedPageContent,
-  OwnedPageSearch,
-  OwnedPageEngagement,
-  OwnedPageFriction,
   OwnedPageEvidence,
-  CompetitorEvidence,
-  KeywordDemandSignal,
-  QuestionDemandSignal,
-  IntentCluster,
-  CannibalizationGroup,
-  ContentGapKind,
-  ContentGap,
-  InternalLinkOpportunity,
-  EvidenceSnapshotScope,
   EvidenceSnapshot,
   LoadedSource,
   EvidenceSnapshotInput,
@@ -46,28 +32,26 @@ export type { SerpPageType } from "./serp-shape";
 export { caseResearchReceipt } from "./case-receipt";
 
 // Competitor landscape: what every recurring domain IS, why, and the operator's corrections
-export type { ClassifiedDomain, CompetitorKind, DomainSignals } from "./competitors/classify";
+export type { ClassifiedDomain, CompetitorKind } from "./competitors/classify";
 export { classifyDomain } from "./competitors/classify";
 export type { CompetitorOverride } from "./competitors/landscape";
 export { competitorLandscape, competitorOverrideLine, parseCompetitorOverrides } from "./competitors/landscape";
 
 // Loader
-export type { LoadEvidenceSnapshotOptions } from "./snapshot-loader";
 export { loadEvidenceSnapshot } from "./snapshot-loader";
 
 // Relevance gate (evidence-join suppression)
-export type { RelevanceReason, RelevanceVerdict } from "./relevance-gate";
-export { canonicalQueryKey, topicTokens, domainOf, isNoiseDomain, scoreTopicMatch } from "./relevance-gate";
+export { canonicalQueryKey, topicTokens, domainOf, isNoiseDomain } from "./relevance-gate";
 
 // The six connector readers (public entry points + result types)
-export type { GscPageSignal, GscQuerySignal, GscDecaySignal } from "./readers/gsc-page-signals";
+export type { GscPageSignal, GscDecaySignal } from "./readers/gsc-page-signals";
 export {
   loadGscPageSignalsForTenant,
   loadGscDecaySignalsForTenant,
 } from "./readers/gsc-page-signals";
 export type { Ga4PageValue } from "./readers/ga4-page-values";
 export { loadGa4PageValuesForTenant, loadGa4PageRevenueForTenant } from "./readers/ga4-page-values";
-export type { PageRevenueValue, RevenueConfidence } from "./readers/ga4-revenue";
+export type { PageRevenueValue } from "./readers/ga4-revenue";
 export { normalizePageRevenue } from "./readers/ga4-revenue";
 export type { ClarityPageSignal } from "./readers/clarity-page-signals";
 export { loadClarityPageSignalsForTenant } from "./readers/clarity-page-signals";
@@ -91,7 +75,6 @@ export { loadGscIngestionGapReport } from "./gsc/load-ingestion-gaps";
 export { ingestionGapLine } from "./gsc/ingestion-gaps";
 
 // Scanning surfaces
-export { CONTENT_CHANGE_TYPES } from "./scanning/content-change-types";
 export { runInProcessColdStartScan } from "./scanning/in-process-scan";
 export { loadCrawlFrontier, runCrawlBatch } from "./scanning/crawl-frontier";
 
@@ -113,11 +96,11 @@ export type {
   AiObservationView,
   DueObservation,
 } from "./ai-visibility/ai-observations";
-export { canonicalPairOf, isAnalysisSettled, observationReceiptCost, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
+export { canonicalPairOf, isAnalysisSettled, persistAnswerAnalysis, readAiObservations, readAiObservationViews } from "./ai-visibility/ai-observations";
 export { buildFanoutEvidence, ownedPageAiRollup, FANOUT_LINKAGE_CAVEAT, type FanoutEvidence, type FanoutRow, type FanoutSourceObservation, type OwnedPageAiRow } from "./ai-visibility/fanout-evidence";
 // What the engines' OWN answers said, projected off readings already settled (pure, no I/O).
-export type { AnswerIntel, AnswerSignal } from "./answer-intel";
+export type { AnswerIntel } from "./answer-intel";
 export { answerIntelOf } from "./answer-intel";
 
 // AI engines the tenant prompt library is tracked across (canonical union)
-export { ALL_ENGINES, type EngineId } from "./readers/engine-types";
+export { ALL_ENGINES } from "./readers/engine-types";

@@ -13,7 +13,7 @@
 
 import type { FindingType } from "./types";
 
-export const CONTENT_CHANGE_TYPES: ReadonlySet<FindingType> = new Set([
+const CONTENT_CHANGE_TYPES: ReadonlySet<FindingType> = new Set([
   "title_changed",
   "meta_changed",
   "h1_changed",

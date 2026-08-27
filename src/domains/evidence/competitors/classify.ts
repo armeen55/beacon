@@ -37,7 +37,7 @@ export type CompetitorKind =
   | "irrelevant_unknown";
 
 /** What is already known about one domain. Counts, nothing inferred, plus the one verdict counts cannot supply. */
-export type DomainSignals = {
+type DomainSignals = {
   /** Organic rows this domain holds across the exact result pages I looked at. */
   serpAppearances: number;
   /** Times an engine cited this domain in an answer or an AI result block. */

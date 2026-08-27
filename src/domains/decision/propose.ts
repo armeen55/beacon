@@ -31,7 +31,7 @@ import {
 } from "./contracts";
 import { validateProposal, type ProposalValidation } from "./validate-proposal";
 
-export type ProposalOutcome =
+type ProposalOutcome =
   | { status: "ready"; proposal: ChangeProposal; validation: ProposalValidation }
   /** A safety gate refused this draft. It earned no lifecycle stage, so the caller files it as
    *  history rather than queueing it, and does not pay to redraft the same failure. */

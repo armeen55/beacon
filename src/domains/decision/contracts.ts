@@ -123,13 +123,13 @@ export function confidenceFor(r: EvidenceReadiness, d?: ActionDiagnosis | null):
 // ── ChangeProposal: the ONE persisted output ──────────────────────────────────
 
 /** `new_page` is earned: only the page by page comparison proves this account reaches none of what the winners share. */
-export type ProposalKind = "existing_edit" | "new_page";
+type ProposalKind = "existing_edit" | "new_page";
 
 /** THE STORED LIFECYCLE. `needs_review` = a human look is owed first, and it is also THE two-step hold a  dangerous component routes through. `ready` = validated safe, exact copy, act now.  `implemented_pending_verification` = the operator says it shipped and the page has not been read back yet. `measuring` and `result` are DERIVED from the shipment ledger. A refused draft is withdrawn, never stored. */
-export type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
+type ProposalStatus = "needs_review" | "ready" | "implemented_pending_verification";
 
-export type ProposalRisk = "low" | "medium" | "high";
-export type ProposalConfidence = "high" | "medium" | "low";
+type ProposalRisk = "low" | "medium" | "high";
+type ProposalConfidence = "high" | "medium" | "low";
 
 /** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
@@ -137,7 +137,7 @@ export type RecommendedChange =
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
-export type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
+type ProposalEvidence = { query: string; hints: string[]; evidenceRefCount: number };
 
 // ── ChangeBundle: the atomic components implemented together on one page ────── A bundle rides ON a ChangeProposal: the proposal stays the one persisted, ranked, validated record and the bundle is its deep, copy-ready form. Never a second pipeline, never a second status vocabulary.
 
@@ -389,7 +389,7 @@ const ChangeBundleSchema: z.ZodType<ChangeBundle> = z.object({
   }
 }) as z.ZodType<ChangeBundle>;
 
-export const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
+const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   id: z.string().min(1),
   tenantId: z.string().min(1),
   kind: z.enum(["existing_edit", "new_page"]),

@@ -17,7 +17,7 @@ const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLocaleLowerC
  *  worded as one answer or not said at all. `observedAt` is WHEN THE QUOTED ANSWER LANDED (`observationIds[0]`),
  *  because a receipt line carrying an engine's own wording and no date is refused outright the moment that
  *  wording happens to say "currently", and the refusal names a date problem nobody can see in the sentence. */
-export type AnswerSignal = { text: string; prompts: number; observationIds: string[]; observedAt: string };
+type AnswerSignal = { text: string; prompts: number; observationIds: string[]; observedAt: string };
 
 /** WHAT THE ANSWERS THEMSELVES SAID about this case, bounded, deterministic and fully attributed. It is the
  *  ENGINES' reading, never mine: a competitor here is a name an answer put in front of a customer and a claim

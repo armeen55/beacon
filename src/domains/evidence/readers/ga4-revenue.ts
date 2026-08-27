@@ -18,7 +18,7 @@
  */
 
 /** Confidence in the revenue value attached to a page. */
-export type RevenueConfidence = "high" | "medium" | "low" | "unknown";
+type RevenueConfidence = "high" | "medium" | "low" | "unknown";
 
 /**
  * Raw per-page aggregate (summed across the window's rows by the loader).

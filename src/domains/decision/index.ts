@@ -8,12 +8,7 @@
 // Contracts (types + (de)serialization + identity helpers)
 export type {
   EvidenceInput,
-  ProposalKind,
-  ProposalStatus,
-  ProposalRisk,
-  ProposalConfidence,
   RecommendedChange,
-  ProposalEvidence,
   ChangeProposal,
   ChangeBundle,
   BundleComponent,
@@ -21,7 +16,6 @@ export type {
   BundleEvidenceItem,
 } from "./contracts";
 export {
-  ChangeProposalSchema,
   serializeChangeProposal,
   deserializeChangeProposal,
   proposalFamily,
@@ -57,8 +51,6 @@ export { reconcileImplementedWithoutShipment } from "./implemented-repair";
 
 // Cold drafting entry point (produce ranked proposals for a tenant)
 export type {
-  ProduceProposalsOptions,
-  ProduceProposalsResult,
   ProducerOutcome,
 } from "./produce-proposals";
 export { produceProposalsForTenant, DEFAULT_MAX_DRAFTS, isQuietDay, mutationKey } from "./produce-proposals";
@@ -73,7 +65,7 @@ export { receiptComposition } from "./contracts";
 export { researchNeeds, type ResearchNeed } from "./coverage-pass";
 // Does this account already have the right page? The deterministic candidates the adjudicator reasons over.
 export { ownedCandidatesFor, topicOutOfScope } from "./owned-coverage";
-export type { OwnedCandidate, OwnedSignal, OwnedSignalKind, OwnedSignalStrength } from "./owned-coverage";
+export type { OwnedCandidate } from "./owned-coverage";
 // The honest diagnosis itself, so Runtime can ask what an open investigation needs without reaching past this boundary into the kernel's files.
 export { compileCandidates, type QualifiedCandidate } from "./opportunities";
 // The one operator-facing phrase for a diagnosed cause, so no surface ever prints a raw slug.
@@ -82,7 +74,7 @@ export { causeLabel, type CauseFinding } from "./diagnosis";
 export { resolveCurrentBasis } from "./load-proposals";
 
 // Proposing + ranking + validation entry points
-export type { ProposalOutcome, ProposeOptions } from "./propose";
+export type { ProposeOptions } from "./propose";
 export { proposeExistingPageChange } from "./propose";
 export { rankProposals, proposalValueScore } from "./rank-proposals";
 // THE ONE COMPLETENESS BOUNDARY every surface asks: has Beacon finished this deliverable, or is it still an
@@ -92,7 +84,7 @@ export { rankProposals, proposalValueScore } from "./rank-proposals";
 export { deliverableGaps, confirmedVersion, openHold } from "./completeness";
 // THE ONE PERMISSION QUESTION a surface may ask about a stored change: does its lever settle the cause its own evidence named. The queue holds a change that does not; the detail page and the mutation keep that promise.
 export { unsettledCause } from "./authorization";
-export type { ProposalVerdict, ProposalValidation, ValidateProposalOptions } from "./validate-proposal";
+export type { ProposalValidation } from "./validate-proposal";
 export { validateProposal, actionableProposalFailures } from "./validate-proposal";
 
 // --- App/component surface re-exports (curated) ---
@@ -114,8 +106,5 @@ export {
 
 // Changes: action-types
 export {
-  isIndexingDirectiveActionType,
-  INDEXING_DIRECTIVE_CAVEAT,
-  changeSentence,
   type ActionType,
 } from "./changes/action-types";

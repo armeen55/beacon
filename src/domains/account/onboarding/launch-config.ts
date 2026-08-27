@@ -36,7 +36,7 @@ type LaunchConfigResult = {
   persistError?: string;
 };
 
-export async function deriveAndPersistTenantConfig(
+async function deriveAndPersistTenantConfig(
   args: LaunchConfigArgs,
 ): Promise<LaunchConfigResult> {
   const normalized = normalizeSiteUrl(args.domain);
