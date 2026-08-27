@@ -58,6 +58,14 @@ type Factor = Receipt["factors"][number];
 const MAX = { visibility: 120, evidence: 15, causeFit: 25, strategic: 10, effort: 4, risk: 18, overlap: 30, confounding: 10, history: 12 } as const;
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
+/** THE CHANCE A CHANGE ACTUALLY COLLECTS THE SHORTFALL IT NAMES. Stated, bounded and the same for every kind of
+ *  work: what separates the two is whether the cause is diagnosed and the lever treats it, never what family the
+ *  change belongs to. Deliberately conservative, because a measured shortfall is what a page is LOSING and not a
+ *  promise of what one edit wins back. */
+const COLLECTS = { diagnosed: 0.5, undiagnosed: 0.2 } as const;
+/** Expected clicks per point of the visibility band, so it saturates near 480 more clicks over 28 days: about the
+ *  largest single opportunity a site of this size can honestly carry, and far above any ordinary card. */
+const PER_POINT = 4;
 /** Views under the floor are a rounding error and rank nothing; the full third of the ceiling is reached at
  *  the top. Both are AUDIENCE sizes, and no number of them ever reaches what a proven recovery reaches. */
 const AUDIENCE_FLOOR = 100, AUDIENCE_FULL = 100_000;
@@ -128,16 +136,25 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const addressed = treatable && withholdReason(p, cause) == null;
 
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
-  const upside = Number.isFinite(p.upsidePerMonth) && p.upsidePerMonth != null ? Math.max(0, p.upsidePerMonth) : null;
   const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
-  const directional = !(addressed && clicks != null && clicks > 0);
-  const proven = addressed && clicks != null && clicks > 0
-    ? { input: `about ${num(clicks)} clicks proven recoverable`, value: Math.min(MAX.visibility, clicks / 25) }
-    : addressed && upside != null && upside > 0
-      ? { input: `about ${num(upside)} clicks a month of opportunity, which is a midpoint and not a measured figure`, value: Math.min(MAX.visibility / 2, upside / 25) }
-      : !treatable && clicks != null && clicks > 0
-        ? { input: `about ${num(clicks)} clicks a month of measured shortfall, cause not yet diagnosed`, value: Math.min(MAX.visibility / 2, clicks / 25) }
-        : null;
+  const directional = !(addressed && clicks != null && clicks > 0); // a size is not a proven recovery: an undiagnosed shortfall still ranks, and still says the order is a direction
+  // ONE HORIZON, ONE QUESTION: how many more organic clicks over the NEXT 28 DAYS. `impactScore` is the
+  // 28-day-equivalent SHORTFALL the evidence measured (normalised once, at `evidence/demand-units`, because
+  // `opportunities` used to take Math.max of a 90-day shortfall and a 28-day fall and record no unit at all, so a
+  // card's own sentence could name a different span from its own number). What a change is WORTH is that
+  // shortfall times the chance THIS change collects it, and that chance is stated rather than assumed: a
+  // diagnosed cause with a lever that treats it collects more often than a shortfall nobody has explained.
+  // A midpoint `upsidePerMonth` band sat here too and was unreachable: no producer in this kernel has ever set
+  // the field, so it ranked nothing and is deleted rather than left to look like a rule.
+  // A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change
+  // does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
+  const sized = clicks != null && clicks > 0 && (addressed || !treatable);
+  const expected = !sized ? null : Math.round(clicks! * (addressed ? COLLECTS.diagnosed : COLLECTS.undiagnosed));
+  const proven = expected == null ? null : addressed
+    ? { input: `about ${num(expected)} more clicks over 28 days, being half of the ${num(clicks!)} this page's own diagnosis names as recoverable`,
+      value: Math.min(MAX.visibility, expected / PER_POINT) }
+    : { input: `about ${num(expected)} more clicks over 28 days, off ${num(clicks!)} of measured shortfall, cause not yet diagnosed`,
+      value: Math.min(MAX.visibility / 2, expected / PER_POINT) };
   // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
   // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
   // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
@@ -256,8 +273,8 @@ function receiptFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const score = round2(factors.reduce((a, x) => a + x.contribution, 0));
   const items = shownEvidence(p);
   const basis = directional
-    ? `No proven click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do.`
-    : `Ranked on about ${num(Math.max(0, p.impactScore ?? 0))} clicks proven recoverable, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;
+    ? `No click figure backs this one, so this is the order to work in, not a promise about size. Ranked on ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence and what it takes you to do.`
+    : `Ranked on the clicks this could add over the next 28 days, off ${num(Math.max(0, p.impactScore ?? 0))} measured as recoverable, ${num(items)} ${items === 1 ? "piece" : "pieces"} of evidence, and what it takes you to do.`;
   return { score, factors, directional, basis };
 }
 

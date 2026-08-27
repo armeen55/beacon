@@ -104,24 +104,24 @@ const actorsSerp = (ownedTitle: string): FunnelResearchEvidence => ({ ...emptyRe
   organic: [{ rank: 1, domain: "imdb.example", url: "https://imdb.example/list", title: "Iranian Actors" }, { rank: 2, domain: "wiki.example", url: "https://wiki.example/list", title: "List of Iranian male actors" },
     { rank: 3, domain: "pantheon.example", url: "https://pantheon.example/iran", title: "Greatest Iranian Actors" }, { rank: 6, domain: "iranopedia.example", url: ACTORS_URL, title: ownedTitle }] }] });
 describe("what the evidence justifies before anything is drafted", () => { it("leaves a page that already beats the clicks its positions earn alone, however big it is", () => {
-    const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 66]); // one soft search on a winning page is watched, not worked
+    const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.query, c.recoverableClicks]).toEqual(["watch", "trail shoe reviews", 21]); // one soft search on a winning page is watched, not worked
     expect(c.reason).toContain("1,331"); expect(c.reason).not.toContain("75,646"); expect(c.reason).not.toContain("3,246"); // a page total is never quoted as a query number
     expect(snapshotToEvidenceInputs(snap([WINNER]))).toEqual([]); }); // no title, no description, no work
   it("earns exactly one action from a gap above every floor, carrying that query's own numbers", () => {
-    expect(compileCandidates(SEEN()).map((c) => [c.action, c.gap, c.query, c.recoverableClicks])).toEqual([["act_existing_page", "ctr_deficit", "nowruz traditions", 300]]);
-    const inputs = snapshotToEvidenceInputs(SEEN()); expect(inputs.map((i) => i.opportunity.field)).toEqual(["title"]); expect(inputs[0]!.sizing!.impactScore).toBe(300); // ONE field, and recoverable clicks is the only value scalar
+    expect(compileCandidates(SEEN()).map((c) => [c.action, c.gap, c.query, c.recoverableClicks])).toEqual([["act_existing_page", "ctr_deficit", "nowruz traditions", 93]]);
+    const inputs = snapshotToEvidenceInputs(SEEN()); expect(inputs.map((i) => i.opportunity.field)).toEqual(["title"]); expect(inputs[0]!.sizing!.impactScore).toBe(93); // ONE field, one horizon: the 28-day-equivalent shortfall and nothing else
     const hint = (inputs[0]!.evidence.hints ?? []).join(" "); expect(hint).toContain("6,000"); expect(hint).toContain("8.0 percent"); expect(hint).toContain("3.0 percent"); expect(hint).not.toContain("6,400"); }); // a page total never stands in for the query
   it("opens an INVESTIGATION on a gap it has never looked at, and sizes it without ever promising the clicks back", () => {
     const blind = compileCandidates(snap([GAP]))[0]!; // the SAME 300-click gap, with no live results page on file
-    expect([blind.action, blind.recoverableClicks]).toEqual(["research_needed", 300]); // a gap opens an investigation, never a change
-    expect(blind.reason).toContain("This search earns about 300 fewer clicks than pages at a similar position usually get"); expect(blind.reason).toContain("The gap is measured but the live results page for that search has not been read yet. That search is next in line for research"); // names exactly what is missing
+    expect([blind.action, blind.recoverableClicks]).toEqual(["research_needed", 93]); // a gap opens an investigation, never a change
+    expect(blind.reason).toContain("This search earns about 93 fewer clicks than pages at a similar position usually get"); expect(blind.reason).toContain("The gap is measured but the live results page for that search has not been read yet. That search is next in line for research"); // names exactly what is missing
     expect(snapshotToEvidenceInputs(snap([GAP]))).toEqual([]); // never drafted, so it can never render Ready
     const seen = compileCandidates(SEEN())[0]!; // confidence follows EVIDENCE, never the draft
     expect(seen.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 0, body: false }); // no body store exists, so body is false everywhere
     expect(`${blind.reason} ${seen.reason}`).not.toMatch(/worth about|win back|fastest win|more clicks a month/i); });
   it("refuses the title rewrite Google already performs for you, however badly the stored one reads", () => {
     const c = compileCandidates(snap([ACTORS], actorsSerp(DISPLAYED)))[0]!; // the stored title misses "Iranian"; the line a searcher actually reads does not
-    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 108, "google_rewrite_already_matches", null]); expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`); expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); expect(suggestedEdits(snap([ACTORS], actorsSerp(DISPLAYED)), [c], { now: NOW, basis: null })).toEqual([]); }); // never drafted, and never suggested either: the results page itself cleared the wording
+    expect([c.action, c.recoverableClicks, c.diagnosis!.cause, c.diagnosis!.action]).toEqual(["research_needed", 33, "google_rewrite_already_matches", null]); expect(c.reason).toContain(`Google already shows this page as "${DISPLAYED}", which carries the words people are searching for, so rewriting the title would not change what a searcher reads.`); expect(snapshotToEvidenceInputs(snap([ACTORS], actorsSerp(DISPLAYED)))).toEqual([]); expect(suggestedEdits(snap([ACTORS], actorsSerp(DISPLAYED)), [c], { now: NOW, basis: null })).toEqual([]); }); // never drafted, and never suggested either: the results page itself cleared the wording
   it("reads one rival as an anecdote and two that agree as the pattern that earns a title", () => {
     const full = actorsSerp("Persian Screen | Iranopedia"); const lone = { ...full, serpEvidence: [{ ...full.serpEvidence[0]!, organic: full.serpEvidence[0]!.organic.slice(2) }] };
     const anecdote = compileCandidates(snap([ACTORS], lone))[0]!; // one competing page's wording is that page's style, never a rule
@@ -171,7 +171,7 @@ const run = (complete: CompleteFn) => produceProposalsForTenant("fixture-tenant"
 describe("a refresh re-pays nothing, and a pass that saved nothing says so", () => {
   it("aims the deep change at the STRONGEST gap, drafts and writes ONCE, then does nothing at all on the next pass", async () => {
     reset(BOTH()); const first = counting(); const one = await run(first.complete);
-    expect(one.candidates.filter((c) => c.action === "act_existing_page").map((c) => c.recoverableClicks)).toEqual([169, 300]); // snapshot order puts the weak page first
+    expect(one.candidates.filter((c) => c.action === "act_existing_page").map((c) => c.recoverableClicks)).toEqual([53, 93]); // snapshot order puts the weak page first
     expect(env.bundleTarget).toBe("https://fixture-outdoors.example/nowruz-guide"); // the deep work still goes to the 300-click gap
     expect([one.outcome, one.persisted, one.reused, first.calls()]).toEqual(["proposals_persisted", 2, 0, 2]); const second = counting(); env.saved = []; const again = await run(second.complete);
     expect([again.outcome, again.persisted, again.reused, second.calls()]).toEqual(["proposals_persisted", 0, 2, 0]); // zero drafts, zero writes
@@ -760,7 +760,7 @@ describe("the click curve is fitted to the account it judges", () => {
     const curve = fitTenantCtrCurve(Array.from({ length: 40 }, (_, i) => ({ query: `q${i}`, position: 1, impressions: 5_000, clicks: 45 })));
     expect(curve.expectedCtrAt(1)).toBeCloseTo(0.009, 4); // the whole account tops out under 1 percent
     const page = (clicks: number) => ownedPage("own.example/flag", "Iran flag", { impressions: 60_000, clicks }, [{ query: "iran flag", impressions: 60_000, clicks, position: 3 }]); const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
-    expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 212]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
+    expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 66]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });
 // ── work identity is the JOB'S OWN evidence, never the account's ──────────────

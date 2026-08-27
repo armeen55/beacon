@@ -28,7 +28,11 @@ export type DemandUnit = {
   position: number | null;
   /** What the members' own positions pay on the supplied curve, summed. */
   expectedClicks: number;
-  /** expectedClicks minus clicks, floored at zero. */
+  /** THE SHORTFALL ON ONE COMPARABLE HORIZON: expectedClicks minus clicks, floored at zero, then scaled from the
+   *  90-day window the members were read over to a 28-DAY equivalent. Every opportunity in this product is sized
+   *  in these units so that a curve shortfall, a monthly loss and a four-week fall can be compared at all. Before
+   *  this, `opportunities.ts` took `Math.max` of a 90-day shortfall and a 28-day fall and recorded no unit, so a
+   *  card's own sentence ("in the last four weeks") could describe a different span from its own number. */
   recoverableClicks: number;
   /** Distinct member phrasings, biggest first: the searchers' own vocabulary for the drafter. */
   vocabulary: string[];
@@ -81,11 +85,16 @@ export function demandUnitsOf(
       clicks,
       position: position == null ? null : Math.round(position * 10) / 10,
       expectedClicks: Math.round(expectedClicks),
-      recoverableClicks: Math.max(0, Math.round(expectedClicks - clicks)),
+      recoverableClicks: Math.max(0, Math.round((expectedClicks - clicks) * TO_28_DAYS)),
       vocabulary: [...new Set(members.map((m) => m.query))],
     };
   }).sort((a, b) => b.impressions - a.impressions || a.label.localeCompare(b.label));
 }
+
+/** The members are read over ninety days (`readers/gsc-page-signals` WINDOW_DAYS). Impressions and clicks stay
+ *  in that window because they are named and rendered as ninety-day evidence; only the SHORTFALL is carried on
+ *  the shared horizon, because that is the figure the ranking and the funding both spend. */
+const TO_28_DAYS = 28 / 90;
 
 const sum = (ms: readonly OwnedQuerySignal[]): number => ms.reduce((a, m) => a + m.impressions, 0);
 

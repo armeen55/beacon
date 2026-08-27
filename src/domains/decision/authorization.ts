@@ -277,7 +277,7 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
 }
 
 /** A fall worth naming as work before its results page is read, and how many of them one pass may name. */
-const MIN_RESEARCHING_CLICKS = 50, MAX_RESEARCHING = 3;
+const MIN_RESEARCHING_CLICKS = 16, MAX_RESEARCHING = 3;
 
 /** WHAT A PRODUCER THAT REACHED THIS PAGE AND WROTE NOTHING SAID: the one read still missing, and the levers it
  *  weighed on the way there. A blocked page has been reasoned about, so its card says so instead of guessing. */

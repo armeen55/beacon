@@ -118,8 +118,8 @@ export async function demandRecoveryCards(input: { tenantId: string; snapshot: E
       const recoverable = Math.max(0, Math.round(u.recoverableClicks));
       const hints = [story.trim() + moved, d.line,
         d.cause != null
-          ? `At today's own demand and positions, about ${n(recoverable)} clicks a month of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.`
-          : `About ${n(recoverable)} clicks a month is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.`,
+          ? `At today's own demand and positions, about ${n(recoverable)} clicks over 28 days of that are supported as recoverable under the diagnosed cause; the rest depends on winning back ground and is not promised.`
+          : `About ${n(recoverable)} clicks over 28 days is the measured shortfall against this account's own click curve at today's positions. None of it is claimed as recoverable until the cause is diagnosed.`,
         `People search this as: ${phrasings}`,
         ...(u.volume?.searchVolume ? [`"${u.label}" carries ${n(u.volume.searchVolume)} searches a month${u.volume.intent ? ` (${u.volume.intent})` : ""}`] : []),
         ...(u.serp ? [`The pages winning it now: ${u.serp.winners.slice(0, 3).map((w) => w.domain).join(", ")}`] : []),

@@ -35,13 +35,13 @@ export type OwnedBody = { openingSample: string | null; fetchedAt: string | null
   completeness?: "complete" | "partial" | "sample_only"; heldNote?: string };
 
 /** RECOVERABLE OPPORTUNITY, never gross traffic: per DEMAND UNIT clearing MIN_QUERY_IMPRESSIONS on the unit's combined impressions, the shortfall under what its members' positions earn on THE SAME curve the diagnosis used, past CTR_DEFICIT_SHARE of it. Units, not single rows: an intent spread across many phrasings is ONE audience, and reading it a row at a time hid most of the site's demand from the only path that can act. `at` defaults to the industry table only outside a pass, which holds no fitted curve. */
-type Gap = { query: string; impressions: number; clicks: number; position: number; recoverable: number; vocabulary?: string[] };
+type Gap = /** `recoverable` is the shared 28-day horizon every opportunity is sized on; `over90` is the SAME shortfall across the ninety days this gap's own impressions and clicks were read over, carried only so a sentence quoting ninety-day evidence stays internally consistent: "6,000 saw this in 90 days and 90 clicked" may not end on a 28-day figure. */ { query: string; impressions: number; clicks: number; position: number; recoverable: number; over90: number; vocabulary?: string[] };
 const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = defaultExpectedCtrAt): Gap[] => demandUnitsOf(p.search?.topQueries ?? [], at).flatMap((u) => {
   if (u.impressions < MIN_QUERY_IMPRESSIONS || u.position == null) return [];
-  const expected = u.expectedClicks / u.impressions, deficit = expected - u.clicks / u.impressions, recoverable = u.expectedClicks - u.clicks;
+  const expected = u.expectedClicks / u.impressions, deficit = expected - u.clicks / u.impressions, recoverable = u.recoverableClicks, over90 = Math.max(0, Math.round(u.expectedClicks - u.clicks)); // READ, never recomputed: one horizon, set where the unit is built
   // BOTH BARS, because this figure is SUMMED onto a page: a share floor alone let a tail search missing 44 percent of a 1.8 percent position add 16 clicks to a page
   // total, and the card then carried a number its own sentence (written from the one real gap) did not say. A unit joins a page's worth only if it is worth something.
-  return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position, recoverable, vocabulary: u.vocabulary }];
+  return deficit < CTR_DEFICIT_SHARE * expected || recoverable < MIN_RECOVERABLE_CLICKS ? [] : [{ query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position, recoverable, over90, vocabulary: u.vocabulary }];
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
 const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 
@@ -440,7 +440,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       .map((c) => ({ what: (c.before ?? "").trim(), why: c.objective ?? `${c.label} takes its place.` })) };
   const confidence = confidenceFor(receipt.readiness, diagnosis);
   // THE ONE-PURCHASE SENTENCE, BROKEN IN TWO: what happened, then what it costs. One idea per clause, both off the same row, and the position's usual take is stated rather than left as arithmetic to do.
-  const leadStatement = lead ? `${lead.impressions.toLocaleString()} people saw this page for "${primary}" in 90 days and ${lead.clicks.toLocaleString()} clicked. A page at position ${Math.round(lead.position)} usually earns about ${Math.round(lead.clicks + lead.recoverable).toLocaleString()}, so about ${Math.round(lead.recoverable).toLocaleString()} clicks are being left.`
+  const leadStatement = lead ? `${lead.impressions.toLocaleString()} people saw this page for "${primary}" in 90 days and ${lead.clicks.toLocaleString()} clicked. A page at position ${Math.round(lead.position)} usually earns about ${Math.round(lead.clicks + lead.over90).toLocaleString()}, so about ${Math.round(lead.over90).toLocaleString()} clicks are being left.`
     : door!.entry;
   // ONE SECTION, ONE SENTENCE: the same fact printed as the reason, the receipt line AND the paragraph is one fact three times, so anything already said elsewhere is dropped rather than repeated back.
   const alreadySaid = new Set([leadStatement.trim(), ...receipt.items.map((it) => it.fact.trim())]);

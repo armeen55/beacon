@@ -132,7 +132,7 @@ function measureUnit(u: DemandUnit): QueryGap | null {
   const expectedCtr = u.expectedClicks / u.impressions, actualCtr = Math.min(1, u.clicks / u.impressions);
   return { query: u.label, impressions: u.impressions, clicks: u.clicks, position: u.position,
     expectedCtr, actualCtr, deficit: expectedCtr - actualCtr,
-    recoverableClicks: Math.round(u.expectedClicks - u.clicks), vocabulary: u.vocabulary };
+    recoverableClicks: u.recoverableClicks, vocabulary: u.vocabulary }; // READ, never recomputed: the shortfall is normalised to one horizon where the unit is built, and a second subtraction here silently put a 90-day figure beside a 28-day one
 }
 
 /** WHICH FLOOR REFUSED THIS SEARCH, said in that floor's OWN unit. Checked in the same order the floors are
