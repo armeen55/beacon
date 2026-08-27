@@ -195,7 +195,12 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           operatorSteps: [`Open the site editor on ${path}`, `Find ${where.replace(/^The /, "the ")}`,
             `Replace "${c.current}" with "${c.proposed}"`, "Mark it done here"],
           estimatedEffortMinutes: 2, riskLevel: "medium", confidence: "high",
-          limitations: ["Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking.",
+          // THE FREE GATE RUNS AT MINT, NOT ONLY INSIDE THE PAID REVIEW. `unfitToStandIn` costs nothing and needs
+          // nobody's permission, and it was reachable only through the paid reviewer: while the provider is out
+          // of credit that review never runs, so five of the seven live corrections sat in the operator's queue
+          // with a replacement that cannot stand where it goes and NO reason on the card saying so.
+          limitations: [unfitToStandIn(c.current, c.proposed!, c.subject)
+            ?? "Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking.",
             "The page's own words were treated as evidence of what it says, never as proof they are true."],
           causeFinding: { cause: "factual_error", action: "section", evidenceKeys: ["fact-1"],
             explanation: `${path} states a meaning for ${c.subject} that an independent source of record contradicts, and a supported replacement is on file.`,

@@ -587,6 +587,19 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
       meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
       .toEqual([true, true, false]); });
+  it("refuses the keyword list the operator rejected, and keeps the topic list that names three different things", () => {
+    // THE RULE HAD NEVER REJECTED ANYTHING. It read topicTokens, which returns a SET, so its own repeat test
+    // (indexOf(t) !== i) could never be true, while its comment cited the operator's rejected example.
+    const pk = { targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
+    const title = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "title", naturalHeading: null, beforeText: null, placementAnchor: "the title", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never)
+      .some((r) => r.includes("keyword list rather than a line a person would write"));
+    // The operator's own example: two different words said twice each, four ways of saying one thing.
+    expect(title("Persian Swear Words, Persian Insults, Farsi Insults, Slang")).toBe(true);
+    // Repeating the SUBJECT once while naming three different things is a real title, not stuffing.
+    expect(title("Types of Persian Rugs: Tabriz Rugs, Kashan Rugs and Kerman Rugs")).toBe(false);
+    expect(title("Onager (Persian Wild Ass): What It Is and Where It Lives")).toBe(false);
+    expect(title("List of Largest Cities in Iran: Top 15 by Population")).toBe(false); });
+
   it("refuses a summary that sells the site to a reader already standing on it", () => {
     // LIVE IN THE READY QUEUE, on /discover-iran. Descriptions are excused the information-gain test, because
     // summarising the page IS a description's job, and nothing else ever asked whether it said anything.

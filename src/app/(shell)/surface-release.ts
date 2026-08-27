@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import "server-only";
 
 import { readStore, writeStore } from "@/lib/persistence/json-store";
@@ -50,6 +51,10 @@ export type CustomerSurface = {
   schemaVersion: 2;
   releaseId: string;
   computedAt: string;
+  /** WHAT THIS RELEASE ACTUALLY SAYS, with every clock stripped: the ranked order plus the rendered content.
+   *  A rebuild that lands on the same material republishes nothing, so a queue nobody has new evidence for
+   *  stops moving under the operator while they are reading it. Absent on releases published before this. */
+  material?: string;
   tenantId: string;
   changes: ChangesView;
   today: TodayComposite;
@@ -120,6 +125,19 @@ export function isCustomerSurfaceStale(computedAt: string, nowMs: number): boole
  *  builds. Build-then-publish: a failed build throws and the previous release
  *  stays in place. (Builders are imported at call time - this module is a leaf
  *  at init, so the loaders that read the release can import it statically.) */
+/** WHAT A RELEASE SAYS, WITHOUT ANY CLOCK IN IT. The ranked order is the first thing an operator reads, so it
+ *  is first here; the rendered content follows. Anything that moves on its own every second (the release id,
+ *  the computed instant, the "ranked N minutes ago" line) is dropped, because none of it is a thing anybody
+ *  learned. Cheap and total: a real change to any card, count or position lands in this string. */
+function materialOf(rows: ReadonlyArray<{ id: string; lane: string }>, changes: unknown, today: unknown): string {
+  const clocks = /^(surfaceVersion|surfaceComputedAt|receiptLine|computedAt|releaseId|checkedAt|rankedAt)$/;
+  const stable = (v: unknown): unknown => Array.isArray(v) ? v.map(stable)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v as Record<string, unknown>)
+      .filter(([k]) => !clocks.test(k)).sort(([a], [b]) => a.localeCompare(b)).map(([k, x]) => [k, stable(x)]))
+      : v;
+  return createHash("sha256").update(JSON.stringify([rows.map((r) => `${r.id}:${r.lane}`), stable(changes), stable(today)])).digest("hex").slice(0, 32);
+}
+
 export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts?: number } = {}): Promise<CustomerSurface> {
   return runSingleFlight(`customer-surface:${tenantId}`, async () => runWithTenant(tenantId, async () => {
     // TWO DISPATCHERS MUST NOT BOTH REBUILD ONE ACCOUNT, and in-process single flight cannot see another
@@ -236,6 +254,7 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
       schemaVersion: 2,
       releaseId,
       computedAt,
+      material: materialOf(stampRows, changes, today),
       tenantId,
       changes,
       today: { ...today, surfaceVersion: releaseId, surfaceComputedAt: computedAt },
@@ -245,6 +264,15 @@ export async function refreshCustomerSurface(tenantId: string, opts: { maxDrafts
     // neither does: the old stamp-then-write shape had a rollback that never fired, because the blob writer
     // suppressed its own hosted failures, so a failed build could un-rank live rows while the old surface survived.
     // The expected prior release is validated inside the same transaction, and a conflict aborts before any write.
+    // A REBUILD THAT LEARNED NOTHING PUBLISHES NOTHING. Every visit used to restamp the whole ranking and mint a
+    // new release id, so three presses in three minutes wrote 13 proposal rows each and produced three
+    // releases while no evidence had moved. That is the operator's queue shifting under them as they read it,
+    // and writes the database is asked for that teach nobody anything. The clocks are stripped, because a
+    // timestamp is not something the operator learned.
+    if (previous?.material && previous.material === surface.material) {
+      log.info("[surface-release] nothing this release would say has changed, so the ranking and the blob are left exactly as they are", { tenantId, release: previous.releaseId });
+      return previous;
+    }
     const { publishCustomerRelease } = await import("@/domains/decision");
     const { slugForTenantId } = await import("@/lib/tenant-context");
     const slug = await slugForTenantId(tenantId);

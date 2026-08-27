@@ -70,7 +70,7 @@ function stripDiacritics(s: string): string {
 
 /** Distinguishing tokens of a topic/title/slug: lowercased, de-accented, singularized,
  *  with stopwords + generic brand terms removed and tokens < 3 chars dropped. */
-export function topicTokens(text: string | null | undefined): string[] {
+export function topicTokens(text: string | null | undefined, opts?: { keepRepeats?: boolean }): string[] {
   if (!text) return [];
   const raw = stripDiacritics(String(text).toLowerCase())
     .replace(/https?:\/\/[^\s]*/g, (u) => u.replace(/[^a-z0-9]+/g, " ")) // URL → words
@@ -90,7 +90,7 @@ export function topicTokens(text: string | null | undefined): string[] {
     if (GENERIC.has(t)) continue;
     out.push(t);
   }
-  return [...new Set(out)];
+  return opts?.keepRepeats === true ? out : [...new Set(out)];
 }
 
 export function domainOf(url: string): string {

@@ -104,6 +104,18 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
     expect(out[1]!.recommendedChange, "a held correction keeps its exact words").toEqual(cards[1]!.recommendedChange); });
+  it("says on the card itself why a replacement cannot stand there, without waiting for anyone to be paid", async () => {
+    // LIVE: five of seven correction cards on the account carried a replacement that cannot stand where it goes
+    // ("light", "beloved", "like the moon", "Night; dark"), and the only gate that says so was reachable through
+    // the PAID reviewer. With the provider out of credit that review never runs, so the cards sat in the
+    // operator's queue with nothing on them saying why they were not offered.
+    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light" }),
+      check({ subject: "Anahita", current: "Meaning:Persian goddess of water.", proposed: "Anahita is an Iranian goddess associated with water." })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
+    expect(by.get("noor")!.limitations[0]).toContain("mid-sentence");
+    expect(by.get("anahita")!.limitations[0]).toContain("has not read this correction yet"); });
+
   it("a sourced meaning that cannot stand where it goes is held before anyone is paid to read it", async () => {
     // ALL THREE ARE LIVE ROWS. A source can be right about the etymology and still not be publishable copy:
     // "Meaning:Beauty, elegance, and charm." replaced by "possess or maintain; well, good" leaves the page

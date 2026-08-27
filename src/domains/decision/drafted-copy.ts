@@ -213,8 +213,12 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
       // PLAIN WORDS, NEVER TOPIC TOKENS. The destruction class lives exactly in the words a relevance tokenizer calls generic: "list" is noise to a topic gate and load-bearing on a page whose paid searches read "persian boy names list". A preserved search is compared as the searcher spelled it.
       const wordsOf = (t: string): string[] => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3); const earning = new Set(p.demand.preserve.flatMap(wordsOf)); const after = new Set(wordsOf(d.finalCopy));
       const dropped = [...new Set(wordsOf(FIELD[d.actionType] ?? ""))].filter((t) => earning.has(t) && !after.has(t)); if (dropped.length > 0) out.push(`it drops ${dropped.slice(0, 3).map((t) => `"${t}"`).join(", ")}, which this page earns clicks on, and names no supported reason to`);
-      const toks = topicTokens(d.finalCopy), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))]; // A LINE THAT SAYS A WORD TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting "Persian Swear Words, Persian Insults, Farsi Insults, Slang"): demand may add a phrase, never repeat one.
-      if (reps.length > 0) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(", ")} more than once, which is a keyword list rather than a line a person would write`);
+      // TWO DIFFERENT WORDS EACH SAID TWICE IS A KEYWORD LIST WEARING A TITLE (operator, 2026-08-17, rejecting
+      // "Persian Swear Words, Persian Insults, Farsi Insults, Slang"). This read `topicTokens`, which returns a
+      // SET, so `indexOf(t) !== i` was never true and the rule had rejected nothing since the day it was written.
+      // Repeating ONE word is fine ("Tabriz Rugs, Kashan Rugs, Kerman Rugs"); TWO separates his own examples.
+      const toks = topicTokens(d.finalCopy, { keepRepeats: true }), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))];
+      if (reps.length > 1) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(" and ")} more than once each, which is a keyword list rather than a line a person would write`);
     }
   } else {
     if (d.beforeText != null && !onPage(stored, d.beforeText)) out.push("the words it says it replaces are not on the stored page");
