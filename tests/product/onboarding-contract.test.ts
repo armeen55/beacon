@@ -296,13 +296,11 @@ describe("setup and settings surfaces (Phase 8)", () => {
   });
   it("brings an account that stopped halfway back to the step it actually reached, not to the start", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com" }); seedConfirmedProfile(w, A);
-    // Website, understanding and confirmation are done; the goal is not.
     expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(4);
     await saveGoal(A, "grow", w.deps); expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(5); // questions are what is left
     await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     const resumed = await loadOnboardingState(A, w.deps); expect(resumed.currentStep).toBe(6); // connections are skippable, so a finished question set lands on the last optional step
     expect(resumed.connections.map((c) => c.kind)).toEqual(["google_gsc", "google_ga4", "clarity"]); // no Wix, and none is required to get here
-    // Step 7 hands back a REAL technical gap out of the crawl catalogue, named with that page's own count.
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
     const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");});
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
@@ -313,12 +311,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
     await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC }); await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps);
     w.tenants.get(A)!.status = "active"; w.tenants.get(A)!.tos = "2026-07-24T00:00:00.000Z"; // setup finished, the account is live
     expect(await live()).toBeNull(); // set up: the product renders, nothing resumes
-    // A RUNNING ACCOUNT'S GAP IS OPERATIONAL, NEVER A RE-DERIVATION OF THE ACTIVATION INPUTS. The live account predates goals and runs with growth_goal NULL: the product works, so that is a nudge, never a lockout, and forcing the write would re-mint the basis and orphan every prompt behind it. Its questions are counted the way the research funnel counts them, basis-agnostically, because a basis that moved is not something an operator can see or fix. Website, a confirmed profile and terms are the real floor.
     expect([await live({ growth_goal: null }), await live({ domain: "" }), await live({ tos_accepted_at: null })]).toEqual([null, { step: 1 }, { step: 7 }]);
     for (const r of w.prompts) if (r.is_active) r.tags = [...r.tags.filter((t) => !t.startsWith("basis_")), "basis_longgone"];
-    // A basis nobody re-approved is still 35 questions I am really asking; a PENDING account still owes every activation input, goal included.
     expect([await live({ growth_goal: null }), await setupGap(A, acct({ status: "pending_onboarding", growth_goal: null }) as any, w.deps)]).toEqual([null, { step: 4 }]);
-    // ONE LADDER: what the gate calls finished, the wizard may never re-ask. THIS is where the two used to disagree, because the wizard counted only current-basis rows: no gap at all, and a setup screen sitting on step 5 with zero approved questions.
     expect((await loadOnboardingState(A, w.deps)).currentStep).toBe(6);
     seedCore(w, A, 25); expect(await live()).toBeNull(); // 60 live questions: legal in Settings' 10..100 window, so never a lockout
     seedCore(w, A, 45); expect(await live()).toEqual({ step: 5 }); // 105 is past the cap the funnel enforces, and that IS operational
@@ -326,11 +321,9 @@ describe("setup and settings surfaces (Phase 8)", () => {
     expect(await live()).toEqual({ step: 5 });
     for (const r of w.prompts) r.is_active = false; // and nothing to ask the assistants at all is the same owed step
     expect(await live()).toEqual({ step: 5 });
-    // THE RENDERED PICKER MUST LAND: the wizard draws the goal step for a gapped running account, so that save may not answer "locked" under a live button.
     w.tenants.get(A)!.growth_goal = null;
     expect((await saveGoal(A, "balanced", w.deps)).ok && w.tenants.get(A)!.growth_goal).toBe("balanced");
     for (const r of w.prompts) r.is_active = true;
-    // A profile with real content that nobody confirmed IS a gap and names the confirm step; an EMPTY one is exactly what a failed read hands back, so it is unreadable, never a gap.
     const unconfirmed = confirmedProfile(A); (unconfirmed as any).offerings = { value: ["rug cleaning"], origin: "inferred", confidence: 0.7, sourceUrls: [] };
     w.profiles.set(A, unconfirmed); expect(await live()).toEqual({ step: 3 });
     w.profiles.set(A, emptyBusinessProfile(A)); await expect(live()).rejects.toThrow();
@@ -346,11 +339,8 @@ describe("setup and settings surfaces (Phase 8)", () => {
     for (const r of w.prompts) r.is_active = false; // the account is live with nothing to ask: a genuine gap
     seedCore(w, A, 5); // five strays under a basis nobody holds: enough to be swept, not enough to answer anything
     expect(await gap()).toEqual({ step: 5 }); expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(true);
-    // THE SWEEP RUNS FOR A RUNNING ACCOUNT TOO. Skipping it stacked the strays under the new set, and the funnel counts basis-agnostically, so 5 + 35 would have become 40 questions I pay for every day and nobody chose. The gap then closes, and nothing started a second research run.
     expect([activeCore(w, A).length, await gap(), w.scheduled.length]).toEqual([35, null, 1]);
-    // A running account with nothing missing is still locked out of setup.
     expect((await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps)).ok).toBe(false);
-    // Terms nobody ever accepted are the one thing the launch step still owes, and accepting them starts nothing.
     w.tenants.get(A)!.tos = null;
     expect(await gap()).toEqual({ step: 7 }); expect((await activateAccount(A, true, w.deps)).ok).toBe(true);
     expect([w.tenants.get(A)!.tos, w.scheduled.length]).toEqual([NOW.toISOString(), 1]);});
@@ -360,17 +350,13 @@ describe("setup and settings surfaces (Phase 8)", () => {
     for (const k of CONFIRMABLE) (inferred as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: ["https://acme.com/"] };
     w.profiles.set(A, inferred);
     await confirmProfile(A, w.deps); const after = w.profiles.get(A)! as any;
-    // THE LITERAL NINE, never SHOWN_FIELDS itself: iterating the module's own list passed just as happily when that list held three, so it falsified nothing.
     expect([...SHOWN_FIELDS].sort()).toEqual(["audiences", "businessType", "customerProblems", "geographicScope", "name", "offerings", "siteArchetype", "topicsToExclude", "topicsToOwn"]);
     for (const k of ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "topicsToOwn"]) expect(after[k].origin, `${k} steers research and was on screen`).toBe("operator_confirmed");
-    // Nothing reads these two, so nothing is owed a confirmation for them; the excluded-topics list is empty, so it is not on screen either.
     for (const k of ["trustClaims", "differentiators", "topicsToExclude"]) expect(after[k].origin, `${k} was never shown`).toBe("inferred");
     expect((await loadOnboardingState(A, w.deps)).profile.confirmed).toBe(true); // and the step still completes
-    // THE LIVE ACCOUNT confirmed three before this existed. Its setup is finished, and widening what confirm covers must never send it back to step 3.
     const legacy = emptyBusinessProfile(A);
     for (const k of CONFIRMABLE) (legacy as any)[k] = { value: (confirmedProfile(A) as any)[k].value, origin: ["name", "offerings", "audiences"].includes(k) ? "operator_confirmed" : "inferred", confidence: 1, sourceUrls: [] };
     expect(isProfileConfirmed(legacy)).toBe(true);
-    // AN ARRAY OF BLANKS IS NOT A FACT. The step joins a list and drops it when the join is blank, so [""] never reaches the screen and may not be stamped either.
     const blanks = emptyBusinessProfile(A);
     for (const k of CONFIRMABLE) (blanks as any)[k] = { value: k === "offerings" ? ["", "  "] : (confirmedProfile(A) as any)[k].value, origin: "inferred", confidence: 0.7, sourceUrls: [] };
     const w2 = makeWorld(); seedPending(w2, A, { domain: "acme.com" }); w2.profiles.set(A, blanks); await confirmProfile(A, w2.deps);
@@ -392,7 +378,6 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const thin = editor(16); expect(thin).toContain("16 strong questions found for your business. 20 to 50 is the range that works best, and more arrive as Beacon learns your market.");
     expect(thin).toContain("Approve my selection");
     expect(thin).not.toContain('disabled=""'); // the one primary action on the step is live, not a dead end
-    // The 20 to 50 framing is what an account WITH the questions still reads, and the button still works.
     const full = editor(24); expect(full).toContain("Between 20 and 50 questions stay tracked, and this is the range that works best.");});
   it("offers the customer's own three sources on Connections, and nothing Beacon runs on its own account", () => {
     expect(CONNECTOR_REGISTRY.map((c) => c.id).sort()).toEqual(["clarity", "google_ga4", "google_gsc"]); const words = CONNECTOR_REGISTRY.map((c) => `${c.label} ${c.summary}`).join(" ").toLowerCase();

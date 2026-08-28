@@ -2,6 +2,7 @@
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
+import { PROMPT_REGISTRY } from "./llm/prompt-registry";
 
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
  *  absence is the normal case: a page-only repair has no demand figure and must not pretend to one. */
@@ -192,7 +193,7 @@ export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedC
   return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
     (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
 /** WHY BEACON'S OWN PAID REVIEWER HAS NOT AUTHORIZED THIS, or null. It already reads the claims and the evidence, and was answering ONE publish boolean whose claim-level reasoning was then discarded, so nothing ever recorded whether the cited facts SUPPORT the claim and "Noor means light" could stand on a passage reading "Tehran is the capital of Iran" (Codex, 2026-08-28). Asked only where a material claim is made: a mechanical repair, and copy citing only the page's own words, are not sent to a model to be told what they already prove. Fails closed on a missing, stale, short or mismatched ruling, because silence is never a pass. `REVIEW_CONTRACT` mirrors llm/prompt-registry's `draft.factual_review`, so a verdict from an older contract is re-read rather than trusted. */
-export const REVIEW_CONTRACT = 2;
+export const REVIEW_CONTRACT: number = PROMPT_REGISTRY["draft.factual_review"];
 export function unreviewed(p: ChangeProposal): string | null {
   const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
   if (!(p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;

@@ -165,6 +165,49 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const coarse = async () => ({ status: "drafted" as const, value: { rulings: [0, 1, 2].map((i) => ({ index: i, publish: true, reason: "reads cleanly" })) } });
     const old = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: coarse });
     expect(old.map((c) => c.status), "publish alone is not entailment").toEqual(old.map(() => "needs_review"));
+    // THE RETURNED MAPPING IS CHECKED, NOT TIDIED. A ruling naming a claim that does not exist and a fact nobody
+    // banked, marked entailed, cleared every card while the producer wrote a clean authorization from its OWN
+    // ids: self-authorization wearing a reviewer's name. Each shape below must hold the card instead.
+    const rule = (over: Record<string, unknown>) => async () => ({ status: "drafted" as const, value: { rulings: cards.map((_c, i) => ({
+      index: i, publish: true, reason: "looks fine", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }], ...over })) } });
+    const promoted = async (over: Record<string, unknown>) => (await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: rule(over) })).filter((c) => c.status === "ready");
+    for (const [what, over] of [["a claim number nobody made", { claims: [{ claim: 99, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["evidence nobody banked", { claims: [{ claim: 0, factIds: ["wrong-fact"], entailed: true, why: "w" }] }],
+      ["a claim ruled twice", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }, { claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["a claim the row never made, alongside the real one", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }, { claim: 1, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["the reviewer's own no", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }],
+      ["a sense refusal over an entailed claim", { publish: false, reason: "reads badly" }]] as const)
+      expect(await promoted(over), `${what} authorizes nothing`).toEqual([]);
+    // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
+    const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] });
+    expect(earned.length, "an exact ruling still earns Ready").toBeGreaterThan(0);
+    expect(earned[0]!.semanticReview!.claims).toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
+    // A CARD STANDING ON TWO PASSAGES MUST BE RULED AGAINST BOTH: naming only one of them is a different
+    // question than the claim asks, and every named id is banked, so nothing else catches this.
+    checks.rows = [check({ subject: "Pair", current: "Wrong.", proposed: "Right.",
+      sources: [{ url: "https://en.wiktionary.org/a", kind: "dictionary", says: "it means right" }, { url: "https://en.wikipedia.org/b", kind: "encyclopedia", says: "also right" }] })];
+    const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
+    expect(two[0]!.claims![0]!.supportedBy.length, "the card really declares two").toBe(2);
+    const ruleTwo = (ids: string[]) => async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "fine",
+      claims: [{ claim: 0, factIds: ids, entailed: true, why: "carried" }] }] } });
+    expect((await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-1"]) })).filter((c) => c.status === "ready"),
+      "ruled against one of the two passages the claim names").toEqual([]);
+    const both = (await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-2", "fact-1"]) })).filter((c) => c.status === "ready");
+    expect(both[0]!.semanticReview!.claims, "and both, in any order, is what it banks").toEqual([{ i: 0, by: ["fact-1", "fact-2"], entailed: true }]);
+    // AND THE REVIEWER WAS ACTUALLY SHOWN WHAT IT RULED ON: the canonical claim, its own fact ids, and the exact passage behind each.
+    let shown = ""; await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 },
+      complete: async (i: { user: string }) => { shown = i.user; return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: false, reason: "n", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "n" }] }] } }; } });
+    expect(shown).toContain("claim 0:");
+    expect(shown).toContain("must be entailed by exactly these fact ids: fact-1");
+    expect(shown, "the exact passage, not an anonymous source blob").toMatch(/fact-1: "[^"]{10,}/);
+    // AND IT SURVIVES THE ROUND TRIP UNCHANGED, so what the door re-reads is what the reviewer returned.
+    const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
+    const back = deserializeChangeProposal(serializeChangeProposal(earned[0]!))!;
+    expect(back.semanticReview).toEqual(earned[0]!.semanticReview);
+    expect((await import("@/domains/decision/proof")).unreviewed(back), "and it still authorizes after reload").toBeNull();
+    // A TRANSPORT FAILURE BANKS NOTHING and fabricates no receipt.
+    const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
+    expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");

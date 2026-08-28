@@ -204,10 +204,8 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "beloved; wished-for child",
         supporting: [{ url: "https://en.wikipedia.org/x", quote: hebrew }],
         subjects: [{ url: "https://en.wikipedia.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry is about this name" }] } }) });
-    // The account's own page is never even bought, so it cannot vouch for the words it is being corrected on.
     expect(fetched.some((u) => u.includes("iranopedia"))).toBe(false);
     const r = db.rows[0] as FactCheck;
-    // The passage IS about the right subject, so the claim survives. The WORDING is not in it, so it may not
     expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
     expect(r.note).toContain("Held below confirmed:"); });
 
@@ -221,7 +219,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(db.reopened, "only the stranded claim re-enters research").toEqual(["alborz"]); });
 
   it("words found on the fetched page but past the verified quote authorize nothing", async () => {
-    // LIVE Alborz: the page's NEXT sentence says the meaning; the model quoted the sentence before it. The
     const page = "The name Alborz is derived from Hara Barazaiti, a legendary mountain. البرز Hara Brzati means Mountain Rampart.";
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text: page }),
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Mountain Rampart",
@@ -232,18 +229,15 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(r.note).toContain("Held below confirmed:"); });
 
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
-    // THE DEADLOCK, LIVE. Bumping the verification rules re-opened 21 settled claims on the names page, the owed
     const body = Array.from({ length: 60 }, (_, i) => `Name${i} means Meaning${i}.`).join(" ");
     const owedAlready = Array.from({ length: 33 }, (_, i) => row({ statementKey: `owed${i}`, subject: `Old${i}`, pageContentHash: pageHashOf(body) }));
     db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
     const found = Array.from({ length: 12 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
     await unit({ page: { ...PAGE, body }, held: owedAlready, searchSources: async () => ({ hold: "unavailable" as const }),
       read: reader({ claims: { statements: found }, judge: CONFIRMS }) });
-    // A section was read and banked even though 33 claims were already waiting, so every entry it names now has
     expect(db.owed.length, "the section was inventoried rather than queued behind research").toBe(12);
     expect((db.cov as unknown as { coveredChars: number }).coveredChars).toBeGreaterThan(0);
 
-    // AND THE CAP IS MEASURED ON WHAT CAME BACK, NOT ON WHAT SURVIVED THE DEDUPE. Forty returned, most of them
     db.rows = []; db.owed = []; db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
     const full = Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
     const known = full.slice(0, 35).map((c, i) => row({ statementKey: claimIdentity(c.subject, c.current, null), subject: c.subject, current: c.current, state: "checked" as const, pageContentHash: pageHashOf(body) }));
@@ -253,7 +247,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(advanced, "a chunk that filled up may not advance past the last statement it actually read").toBeLessThan(Math.min(body.length, 3_000)); });
 
   it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
-    // LIVE on /persian-female-first-names: one claim whose sources would not parse returned `fetch_refused` at
     const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";
     const owed = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
       current: `${subject} means something`, pageContentHash: pageHashOf(body) }));
@@ -267,9 +260,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       fetchSource: async () => ({ hold: "refused" as const }) } as never);
     const subjects = new Set(["alpha", "beta", "gamma", "delta"].filter((n) => asked.some((q) => q.toLowerCase().includes(n))));
     expect(subjects.size, `only reached ${JSON.stringify([...subjects])} of the owed claims across ${asked.length} searches`).toBeGreaterThanOrEqual(3);
-    // and the pass ends honestly rather than on the first claim it could not resolve
     expect(out.attempts).toBeGreaterThanOrEqual(3);
-    // AND IT NEVER CALLS THIS A SPENT LEASE. `lease_exhausted` is a HARD STOP that pauses the whole research
     expect(out.failure).not.toBe("lease_exhausted");
     expect(out.failure).toBe("fetch_refused"); });
 
@@ -281,14 +272,12 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(authorizedCorrections([read], { pageContentHash: "h2" })).toHaveLength(0); // stale page version
     expect(authorizedCorrections([{ ...read, state: "owed" }])).toHaveLength(0);
     expect(authorizedCorrections([{ ...read, rulesVersion: 1 }])).toHaveLength(0); // verdict from replaced rules
-    // A valid fetched-source contradiction still reaches Decision while its page hash is current.
     expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" })).toHaveLength(1);});
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "",
       subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] }).success).toBe(true);
-    // A judgement that names no subject at all cannot be read: whose name it is about is not optional.
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale" }], note: "" }).success).toBe(false);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);});
@@ -301,14 +290,12 @@ describe("a verdict from obsolete rules is not current evidence", () => { before
   it("re-opens the live Ahvaz check produced under the old subject-only query, and leaves a current one settled", async () => {
     const AHVAZ = "Ahvaz, Iran holds the record for hottest day ever in Asia at 54 °C (129 °F)", page = { url: "https://x.example/ahvaz", path: "/ahvaz", body: `${AHVAZ} And more.` };
     const done = { pageContentHash: pageHashOf(page.body), coveredChars: page.body.length, totalChars: page.body.length }; db.cov = done;
-    // The real live row: checked/undecidable, produced by "Ahvaz, Iran definition reference" under rules 1.
     const old = row({ page: "/ahvaz", statementKey: "ahvaz, iran#fdbdbbc407", subject: "Ahvaz, Iran", current: AHVAZ,
       pageContentHash: pageHashOf(page.body), state: "checked", rulesVersion: 1, sourceReadAt: NOW.toISOString() });
     let asked = ""; const out = await unit({ page, held: [old], searchSources: async (q: string) => { asked = q; return SOURCE; } });
     expect([db.reopened, out.status]).toEqual([["ahvaz, iran#fdbdbbc407"], "advanced"]); // archived, owed, researched
     for (const must of ["Ahvaz", "54", "°C", "Asia", "hottest"]) expect(asked).toContain(must);
     expect([asked.includes("definition reference"), (db.rows[0] as FactCheck).rulesVersion]).toEqual([false, VERIFICATION_RULES_VERSION]);
-    // A check produced under the CURRENT rules stays settled and is never re-researched.
     reset(); db.cov = done; let searches = 0;
     const settled = await unit({ page, held: [{ ...old, rulesVersion: VERIFICATION_RULES_VERSION }],
       searchSources: async () => { searches += 1; return SOURCE; } });
@@ -331,6 +318,5 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "likely"]);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
-    // AND NEVER A LOOP: below confirmed it is a finding the card door was always going to refuse, so nothing reopens it.
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });

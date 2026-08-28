@@ -37,30 +37,42 @@ function composedReplacement(before: string, proposed: string): string {
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
 /** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
-const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component judge only: does the replacement read as grammatical natural English a person would publish in place of the current statement; is it consistent with the quoted source; does it contradict any OTHER component in this batch. Return ONLY {\"rulings\":[{\"index\",\"publish\",\"reason\"}]} with one ruling per component, reason one short sentence. When in doubt on a component, publish=false.";
-async function reviewComponents(tenantId: string, components: readonly BundleComponent[], now: Date,
-  wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<{ held: Map<number, string>; passed: Set<number> } | null> {
+const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component: judge whether the replacement reads as grammatical natural English a person would publish in place of the current statement, whether it contradicts any OTHER component in this batch, and then rule on EVERY listed claim of that component separately. A claim is entailed ONLY when the passages you are shown under the fact ids that claim names actually carry it; a passage about something else is not support however true it is. Return {\"rulings\":[{\"index\":<component>,\"publish\":<bool>,\"reason\":\"<one sentence>\",\"claims\":[{\"claim\":<the claim number shown>,\"factIds\":[<exactly the fact ids that claim lists>],\"entailed\":<bool>,\"why\":\"<one sentence>\"}]}]}. Rule on every claim shown for a component, once each, naming that claim's own fact ids and no others. When in doubt, entailed=false."
+/** WHAT THE REVIEWER IS SHOWN FOR ONE COMPONENT: its exact copy, its canonical claims by index with the exact fact ids each one names, and the exact passage behind every id. The review used to see an anonymous `source:` blob and "claim 0", so it could not name what it had weighed and nothing could check that it had. */
+type ReviewItem = { c: BundleComponent; where: string; claims: readonly { claimIndex: number; text: string; by: readonly string[] }[]; facts: readonly { factId: string; exactPassage: string }[] };
+async function reviewComponents(tenantId: string, items: readonly ReviewItem[], now: Date,
+  wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<{ held: Map<number, string>; passed: Map<number, { i: number; by: string[]; entailed: boolean }[]> } | null> {
   const { callStructuredLLM } = await import("../llm/structured-drafter");
-  const held = new Map<number, string>(), passed = new Set<number>();
-  for (let b = 0; b < components.length; b += BATCH) {
-    const batch = components.slice(b, b + BATCH);
+  const held = new Map<number, string>(), passed = new Map<number, { i: number; by: string[]; entailed: boolean }[]>();
+  for (let b = 0; b < items.length; b += BATCH) {
+    const batch = items.slice(b, b + BATCH);
     if (wiring.attempts && (wiring.attempts.left -= 1) < 0) return null; // an unpaid batch reviews nothing
-    const user = batch.map((c, i) => `#${i}: claim 0 is the replacement itself, standing on the sources listed here; rule whether those sources ENTAIL it.\non the page now: "${c.before ?? ""}"\nreplacement: "${c.after}"\nsource: ${(c.sourcePack?.sourceRequirements ?? []).join("; ")}\nwhere: ${c.where ?? ""}`).join("\n\n")
-      + `\n\nReturn one ruling per component, indexes 0 to ${batch.length - 1}.`;
+    const user = batch.map((it, i) => [`#${i}: on the page now: "${it.c.before ?? ""}"`, `replacement: "${it.c.after}"`, `where: ${it.where}`,
+      "claims to rule on:", ...it.claims.map((x) => `  claim ${x.claimIndex}: "${x.text}" — must be entailed by exactly these fact ids: ${x.by.join(", ")}`),
+      "the exact passage behind each fact id:", ...it.facts.map((f) => `  ${f.factId}: "${f.exactPassage}"`)].join("\n")).join("\n\n")
+      + `\n\nReturn one ruling per component, indexes 0 to ${batch.length - 1}, each with a ruling for every claim shown for it.`;
     const r = await callStructuredLLM({ kind: "factual_review", tenantId, system: REVIEW_SYSTEM, user, grounded: user,
       projectedCostUsd: 0.01, maxTokens: 2500, timeoutMs: 95_000, now,
       ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
     wiring.attempts?.record?.(r); // BEFORE the status branch: a paid failure is still paid, and the receipt says so
     if (r?.status !== "drafted") return null;
     const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; claims?: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
-    // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass.
+    // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass. AND THE RETURNED MAPPING IS CHECKED, NOT TIDIED: a ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean-looking authorization from its OWN ids, which is self-authorization wearing a reviewer's name (Codex, 2026-08-28).
     const ruled = new Map(rulings.map((x) => [x.index, x] as const));
     for (let i = 0; i < batch.length; i += 1) {
-      const v = ruled.get(i);
-      const entailed = (v?.claims ?? []).length > 0 && (v?.claims ?? []).every((x) => x.entailed); // PUBLISH IS DERIVED, NEVER TAKEN: a model saying yes over a claim ruling that says no is not a yes
-      if (!v) held.set(b + i, "the review returned no ruling for it");
-      else if (!entailed) held.set(b + i, (v.claims ?? [])[0]?.why ?? "the sources it cites were not shown to support what it claims");
-      else if (v.publish !== true) held.set(b + i, v.reason); else passed.add(b + i);
+      const v = ruled.get(i), item = batch[i]!, got = v?.claims ?? [];
+      const known = new Set(item.facts.map((f) => f.factId)), key = (xs: readonly string[]): string => [...xs].sort().join("|");
+      const bad = !v ? "the review returned no ruling for it"
+        : rulings.filter((x) => x.index === i).length !== 1 ? "the review ruled on it more than once"
+          : got.length !== item.claims.length ? "the review did not rule on every claim of it exactly once"
+            : item.claims.map((c) => { const g = got.filter((x) => x.claim === c.claimIndex);
+              return g.length !== 1 ? `claim ${c.claimIndex} was ruled ${g.length} times`
+                : !g[0]!.factIds.every((f) => known.has(f)) ? `claim ${c.claimIndex} names evidence nobody banked`
+                  : key(g[0]!.factIds) !== key(c.by) ? `claim ${c.claimIndex} was ruled against different evidence than it names`
+                    : !g[0]!.entailed ? g[0]!.why : null; }).find((x) => x != null) ?? (v.publish !== true ? v.reason : null);
+      if (bad != null) held.set(b + i, bad);
+      // THE REVIEWER'S OWN MAPPING IS WHAT IS BANKED, ordering normalized and values never regenerated.
+      else passed.set(b + i, got.map((x) => ({ i: x.claim, by: [...x.factIds].sort(), entailed: x.entailed })));
     }
     if (wiring.attempts && (r as { cached?: true }).cached) wiring.attempts.left += 1; // a cache hit cost nothing
   }
@@ -105,18 +117,24 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
     const why = unfitToStandIn(p.before, p.after, cards[i]?.recommendedChange.kind === "existing_edit" ? subjectOf(cards[i]!) : "");
     if (why) unfit.set(i, why);
   }
-  const review = await reviewComponents(wiring.tenantId, parts.filter((_, i) => !unfit.has(i)), wiring.now, wiring).catch(() => null), cleared = new Set<number>();
+  // THE PACKET IS BUILT FROM THE CARD, so the reviewer weighs the same canonical claims and passages the row banks.
+  const packet = (i: number): ReviewItem => { const c = cards[i]!, rc = c.recommendedChange;
+    return { c: parts[i]!, where: rc.kind === "existing_edit" ? (rc.where ?? "") : "",
+      claims: (c.claims ?? []).map((x, n) => ({ claimIndex: n, text: x.text, by: [...x.supportedBy] })),
+      facts: (c.supportFacts ?? []).map((f) => ({ factId: f.id, exactPassage: f.fact })) }; };
+  const review = await reviewComponents(wiring.tenantId, parts.map((_, i) => i).filter((i) => !unfit.has(i)).map(packet), wiring.now, wiring).catch(() => null);
+  const cleared = new Map<number, { i: number; by: string[]; entailed: boolean }[]>();
   const held = review?.held ?? null;
   if (held == null && unfit.size === 0) return [...cards]; // unaffordable, refused or unreadable: nothing promoted and nothing lost
   // The reviewer only ever saw the fit ones, so its indexes are remapped onto the cards they came from.
   const offered = parts.map((_, i) => i).filter((i) => !unfit.has(i));
   for (const [j, why] of held ?? []) unfit.set(offered[j]!, why);
-  for (const j of review?.passed ?? []) cleared.add(offered[j]!);
+  for (const [j, mapping] of review?.passed ?? []) cleared.set(offered[j]!, mapping);
   if (held == null) for (const [i] of parts.entries()) if (!unfit.has(i)) unfit.set(i, "Beacon's own sense review has not read this correction yet");
   return cards.map((c, i) => unfit.has(i)
     ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,
-      ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: (c.claims ?? []).map((x, n) => ({ i: n, by: [...x.supportedBy], entailed: true })) } } : {}),
+      ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: cleared.get(i)! } } : {}), // THE REVIEWER'S OWN RULING, never one rebuilt from the producer's `supportedBy`
       limitations: [...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not")),
         "Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] });
 }

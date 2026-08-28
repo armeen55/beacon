@@ -56,7 +56,6 @@ const origin = (over: Record<string, unknown> = {}) => ({
   componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,});
 const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
   tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz",
-  // A record needs its comparison pages to be worth writing at all, so the writer itself refuses fewer than two.
   after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"],
   shippedAt: NOW.toISOString(), now: NOW, shipment: origin() as never, ...over });
 /** A pre-Phase-6 row: the manual "Record shipped change" path, no Shipment columns at all. */
@@ -102,11 +101,9 @@ describe("the canonical Shipment", () => {
     expect(stored.bundleHypothesis).toMatch(/line Google shows/); expect(stored.implementedAt).toBe(NOW.toISOString());
     expect(stored.preChangeContentHash).toBe("hash-before"); expect(stored.componentsApplied).toEqual(COMPONENTS);
     expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
-    // The first reading of each question on the latest day it was asked, and nothing else.
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
   });
-  // The baseline used to be read off the newest 60 rows, so a 140 answer day was compared against a sample of itself for 28 days, and it counted mentions over every answer that came back, so an answer nobody had read yet was an implicit miss while the after side divides by the answers actually read. The day is found off a small probe, READ BY NAME, and the denominator is written down.
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
     const day = (analysed: number) => Array.from({ length: 140 }, (_, i) => ({ slot: 0, status: "observed", day: DAY,
@@ -129,13 +126,11 @@ describe("the canonical Shipment", () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);});
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship()); const first = (await loadShippedChangesForTenant(T))[0];
-    // A recompute arriving a week later with a moved stamp and rewritten baseline.
     await upsertShippedChange({
       ...first, implementedAt: "2026-08-07T00:00:00.000Z",
       shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" },});
     const [after] = await loadShippedChangesForTenant(T); expect(after.implementedAt).toBe(NOW.toISOString());
     expect(after.shipmentBaseline?.search?.clicks).toBe(9);});
-  // PIN (B): the operator's words are kept as a NOTE, and the reading is still owed.
   it("keeps what the operator says they did as a note, and still owes the live check", async () => {
     await upsertShippedChange(await ship({
       shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
@@ -150,18 +145,14 @@ describe("the canonical Shipment", () => {
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
-  // The record ships as "title-family", which is judged on CLICK RATE, so the reading that has to survive carries its lift on the metric this change is actually graded on.
   const ranWindow = (day: number, adjustedLift: number) => ({
     day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
     treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0,
     controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,});
   it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
     const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never }; const measured = await measureRecord(T, held, LATER, BEHIND_56, new Set());
-    // The 7/14/28 windows are rebuilt; the reading Beacon already paid for rides through.
     expect(measured.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]); expect(measured.windows.find((w) => w.day === 56)?.adjustedLift).toBe(400);
-    // Google has no finalized data through the 56-day close, so that window was never re-read.
     expect(gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25")).toBe(false);
-    // And the verdict is still read on it, rather than falling back to a thinner window.
     expect(measured.verdict).toBe("won");});});
 describe("recording what the live check found", () => {
   it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {
@@ -182,7 +173,6 @@ describe("when the Shipment columns are not there yet", () => {
     db.state.offline = true;
     const record = await ship(); await upsertShippedChange(record);
     expect(db.state.file).toHaveLength(1);
-    // The answer saves ONCE, so the verifier never goes back out to the customer's website for it again.
     expect(await recordVerification(T, record.id, verification("verified"))).toBe(true); expect((db.state.file[0] as { verification?: ShipmentVerification }).verification?.status).toBe("verified");
     expect(await recordVerification(T, "shp_nobody-holds-this", verification("verified"))).toBe(false);});
   it("saves what the check found to the file when the column is missing, rather than re-owing the check forever", async () => {
@@ -196,7 +186,6 @@ describe("measurement waits for the change to be found on the page", () => {
   const due = async (v: ShipmentVerification | null) => isDueForMeasure({ ...(await ship()), verification: v }, FINAL, LATER);
   it("measures a verified or partly verified change, and nothing else", async () => {
     expect(await due(verification("verified"))).toBe(true); expect(await due(verification("partially_verified"))).toBe(true);
-    // PIN (B): a historical row carrying the retired override label was never actually checked, so it buys no measurement; verification owes it the one real reading it never got.
     expect(await due(verification("operator_confirmed"))).toBe(false);
     expect(await due(null)).toBe(false);            // never checked: there is nothing honest to measure yet
     expect(await due(verification("not_found"))).toBe(false); expect(await due(verification("blocked"))).toBe(false);
@@ -259,7 +248,6 @@ describe("the recording seam", () => {
     expect([again.shipmentId, again.measurement, db.state.rows.length]).toEqual([first.shipmentId, "measuring", 1]);
     expect((await stored()).verification?.status).toBe("verified"); // the check was not erased back to due
   });
-  // THE REPAIR DOOR: a change that went live before anything wrote it down, from what the operator supplies and nothing else.
   it("records a change that was already live, claims no before-state, and still owes the live check", async () => {
     expect((await repair()).measurement).toBe("verification_needed"); const row = await stored();
     expect([row.preChangeHashUnavailable, row.preChangeContentHash, row.before, row.verification]).toEqual([true, null, null, null]);
@@ -299,13 +287,11 @@ describe("the AI baseline is frozen over the change's own scope (AEO reconstruct
       citationSample: 2, ownedCiting: 1, rankSum: 1, rankCount: 1,
       retrievalSample: 1, ownedRetrieved: 1, retrievedNotCited: 1, // read the page and credited a rival
       engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"],
-      // THE YARDSTICK RIDES THE STARTING NUMBERS, so no later read may pick its own.
       objective: "ai_citation_conversion",});
     expect(held?.scopeFingerprint).toMatch(/^[0-9a-f]{16}$/);});
   it("records the implementation with no AI starting numbers when the scope's answers are not on file", async () => {
     ai.records.mockResolvedValue([]);
     await upsertShippedChange(await ship({ shipment: origin({ aiScope: SCOPE }) as never })); const [stored] = await loadShippedChangesForTenant(T);
-    // The change is on file, stamp and all; the AI half is honestly absent and is never rebuilt later.
     expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);});});
 describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
   it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
@@ -321,7 +307,6 @@ describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-
 describe("an AI change on a page Google cannot see yet still measures", () => {
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
     const { objectiveOfStage } = await import("@/domains/measurement/shipment-ai-outcome");
-    // The card carries a stage on its scope. That is the one the press reads, so the metric and the baseline can never name two different things.
     expect(objectiveOfStage("rivals_cited_own_not_retrieved")).toBe("ai_retrieval"); expect(objectiveOfStage("owned_retrieved_not_cited")).toBe("ai_citation_conversion");
     expect(objectiveOfStage("owned_mentioned_not_cited")).toBe("ai_citation");
     expect(objectiveOfStage("citations_unreported")).toBe("ai_citation"); // a reporting gap is never a mention problem
