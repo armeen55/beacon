@@ -88,7 +88,14 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // COPY THAT LANDS IN THE BODY OWES A PLACE SOMEBODY CAN STILL FIND. The anchor is a sentence off the page as it read when the words were written, and banked copy is served on for ever without that page in hand, so the only honest re-read is against what the ROW ITSELF banked. An anchor no banked fact carries can no longer be checked, so the words, the claims and the evidence stay exactly as they are and the row goes back to review carrying this sentence. Never deleted, never hidden.
   const anchor = c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")
     ? /placed after "([^"]+)"/.exec(c.where ?? "")?.[1]?.trim().toLowerCase() ?? null : null;
-  if (anchor && !(p.supportFacts ?? []).some((f) => f.fact.toLowerCase().includes(anchor.slice(0, 60)))) hard.push(MISPLACED);
+  // AND THE CARD'S OWN RECORD OF THE PAGE COUNTS AS THAT PROOF, not only the passages its claims happened to cite.
+  // Beacon picks this anchor itself, mechanically, from the page's H1, title and headings; `supportFacts` carries the
+  // body passages the claims name, and a heading is never a body passage, so an added section was refused for a
+  // placement Beacon had chosen and could verify: /nowruz sat held on `placed after "Nowruz - Persian New Year"`, its
+  // own H1, which its `copyStamp` carried all along (proved live, 2026-08-28). The burden is unchanged, the card must
+  // still carry the words its placement names; `copyStamp` IS the page as it read when the copy was written.
+  const placedOn = (t: string): boolean => t.toLowerCase().includes(anchor!.slice(0, 60));
+  if (anchor && !(p.supportFacts ?? []).some((f) => placedOn(f.fact)) && !placedOn(p.copyStamp ?? "")) hard.push(MISPLACED);
   // TWO THINGS A CARD MAY NEVER CLAIM, asked HERE because this runs on every stored row every time one is read: the banked re-read only reaches rows a pass actually re-produces, so a row nothing funded kept
   // whatever a past generation decided. (1) A CLAIM ABOUT THE WORLD NEEDS A SOURCE and this page is not one: "Iran's national animal is the Asiatic cheetah" is a claim about a COUNTRY, authoritative sources
   // confirm the cheetah is critically endangered and survives only in Iran without establishing that, and a `fact-` id is the only support from outside the page. (2) A SPLIT MAY NOT PROMISE CLICKS: a modelled
