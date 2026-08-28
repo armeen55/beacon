@@ -242,14 +242,24 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
   it("a sourced gloss is shaped into the line it replaces, and only its shape", async () => {
     const q1 = (says: string) => [{ url: "https://en.wikipedia.org/y", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light", sources: q1('The name Noor means "light"') }),
+      check({ subject: "Mahsa", current: "Meaning:Moonbeam, delicate and bright.", proposed: "like the moon", sources: q1('Mahsa means "like the moon"') }),
+      check({ subject: "Shab", current: "Meaning:Darkness everlasting.", proposed: "night; dusk; evening", sources: q1('shab means "night", "dusk", or "evening"') }),
+      check({ subject: "Roya", current: "Definition:Ambition and hope.", proposed: "a dream", sources: q1('Roya means "a dream"') }),
       check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark", sources: [...q1('layl means "night", or "dark"'), { url: "https://x.example/l", kind: "publisher", says: 'night; dark' }] }),
       check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart", sources: q1('from Hara Barazaiti, meaning "Mountain Rampart"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
-    expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning:Light." });
-    expect(rc("leila").after, "a semicolon list becomes the page's own prose").toBe("Meaning:Night, or dark.");
-    expect(rc("alborz")).toMatchObject({ before: "Meaning:Shining like a heavenly flower.", after: "Meaning:Mountain Rampart." });
+    // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the
+    // label to its value; the replacement keeps the label, the terminology and the sentence shape, and puts the one
+    // space there rather than reproducing the page's mistake for a paying customer to paste back onto the site.
+    expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning: Light." });
+    expect(rc("mahsa").after).toBe("Meaning: Like the moon.");
+    expect(rc("leila").after, "two glosses read as a person writes them").toBe("Meaning: Night or dark.");
+    expect(rc("shab").after, "three or more keep the list, and only its punctuation is Beacon's").toBe("Meaning: Night, dusk, or evening.");
+    expect(rc("alborz")).toMatchObject({ before: "Meaning:Shining like a heavenly flower.", after: "Meaning: Mountain Rampart." });
+    // THE LABEL ITSELF IS THE PAGE'S, whatever it says: nothing here knows the word "Meaning".
+    expect(rc("roya").after, "any ordinary label, not a hardcoded one").toBe("Definition: A dream.");
     expect(by.get("noor")!.limitations[0], "nothing deterministic holds a composed line").toContain("has not read this correction yet");
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
@@ -257,6 +267,32 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { openHold } = await import("@/domains/decision/completeness");
     expect(openHold(by.get("leila")!).need, "two quoted sources honestly clear the second-source ask").toBeUndefined();
     expect(openHold(by.get("noor")!).need?.reasonCode).toBe("single_source"); });
+
+  /** THE RULE IS ABOUT MECHANICAL MISTAKES, AND ONLY THOSE. The page owns its label, its terminology and its
+   *  voice; what it does not own is a missing space, and what Beacon must never do is reformat an address, a
+   *  clock time or another script on the way past. */
+  it("holds a glued label whoever wrote it, and leaves a url, a time, Persian and prose colons exactly as the page had them", async () => {
+    const q1 = (says: string) => [{ url: "https://en.wikipedia.org/y", kind: "encyclopedia", says }];
+    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light", sources: q1('The name Noor means "light"') }),
+      check({ subject: "Link", current: "https://x.example/persian-names", proposed: "light", sources: q1('The name Link means "light"') }),
+      check({ subject: "Clock", current: "12:30 in the afternoon.", proposed: "light", sources: q1('The name Clock means "light"') }),
+      check({ subject: "Parsi", current: "\u0645\u0639\u0646\u06cc:\u0631\u0648\u0634\u0646\u0627\u06cc\u06cc", proposed: "light", sources: q1('The name Parsi means "light"') }),
+      check({ subject: "Prose", current: "One meaning here: the old one.", proposed: "light", sources: q1('The name Prose means "light"') })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
+    const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
+    // An address is not a label, a clock time never opens one, another script keeps the page's own spacing, and a
+    // colon the page already spaced is left exactly as it was. Exact copy, so nothing was inserted anywhere.
+    expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]);
+    // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
+    const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal;
+    const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly",
+      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });
+    const held = await reviewFactualBundle([glued], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok });
+    expect(held[0]!.status, "a glued label may not reach Ready").toBe("needs_review");
+    expect(held[0]!.limitations[0]).toContain("runs straight into the words after it");
+    const clean = await reviewFactualBundle([by.get("noor")!], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok });
+    expect(clean[0]!.status, "and the composed line passes the same gate").toBe("ready"); });
 
   it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
     checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine",

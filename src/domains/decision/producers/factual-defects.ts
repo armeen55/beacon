@@ -26,10 +26,35 @@ function replacedSpanOf(c: FactCheck): string {
     ? lines.slice(1).join("\n") : c.current.trim();
 }
 
-/** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. The verified meaning arrives as the source's own fragment  ("light", "Night; dark"), and pasted verbatim over "Meaning:Bright, radiant, or glowing." it deletes the  page's label and leaves a lowercase stub mid-line: every live correction card was held on exactly that.  SHAPE ONLY, NO VOCABULARY: the label prefix is the page's own, capitalization and the closing stop mirror the  words being replaced, and a semicolon list becomes the ", or " prose the page's sibling entries already use.  Not one word is added that the passage did not carry. */
+/** THE LEADING "Label:" OF A LABEL AND VALUE LINE, or null. Deliberately narrow, and every part of that narrowness
+ *  is load-bearing: it is anchored at the start, so a colon inside ordinary prose is never reached; the first
+ *  character must be a letter and the rest letters or single spaces, so a clock time ("12:30") and an identifier
+ *  never open one; and a real value has to follow, which is what keeps a scheme ("https://") out, since what comes
+ *  after a label is a value and never a second slash. `gap` is the page's OWN spacing after the colon. */
+function labelOf(s: string): { label: string; gap: string } | null {
+  const m = /^([\p{L}][\p{L} ]{0,22}):([^\S\n]*)(?=[^\s/])/u.exec(s);
+  return m ? { label: m[1]!, gap: m[2]! } : null;
+}
+/** A LATIN LABEL, which is the only kind whose spacing this repairs. Persian and every other script keep the page's
+ *  own spacing exactly, because "leave the page's script alone" matters more here than one space. */
+const latinLabel = (label: string): boolean => /^[A-Za-z][A-Za-z ]*$/.test(label);
+
+/** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS
+ *  (operator, 2026-08-28). The label, its wording and the page's terminology are copied exactly; what is NOT copied
+ *  is a mechanical mistake in the page's own punctuation. Live: the crawled span reads "Meaning:Bright, radiant, or
+ *  glowing." with no space after the colon, this carried that missing space into the replacement, and Beacon offered
+ *  "Meaning:Light." to a paying customer as if reproducing a typo were respecting a house style. A gloss arriving as
+ *  the source's own semicolon list is joined the way a person writes a list: two read "A or B", three or more read
+ *  "A, B, or C". Every alternative the source gave survives; only the punctuation between them is Beacon's. */
 function composedReplacement(before: string, proposed: string): string {
-  const prefix = /^([\p{L}][\p{L} ]{1,23}:\s*)/u.exec(before)?.[1] ?? "";
-  const gloss = proposed.trim().replace(/\s*;\s*/g, ", or ").replace(/^\p{Ll}/u, (ch) => ch.toUpperCase());
+  const lv = labelOf(before);
+  const prefix = lv ? `${lv.label}:${latinLabel(lv.label) ? " " : lv.gap}` : "";
+  const parts = proposed.trim().split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
+  const listed = parts.length <= 1 ? (parts[0] ?? "")
+    : parts.length === 2 ? `${parts[0]} or ${parts[1]}`
+      : `${parts.slice(0, -1).join(", ")}, or ${parts.at(-1)}`;
+  // ONE TERMINAL MARK, NEVER TWO: a source fragment that already ends in a stop plus the one this adds reads as "light..".
+  const gloss = listed.replace(/^\p{Ll}/u, (ch) => ch.toUpperCase()).replace(/([.!?])[.!?]+$/, "$1");
   const stop = /[.!?]["')\]]?\s*$/.test(before) && !/[.!?]["')\]]?$/.test(gloss) ? "." : "";
   return `${prefix}${gloss}${stop}`;
 }
@@ -99,6 +124,11 @@ function unfitToStandIn(before: string | null, after: string, subject: string): 
   // gate exists for, prefix or no prefix.
   const label = /^([\p{L}][\p{L} ]{1,23}:\s*)/u.exec(b)?.[1] ?? "";
   const core = label && a.startsWith(label) ? a.slice(label.length) : a;
+  // A LABEL GLUED TO ITS VALUE NEVER REACHES READY, whoever composed it. `composedReplacement` puts the one space
+  // there, and this is the gate that holds the line if a future producer writes the replacement some other way: the
+  // customer is never handed "Meaning:Light." again because one composer was bypassed (operator, 2026-08-28).
+  const av = labelOf(a);
+  if (av && latinLabel(av.label) && av.gap === "") return "its label runs straight into the words after it, so the line would paste onto the page as one glued phrase";
   if (bare(core) === bare(subject)) return "it offers the name itself as the name's meaning, which tells a reader nothing";
   if (b === "") return null; // nothing is being replaced, so there is no shape to match
   if (/[.!?]["')\]]?$/.test(b) && !/[.!?]["')\]]?$/.test(a)) return "the words it replaces finish a sentence and these do not, so the page would be left mid-sentence";
