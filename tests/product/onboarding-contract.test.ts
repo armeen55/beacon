@@ -265,14 +265,12 @@ describe("onboarding contract (Slice 5)", () => {
   it("13. a live account is never stranded: approval cannot sweep it, kept wording keeps its id, a rewording versions itself, legacy rows are untouched, bounds hold, and both projections agree", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); await generatePromptCandidates(A, { ...w.deps, complete: completeCandidates });
     await approvePrompts(A, { useRecommendedDefault: true }, w.deps); w.tenants.get(A)!.status = "active"; const live = activeCore(w, A); const keep = live.slice(0, 12).map((p) => p.id);
-    // THE RAIL: a running account's questions can never be swept by any caller of approval.
     expect([(await approvePrompts(A, { approvedIds: keep }, w.deps)).ok, activeCore(w, A).length]).toEqual([false, 50]);
     const rows = [...w.prompts.filter((p) => p.tenant_id === A), { ...live[0]!, id: "prompt-seedprofound01", tags: ["seed_profound"], text: "legacy seed row" }];
     const ctx = { tenantId: A, basis: "basis_next", nowIso: "2026-07-26T00:00:00.000Z" };
     const r = applyTrackedSelection(rows, { keepIds: keep, edits: [{ id: keep[0]!, newText: "  Reworded   QUESTION " }], additions: ["one more question", "ONE  more question", "   "] }, ctx);
     const writes = r.ok ? r.writes : []; // 11 kept + 1 reworded + 1 added; dedupe is normalized, the blank line is dropped
     expect(r.ok && [r.activeCount, r.added, r.skippedDuplicates, r.skippedBlank]).toEqual([13, 1, 1, 1]);
-    // The replaced wording retires as history, and its successor names the row it replaced.
     expect([writes.some((x) => x.id === keep[0] && !x.is_active), writes.some((x) => x.is_active && x.tags.includes("core_v1") && x.tags.includes(`superseded:${keep[0]}`))]).toEqual([true, true]);
     expect(writes.some((x) => x.id === keep[1] || x.id === "prompt-seedprofound01")).toBe(false); // kept ids are untouched (continuity); a non-core seed row is NEVER written
     const n = (k: number) => applyTrackedSelection(rows, { keepIds: [], edits: [], additions: Array.from({ length: k }, (_, i) => `question number ${i}`) }, ctx).ok; expect([n(9), n(10), n(100), n(101)]).toEqual([false, true, true, false]);
@@ -293,7 +291,6 @@ describe("setup and settings surfaces (Phase 8)", () => {
   it("approves 35 grouped questions in ONE action, without the operator reading a single row", async () => {
     const w = makeWorld(); seedPending(w, A, { domain: "acme.com", growth_goal: "balanced" }); seedConfirmedProfile(w, A); const built = await generatePromptCandidates(A, { ...w.deps, complete: FIVE_PER_TOPIC });
     expect(built.ok && built.candidateCount).toBe(70);
-    // ONE call, seven topic slugs, no individual ids: the group IS the unit of approval.
     const r = await approvePrompts(A, { approvedGroups: FIRST_SEVEN_TOPICS }, w.deps); expect(r.ok && r.approvedCount).toBe(35);
     expect(activeCore(w, A)).toHaveLength(35); // exactly 35, which is itself inside the 20 to 50 core set an account starts on
   });

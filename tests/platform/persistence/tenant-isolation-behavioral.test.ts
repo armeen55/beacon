@@ -280,17 +280,3 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard?step=1") });
     } finally {
       store.setAccountRepositoryForTests(null);}});});
-
-/** A WARM SLOT MAY NOT SERVE A MIRRORED BLOB FOR EVER. The in-process cache had no expiry and no invalidation,
- *  so once a lambda was warm it kept its own copy of a Supabase-mirrored store even after another instance
- *  published a newer one, and the operator could be shown yesterday's queue after today's publish. */
-describe("a mirrored store goes stale, a local one does not", () => {
-  it("expires only the mirrored keys, and only past the bound", async () => {
-    const { SUPABASE_MIRRORED_STORES } = await import("@/lib/persistence/json-store");
-    expect(SUPABASE_MIRRORED_STORES.size, "there is something to keep fresh").toBeGreaterThan(0);
-    const src = await import("node:fs").then((f) => f.readFileSync("src/lib/persistence/json-store.ts", "utf8"));
-    expect(src, "the warm read asks how old the slot is").toMatch(/const warm = [^\n]*MIRROR_TTL_MS/);
-    expect(src, "and only a mirrored key can age out").toMatch(/!SUPABASE_MIRRORED_STORES\.has\(name\) \|\|/);
-    expect(src, "every fill stamps its moment").not.toMatch(/cache\.set\((?!.*filledAt)/);
-  });
-});

@@ -270,7 +270,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(r.costUsd).toBeCloseTo(0.0125 * (r.providerCalls / 2), 6); // and the dollars follow the same operations
       expect(r.providerAttempted).toBe(true);        // "asked" now MEANS a request left the process
       expect(r.ops).toBeGreaterThan(0);}
-    // AND THE PASS'S OWN SUM IS THE SUM OF ITS PAGES, which is the number the runtime reconciles against the ledger.
     const total = out.paid.receipts.reduce((a, r) => a + r.costUsd, 0);
     expect(total).toBeCloseTo(spent.reduce((a, r) => a + r.costUsd, 0), 6); });
   /** WHAT CANNOT BE DONE IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came
@@ -307,9 +306,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const worked = out.paid.receipts.filter((r) => r.outcome === "produced");
     expect(worked.length).toBeGreaterThan(0);
     expect(worked.every((r) => r.ops > 0 && ["saved", "unchanged", "not_persisted"].includes(r.persistence ?? ""))).toBe(true); // produced means the store took it
-    // AN INJECTED TRANSPORT THAT NEVER TOUCHED THE NETWORK REPORTS ZERO REQUESTS, and the money agrees.
     expect(worked.every((r) => r.providerCalls === 0 && r.costUsd === 0 && r.providerAttempted === false)).toBe(true);
-    // AND THE WHOLE REASON, NEVER CUT: the producer keeps it entire, whatever a display later trims.
     reset(SEEN()); const before2 = await run(counting().complete);
     reset(SEEN()); env.refuseIds = new Set(before2.proposals.map((p) => p.id));
     const refused = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal");
@@ -321,7 +318,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     for (const changed of [{ ...p, status: "needs_review" as const }, { ...p, confidence: "low" as const }, { ...p, basis: "after the business changed" }, { ...p, whyItMatters: `${p.whyItMatters} Said again, sharper.` }, { ...p, opportunityType: "A headline that says the thing itself" },
       { ...p, recommendedChange: { kind: "existing_edit" as const, field: "title" as const, before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" } }]) expect(proposalFingerprint(changed)).not.toBe(proposalFingerprint(p)); });
   it("keeps the cause that actually produced the change, and still names one for a change that brought none", async () => {
-    // THE LADDER IS ASKED TWICE with different inputs: once over the opportunities query, once inside the bundle over the exact search it drafted for. They can disagree, and the bundle's answer stands. A proposal with NO cause takes this pass's.
     reset(SEEN()); // A LANDED BUNDLE THAT BRINGS NO CAUSE OF ITS OWN. A page the deep door selected declares the whole-page rewrite and no shallow draft beside it (paying for the field edit that rewrite replaces funded one page twice), so the rewrite is the change this half is about.
     env.bundle = { status: "bundled", proposal: baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: "https://fixture-outdoors.example/nowruz-guide" }) };
     const plain = await run(counting().complete); const here = plain.candidates.find((c) => c.action === "act_existing_page")!.cause.cause;
@@ -335,16 +331,13 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
-    // AND THE PASS'S OWN RECEIPTS SAY WHAT BECAME OF EACH FUNDED JOB, from the REAL producer. A pass that could not save has settled NOTHING: not one receipt may be `produced` either, which is the reading that let work nobody stored be written off (Codex, 2026-08-22).
     expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal" && r.outcome !== "produced")).toBe(true);
-    // AND A MIXED WRITE IS THE REAL CASE: one page's save lands and another's fails in the SAME pass. The one that landed is finished; the one that did not is owed again, because work that was written and could not be stored is not finished work.
     reset(SEEN()); const first = await run(counting().complete);
     const landed = first.paid.receipts.filter((r) => r.outcome === "produced").map((r) => r.key); expect(landed.length).toBeGreaterThan(0);
     reset(SEEN()); env.failIds = new Set([...env.store.keys(), ...first.proposals.map((x) => x.id)]); const mixed = await run(counting().complete);
     expect(mixed.paid.receipts.filter((r) => landed.includes(r.key)).every((r) => r.outcome === "retryable_blocked")).toBe(true);
     expect(env.store.size).toBe(0); // and nothing the store refused is remembered as if it had landed
     reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false })); expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.every((p) => p.status === "needs_review")]).toEqual(["proposals_persisted", 1, 1, true]);
-    // A DRAFTER THAT COULD NOT ANSWER SETTLES NOTHING EITHER: every funded page comes back blocked or never reached, so a caller topping the inventory up offers all of them again rather than calling the manifest exhausted.
     expect(thin.paid.funded.length > 0 && thin.paid.receipts.every((r) => r.outcome === "retryable_blocked" || r.outcome === "not_reached")).toBe(true); }); // the strict draft failed and the $0 producers still fill the queue, every row at needs_review
 }); // ── research: what the pass is investigating, and what a run buys next ────────
 const HAFT = "haft seen table"; const LOOKED_AT = "2026-07-25T00:00:00.000Z"; const RIVAL = (n: number) => `https://r${n}.example/a`; const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: HAFT, searchVolume: 900, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: null }]; const COMPARED = [`https://${GAP_URL}`, RIVAL(1), RIVAL(2), RIVAL(3)].sort();
@@ -453,7 +446,6 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     reset(world()); env.store = new Map([[under.id, under]]); const again = briefSeam(); const res = await produceProposalsForTenant("fixture-tenant", { complete: again.complete, now: NOW });
     expect([again.kinds, res.reused, res.proposals.filter((p) => p.kind === "new_page").map((p) => p.id)]).toEqual([[], 1, [under.id]]); }); // zero brief calls, and ONE page for one subject
   it("builds exactly ONE new page from the earned verdict, carrying the WHOLE page, and holds it for the look it owes", async () => {
-    // A question I track on this subject and NOT ONE search an engine ran itself: the branch where calling the example a fan-out would be a lie.
     const asked = [canon({ promptId: "p9", promptText: HAFT, engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true, citations: [], fanOutQueries: [], observedAt: LOOKED_AT })];
     reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: asked }, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
@@ -463,18 +455,14 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
       openingAnswer: BRIEF.openingAnswer, outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
     expect(page.bundle!.plan).toBeUndefined(); expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); // a page that does not exist yet has nothing to keep, change or remove, and the verdict itself is on the receipt
-    // WHOSE SEARCH IS WHOSE: with no fan-out on file the example is named for what it actually is, a question people ask.
     expect([page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact, page.bundle!.receipt.items.find((i) => i.key === "asked")!.observationId]).toEqual(['No AI engine has shown a search of its own here. What is on file is a question people ask, like "haft seen table".', undefined]); // derived from a question I track, not from any stored answer, so it borrows no answer's identity expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
-    // THE OPERATOR PASTES COPY, NOT A PLAN: every planned section in the planned order, written out.
     const written = page.bundle!.components.find((c) => c.kind === "section")!.after; for (const s of BRIEF.sections) expect(written).toContain(`${s.heading}: a haft seen table is the spread`);
     expect(written).not.toContain("Answer this plainly"); // the brief's own instruction never ships as the page
-    // A SOURCE I HOLD IS NAMED WHOLE: the page, its publisher, what it stands behind, and the day I read it. But a requirement of the model's own is never a source, so it keeps the caveat and the page is held for review.
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after; expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
     expect(page.limitations).toContain("Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out.");
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis!, now: NOW }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready. THE CLOCK IS A SEAM AND A FIXED-CLOCK FIXTURE MUST USE IT: without `now` the queue judges this row's receipt against the REAL day, so every "current claim" item read as stale the moment UTC rolled over and the row vanished from every lane. The gate went red at 00:00 on code that had passed all day, which is a date bomb and not a regression.
     const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); // a refresh re-pays nothing
-    // AND THE OTHER BRANCH: where an engine DID run a search of its own, the line quotes ONE answer's search, so it names that one answer and no other.
     const said = { competitors: [{ name: "waterwise", position: 1 }], materialOmissions: ["what it costs currently"] }; // TWO answers say the same thing, and one statement claims the present, which may never be shown on a line I did not read today
     reset(snap([GAP], { ...READY({ topicKey: keyOf(READY()) }), aiObservations: [{ ...asked[0]!, fanOutQueries: [`what goes on a ${HAFT}`], analysis: said }, { ...asked[0]!, observationId: "obs_fx2", promptId: "p10", engine: "gemini", analysis: said }] }, DEMAND));
     const built = (await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW })).proposals.find((p) => p.kind === "new_page")!; const at = (k: string) => built.bundle!.receipt.items.find((i) => i.key === k)!;
@@ -583,7 +571,6 @@ describe("a page earns the deep read through the door its own evidence opens", (
     expect(deep.impactScore).toBeNull(); // no proven size, so it ranks as a direction and claims no clicks
   });
   it("never opens a second deep door on AI evidence: the comparison's own door holds, and the staged case path owns AEO (2026-08-19)", async () => {
-    // Nothing structural is left to accuse and an engine answers around the page: the deleted ai_absence door used to open here. AI evidence alone earns no deep slot any more; the coverage verdict still names it.
     const noGaps = (u: string) => ({ ...PATTERN(u), ownedGaps: [], openingPattern: "" });
     const res = await doorRun(doorWorld({ aiObservations: [ASKED] }), noGaps); expect([env.door!.door, env.door!.evidence.query]).toEqual(["coverage_verdict", HAFT]); const deep = res.proposals.find((p) => p.bundle)!;
     expect(deep.bundle!.components.every((c) => c.kind !== "title")).toBe(true); // still never a reworded title
@@ -640,7 +627,6 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     expect(c.cause.competingExplanations.map((x) => x.cause)).toContain("ctr_snippet"); // the wording read fired and lost to the stronger evidence
     expect(c.reason).toContain('2 of your own pages come up for "iranian actors"'); expect(snapshotToEvidenceInputs(world)).toEqual([]); // self-competition is never a copy rewrite
     const supported = { ...ACTORS_SEEN(), research: { ...actorsSerp("Persian Screen | Iranopedia"), retainedKeywords: [{ query: "iranian actors", searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, supports: "consolidation" as const }] } };
-    // A BOUGHT KEYWORD'S OLD CONSOLIDATION FLAG NEVER FIRES THIS ALONE (operator, 2026-08-17): with no current group there are no two pages to compare, and today's own rows overrule yesterday's judgment.
     expect(compileCandidates(supported)[0]!.cause.cause).not.toBe("cannibalization"); });
   it("names what the winning pages do that mine does not, citing the verdict's own receipt lines", async () => {
     const world = snap([GAP], READABLE({ topicKey: keyOf(READY()), comparison: comparisonOf([["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]]) }), DEMAND);
@@ -721,13 +707,11 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
-    // The discount is a share of what is riding on the change, so a fresh measurement costs it and a finished
     expect(fresh.contribution).toBeLessThan(0);
     expect([Math.abs(stale.contribution), stale.input]).toEqual([0, "nothing is being measured on this page"]);
     expect(fresh.input).toBe("this page already has a change under measurement"); });
   /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
-    // a merge whose only component cites a comparison its receipt never carried: the live defect, stored
     const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",
       bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, alternatives: [], risks: [], confidenceReasons: [],
         receipt: { items: [{ key: "demand-exact", kind: "gsc_demand", fact: "f", observedAt: null }], missing: [], freshestObservedAt: null },
@@ -759,11 +743,9 @@ describe("the click curve is fitted to the account it judges", () => {
   it("learns this account's own rate, holds the curve decreasing, and keeps the industry table for the bands it never saw", () => {
     const curve = fitTenantCtrCurve(rows({ 1: 0.014, 2: 0.02, 3: 0.008 })); // band 2 out-earns band 1: real data, and never a curve that pays MORE for a worse position
     expect(curve.source).toBe("tenant");
-    // POOLED, NOT CLAMPED. A running ceiling made the FIRST band the ceiling for every band under it, so a thin, noisy position 1 dragged positions 2 to 7 down to its own number (live: 0.898 percent imposed on bands measuring 2.34, 2.46 and 3.18) and every gap under them vanished. Bands that disagree pool to their weighted mean instead, so band 1 sits where its evidence and its neighbours' put it, ABOVE what it alone measured.
     expect([curve.expectedCtrAt(1), curve.expectedCtrAt(2)]).toEqual([0.017, 0.017]);
     expect(curve.expectedCtrAt(1)).toBeGreaterThan(0.014); // never dictated by band 1 alone, and the better position is never worth less
     for (const p of [2, 3, 4, 5, 10, 15, 20, 30]) expect(curve.expectedCtrAt(p), `position ${p}`).toBeLessThanOrEqual(curve.expectedCtrAt(p - 1));
-    // A BAND WITH NO DATA TAKES THE DEFAULT TABLE'S SHAPE, scaled to how this account converts, never its raw number: 8 percent at position 4 beside 1.3 at position 1 is the fantasy this repairs.
     expect(curve.expectedCtrAt(4)).toBeLessThan(defaultExpectedCtrAt(4)); expect(curve.expectedCtrAt(4)).toBeGreaterThan(0); });
   it("refuses to call one busy search a curve, and never lets a brand search set the bar", () => {
     const one = fitTenantCtrCurve([{ query: "big", position: 1, impressions: 90_000, clicks: 30_000 }]); // views enough, sample of one
@@ -847,8 +829,6 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     recommendedChange: { kind: "existing_edit", field: "section", before: "Funny Persian phrases are everyday slang and insults.", after: COPY, where } });
   it("the replace-marked row stays ready while the add-shaped twin is demoted with a typed fault", async () => {
     reset(SEEN());
-    // A SYNTHESIS EARNS ITS GAIN IN FORM, so its receipt names no outside evidence and still stands; the twin
-    // that never had a reading banked has nothing to re-read and is held for one.
     const keep0 = row('Replaces the existing passage under "Popular Phrases"', "fixture-tenant::/funny::existing_edit::ai_answer_gap");
     const keep = { ...keep0, authorizedFor: copyKey(keep0), informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true } } as ChangeProposal;
     const demote = row('A new section headed "Meanings", placed after "the anchor heading"', "fixture-tenant::/funny2::existing_edit::engine_followup");

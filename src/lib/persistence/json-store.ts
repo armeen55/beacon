@@ -68,25 +68,21 @@ function isMissingBlobsTable(error: { code?: string } | null | undefined): boole
   return code === "42P01" || code === "PGRST205";
 }
 
-async function readMirroredBlob(scopeKey: string): Promise<unknown[] | null> {
+/** MISSING IS NOT UNAVAILABLE. This answered `null` to both "no row for this key" and "could not be read", so the caller could only treat the second as the first: after a mirrored key aged out, one transient Supabase failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and stamped freshly read, and a saved release could disappear from Today and Changes for the length of a TTL while valid truth sat in hand. A missing TABLE is configuration rather than an outage, so it stays `reachable` and keeps the file behaviour local and test runs have always had. */
+type Mirror = { rows: unknown[] | null; reachable: boolean };
+async function readMirroredBlob(scopeKey: string): Promise<Mirror> {
   try {
     const { getSupabaseAdmin } = await import("./supabase");
-    const admin = getSupabaseAdmin();
-    const { data, error } = await admin
-      .from(BLOBS_TABLE)
-      .select("content")
-      .eq("scope_key", scopeKey)
-      .maybeSingle();
+    const { data, error } = await getSupabaseAdmin().from(BLOBS_TABLE).select("content").eq("scope_key", scopeKey).maybeSingle();
     if (error != null) {
-      if (!isMissingBlobsTable(error)) {
-        console.error(`[json-store] blob read failed for ${scopeKey}: ${error.message ?? String(error)}`);
-      }
-      return null;
+      if (isMissingBlobsTable(error)) return { rows: null, reachable: true };
+      console.error(`[json-store] blob read failed for ${scopeKey}: ${error.message ?? String(error)}`);
+      return { rows: null, reachable: false };
     }
     const content = (data as { content?: unknown } | null)?.content;
-    return Array.isArray(content) ? content : null;
+    return { rows: Array.isArray(content) ? content : null, reachable: true };
   } catch {
-    return null; // no env / client init failed -> file behavior
+    return { rows: null, reachable: false }; // no env / client init failed
   }
 }
 
@@ -128,8 +124,10 @@ function ensureDataDir(dir: string): void {
  */
 const cache = new Map<string, unknown[]>();
 /** WHEN EACH WARM SLOT WAS FILLED, and how long a MIRRORED one may stand. The slot had no expiry and no invalidation, so once a lambda was warm it served its own copy of the durable blob for the life of the process even after another instance published a newer one, and the operator could be shown yesterday's queue after today's publish (Codex, 2026-08-28). Only Supabase-mirrored keys expire; a local or test store has no second writer and keeps the behaviour it always had. */
-const filledAt = new Map<string, number>(); const MIRROR_TTL_MS = 30_000;
-const warm = (name: string, key: string): boolean => cache.has(key) && (!SUPABASE_MIRRORED_STORES.has(name) || Date.now() - (filledAt.get(key) ?? 0) < MIRROR_TTL_MS);
+const filledAt = new Map<string, number>(); const MIRROR_TTL_MS = 30_000, MIRROR_RETRY_MS = 5_000;
+let nowMs: () => number = Date.now; // THE CLOCK THIS MODULE READS, so a behavioural test can age a slot without sleeping
+export const __setStoreClock = (clock: (() => number) | null): void => { nowMs = clock ?? Date.now; };
+const warm = (name: string, key: string): boolean => cache.has(key) && (!SUPABASE_MIRRORED_STORES.has(name) || nowMs() - (filledAt.get(key) ?? 0) < MIRROR_TTL_MS);
 
 /**
  * Per-cacheKey write serialization. Two tenants writing to different
@@ -228,11 +226,10 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
   // Mirrored stores: the durable Supabase blob wins when present (this is what makes
   // the research caches exist on hosted prod). Missing row/table/env -> file as before.
   if (SUPABASE_MIRRORED_STORES.has(name)) {
-    const blob = await readMirroredBlob(resolved.cacheKey);
-    if (blob != null) {
-      cache.set(resolved.cacheKey, blob); filledAt.set(resolved.cacheKey, Date.now());
-      return blob as T[];
-    }
+    const mirror = await readMirroredBlob(resolved.cacheKey);
+    if (mirror.rows != null) { cache.set(resolved.cacheKey, mirror.rows); filledAt.set(resolved.cacheKey, nowMs()); return mirror.rows as T[]; }
+    // A FAILED REFRESH KEEPS THE LAST KNOWN GOOD, stamping only a short retry rather than a full TTL: the rows are stale and never pretend to have been confirmed, but empty is not more true than they are.
+    if (!mirror.reachable && cache.has(resolved.cacheKey)) { filledAt.set(resolved.cacheKey, nowMs() - MIRROR_TTL_MS + MIRROR_RETRY_MS); return cache.get(resolved.cacheKey) as T[]; }
   }
 
   ensureDataDir(resolved.routedDir);
@@ -241,7 +238,7 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
     try {
       const raw = readFileSync(resolved.routedPath, "utf-8");
       const data = JSON.parse(raw) as T[];
-      cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
+      cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, nowMs());
       return data;
     } catch {
       // Corrupted routed file — fall through to defaults.
@@ -250,7 +247,7 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
 
   // Routed file missing or corrupted — return caller's fallback (or []).
   const initial = fallback ? [...fallback] : [];
-  cache.set(resolved.cacheKey, initial); filledAt.set(resolved.cacheKey, Date.now());
+  cache.set(resolved.cacheKey, initial); filledAt.set(resolved.cacheKey, nowMs());
   return initial as T[];
 }
 
@@ -300,7 +297,7 @@ async function atomicWrite<T>(
   // aren't yet dual-written no-op on hosted (matches the "expected
   // broken" guardrail).
   if (process.env.VERCEL === "1") {
-    cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
+    cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, nowMs());
     return;
   }
 
@@ -324,7 +321,7 @@ async function atomicWrite<T>(
       if (Array.isArray(existing) && existing.length > 0) {
         // Don't overwrite — cache the existing data instead so subsequent
         // reads see the durable rows, not the [].
-        cache.set(resolved.cacheKey, existing); filledAt.set(resolved.cacheKey, Date.now());
+        cache.set(resolved.cacheKey, existing); filledAt.set(resolved.cacheKey, nowMs());
         return;
       }
     } catch {
@@ -338,5 +335,5 @@ async function atomicWrite<T>(
   const json = JSON.stringify(data, null, 2);
   writeFileSync(tmp, json, "utf-8");
   renameSync(tmp, resolved.routedPath);
-  cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
+  cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, nowMs());
 }
