@@ -5,10 +5,10 @@ vi.mock("@/lib/llm-call-cache", () => ({ readLlmCallCache: async () => null, wri
 vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>();
   return { ...real, readFactChecks: async () => checks.rows };});
-const store = vi.hoisted(() => ({ rows: [] as { id: string }[], withdrew: [] as string[], bodyFails: false }));
+const store = vi.hoisted(() => ({ rows: [] as { id: string }[], withdrew: [] as string[], why: [] as string[], bodyFails: false }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<typeof import("@/domains/decision/proposal-store")>()),
   loadChangeProposals: async () => new Map(store.rows.map((r) => [r.id, r])),
-  withdrawChangeProposal: async (p: { id: string }) => { store.withdrew.push(p.id); return true; } }));
+  withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return true; } }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
   loadOwnedPageBodies: async () => { if (store.bodyFails) throw new Error("the page bodies could not be read");
     return new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
@@ -35,7 +35,7 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
   check({ subject: `Name${i}`, current: `Wrong meaning ${i}.`, proposed: `Right gloss ${i}.`,
     sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `it means right gloss ${i}` }] }));
 describe("a page's own statements against their sources", () => {
-  beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.bodyFails = false; });
+  beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
     const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh";
     const dead = "t::/persian-female-first-names::existing_edit::fact-darya";
@@ -43,6 +43,14 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([dead]);
+    // A WITHDRAWAL NAMES THIS ROW'S OWN REFUSAL: a subject keeps superseded history under the same slug, so
+    // reading every row let an old reading's reason be reported as the live one's (live, on Jasmine).
+    const LIFT = "The name comes from Old French jessemin, from Persian yasamin and nothing else besides";
+    checks.rows = [check({ subject: "Afsaneh", proposed: LIFT, sources: [{ url: "https://en.wiktionary.org/j", kind: "dictionary", says: LIFT }] }),
+      check({ subject: "Afsaneh", state: "superseded", proposed: "Nothing any quote carries" })];
+    store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
+    await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    expect(store.why.join(" "), "the live reading's own refusal").toContain("restates the source's own sentence");
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });

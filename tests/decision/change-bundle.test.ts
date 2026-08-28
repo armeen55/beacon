@@ -574,13 +574,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/discover-iran", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
     const stuffed = "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source.";
     expect(meta(stuffed).some((r) => r.includes("names iranopedia 3 times"))).toBe(true);
-    // And the ones beside it in the same queue are untouched: repetition is the fault, not brevity or topic.
     expect(meta("Iran adopted a new flag in 1979 and redesigned it in 1980. The red emblem arrived with the Takbir written in Kufic script along both bands.")
       .some((r) => r.includes("names iranopedia"))).toBe(false);
     expect(meta("An onager is a wild ass native to Iran's deserts, fast, hardy and able to live on very little water. Where it lives and why it is rare.")
       .some((r) => r.includes("names iranopedia"))).toBe(false); });
 
-  // THE SEARCHERS' OWN WORDS ARE FIRST-CLASS EVIDENCE, and the words a page is PAID for are load-bearing. Two live destructions pinned: a title rewrite proposed "Shiraz Population" for a city page and stripped the words its own searches earn clicks on, and the Farsi ban refused the exact word a page's real audience searches with. Demand decides both: a preserved query's tokens may not be dropped without a reason, and a banned term a stored search actually carries is that page's own vocabulary.
   it("never drops a word the page earns clicks on, and demand vocabulary overrides the banned list", () => {
     const body = "Persian boy names with meanings, a list of classic and modern Iranian names for boys.";
     const pk = (demand: { preserve: string[]; vocabulary: string[] }, bannedTerms: string[] = [], fact = 'people search "persian boy names list" 4,100 times in 90 days') => ({
@@ -603,7 +601,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     pk({ preserve: [], vocabulary: demand }, ["Farsi"], 'people search "persian boy names in farsi" 480 times in 90 days') as never);
     expect([farsi(["persian boy names in farsi"]).some((r) => r.toLowerCase().includes("farsi")),
       farsi([]).some((r) => r.toLowerCase().includes("farsi"))]).toEqual([false, true]); });
-  // A BLANK CAPTURE AUTHORIZES NOTHING. persian-last-names holds 194,554 lifetime impressions and a raw fetch reads zero words off its javascript body; until a rendered read lands, no body-dependent
   it("an unread page buys no draft, while a read page on the same pass still leaves with work", async () => { // copy may be bought or written for it. A page that WAS read keeps earning its editor attention on the same pass.
     const page = (path: string, wordCount: number) => ({ url: `https://www.iranopedia.com${path}`, content: { wordCount }, search: null });
     const snapshot = { ownedPages: [page("/persian-last-names", 0), page("/thin-guide", 120)], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
@@ -626,7 +623,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const run = (calls: number) => applyDraftedCopy([card()], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, complete: meta, budget: purse(calls), unsettled: new Set<string>(),
       refusals: new Map<string, string>(), note: (k: string, o: string, why?: string) => { notes.push([k, o, why ?? ""]); } } as never);
     await run(2); await run(DRAFT_BUDGET.DELIVERABLE_CALLS); // a round's worth and no more, then a whole deliverable's worth so the gates get to read the copy and refuse it
-    // AND A CANON HOLD IS A VERDICT, NEVER A MUTE BLOCK (Codex, 2026-08-23, from /funny-farsi-phrases live): `needs_review` means the copy was READ against today's evidence and held, so it is settled, it says which quality status held it, and the adversarial reviewer is never asked about copy the canon already stopped.
     const reviewed: string[] = []; await applyDraftedCopy([card()], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, complete: meta, budget: purse(DRAFT_BUDGET.DELIVERABLE_CALLS),
       unsettled: new Set<string>(), refusals: new Map<string, string>(), note: (k: string, o: string, why?: string) => { notes.push([k, o, why ?? ""]); },
       reviewer: async () => (reviewed.push("asked"), { notes: "n" }) as never } as never);
@@ -685,7 +681,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(seen).toContain("rival-1"); // the acquisition reached the packet
       expect(seen).toContain("Regional dialect variations"); // and as the SUBJECT this page is missing, not as prose to reword
       expect(seen).toContain("rival.example"); // carrying its own address, so the writer knows whose page it is
-      // ONE NOVEL TOKEN IS NOT A CONTENT GAP. A heading counted as something "this page does not cover" whenever a SINGLE word of it was absent, so a subject the page treats in its own words was briefed as missing and the writer was told to add what was already there. A gap is claimed only where NO meaningful word of the heading appears on the page at all.
       expect(seen).toContain("It also covers, which this page treats in its own words: Playful insults between friends");
       expect(seen).not.toContain("Nothing on this page mentions: Playful insults between friends");
       expect(seen).toContain("Nothing on this page mentions: Regional dialect variations");
@@ -716,7 +711,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
      *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
       const asked: string[] = []; let round = 0;
-      // the packet keeps only the passages that overlap this card's question, so the fixture cites the one it is sure of
       const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["page-copy-1"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
@@ -755,7 +749,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(out[0]!.operatorSteps)).toContain("Replace that passage with the copy above, exactly as written");
       expect(JSON.stringify(out[0])).not.toContain("A new section");
       expect(out[0]!.treatment).toBe("rewrite_existing_section"); // the passage WAS found, so this really is a replacement and stays one
-      // AND WHEN NO PASSAGE CAN BE FOUND, THE CARD SAYS SO IN THE TREATMENT AND NOT ONLY IN THE PLACEMENT. Same page, same body, a question sharing nothing with any stored passage: the copy still lands, but as an ADDITION. It used to keep `rewrite_existing_section` while rendering "A new section headed ...", telling the operator to start a new section straight after the very section it was written to replace, which is a restructure shipping as a duplicate.
       const away = { ...card, primaryQuery: "wholesale freight logistics", evidence: { query: "wholesale freight logistics", hints: [P1], evidenceRefCount: 1 } };
       const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },),

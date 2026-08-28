@@ -9,7 +9,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
@@ -245,9 +245,15 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     const emitted = new Set(cards.map((c) => c.id));
     // THE WITHDRAWAL SAYS THE REAL REASON when the row itself can name one: "evidence no longer current" told
     // the operator nothing about a quote that never carried the published words.
+    // ONLY THE CLAIM'S CURRENT ROW MAY SAY WHY IT WAS WITHDRAWN. A subject keeps its superseded history under
+    // the same slug, so reading every row let an OLD version's refusal be reported as this one's: the live
+    // Jasmine card was withdrawn saying its quote did not carry the wording, when the quote carries it exactly
+    // and the real refusal is that the proposal restates the quote. No receipt invents a cause, including a
+    // true one belonging to a different reading.
     const why = new Map<string, string>();
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
-      for (const r of rows) { const reason = unauthorizedReason(r); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
+      for (const r of rows) { if (r.state !== "checked" || r.rulesVersion !== VERIFICATION_RULES_VERSION) continue;
+        const reason = unauthorizedReason(r); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::");
