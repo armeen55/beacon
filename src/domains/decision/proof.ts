@@ -291,7 +291,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
 }
 
 const unitsOf = (t: string): string[] => t.split(/(?<=[.!?:])\s+|\s*[\n\u2022|]\s*|\s+[-\u2013\u2014]\s+/u).map((u) => u.trim()).filter((u) => u.length >= 10);
-/** Content words AND every number whole (a dropped "42" is how a figure stops being material); shared with the drafter, whose own preservation read uses the same two definitions. */
+/** Content words AND every number whole (a dropped "42" is how a figure stops being material); shared with the drafter, whose own preservation read uses the same two definitions, and beside it the polarity test, because "X is safe" and "X is not safe" share every content token. */
 export const materialTokens = (t: string): string[] => [...new Set([...topicTokens(t), ...(t.toLowerCase().match(/\d[\d.,%°:-]*/gu) ?? [])])];
 export const negated = (t: string): boolean => /\b(?:not|never|no|none|cannot|isn't|aren't|won't|don't|doesn't|without)\b/iu.test(t);
 /** DOES THE NEW COPY STILL SAY THIS UNIT? EVERY material token, and the same yes or no. A 60 percent bag of words called "safe" preserved by "unsafe", "causes" by "prevents" and "increases" by "decreases", because one token IS the claim and four neighbours outvoted it (Codex, 2026-08-28). A faithful paraphrase carries every material token in some form and passes; dropping one changes what the passage says and owes a typed disposition. */
