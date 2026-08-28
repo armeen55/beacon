@@ -385,7 +385,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const reviewed = slot ? await defects.FACTUAL_DEFECTS.review(group, { tenantId, now: opts.now ?? new Date(), attempts: slot, ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => group) : group;
     const moved = reviewed !== group; if (!moved) file(key, "retryable_blocked", false, slot ? undefined : (outOfTime() ? "the drive's time box ended before this page was started" : "the plan did not fund a review of these corrections"));
     for (const [i, card] of reviewed.entries()) { const p = { ...card, ...(basis ? { basis } : {}) };
-      if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && moved && i === 0) await persistAndFile(p, key); else await persistIfChanged(p); } } }
+      // A PASS WHOSE REVIEW NEVER RULED MAY ADD OWED WORK AND MAY NOT REWRITE A BANKED READING (found live,
+      // 2026-08-28): the $0 release pass persisted fresh mint copies over three reviewed Ready corrections and
+      // erased their paid per-claim receipts minutes after they landed. Unruled, the mint may land only where the
+      // stored row banks no reading; the review's own output still overwrites, exactly as before.
+      if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && moved && i === 0) await persistAndFile(p, key); else if (moved || !existing.get(p.id)?.semanticReview) await persistIfChanged(p); } } }
   const replacing = [...existing.values()].filter((r) => r.recommendedChange.kind === "existing_edit" && (r.recommendedChange.before ?? "").trim().length >= 20 && (r.recommendedChange.field === "section" || r.recommendedChange.field === "answer_block"))
     .map((r) => r.pageUrl ?? r.pagePath ?? "").filter(Boolean).sort((a, b) => a.localeCompare(b)); // sorted, so the window below is the same window on every instance
   // A DURABLE CURSOR, NEVER A DAY-DERIVED OFFSET: keyed to the day, ten same-day runs inspected the same window and

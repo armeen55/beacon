@@ -2,6 +2,7 @@
 import { describe, it, expect, vi } from "vitest";
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 const env = vi.hoisted(() => ({ snap: null as unknown, saved: [] as ChangeProposal[], store: new Map<string, ChangeProposal>(), withdrawn: [] as string[], failWrites: false, failIds: new Set<string>(), refuseIds: new Set<string>(), withdrawnIds: new Set<string>(), bundleTarget: null as string | null, bundle: null as unknown, realBundle: false, door: null as { door: string; evidence: { query: string | null } } | null }));
+const fenv = vi.hoisted(() => ({ cards: null as null | unknown[], review: null as null | ((c: readonly unknown[]) => readonly unknown[]) }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => env.snap }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
@@ -15,6 +16,9 @@ vi.mock("@/domains/decision/produce-bundle", async () => { const actual = await 
   return { ...actual, produceBundleForSnapshot: async (s: never, o: { onlyPageUrl?: string | null; door?: never }) => {
     env.bundleTarget = o?.onlyPageUrl ?? null; env.door = (o?.door ?? null) as typeof env.door;
     return env.realBundle ? actual.produceBundleForSnapshot(s, o) : env.bundle ?? { status: "none", reason: "pinned in change-bundle.test" }; } }; });
+vi.mock("@/domains/decision/producers/factual-defects", async (orig) => { const real = await orig() as typeof import("@/domains/decision/producers/factual-defects");
+  return { ...real, FACTUAL_DEFECTS: { cards: async (w: Parameters<typeof real.FACTUAL_DEFECTS.cards>[0]) => fenv.cards ? { cards: fenv.cards as never, complete: true } : real.FACTUAL_DEFECTS.cards(w),
+    review: async (cards: never, w: never) => fenv.review ? fenv.review(cards) as never : real.FACTUAL_DEFECTS.review(cards, w) } }; });
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-outdoors.example", growth_goal: null }), basisTag: () => "basis_test" }));
 import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
@@ -818,3 +822,31 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });
     expect(env.store.get(keep.id)!.status).toBe("ready"); // the synthesis charter: its whole gain is FORM, so the page's own words are its legal ground
     expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("what a reader gains")]); });});
+
+// ── a pass whose review never ruled keeps its hands off a banked reading ───────
+describe("the unruled review pass", () => {
+  const mint = (): ChangeProposal => baseProposal({ id: "fixture-tenant::/x::existing_edit::fact-noor", changeFamily: "factual_correction", status: "needs_review",
+    diagnosisCause: "factual_error", primaryQuery: "noor meaning", impactScore: 400, upsidePerMonth: 120,
+    claims: [{ text: "Noor means light.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: the name Noor means light." }],
+    recommendedChange: { kind: "existing_edit", field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after: "Meaning:Light." },
+    limitations: ["Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking."] });
+  it("rewrites no reviewed row, and still lands the owed card where nothing is on file", async () => {
+    reset(SEEN());
+    const reviewed0 = { ...mint(), status: "ready" as const, limitations: ["Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] };
+    const reviewed = { ...reviewed0, semanticReview: { of: copyKey(reviewed0), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } };
+    env.store = new Map([[reviewed.id, reviewed]]);
+    fenv.cards = [mint()]; fenv.review = (cards) => cards; // declined or failed: the review never ruled, the same reference comes back
+    const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
+    const writes = env.saved.filter((p) => p.id === reviewed.id);
+    expect(writes.every((w) => !!w.semanticReview), "no write of this pass strips the banked reading").toBe(true); // the defect wrote the mint copy, review gone
+    const kept = env.store.get(reviewed.id)!;
+    // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed
+    // reason, but only a ruling review may replace or remove the receipt itself.
+    expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]);
+    expect(out.paid.receipts.find((r) => r.key === "/x")?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
+    // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
+    reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards;
+    await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
+    expect(env.store.get(mint().id)?.status).toBe("needs_review");
+    fenv.cards = null; fenv.review = null; });
+});
