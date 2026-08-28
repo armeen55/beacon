@@ -107,7 +107,7 @@ function unfitToStandIn(before: string | null, after: string, subject: string): 
 }
 
 async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { tenantId: string; now: Date;
-  attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<ChangeProposal[]> {
+  attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<readonly ChangeProposal[]> {
   // THE REVIEWER READS THE QUOTES. Its charge has always included "is it consistent with the quoted source",
   // and the parts it was handed carried no sourcePack, so that question was asked over an empty source line:
   // the one reader between a sourced correction and a paying customer was judging blind. The card's own
@@ -132,12 +132,16 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
   const review = await reviewComponents(wiring.tenantId, parts.map((_, i) => i).filter((i) => !unfit.has(i)).map(packet), wiring.now, wiring).catch(() => null);
   const cleared = new Map<number, { i: number; by: string[]; entailed: boolean }[]>();
   const held = review?.held ?? null;
-  if (held == null && unfit.size === 0) return [...cards]; // unaffordable, refused or unreadable: nothing promoted and nothing lost
+  // UNAFFORDABLE, REFUSED OR UNREADABLE: nothing promoted, nothing lost, and NOTHING REWRITTEN. This returned a
+  // fresh copy of the cards, the caller read a new array as "the review moved something" and persisted the
+  // unreviewed mint copies, and that write erased the banked paid review of a pass that had already succeeded:
+  // the scheduler's failing review clobbered three reviewed Ready corrections minutes after they landed
+  // (found live, 2026-08-28). The SAME reference is the contract that nothing moves.
+  if (held == null) return cards;
   // The reviewer only ever saw the fit ones, so its indexes are remapped onto the cards they came from.
   const offered = parts.map((_, i) => i).filter((i) => !unfit.has(i));
   for (const [j, why] of held ?? []) unfit.set(offered[j]!, why);
   for (const [j, mapping] of review?.passed ?? []) cleared.set(offered[j]!, mapping);
-  if (held == null) for (const [i] of parts.entries()) if (!unfit.has(i)) unfit.set(i, "Beacon's own sense review has not read this correction yet");
   return cards.map((c, i) => unfit.has(i)
     ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,

@@ -232,6 +232,9 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     // A TRANSPORT FAILURE BANKS NOTHING and fabricates no receipt.
     const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);
+    // AND THE SAME ARRAY COMES BACK: a fresh copy read as "moved" upstream, so a failing pass persisted these
+    // unreviewed copies over a banked paid review and erased it. Identity is the no-rewrite receipt.
+    expect(dead, "no reading moves nothing").toBe(cards);
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
