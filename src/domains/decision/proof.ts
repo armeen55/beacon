@@ -11,7 +11,8 @@
  *  here is composed from a typed field, so a producer rewording its prose can never change what this says, and
  *  an absent field prints NOTHING rather than a zero, a placeholder or a guess. */
 
-import type { ChangeProposal } from "./contracts";
+import type { BundleComponentKind, ChangeProposal } from "./contracts";
+import type { CauseFinding } from "./diagnosis";
 
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
  *  absence is the normal case: a page-only repair has no demand figure and must not pretend to one. */
@@ -167,7 +168,7 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
 
   return { ranksHere, whyAction, alternative, opportunity, wording, wordingBasis, queryEcho, shape: p.modeledOn ?? null,
     losses: materialLosses(p),
-    limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? [])].map((l) => l.trim()).filter(Boolean) };
+    limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? []), ...certifiedScope(p)].map((l) => l.trim()).filter(Boolean) };
 }
 
 /** WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT, read structurally off the canonical before and
@@ -177,6 +178,124 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
  *  is lost, and the CARD then says so instead of staying silent. Disclosure at this layer; the link case alone
  *  also refuses Ready in the banked re-read, because a lost link is unambiguous while a dropped phrase can be
  *  the very correction being made. */
+
+/** WHICH LEVERS ADDRESS WHICH CAUSE, the truth table the ranking discounts on and the boundary refuses on.
+ *  It lives HERE, in the client-safe half of the decision kernel, because the one servability verdict
+ *  (completeness's openHold) now asks the proportional-evidence question below and a client bundle reaches it;
+ *  authorization re-exports it so its callers stand unchanged. Keyed on the cause ladder's own union, TOTAL,
+ *  type-only on the ladder so no server module rides into the browser. */
+export const CAUSE_LEVERS: Record<CauseFinding["cause"], ReadonlySet<BundleComponentKind>> = {
+  cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
+  ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
+  competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page", "section"]),
+  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section"]),
+  weak_opening: new Set(["opening_answer", "h1", "paragraph_correction", "restructure"]),
+  serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer", "section"]),
+  intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page", "section"]),
+  // `section` belongs in these three for the same reason the older seven kinds do: a section is what a producer
+  // here actually mints, and leaving it out refused the very cards that answer an engine citing everybody else.
+  internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links", "section"]),
+  ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack", "section"]),
+  retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack", "section"]),
+  // Only the levers that REPLACE the untrue words. A new section beside a wrong sentence leaves the wrong
+  // sentence on the page, so section kinds are deliberately absent here.
+  factual_error: new Set(["factual_correction", "paragraph_correction", "source_update"]),
+  technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
+  // FEWER PEOPLE RUNNING THE SEARCH IS NOT A PAGE DEFECT. Nothing you can write on the page brings the searches
+  // back, so this one stays deliberately empty: it matches nothing, discounts nothing, and those cards rank on
+  // their other factors. Filling it in to make decline cards score would be scoring them for a fix that is not one.
+  demand_decline: new Set([]),
+  // LOSING GROUND ON A SEARCH PEOPLE STILL RUN IS A CONTENT PROBLEM, and it was the last empty set that made a
+  // real decline card score zero for cause fit while a description errand scored its full 25. These are the
+  // levers that move a page back up a search it is still shown for.
+  // No title here on purpose: a sharper line does not win back a position something better took.
+  ranking_loss: new Set(["section_add", "full_rewrite", "opening_answer", "internal_links", "section", "restructure"]),
+  measuring_change: new Set([]),
+  no_problem: new Set([]),
+};
+const MINTABLE: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "new_page"]);
+/** A CAUSE NO PRODUCER HERE CAN TREAT MAY NOT EMPTY THE QUEUE. Refusing every card on such a page leaves the
+ *  operator holding a diagnosis and nothing to do about it, which is worse than an imperfect card: how a page
+ *  is SERVED is the live example, and its fix is plumbing no card in this product writes. THE SPLIT IS THE
+ *  EXCEPTION, and the exception is a card: the ownership family below is exactly what treats it. */
+export const treatable = (cause: CauseFinding["cause"]): boolean => cause === "cannibalization" || [...CAUSE_LEVERS[cause]].some((k) => MINTABLE.has(k));
+/** The field's word on a card, for the sentences below. */
+const FIELD_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading" };
+const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+
+/**
+ * WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF
+ * BURDEN MATCHES THE PROMISE (operator, 2026-08-28): a typo repair, a factual correction, a title hypothesis
+ * and an AEO answer do not make the same promise and may not owe the same evidence. So a mark-only repair is
+ * its own evidence and owes no results page; a factual correction answers to the quote-bound authority chain
+ * and nothing extra here; a bundle answers on the receipt and plan its mint already gated. What is refused:
+ * replacing a title, description or heading that exists on demand figures alone (the live Onager title rode
+ * 8,112 impressions and one page claim into Ready with nothing naming a defect in the title it replaces),
+ * filling an empty field with statements no banked claim carries, offering assistant-recurrence copy that adds
+ * nothing beyond the page's own words (the sweep's own comment calls the empty-claims exemption a real hole),
+ * and a body replacement that silently drops a link, a figure or a named phrase no typed removal accounts for.
+ * Read at the ONE servability verdict (completeness's openHold), so the queue, Today, the detail page, Mark
+ * done, the promotion door and the producer sweep all refuse together. PURE, canonical fields only.
+ */
+export function evidenceShortfall(p: ChangeProposal): string | null {
+  const c = p.recommendedChange;
+  if (p.researchOnly === true || c.kind !== "existing_edit") return null;
+  const before = c.before?.trim() ?? "";
+  if (before && mechanicalRepair(before, c.after)) return null;
+  if (p.changeFamily === "factual_correction") return null;
+  if (c.field === "title" || c.field === "meta" || c.field === "h1") {
+    if (p.bundle) return null;
+    if (before) {
+      // A DIAGNOSIS THE FIELD DOES NOT TREAT IS ALREADY REFUSED, by unsettledCause with the sharper sentence,
+      // so this rule speaks only where nothing else does: no cause at all, or one whose lever set is empty.
+      const cause = p.causeFinding?.cause ?? p.diagnosisCause;
+      if (!(cause && CAUSE_LEVERS[cause]?.has(c.field)) && !(cause && treatable(cause)) && !p.modeledOn)
+        return `it replaces the ${FIELD_WORD[c.field]} this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current ${FIELD_WORD[c.field]} or a stored results page backs this shape`;
+    } else if ((p.claims ?? []).length === 0) {
+      return `it fills the empty ${FIELD_WORD[c.field]} with statements no banked claim carries, so what the copy asserts about this page cannot be re-checked`;
+    }
+    return null;
+  }
+  if (p.aiImpact && p.aiImpact.answers > 0
+    && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => !id.startsWith("page-"))))
+    return "it answers a question assistants keep answering, but every statement stands on this page's own words: recurrence authorizes investigation, never copy, so it is held until something beyond this page carries what it adds";
+  if (before) {
+    const named = [...(p.bundle?.plan?.removes ?? []), ...(p.bundle?.components ?? []).flatMap((x) => x.preserves?.losses ?? [])].map((r) => bareText(r.what));
+    const loss = materialLosses(p).find((l) => {
+      const core = bareText(l.replace(/^the (?:link|figure) /, ""));
+      return core.length > 0 && !named.some((n) => n.includes(core) || core.includes(n)); });
+    if (loss) return `it replaces a passage that carries ${loss} and drops it, and nothing typed says that removal is intended: what a replacement removes is preserved, moved, or named with its reason before the change is offered`;
+  }
+  return null;
+}
+
+/** A REPAIR THAT CHANGES ONLY MARKS OR LETTER ORDER IS ITS OWN EVIDENCE: the diff is the defect and the fix in
+ *  one reading, so it owes no diagnosis and no results page. Token for token, same order: each pair is equal
+ *  once case, punctuation and spacing fold away, or is a reordering of the same letters (a transposition typo).
+ *  A DIGIT MAY NOT MOVE: "1979" to "1980" is a factual change wearing a typo's size, so any digit disqualifies
+ *  the pair. Word reorders fail on position, wording changes fail on letters, and both are wording work. */
+export function mechanicalRepair(before: string, after: string): boolean {
+  const fold = (t: string): string[] => t.toLowerCase().normalize("NFKD").replace(/['\u2019]/gu, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const b = fold(before), a = fold(after);
+  const anagram = (x: string, y: string): boolean => !/\d/.test(x + y) && [...x].sort().join("") === [...y].sort().join("");
+  return b.length > 0 && b.length === a.length && b.every((w, i) => w === a[i] || anagram(w, a[i]!));
+}
+
+/** WHAT THIS CHANGE CERTIFIES AND WHAT IT ONLY CARRIES, derived off the canonical before and after so every
+ *  stored row says it without being redrafted. A mark repair certifies the marks, never the sentence around
+ *  them; a factual correction that got SHORTER says why: only the source-carried meaning survives, and shorter
+ *  was never the point (operator, 2026-08-28: accuracy and usefulness are separate gates, and a narrowed line
+ *  must say it narrowed rather than pose as discovered traffic copy). */
+function certifiedScope(p: ChangeProposal): string[] {
+  const c = p.recommendedChange;
+  if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
+  if (mechanicalRepair(c.before, c.after)) return ["This repairs the marks named here and nothing else. The rest of the wording is carried over as it was, not certified as the best copy for this page."];
+  const material = (t: string): number => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3).length;
+  if (p.changeFamily === "factual_correction" && material(c.after) < material(c.before))
+    return ["The corrected line is shorter than the one it replaces: only the meaning the cited source carries survives, the unsupported wording was narrowed, and nothing here claims the shorter line earns more traffic."];
+  return [];
+}
+
 export function materialLosses(p: ChangeProposal): string[] {
   const c = p.recommendedChange;
   if (c.kind !== "existing_edit" || !c.before?.trim()) return [];

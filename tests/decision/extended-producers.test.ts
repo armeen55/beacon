@@ -28,7 +28,6 @@ const COVERS = [...PATTERN.commonHeadings.map((h) => h.heading), ...PATTERN.ques
   .map((heading) => ({ key: RECEIPT.cover(heading), kind: "winning_page" as const, fact: `Every one of the pages that win "${QUERY}" covers ${heading}.`, observedAt: null }));
 const LINKS = [["/roof-area-calculator", "roof area"], ["/barrel-sizes", "barrel sizes"], ["/rain-barrels", "this page"],
   ["https://other.example/partner", "our partner"], ["/contact", "read more"]].map(([href, anchorText]) => ({ href: href!, anchorText: anchorText! }));
-// The account's own inventory: rain-collection and storm-drains are on topic and UNLINKED (the wins); barrel-sizes and roof-area-calculator are already linked; contact is linked and off topic; careers is unlinked and off topic.
 const OWNED = [["rain-collection", "Rain collection basics", "Rain collection"], ["storm-drains", "Storm drains", "Storm drains"],
   ["barrel-sizes", "Barrel sizes", "Barrel sizes"], ["roof-area-calculator", "Roof area calculator", "Roof area"],
   ["contact", "Contact us", "Contact"], ["careers", "Careers", "Careers"]].map(([p, title, h1]) => ({ url: `https://fixture-content.example/${p}`, title: title!, h1: h1! }));

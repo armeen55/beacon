@@ -14,6 +14,7 @@
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import { causeLabel, type CauseFinding } from "./diagnosis";
+import { CAUSE_LEVERS, treatable } from "./proof";
 
 /** The cause ladder's own vocabulary. Read from there, never re-declared here. */
 type Cause = CauseFinding["cause"];
@@ -28,35 +29,7 @@ type Cause = CauseFinding["cause"];
  * THE OLDER SEVEN KINDS BELONG IN THESE SETS TOO. `section`, `internal_links` and `source_pack` are the undifferentiated components persisted rows still carry, and leaving them out of every set meant a stored
  * change was discounted the full 25 for the age of its vocabulary rather than for what it does.
  */
-export const CAUSE_LEVERS: Record<Cause, ReadonlySet<BundleComponentKind>> = {
-  cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
-  ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
-  competitor_content_gap: new Set(["section_add", "entity_expansion", "full_rewrite", "table_or_list_add", "new_page", "section"]),
-  incomplete_coverage: new Set(["section_add", "entity_expansion", "table_or_list_add", "full_rewrite", "new_page", "section"]),
-  weak_opening: new Set(["opening_answer", "h1", "paragraph_correction", "restructure"]),
-  serp_shape_shift: new Set(["restructure", "table_or_list_add", "schema", "section_rewrite", "opening_answer", "section"]),
-  intent_shift: new Set(["full_rewrite", "restructure", "section_rewrite", "title", "new_page", "section"]),
-  // `section` belongs in these three for the same reason the older seven kinds do: a section is what a producer
-  // here actually mints, and leaving it out refused the very cards that answer an engine citing everybody else.
-  internal_link_weakness: new Set(["internal_link_add", "anchor_text", "navigation", "internal_link_remove", "internal_links", "section"]),
-  ai_citation_gap: new Set(["source_update", "factual_correction", "entity_expansion", "schema", "opening_answer", "source_pack", "section"]),
-  retrieved_not_cited: new Set(["opening_answer", "table_or_list_add", "schema", "source_update", "entity_expansion", "source_pack", "section"]),
-  // Only the levers that REPLACE the untrue words. A new section beside a wrong sentence leaves the wrong
-  // sentence on the page, so section kinds are deliberately absent here.
-  factual_error: new Set(["factual_correction", "paragraph_correction", "source_update"]),
-  technical_indexability: new Set(["noindex", "canonical", "redirect", "navigation"]),
-  // FEWER PEOPLE RUNNING THE SEARCH IS NOT A PAGE DEFECT. Nothing you can write on the page brings the searches
-  // back, so this one stays deliberately empty: it matches nothing, discounts nothing, and those cards rank on
-  // their other factors. Filling it in to make decline cards score would be scoring them for a fix that is not one.
-  demand_decline: new Set([]),
-  // LOSING GROUND ON A SEARCH PEOPLE STILL RUN IS A CONTENT PROBLEM, and it was the last empty set that made a
-  // real decline card score zero for cause fit while a description errand scored its full 25. These are the
-  // levers that move a page back up a search it is still shown for.
-  // No title here on purpose: a sharper line does not win back a position something better took.
-  ranking_loss: new Set(["section_add", "full_rewrite", "opening_answer", "internal_links", "section", "restructure"]),
-  measuring_change: new Set([]),
-  no_problem: new Set([]),
-};
+export { CAUSE_LEVERS } from "./proof";
 
 /** THE FAMILY CARD'S OWN FAMILY. A split is settled by telling the competing pages apart, which is a wording
  *  change, and wording is exactly what a split does NOT authorize on one page on its own. The difference is
@@ -93,12 +66,7 @@ function treatsCause(p: ChangeProposal, cause: Cause | null | undefined): boolea
 
 /** THE SIX FIELDS A CARD IN THIS PRODUCT CAN ACTUALLY CARRY. Everything else in the lever vocabulary is a
  *  component a bundle may hold, and a page that never got one cannot be refused for not having one. */
-const MINTABLE: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "new_page"]);
-/** A CAUSE NO PRODUCER HERE CAN TREAT MAY NOT EMPTY THE QUEUE. Refusing every card on such a page leaves the
- *  operator holding a diagnosis and nothing to do about it, which is worse than an imperfect card: how a page
- *  is SERVED is the live example, and its fix is plumbing no card in this product writes. THE SPLIT IS THE
- *  EXCEPTION, and the exception is a card: the ownership family below is exactly what treats it. */
-const treatable = (cause: Cause): boolean => cause === "cannibalization" || [...CAUSE_LEVERS[cause]].some((k) => MINTABLE.has(k));
+
 
 /** What this card actually does, in the operator's words, for the sentence that says why it was held. */
 const LEVER_WORDS: Record<string, string> = { title: "a new title", meta: "a new description", h1: "a new heading",
@@ -122,6 +90,7 @@ export function withholdReason(p: ChangeProposal, cause: Cause | null | undefine
   const lever = p.recommendedChange.kind === "new_page" ? "new_page" : p.recommendedChange.field;
   return `held: this page's own evidence names ${causeLabel(cause)}, and ${LEVER_WORDS[lever] ?? "this change"} does not treat it. Once that is dealt with, this card comes back.`;
 }
+
 
 /**
  * WHY THIS CHANGE MAY NOT BE CALLED READY, or null when it may. The table above DISCOUNTS a mismatched lever in

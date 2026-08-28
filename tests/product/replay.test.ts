@@ -212,7 +212,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const seeded: ChangeProposal = { ...minted, id: `${TENANT}::${GAP_URL.slice(GAP_URL.indexOf("/"))}::existing_edit::title`, changeFamily: "title", status: "ready", researchOnly: false,
       pagePath: GAP_URL.slice(GAP_URL.indexOf("/")), pageUrl: `https://${GAP_URL}`,
       recommendedChange: { kind: "existing_edit", field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns" },
-      limitations: [], claims: [], supportFacts: [] };
+      limitations: [], claims: [], supportFacts: [], causeFinding: undefined, diagnosisCause: "ctr_snippet" };
     const run = async (refuse: string[]) => { env.snap = snapshot; env.saved = []; env.store = new Map([[seeded.id, seeded]]); env.refuseSave = new Set(refuse);
       const seam = drafter();
       const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, readyTarget: 1 });

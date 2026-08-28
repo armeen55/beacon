@@ -313,7 +313,7 @@ describe("a badly classified row cannot be waved through", () => {
 /** PROMOTION FAILS CLOSED WHEN VALIDATION CANNOT RUN: absence of provenance is a refusal at THIS door even where the producer pass legitimately skipped it. */
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
-    const bare = proposal({ status: "needs_review" }); await saveChangeProposal(bare);
+    const bare = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet" }); await saveChangeProposal(bare);
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
   it("refuses a bundle component whose page this door does not hold", async () => {

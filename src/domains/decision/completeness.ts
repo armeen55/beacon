@@ -2,6 +2,7 @@
 
 import { componentIdOf, dangerousComponents } from "./contracts";
 import type { ChangeProposal } from "./contracts";
+import { evidenceShortfall } from "./proof";
 
 /** NO VERB LIST LIVES HERE ANY MORE. Whether copy is the finished words or a note about producing them is a question about meaning, and it was answered by spelling: a production verb near a deliverable noun. It is now answered where it is known. A PRODUCER handing over a brief says so in a typed field (`researchOnly`) as it mints the card. THE EDITOR's copy is read by decision/drafted-copy's editor contract, against the stored page and then by a judge. Only what stays deterministic for any writer is left below. */
 /** A blank somebody is expected to fill in before the copy is usable, or MARKUP WHERE A WORD BELONGS: a title reading "Colors &amp; History" is not final copy, because what an operator pastes is not what a reader sees. */
@@ -95,6 +96,9 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
       need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "single_source", missingTopic: factBacked[0].text };
   }
   if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "")) hard.push("Its reason promises clicks a wording change has never been shown to recover, so it is held until the ownership work it belongs to is finished.");
+  // THE PROOF BURDEN MATCHES THE PROMISE: what a change claims decides what it owes (decision/authorization's
+  // evidenceShortfall). Asked here so every reader of the one servability verdict refuses together.
+  const short = evidenceShortfall(p); if (short) hard.push(short);
   // THE SAFETY HOLD LIFTS WHEN THE OPERATOR HAS ANSWERED IT, on the exact version they read: pushed unconditionally,
   // a confirmed redirect could never wear Ready anywhere, the next pass swept the hold back into status, and the card
   // told the operator to confirm the very thing they had just confirmed, forever (audit, 2026-08-26). The same
