@@ -125,38 +125,47 @@ async function loadGa4PageValuesForTenantUncached(
  * held. The same rows the value read above uses, split on the day 28 days back, and fail-soft to an empty map:
  * a page with no prior window says nothing rather than reading as a page that lost everything.
  */
-export async function loadGa4SessionSplitForTenant(
+export const loadGa4SessionSplitForTenant = async (
   tenantId: string,
   now: Date = new Date(),
-): Promise<Map<string, { now: number; prior: number }>> {
-  const out = new Map<string, { now: number; prior: number }>();
-  const split = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
-  const since = reportingDay(now.getTime() - 2 * WINDOW_DAYS * 86_400_000);
-  try {
-    const sb = getSupabaseAdmin();
-    const PAGE = 1000;
-    for (let from = 0; from < MAX_ROWS; from += PAGE) {
-      const { data, error } = await sb
-        .from("ga4_url_traffic")
-        .select("url, sessions, date")
-        .eq("tenant_id", tenantId)
-        .gte("date", since)
-        .order("date")
-        .order("url")
-        .range(from, from + PAGE - 1);
-      if (error) { log.warn("[ga4-page-values] session split read failed", { tenantId, error: error.message }); break; }
-      const batch = (data ?? []) as unknown as { url: string; sessions: number; date: string }[];
-      for (const r of batch) {
-        const page = canonicalizeCitationUrl(r.url) ?? r.url;
-        const cur = out.get(page) ?? { now: 0, prior: 0 };
-        if (r.date >= split) cur.now += r.sessions ?? 0; else cur.prior += r.sessions ?? 0;
-        out.set(page, cur);
-      }
-      if (batch.length < PAGE) break;
-    }
-  } catch { return out; }
-  return out;
-}
+): Promise<Map<string, { now: number; prior: number }>> =>
+  // THE SAME WATERMARK READ-THROUGH ITS TWO SIBLINGS USE, because this was the one heavy GA4 read with no cache
+  // of any kind: up to eighty sequential pages of ga4_url_traffic on every release rebuild, roughly ninety-six
+  // times a day, against the very table the cached 28-day reader had just paged. Completeness is tracked
+  // LOCALLY: a partial read is served live and never banked, and no shared module flag is involved.
+  readThroughDaily<[string, { now: number; prior: number }][]>({
+    tenantId, kind: "ga4-split", watermark: await ga4Watermark(tenantId),
+    compute: async () => {
+      const out = new Map<string, { now: number; prior: number }>();
+      const split = reportingDay(now.getTime() - WINDOW_DAYS * 86_400_000);
+      const since = reportingDay(now.getTime() - 2 * WINDOW_DAYS * 86_400_000);
+      let complete = true;
+      try {
+        const sb = getSupabaseAdmin();
+        const PAGE = 1000;
+        for (let from = 0; from < MAX_ROWS; from += PAGE) {
+          const { data, error } = await sb
+            .from("ga4_url_traffic")
+            .select("url, sessions, date")
+            .eq("tenant_id", tenantId)
+            .gte("date", since)
+            .order("date")
+            .order("url")
+            .range(from, from + PAGE - 1);
+          if (error) { log.warn("[ga4-page-values] session split read failed", { tenantId, error: error.message }); complete = false; break; }
+          const batch = (data ?? []) as unknown as { url: string; sessions: number; date: string }[];
+          for (const r of batch) {
+            const page = canonicalizeCitationUrl(r.url) ?? r.url;
+            const cur = out.get(page) ?? { now: 0, prior: 0 };
+            if (r.date >= split) cur.now += r.sessions ?? 0; else cur.prior += r.sessions ?? 0;
+            out.set(page, cur);
+          }
+          if (batch.length < PAGE) break;
+        }
+      } catch { complete = false; }
+      return { payload: [...out.entries()], cacheable: complete };
+    },
+  }).then((entries) => new Map(entries));
 
 
 // ─────────────────────────────────────────────────────────────────────
