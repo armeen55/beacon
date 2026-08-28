@@ -9,7 +9,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { componentIdOf } from "@/domains/decision/contracts";
+import { copyKey } from "@/domains/decision/proof";
 import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
@@ -210,6 +210,8 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           opportunityType: `Correct what ${path} says ${c.subject} means`,
           changeFamily: "factual_correction", status: "needs_review",
           recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
+          authorizedFor: copyKey({ tenantId, pagePath: path, changeFamily: "factual_correction", supportFacts: support,
+            recommendedChange: { kind: "existing_edit", field: "section", before, after, where } } as never),
           preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: `the source of record says ${c.subject} means ${c.proposed}` }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
           claims: [{ text: `${c.subject} means ${c.proposed}, not "${before}".`, supportedBy: support.map((s) => s.id) }],
           supportFacts: support,

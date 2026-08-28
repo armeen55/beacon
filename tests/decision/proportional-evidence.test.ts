@@ -151,6 +151,15 @@ describe("the proof burden matches the promise, at the one door every surface re
       "another page, another field, or the same fact rewritten under its id, is another decision").toEqual([false, false, false]);
     expect(evidenceShortfall(body(`${KEEP} ${CTA}`, `${KEEP} Footer`, { preservation: [{ text: CTA, disposition: "moved", to: "Footer" }] })),
       "a destination that exists but does not carry it").toContain("does not carry it");
+    // 9d. THREE MORE WAYS A RECEIPT LOOKED COMPLETE AND WAS NOT: a whole new page faced no evidence question at
+    // all, and a move named a destination one bundle piece carries while the material sat in another piece.
+    expect(evidenceShortfall(row("np", { kind: "new_page", pagePath: null, changeFamily: "new_page",
+      recommendedChange: { kind: "new_page", proposedTitle: "Anything At All", metaDescription: "Whatever we like.", openingAnswer: "Unsourced.", outline: ["a", "b", "c"], faqQuestions: [], schemaTypes: [] } })), "a whole page with nothing behind it").toContain("nothing on file says what any of it stands on");
+    const split = body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "moved", to: "Footer" }],
+      bundle: { objective: "o", receipt: { items: [], missing: [], freshestObservedAt: null }, components: [
+        { kind: "section_add", label: "A", page: "/p", where: "Footer", before: null, after: "Footer: nothing here", evidenceKeys: [], risk: "safe" },
+        { kind: "section_add", label: "B", page: "/p", where: "Elsewhere", before: null, after: `Elsewhere: ${CTA}`, evidenceKeys: [], risk: "safe" }] } });
+    expect(evidenceShortfall(split), "the destination piece must be the piece that carries it").toContain("does not carry it");
     // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
     const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); };
     for (const held of [creative, aeo({}), body(`${KEEP} ${CTA}`, KEEP)])

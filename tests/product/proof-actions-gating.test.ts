@@ -226,7 +226,7 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
 describe("a new page owes me the address it is live at", () => {
   // A PUBLISH-READY PAGE, because the ADDRESS gate is what is under test: an outline with no copy behind it is refused a step earlier by the completeness boundary.
   const SECTIONS = ["When it runs", "Where to watch", "What to bring"], OPENS = "The kite festival runs the first weekend of April.";
-  const newPage = () => proposal({ kind: "new_page", pagePath: null, pageUrl: null, pageLabel: "Kite festival guide", recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "Everything the kite festival guide covers.", openingAnswer: OPENS, outline: SECTIONS, faqQuestions: [], schemaTypes: [] },
+  const newPage = () => proposal({ kind: "new_page", informationGain: { adds: "the page answers a question no owned page covers", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, pageLabel: "Kite festival guide", recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "Everything the kite festival guide covers.", openingAnswer: OPENS, outline: SECTIONS, faqQuestions: [], schemaTypes: [] },
     bundle: { ...proposal().bundle, components: SECTIONS.map((h) => ({ kind: "section_add", label: h, after: `${h}: ${OPENS}`, risk: "safe", evidenceKeys: ["k1"] })) } });
   it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
     mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ ...PRESS });

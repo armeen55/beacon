@@ -97,14 +97,11 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
     const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
     const first = await unit({ page: long, read: reader({ claims: CLAIMS, judge: CONFIRMS }) });
     expect([(db.cov as { coveredChars: number }).coveredChars, first.cursor?.pageComplete]).toEqual([EXTRACT_CHUNK, false]);
-    // Even with its extracted claim checked, the page stays incomplete until the whole body was inventoried.
     const held = [row({ page: "/long", statementKey: claimIdentity("Afsaneh", "Goddess", "Afsaneh"),
       pageContentHash: pageHashOf(long.body), state: "checked" })];
     const second = await unit({ page: long, held, read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
-    // Completion arrives only once the LAST section has been inventoried too, and coverage says so durably.
     expect([(db.cov as { coveredChars: number }).coveredChars, second.status]).toEqual([long.body.length, "done"]);});
   it("a chunk that filled up to the cap has not been read, and the cursor says where it stopped", async () => {
-    // A DENSE LIST PAGE IS THE CASE THIS EXISTS FOR: 194 name entries in 11,600 characters fit inside ONE
     const entries = Array.from({ length: 60 }, (_, i) => `Name${i} Meaning: wrong meaning ${i}.`);
     const dense = { url: "https://x.example/dense", path: "/dense", body: entries.join(" ") };
     const capped = { statements: Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `wrong meaning ${i}.`, locator: `Name${i}` })) };
@@ -117,20 +114,17 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("one proposition reworded with the same content words is not acquired twice", async () => {
     const heat = tokenFingerprintOf("Ahvaz", "holds the record for hottest day at 54 °C"); expect(tokenFingerprintOf("Ahvaz", "The hottest day record, 54 °C, is held by Ahvaz")).toBe(heat);
     expect(tokenFingerprintOf("Ahvaz", "reached 54 °C in 2017")).not.toBe(heat); // not semantic: different words, different claim
-    // A duplicate of an already-checked proposition is superseded for free, never researched again.
     db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
     let searches = 0; // a duplicate proposition is superseded free, never researched again
     const out = await unit({ searchSources: async () => { searches += 1; return SOURCE; },
       held: [row({ statementKey: "a", subject: "Ahvaz", current: "hottest day record 54 °C", state: "checked" }),
         row({ statementKey: "b", subject: "Ahvaz", current: "The hottest day record, 54 °C, is held by Ahvaz", state: "owed" })] });
-    // no paid call for the reformulation
     expect([searches, db.superseded.includes("Ahvaz"), out.status]).toEqual([0, true, "done"]);});
   it("agreement means independent publishers, so the second fetch prefers a different source class", async () => {
     const fetched: string[] = [];
     await unit({ held: [row({ statementKey: "k1" })], fetchSource: async (url: string) => { fetched.push(url); return { text: PASSAGE }; },
       searchSources: async () => ({ organic: [["en.wikipedia.org", "en.wikipedia.org/a"], ["www.britannica.com", "britannica.com/a"],
         ["behindthename.com", "behindthename.com/a"]].map(([d, u]) => ({ domain: d!, url: `https://${u}`, title: "A" })) }) });
-    // not the second encyclopedia that merely ranked next
     expect([fetched.length, fetched[0]!.includes("wikipedia"), fetched[1]!.includes("behindthename")]).toEqual([2, true, true]); });});
 describe("one pass, one global claim allowance", () => { beforeEach(reset);
   it("three eligible pages cannot exceed the global attempt allowance", async () => {
@@ -159,7 +153,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
   it("verifies each quote in its OWN source, so a misattributed quote supports nothing", async () => {
     const weak = "Afsaneh (افسانه) is a lovely name for a girl.", two = { organic: [...SOURCE.organic, { domain: "behindthename.com", url: "https://behindthename.com/x", title: "Afsaneh" }] };
     const split = async (url: string) => ({ text: url.includes("wiktionary") ? PASSAGE : weak });
-    // The model says the dictionary supports it, quoting a sentence only the weaker page carries.
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://en.wiktionary.org/x", quote: weak }],
         subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] } }) });
@@ -174,7 +167,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
     expect(ok.sourceReadAt).not.toBeNull(); });
   it("a passage about a different name cannot confirm this one, however alike the two are spelled", async () => {
-    // THE DARYA/DARIA CASE, live: Wikipedia's "Daria (given name)" is an encyclopedia, is quotable, and lists
     const daria = "Daria is a feminine given name, the Slavic form of Darius, meaning possessing goodness.";
     const darya = "Persian دریا (daryā): sea, ocean, a large body of water.";
     const enc = { organic: [{ domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Daria" }] };
@@ -183,14 +175,12 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       verdict: "page_wrong", proposed: "possessing goodness", confidence: "confirmed", literal: "", usage: "", note: "",
       supporting: [{ url: "https://en.wikipedia.org/x", quote: text }],
       subjects: [{ url: "https://en.wikipedia.org/x", sameEntity, language, script, why: "w" }] });
-    // The reader says outright it read a different name: nothing supports the claim, however authoritative it is.
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
       read: reader({ claims: claim, judge: judged(daria, false, "Slavic", null) }) });
     const wrong = db.rows[0] as FactCheck;
     expect([wrong.agreement, wrong.confidence === "confirmed"]).toEqual(["none_found", false]);
     expect(wrong.note).toContain("about a different subject or language");
-    // And a reader that CLAIMS the same subject is still checked: a passage with no Persian in it has not shown
     db.rows = [];
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),

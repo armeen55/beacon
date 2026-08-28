@@ -239,7 +239,8 @@ export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedC
 
 export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUTHORIZATION VOCABULARY: a bundle's `plan.removes` and a component's `preserves.losses` are the customer-facing SUMMARY of a change and were pooled in as though they were the same verified record, so they are display only now; a ledger entry answers for ONE unit, because one entry quoting the whole passage claimed every unit had been considered while naming none (Codex, 2026-08-28)
   const c = p.recommendedChange;
-  if (p.researchOnly === true || c.kind !== "existing_edit") return null;
+  if (p.researchOnly === true) return null;
+  if (c.kind !== "existing_edit") return p.informationGain ? null : "a whole new page is proposed and nothing on file says what any of it stands on, so it is held until its claims, sources and plan are authorized like every other change"; // A NEW PAGE IS THE LARGEST THING BEACON PROPOSES AND IT LEFT BY THE FIRST LINE, facing no evidence question at all (Codex, 2026-08-28). No producer emits a page's authorization yet, so it stays internal rather than the door widening to let it out.
   const before = c.before?.trim() ?? "";
   if (before && mechanicalRepair(before, c.after)) return null;
   // A CORRECTION PROVES ITS WORDS THROUGH THE QUOTE-BOUND CHAIN so it owes no gain receipt, and it is NOT a licence to discard the page around the mistake: it left the boundary entirely, so one could replace "Meaning: Bright, radiant, or glowing. Start your free lesson today." with "Meaning: Light." and delete the call to action in silence (Codex, 2026-08-28). It answers for preservation like every other replacement.
@@ -271,9 +272,9 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
     const entryFor = (t: string): (typeof ledger)[number] | undefined => ledger.find((u) => units.filter((x) => bareText(u.text).includes(bareText(x))).length <= 1 && (bareText(u.text).includes(bareText(t)) || bareText(t).includes(bareText(u.text))));
     // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: `why` and `to` were optional and nothing read the disposition at all, so "removed" with no reason, "moved" with no destination and "kept" over text the copy does not carry all passed on an overlapping string.
     // A DISPOSITION IS PROVED, NOT EXPLAINED: each passed on a non-empty sentence, so "because reasons" removed a call to action, "the moon" was a destination, and any fact- id anywhere on the row supported any correction (Codex, 2026-08-28). A removal names a TYPED basis, a move names somewhere this change actually writes, and a correction names the banked facts carrying THAT unit.
-    const banked = new Set((p.supportFacts ?? []).map((f) => f.id)); const writes = bareText([c.after, ...(p.bundle?.components ?? []).map((x) => `${x.after} ${x.where ?? ""} ${x.page ?? ""}`)].join(" "));
+    const banked = new Set((p.supportFacts ?? []).map((f) => f.id)); const places = [bareText(c.after), ...(p.bundle?.components ?? []).map((x) => bareText(`${x.after} ${x.where ?? ""} ${x.page ?? ""}`))]; // ONE PLACE, NOT THE WHOLE CHANGE FLATTENED: joining every component into one string let a move name a destination carried by one piece while the material sat in a different piece (Codex, 2026-08-28)
     const cites = (u: { by?: readonly string[] }): boolean => (u.by ?? []).length > 0 && (u.by ?? []).every((id) => banked.has(id)); // A DESTINATION IS A PLACE THAT CARRIES THE MATERIAL, not a word that happens to appear: "moon" passed because the copy said moon somewhere
-    const lands = (u: { text: string; to?: string }): boolean => !!u.to?.trim() && writes.includes(bareText(u.to)) && writes.includes(bareText(u.text));
+    const lands = (u: { text: string; to?: string }): boolean => !!u.to?.trim() && places.some((w) => w.includes(bareText(u.to!)) && w.includes(bareText(u.text)));
     const BASIS_PROVED: Record<string, ((u: { text: string; to?: string; by?: readonly string[] }) => boolean) | undefined> = { duplicate_of: lands, replaced_by: lands, moved: lands, obsolete: cites, unsupported: cites, owner_confirmed: () => !!p.confirmedVersion };
     const unverified = (u: { text: string; disposition: string; why?: string; to?: string; of?: string; basis?: string; by?: readonly string[] }): string | null =>
       p.authorizedFor !== copyKey(p) ? "carries a reading written for different words, a different page or different evidence than the ones it is attached to"
@@ -314,12 +315,9 @@ export function mechanicalRepair(before: string, after: string): boolean {
  *  was never the point (operator, 2026-08-28: accuracy and usefulness are separate gates, and a narrowed line
  *  must say it narrowed rather than pose as discovered traffic copy). */
 function certifiedScope(p: ChangeProposal): string[] {
-  const c = p.recommendedChange;
-  if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
-  if (mechanicalRepair(c.before, c.after)) return ["This repairs the marks named here and nothing else. The rest of the wording is carried over as it was, not certified as the best copy for this page."];
-  const material = (t: string): number => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3).length;
-  if (p.changeFamily === "factual_correction" && material(c.after) < material(c.before))
-    return ["The corrected line is shorter than the one it replaces: only the meaning the cited source carries survives, the unsupported wording was narrowed, and nothing here claims the shorter line earns more traffic."];
+  const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
+  if (mechanicalRepair(c.before, c.after)) return ["This repairs the marks named here and nothing else. The rest of the wording is carried over as it was, not certified as the best copy for this page."]; const material = (t: string): number => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3).length;
+  if (p.changeFamily === "factual_correction" && material(c.after) < material(c.before)) return ["The corrected line is shorter than the one it replaces: only the meaning the cited source carries survives, the unsupported wording was narrowed, and nothing here claims the shorter line earns more traffic."];
   return [];
 }
 

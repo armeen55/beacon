@@ -148,7 +148,7 @@ const NO_HANDOVER = Symbol("no-handover");
 
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol): Promise<SaveResult> {
-  if (proposal.informationGain || proposal.preservation) proposal = { ...proposal, authorizedFor: copyKey(proposal) }; // THE AUTHORIZATION IDENTITY IS STAMPED WHERE EVERY ROW PASSES, not by each producer remembering: a receipt is only ever valid for the exact words, page, field and evidence it was saved beside (decision/proof's copyKey)
+  if ((proposal.informationGain || proposal.preservation) && proposal.authorizedFor !== copyKey(proposal)) return "refused"; // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE. Stamping the identity here signed whatever receipt the door was handed, which made the check at the door unconditionally true: a row could be minted with a receipt written for other words and the store would bless it on the way past (Codex, 2026-08-28). A producer that wrote a receipt for these exact words can compute this; one that mutated the copy afterwards cannot.
   if (!proposal.tenantId || !proposal.id) return "failed";
   if (proposal.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) {
     const held = await loadChangeProposal(proposal.tenantId, proposal.id).catch(() => null);

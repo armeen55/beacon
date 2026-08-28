@@ -36,7 +36,7 @@ const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
-import { confirmedVersion } from "@/domains/decision/completeness";
+import { confirmedVersion } from "@/domains/decision/completeness"; import { copyKey } from "@/domains/decision/proof";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
@@ -314,10 +314,11 @@ describe("a badly classified row cannot be waved through", () => {
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
     const bare = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet" }); await saveChangeProposal(bare);
-    // AND THE ONE DOOR EVERY ROW PASSES STAMPS THE AUTHORIZATION IDENTITY, so no producer can forget it.
+    // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever
+    // receipt it was handed, so the door's own check became unconditionally true on the way past.
     const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } });
-    await saveChangeProposal(withReceipt);
-    expect(JSON.stringify(current().find((r) => r.id === withReceipt.id)!.payload)).toContain("authorizedFor");
+    expect(await saveChangeProposal(withReceipt), "a receipt with no identity of its own").toBe("refused");
+    expect(await saveChangeProposal({ ...withReceipt, authorizedFor: copyKey(withReceipt) }), "one written for these exact words").toBe("saved");
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
   it("refuses a bundle component whose page this door does not hold", async () => {
