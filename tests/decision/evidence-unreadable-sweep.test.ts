@@ -254,10 +254,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true }); expect(out.outcome).not.toBe("persistence_failed");
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported"); });
-  /** REAL RENDERED CARDS, INSPECTED FIELD BY FIELD (operator, 2026-08-28). A banned-word check over an empty set
-   *  passes vacuously, so this asserts the cards EXIST first, then reads every customer-visible field of a tracked
-   *  card and a fan-out card: an undiagnosed case may say what happened and what is being checked, and may not
-   *  tell the operator to touch the website. */
+  /** REAL RENDERED CARDS, INSPECTED FIELD BY FIELD (operator, 2026-08-28). A banned-word check over an empty set passes vacuously, so this asserts the cards EXIST first, then reads every customer-visible field of a tracked card and a fan-out card: an undiagnosed case may say what happened and what is being checked, and may not tell the operator to touch the website. */
   it("renders undiagnosed tracked and fan-out cards that prescribe nothing", async () => {
     env.aiWindow = []; vi.resetModules();
     vi.doMock("@/domains/decision/producers/page-job", async (orig) => { const real = await orig() as Record<string, unknown>;

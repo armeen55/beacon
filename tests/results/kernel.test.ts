@@ -315,8 +315,7 @@ describe("one comparison policy, one durable result", () => {
     const read = evaluateChange(baseInput({ actionType: "content",
       windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1, treatedDelta: 58 })] }), CLOSED_WINDOWS, []);
     expect([read.comparison, read.verdict, read.rankingSignal]).toEqual(["insufficient", "insufficient_evidence", 0]); expect(read.headline).toBe("The change is recorded. Its effect cannot be separated from the rest of the site yet.");
-    expect(read.unadjusted).toEqual({ basisDay: 28, clicksBefore: 400, clicksAfter: 458, impressionsBefore: 5000, impressionsAfter: 5000 }); expect(learningVerdictOf(read)).toBe("measuring");
-  });
+    expect(read.unadjusted).toEqual({ basisDay: 28, clicksBefore: 400, clicksAfter: 458, impressionsBefore: 5000, impressionsAfter: 5000 }); expect(learningVerdictOf(read)).toBe("measuring"); });
   it("teaches ranking the frozen reading, and records a recompute that disagrees beside it", () => {
     const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28,
       confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
