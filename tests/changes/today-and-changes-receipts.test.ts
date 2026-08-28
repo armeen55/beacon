@@ -232,6 +232,11 @@ describe("a ranked card explains itself without being opened", () => {
       { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };
     const bundled = await renderList(viewOf([two]));
     expect(bundled).toContain("2 edits together");
+    // A single edit's chip is verb plus object even when its id carries a family slug: "AI answer gap" told
+    // the operator the diagnosis and hid the action.
+    const fam = await renderList(viewOf([{ ...atomic(), id: "t::/basic-persian::existing_edit::ai_answer_gap",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished forty word answer block for this fixture, complete and pasteable, standing in for real copy that satisfies the section band by carrying enough words to pass every length check applied to it.", where: "After the intro." } } as ChangeProposal]));
+    expect(fam).toContain("Add section"); expect(fam).not.toContain("AI answer gap");
     // 5. A replaced passage: the untouched line bounds the blast radius.
     const passage = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: "Tehran is by far the biggest city.", after: "Cities like Yazd and Kerman are globally known.", where: "The paragraph immediately below the table." } })]));
     for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });

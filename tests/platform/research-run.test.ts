@@ -603,8 +603,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
   /** PHASE 5D. ONE canonical answer to "is anything owed", so a day whose AI answers are all collected is not therefore finished: the website may still be two hundred pages unread, and answers already bought may have no verdict on them yet. Both used to be invisible to the recovery opener. */
   it("does not buy evidence for a claim while the provider that has to judge it is out of credit", async () => {
     // Checking one claim buys a search and a page fetch from one provider and then asks a SECOND to read them.
-    // With the credit stop on, the first two were still bought in full and the unit died at the judge, so the
-    // account paid for evidence nothing could weigh. Live on 2026-08-27, mid-run, for the rest of that run.
     const owing = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 140, total: 140, answers: 140, due: 0 }),
       run: async () => ({ progress: { decided: { basis: "b1", rowVersion: 1 }, replenish: { day: reportingDay(NOW), fingerprint: "b1::v1::settled", attempted: [], closed: "candidates_exhausted" as const } }, open: false }), basis: async () => "b1", evidenceVersion: async () => 1,
       surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
@@ -972,7 +970,6 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.ready = 0; M.declared = ["/basic-persian-phrases", "/funny-farsi-phrases"]; M.out = M.declared.map((key) => ({ key, outcome: "produced" }));
       const reopened = await live.replenishReady(T, new Date(NOW), stale); expect([reopened!.reason, reopened!.ready > 0, DRAFT_BUDGET.POLICY]).toEqual(["made_progress", true, "w8r2c6"]); // settled under the OLD policy, funded again under this one
       // 8. THE LEDGER'S OWN ANSWER RIDES BESIDE THE RECEIPTS, both directions. A world that moved more than the receipts explain is REPORTED as unreconciled, never patched. (The COMPLETENESS of a receipt is proved
-      // against the REAL producer in its own test below; a hand-built receipt here could only prove this file's own arithmetic, which is exactly the fiction Codex caught on 2026-08-23.)
       L.seq = [1.0, 1.02]; M.ready = 0; M.declared = ["/h"]; mem = { fingerprint: null, attempted: [] };
       M.out = [{ key: "/h", outcome: "produced", cost: 0.02 }];
       expect((await live.replenishReady(T, new Date(NOW), mem))!.outcomes!.ledger).toEqual({ before: 1.0, after: 1.02, delta: 0.02, metered: 0.02, unexplained: 0, reconciled: true });

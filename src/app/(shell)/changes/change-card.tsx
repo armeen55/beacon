@@ -44,14 +44,11 @@ const isConsolidation = (p: ChangeProposal): boolean => String(p.kind) === "cons
 const YEAR_QUERY = /\b20\d{2}\s*$/;
 const YEAR_NOTE = "Year searches reset every January; this edit is worth redoing each year.";
 
-/** THE ISSUE CLASS AS A LABEL, off the id's own family slug: "Missing description" tells the operator what
- *  kind of problem this is before a sentence is read, the way every serious tool names its issue classes. */
+/** THE ONLY CHIPS THAT ARE NOT VERB PLUS OBJECT: the shapes that are not edits at all. Every single edit is
+ *  named by what the operator DOES to what ("Replace title", "Add section"); a family word like "AI answer
+ *  gap" told them the diagnosis and hid the action (operator, 2026-08-27). */
 const CATEGORY: [RegExp, string][] = [
-  [/::missing_description$/, "Missing description"], [/::duplicate_heading$/, "Duplicate heading"],
-  [/::internal_link$/, "Internal link"], [/::ai_answer_gap$/, "AI answer gap"],
-  [/::engine_followup$/, "Follow-up search"], [/::thin_page$/, "Thin page"], [/::divergence$/, "Diagnosis"],
-  [/::answer_block$/, "Answer block"], [/::consolidation$/, "Page merge"], [/::h1$/, "Heading"],
-  [/::title(-family)?$/, "Title"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
+  [/::consolidation$/, "Page merge"], [/::ownership$/, "Ownership decision"], [/::researching$/, "Research"],
 ];
 const INLINE_PIECES = 4; /** How many steps a card shows in full before the list becomes the detail page's job: a two or three step treatment is read here, a forty-item correction bundle is not. */
 /** THE OBJECT THIS CHANGE TOUCHES, in the customer's own words, read off the canonical field and never off

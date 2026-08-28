@@ -112,8 +112,6 @@ describe("extra readings", () => {
     expect(out.reason).toContain("could not be read");});
   it("keeps a reading that lists one item too many instead of throwing the whole batch away", async () => {
     // A `.max()` on every enumeration made the reader fail-closed: ONE answer naming 31 entities instead of 30
-    // failed the WHOLE batch of five already-paid readings, which were left owed and bought again to fail the
-    // same way. That is what stopped the reading on 2026-08-16 and left 891 answers, $7.75 of paid text, unread.
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas");
     const long = { sections: [], claims: [], topicEntities: Array.from({ length: 41 }, (_, i) => `entity ${i}`),
       ownedBrandMention: { mentioned: false, position: null, context: null }, competitors: [],
