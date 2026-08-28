@@ -39,6 +39,9 @@ export type ProofReceipt = {
   queryEcho: string | null;
   /** Where the SHAPE of the copy came from, when it was modeled on something rather than guessed. */
   shape: string | null;
+  /** WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT: links, figures and capitalized items, read off
+   *  the canonical before and after. Empty on an addition and when nothing is lost. */
+  losses: string[];
   /** What Beacon looked for and does not have, plus the caveat the ranking itself already carries. */
   limits: string[];
 };
@@ -163,5 +166,29 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
     : null;
 
   return { ranksHere, whyAction, alternative, opportunity, wording, wordingBasis, queryEcho, shape: p.modeledOn ?? null,
+    losses: materialLosses(p),
     limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? [])].map((l) => l.trim()).filter(Boolean) };
+}
+
+/** WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT, read structurally off the canonical before and
+ *  after and never off prose: links and paths (function a reader loses outright), figures (facts with numbers
+ *  in them), and multi-word capitalized phrases (names, and the "Try Lesson 1 Free" class of button copy the
+ *  crawler fuses into a paragraph). Empty on an addition, because adding deletes nothing; empty when nothing
+ *  is lost, and the CARD then says so instead of staying silent. Disclosure at this layer; the link case alone
+ *  also refuses Ready in the banked re-read, because a lost link is unambiguous while a dropped phrase can be
+ *  the very correction being made. */
+export function materialLosses(p: ChangeProposal): string[] {
+  const c = p.recommendedChange;
+  if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
+  const before = c.before, after = c.after;
+  const bare = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+  const a = bare(after);
+  const out: string[] = [];
+  for (const u of before.match(/https?:\/\/\S+|\bwww\.\S+|(?<=\s|^)\/[a-z0-9-]{2,}(?:\/[a-z0-9-]+)+/g) ?? [])
+    if (!after.includes(u.replace(/[).,]+$/, ""))) out.push(`the link ${u.replace(/[).,]+$/, "")}`);
+  for (const n of before.match(/\d[\d,.]*(?:\s?(?:%|percent|BCE|CE|AD|BC))?/g) ?? [])
+    if (n.replace(/[^\d]/g, "").length >= 2 && !a.includes(bare(n))) out.push(`the figure ${n.trim()}`);
+  for (const ph of before.match(/(?:[\p{Lu}\p{N}][\p{L}\p{N}'’-]* ){1,5}\p{Lu}[\p{L}\p{N}'’-]+/gu) ?? [])
+    if (!a.includes(bare(ph))) out.push(`"${ph.trim()}"`);
+  return [...new Set(out)];
 }

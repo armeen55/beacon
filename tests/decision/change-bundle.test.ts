@@ -461,7 +461,6 @@ describe("traffic is the objective and every other factor may only discount it",
 
   it("scores a change on its own measured recovery, never on the impressions of the page it sits on", () => {
     // THE LIVE DEFECT: the band took whichever number was BIGGER, so the cheetah title change printed "on a page
-    // shown 16,493 times" and was scored 29.56 on impressions while its own measured 98 clicks was worth 4.9.
     const [only] = rankProposals([clicky({ impactScore: 20, demandImpressions90d: 900_000 })]);
     const vis = only!.rankingReceipt!.factors.find((f) => f.name === "visibility")!;
     expect(only!.rankingReceipt!.directional, "it holds a measured figure, so the order is a size and not a direction").toBe(false);
@@ -479,7 +478,6 @@ describe("traffic is the objective and every other factor may only discount it",
     const ranked = rankProposals([aeo({ id: "bare", aiImpact: { answers: 2, days: 1, engines: 1, citedRivals: 1, mentionRate: 0, audienceWeight: null, stage: "owned_retrieved_not_cited" as const } }), connected]);
     expect(ranked[0]!.id).toBe("connected"); // its own page's demand, not a bonus for being AEO
     // AND NEITHER PROXY CLAIMS A CLICK. Impressions and answer counts order the work; they are never converted
-    // into recovered visitors, and the receipt says the order is a direction rather than a size.
     for (const p of ranked) {
       expect(p.rankingReceipt!.directional).toBe(true);
       expect(p.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).not.toMatch(/click/i);
@@ -544,7 +542,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const errand = prop({ id: "errand", pagePath: "/tiny", impactScore: null, demandImpressions90d: 2, estimatedEffortMinutes: 1 }); const ranked = rankProposals([errand, losing]); expect(ranked.map((p) => p.id)).toEqual(["losing", "errand"]);
     expect(factorOf(ranked[0]!, "visibility")).toBe(8.07); // 191 recoverable clicks at medium confidence: 7.64 counted at 85 percent. The discount is named, never silent.
     // AND BEING QUICK BUYS NOTHING. Speed used to ADD up to 4 points, so an errand on a page shown twice could
-    // climb on how fast it was. Effort may only discount, so the whole of the errand's speed is worth zero.
     expect(factorOf(ranked[1]!, "effort")).toBeLessThanOrEqual(0);
     // The errand carries only the ordering floor, and being one minute long cannot lift it past 191 clicks.
     expect(factorOf(ranked[1]!, "visibility")).toBeLessThan(factorOf(ranked[0]!, "visibility"));
@@ -627,7 +624,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       .toEqual([true, true, false]); });
   it("refuses the keyword list the operator rejected, and keeps the topic list that names three different things", () => {
     // THE RULE HAD NEVER REJECTED ANYTHING. It read topicTokens, which returns a SET, so its own repeat test
-    // (indexOf(t) !== i) could never be true, while its comment cited the operator's rejected example.
     const pk = { targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
     const title = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "title", naturalHeading: null, beforeText: null, placementAnchor: "the title", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never)
       .some((r) => r.includes("keyword list rather than a line a person would write"));
@@ -640,7 +636,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
 
   it("refuses a summary that sells the site to a reader already standing on it", () => {
     // LIVE IN THE READY QUEUE, on /discover-iran. Descriptions are excused the information-gain test, because
-    // summarising the page IS a description's job, and nothing else ever asked whether it said anything.
     const pk = { targetUrl: "https://www.iranopedia.com/discover-iran", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/discover-iran"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
     const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/discover-iran", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
     const stuffed = "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source.";
@@ -1128,7 +1123,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   it("ranks a change it holds no proven figure for as a direction, never a size, and says so", () => { const [blind] = rankProposals([prop({ impactScore: null, upsidePerMonth: null })]);
     expect(blind!.rankingReceipt!.directional).toBe(true);
     // It carries a FLOOR rather than nothing, so effort, evidence and risk can still order it against other
-    // figureless cards, and that floor is under the smallest opportunity this queue will ever carry.
     const smallest = rankProposals([prop({ impactScore: 16, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) })])[0]!;
     expect(factorOf(blind!, "visibility")).toBeLessThan(factorOf(smallest, "visibility")); expect(blind!.rankingReceipt!.basis).toContain("this is the order to work in, not a promise about size");
     // AN IMPACT FIGURE WITH NO DIAGNOSED CAUSE IS A DIRECTION: the number rides as measured shortfall and the receipt never claims a proven recovery for a gap nobody has explained.
@@ -1427,7 +1421,6 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const b = plan([job("/best", "field_draft", 90)], { breakerOpen: true }); expect([b.funded, b.take("/best"), b.spent().calls]).toEqual([[], null, 0]);
     expect(b.declined[0]!.reason).toContain("the provider's own credit is spent");
     // A PASS ASKED TO SPEND NOTHING IS NOT A PROVIDER THAT RAN OUT. Both funded nothing, and reporting the same
-    // sentence for both sent the operator to a billing page over a decision Beacon had made itself.
     const q = plan([job("/best", "field_draft", 90)], { quiet: true });
     expect([q.funded, q.spent().calls]).toEqual([[], 0]);
     expect(q.declined[0]!.reason).toBe("this pass was asked to spend nothing, so the work is still owed and nothing was bought for it"); });
@@ -1542,7 +1535,6 @@ describe("typed refusal contract", () => {
     const { canonicalUrlKey: ck6 } = await import("@/domains/evidence/snapshot");
     const URL_R = "https://www.iranopedia.com/persian-rugs";
     // A HUB PAGE AS THEY REALLY ARE: heading straight into heading, so no passage is long enough to be a rewrite
-    // target. That is exactly the page the synthesis exemption used to be denied to.
     const body = { url: URL_R, title: "Persian Rugs", h1: "Persian Rugs", metaDescription: null, vocabulary: "",
       headings: ["Tabriz", "Kashan", "Kerman"],
       passages: ["Persian rugs come in many types, woven city by city.",

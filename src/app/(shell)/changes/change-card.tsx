@@ -321,6 +321,15 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
                 </ul>
               </div>
             ) : null}
+            {/* WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT, read off the canonical spans: a
+                replacement states its material losses or their absence, never silence (operator, 2026-08-27). */}
+            {(proposal.recommendedChange.kind === "existing_edit" && proposal.recommendedChange.before?.trim()) ? (
+              <p className="text-[12px] leading-relaxed text-muted-foreground" data-material-loss="true">
+                {proof.losses.length > 0
+                  ? `This replacement also removes: ${proof.losses.join("; ")}. Check that each is meant to go.`
+                  : "No link, figure or named item in the replaced words is lost."}
+              </p>
+            ) : null}
             {/* WHY THIS TYPE OF ACTION, only when something actually chose it: a bundle's objective or the
                 treatment the diagnosis named. Attention evidence chooses nothing, so most cards honestly show
                 nothing here, and what else was weighed rides with it in the record's own sentence. */}

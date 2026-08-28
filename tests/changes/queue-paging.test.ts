@@ -104,7 +104,6 @@ describe("one release identity, or no release at all", () => {
     const one = ALL[0]!;
     db.rows = [seed(one)];
     // The stale receipt lives in the STORED JSON, exactly as it does on the account: a row saved under the old
-    // rules and never saved again since they changed.
     const payload = db.rows[0]!.payload as { proposal: Record<string, unknown> };
     payload.proposal.rankingReceipt = { score: -15.57, directional: true, basis: "banked under rules that no longer decide anything",
       factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] };

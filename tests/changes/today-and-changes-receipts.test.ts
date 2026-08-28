@@ -115,7 +115,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.ranksHere).toBeNull(); expect(r.wording).toEqual([]); expect(r.opportunity).toEqual([]);
     expect(r.limits).toEqual([]); expect(r.shape).toBeNull();
     // A row with NO evidence at all can still honestly say where its words came from: the copy really does
-    // carry the search this page already appears for, and that is checked against the copy, not assumed.
     expect(r.queryEcho).toBe('"nowruz traditions" is the search already bringing people to this page, and the new wording uses it.');
     expect(proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Nothing relevant." } })).queryEcho).toBeNull(); });
 
@@ -124,9 +123,22 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
+  it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
+    // The crawler fuses copy and controls into one chunk, so a span-sized rewrite can silently delete a
+    const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
+      claims: [{ text: "Persian statements.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],
+      recommendedChange: { kind: "existing_edit", field: "section", before, after } } as ChangeProposal);
+    const lossy = proofOf(P("Persian has 32 letters. Start with the basics at /learn/lesson-one and Try Lesson 1 Free today.", "Persian is written right to left."));
+    expect(lossy.losses).toEqual(["the link /learn/lesson-one", "the figure 32", '"Try Lesson 1 Free"']);
+    expect(proofOf(P("Persian has 32 letters.", "Persian has 32 letters, written right to left.")).losses).toEqual([]);
+    expect(proofOf(P(null, "Anything new.")).losses, "adding deletes nothing").toEqual([]);
+    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
+    const gated = staleCopyReasons(P("Read more at https://x.example/lessons today.", "Read on."), new Map(), []);
+    expect(gated.join(" ")).toContain("it removes the link https://x.example/lessons");
+    expect(staleCopyReasons(P("See https://x.example/a.", "Still see https://x.example/a."), new Map(), []).join(" ")).not.toContain("removes the link"); });
+
   it("Ready is one sequence, 1..N with no hidden-lane gaps, and Show more pages finished work only", async () => {
     // The live queue numbered its finished cards 1, 5, 6, 7, 11, 14, 19: the stored global rank leaked through
-    // with holes where internal lanes sat. The customer sequence is the Ready lane's own.
     const mk = (n: number, lane: "ready" | "todo") => ({ ...atomic(), id: `t::/p${n}::existing_edit::title`, pagePath: `/p${n}`,
       ...(lane === "todo" ? { status: "needs_review" as const } : {}) } as ChangeProposal);
     const rows = [mk(1, "ready"), mk(2, "todo"), mk(3, "ready"), mk(4, "todo"), mk(5, "ready")];
@@ -148,7 +160,6 @@ describe("a card says why this opportunity and why these words, and never trades
   it("attention, treatment and wording are three separately earned answers, never one leap", async () => {
     const P = (over: Partial<ChangeProposal>) => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, causeFinding: undefined, ...over } as ChangeProposal);
     // Onager title: 8,112 impressions justify ATTENTION; with no results-page or winning-page reading, the
-    // receipt says the wording is offered as supported, never proven better, and no action was diagnosed.
     const title = proofOf(P({ demandImpressions90d: 8112, impactScore: 74, primaryQuery: "onager" }));
     expect(title.whyAction).toBeNull(); expect(title.wordingBasis).toContain("not as proven better");
     expect(JSON.stringify(title)).not.toMatch(/proven best|better CTR|beats the/i);
@@ -187,12 +198,10 @@ describe("a ranked card explains itself without being opened", () => {
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
     // THE CHIP AND THE BUTTON NAME THE REAL OBJECT (operator contract, 2026-08-27): "One edit" and "Copy new
-    // title" both made the operator work out what they were holding.
     for (const s of ["Replace title", "Copy title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
     // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
     // A dangerous consolidation is complete work awaiting the operator's own authority: the ONE lane that is
-    // genuinely theirs, framed as the decision rather than as Beacon's internal hold.
     for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
     for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
     // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED, and neither is a provenance GUESS: the chip that replaced `proven` read bundle receipt kinds alone, so on the live account five rows standing on a 90-day Google record and one standing on three assistant answers all said "Page-only" beside a sentence citing those very figures. The proof line names the evidence this row has, so no card wears a tier its own sentence contradicts.
@@ -218,7 +227,6 @@ describe("a ranked card explains itself without being opened", () => {
     for (const said of ["Replace description", "Copy description", "Only the description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
     // 4. A multi-piece bundle is named by its size, never by one piece's family word: the live queue held a
-    // three-edit bundle across two pages wearing the chip "Title" because its id ended ::title-family.
     const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
     two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,
       { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };
