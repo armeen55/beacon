@@ -1,7 +1,7 @@
 "use server";
 
 import { log } from "@/lib/logger";
-import { continueResearch, publishCustomerSurfaces, requestExtraSample, researchPermission } from "@/domains/runtime"; import { reportingDay } from "@/lib/reporting-day";
+ import { reportingDay } from "@/lib/reporting-day";
 import {
   getConnectorInfo,
   getGoogleConnectorToken,
@@ -758,15 +758,6 @@ export type RefreshAllConnectedResult = {
  *   same freshness contract the per-source actions use.
  * - Zero connected → `{ ranAt, results: [] }`.
  */
-/** The WHOLE due list in one press. This is the recovery seam behind the Update data button: a
- *  server-owned loop that keeps running canonical passes until the work is done, the press budget
- *  runs out, or nothing durable moves; the `hop` it returns is a report of cycles run, never an
- *  allowance. The daily round itself is the scheduler's job, not this action's. */
-export async function continueResearchNow(hop = 0): Promise<{ hop: number; more: boolean; blocker?: string }> {
-  const tenantId = await currentTenantId().catch(() => "");
-  return tenantId ? continueResearch(tenantId, hop) : { hop: 0, more: false };
-}
-
 export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedResult> {
   const action = "refreshAllConnectedDataNow";
   const t0 = Date.now();
@@ -849,40 +840,18 @@ export async function refreshAllConnectedDataNow(): Promise<RefreshAllConnectedR
     // failure never turns a successful refresh into an error. Bounded by a safety-valve deadline (well
     // under this route's maxDuration) so a pathological hang can never wedge the action; if the cap wins,
     // the build keeps warming in the background for the next visit.
+    // UPDATE DATA MEANS A $0 REFRESH, EVERY TIME. This press used to warm paid competitor context, grant an
+    // extra AI reading and hand the browser a research continuation, so a button labelled "refresh" silently
+    // spent from the account's allowance (Codex, 2026-08-28). It now refreshes the connected first-party data
+    // above and republishes the stored truth, and nothing more: research keeps its own schedule under the one
+    // approved runtime, and anything that can spend says so where it is actually asked for.
     const WARM_AFTER_REFRESH_DEADLINE_MS = 45_000;
-    // THE PAUSE IS READ BEFORE ANYTHING THIS PRESS COULD BUY. Update data used to run the paid competitor
-    // settle and grant an extra AI reading with no permission read at all, which is how a paused account kept
-    // spending from a button (operator, 2026-08-20). Paused: the free finalization still runs so the screens
-    // repaint from stored evidence, nothing is bought, and no reading is promised. Unreadable counts as
-    // paused. The doors below refuse independently; this read is what keeps the PROMISES honest too.
-    const permission = await researchPermission(tenantId).catch(() => "unreadable" as const);
-    const running = permission === "running";
     await Promise.race([
-      // publishCustomerSurfaces PROPAGATES a build failure (the Research Run publish phase relies on that
-      // truth). This "Update data" action is deliberately fail-soft: a warm failure must never turn a
-      // successful data refresh into an error, so we own the .catch here.
-      (running ? publishCustomerSurfaces(tenantId) : (async () => {
-        const { finalizeFreeSurfaces } = await import("@/domains/runtime");
-        return finalizeFreeSurfaces(tenantId);
-      })()).catch(() => {}),
+      (async () => { const { finalizeFreeSurfaces } = await import("@/domains/runtime"); return finalizeFreeSurfaces(tenantId); })().catch(() => {}),
       new Promise<void>((resolve) => setTimeout(resolve, WARM_AFTER_REFRESH_DEADLINE_MS)),
     ]);
-
-    // Pressing Update data IS the ask for a second reading of today's AI answers, and the planner answers
-    // honestly: it refuses while today's one canonical round is still owed (an extra read of a few
-    // questions would tilt the day's average) and once every pair already has three. No new button and no
-    // new surface. With nothing connected the line below is the whole answer the operator gets, so it says
-    // WHAT ACTUALLY HAPPENED: that refusal used to reach a log line while the operator read "I refreshed
-    // what I gather myself".
-    // NO READING IS GRANTED ON A PAUSED ACCOUNT: the grant is a promise of paid work, and a promise the
-    // pause forbids keeping must never be made. The line below then says so instead of "taking N readings".
-    const extra = running ? await requestExtraSample(tenantId, reportingDay(Date.now())).catch(() => null)
-      : { granted: false, due: [], reason: "Research is paused, so no fresh AI reading is taken. Your stored data was refreshed and your surfaces were rebuilt from it." };
-    if (extra) log.info("Action extra AI reading", { action, granted: extra.granted, due: extra.due.length, reason: extra.reason });
     if (connected.length === 0) results.push({ provider: "beacon_research", label: "Beacon's own research.", ok: true,
-      detail: `${extra == null ? "Whether a fresh AI reading is due could not be told just now, so none is promised."
-        : extra.granted ? `Taking ${extra.due.length} fresh AI ${extra.due.length === 1 ? "reading" : "readings"} now.`
-          : extra.reason} Connect Google to refresh your search data too.` });
+      detail: "Your stored data was refreshed and your surfaces were rebuilt from it at no cost. Beacon's research runs on its own schedule. Connect Google to refresh your search data too." });
 
     revalidatePath("/");
     revalidatePath("/settings/connectors");

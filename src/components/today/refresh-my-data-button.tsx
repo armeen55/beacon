@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  continueResearchNow,
   refreshAllConnectedDataNow,
   type RefreshAllConnectedResult,
 } from "@/app/(shell)/settings/connectors/actions";
@@ -83,10 +82,8 @@ export function RefreshMyDataButton({
 }) {
   const router = useRouter();
   const [pulling, setPulling] = useState(false);
-  const [researching, setResearching] = useState(false);
   const [results, setResults] = useState<RefreshResult[] | null>(null);
-  const [blocker, setBlocker] = useState<string | null>(null);
-  const busy = pulling || researching;
+  const busy = pulling;
 
   function onClick() {
     setResults(null);
@@ -98,15 +95,6 @@ export function RefreshMyDataButton({
       // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
       // wait on the long half to see the short half.
       router.refresh();
-      // ONE PRESS, ONE SERVER-OWNED CYCLE. The browser used to loop six requests and could stop the day's work
-      // by closing the tab, and the seventh press reported done over an unfinished queue. The server now drives
-      // the whole continuation inside one call, persists every step durably, and answers honestly: `more` with a
-      // blocker means work is still owed (usually evidence already requested and not yet answered), and pressing
-      // again any time is safe. Closing the tab changes nothing durable.
-      setResearching(true);
-      const res2 = await continueResearchNow(0).catch(() => null);
-      setBlocker(res2?.more === true ? res2.blocker ?? "More work is owed; press again any time." : null);
-      setResearching(false);
       router.refresh();
     })();
   }
@@ -132,15 +120,8 @@ export function RefreshMyDataButton({
           <p className="mt-1 text-[12px] text-muted-foreground">
             Refreshing… this can take a moment
           </p>
-        ) : researching ? (
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Picking up anything unfinished. This runs once, and the daily research carries on either way.
-          </p>
         ) : results ? (
-          <>
-            <RefreshResultList results={results} />
-            {blocker ? <p className="mt-1 text-[12px] text-muted-foreground">{blocker}</p> : null}
-          </>
+          <RefreshResultList results={results} />
         ) : null}
       </div>
     </div>

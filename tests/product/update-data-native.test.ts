@@ -1,4 +1,4 @@
-/** Update data with NOTHING connected (V1 closure, launch blocker 13). The action used to return the moment it found zero third-party connectors, which skipped everything Beacon gathers for itself: the extra reading of today's AI answers was requested only by accounts that happened to have Google. An account running on Beacon's own research now gets the same native work, and one honest line about it. */
+/** UPDATE DATA MEANS A $0 REFRESH. The press used to warm paid competitor context, grant an extra AI reading and hand the browser a research continuation, so a button labelled refresh silently spent from the account (Codex, 2026-08-28). It refreshes connected first-party data and republishes stored truth, and nothing more; research keeps its own schedule. The old header stands below for the other half it still pins: with NOTHING connected the action must not return early and must still repaint from stored evidence. (V1 closure, launch blocker 13; the action used to return the moment it found zero third-party connectors, which skipped everything Beacon gathers for itself: the extra reading of today's AI answers was requested only by accounts that happened to have Google. An account running on Beacon's own research now gets the same native work, and one honest line about it. */
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 type Verdict = { granted: boolean; reason: string; due: { promptId: string }[] };
 const GRANTED: Verdict = { granted: true, reason: "I will take a second reading on 3 question and engine pairs on the next pass.", due: [{ promptId: "p1" }, { promptId: "p2" }, { promptId: "p3" }] };
@@ -21,7 +21,6 @@ vi.mock("@/lib/connector-store", () => ({
 vi.mock("@/domains/runtime", () => ({
   continueResearch: async () => ({ hop: 1, more: false }),
   requestExtraSample: async (_t: string, day: string) => { CALLS.extraSample += 1; CALLS.extraDays.push(day); return CALLS.verdict; },
-  // The action reads the pause before anything it could buy: running here, so the paid settle and the reading grant behave exactly as these tests always pinned them.
   researchPermission: async () => "running" as const,
   publishCustomerSurfaces: async () => { CALLS.warm += 1; },
   finalizeFreeSurfaces: async () => { CALLS.warm += 1; },
@@ -32,33 +31,22 @@ import { refreshAllConnectedDataNow } from "@/app/(shell)/settings/connectors/ac
 import { RefreshResultList } from "@/components/today/refresh-my-data-button";
 beforeEach(() => { CALLS.extraSample = 0; CALLS.warm = 0; CALLS.synced = 0; CALLS.connected = false; CALLS.verdict = GRANTED; CALLS.extraDays = []; });
 afterEach(() => { vi.useRealTimers(); });
-describe("Update data with no third-party connection", () => {
-  it("still asks for the extra AI reading and warms what the operator is about to look at", async () => {
-    await refreshAllConnectedDataNow(); expect(CALLS.extraSample).toBe(1);
-    expect(CALLS.warm).toBe(1); expect(CALLS.synced).toBe(0);});
-  it("says what the readings ACTUALLY did, on the granted branch and on the refused one", async () => {
-    // GRANTED: the number of readings the planner really authorized, never a vague "I refreshed things".
-    const granted = (await refreshAllConnectedDataNow()).results[0]!; expect(granted.ok).toBe(true);
-    expect(`${granted.label} ${granted.detail}`).toBe(
-      "Beacon's own research. Taking 3 fresh AI readings now. Connect Google to refresh your search data too.",);
-    // REFUSED: the planner's OWN sentence, which used to be dropped into a log line while the operator read that Beacon had refreshed its own research.
-    CALLS.verdict = REFUSED;
-    const refused = (await refreshAllConnectedDataNow()).results[0]!; expect(refused.detail).toBe(`${REFUSED.reason} Connect Google to refresh your search data too.`);
-    expect(refused.detail).not.toContain("I refreshed what I gather myself");
-    // Beacon voice: first person, a next step, and never a dash.
-    for (const line of [granted, refused]) expect(line.detail).not.toMatch(/[\u2013\u2014]/);});
-  it("tells the truth when the press itself failed, instead of claiming nothing is connected", async () => {
-    // The action now always answers with at least its own research line, so an empty list can only mean the press failed. "Nothing connected to refresh yet." was a claim about the account, not about the press.
-    const failed = renderToStaticMarkup(createElement(RefreshResultList, { results: [] })); expect(failed).toContain("Nothing could be refreshed just now; try again in a minute.");
-    expect(failed).not.toContain("Nothing connected"); const line = (await refreshAllConnectedDataNow()).results[0]!;
-    expect(renderToStaticMarkup(createElement(RefreshResultList, { results: [line] }))).toContain(line.detail);});
-  it("asks for the reading against the operator's own day, not the UTC one", async () => {
-    // Six in the evening Pacific on August 1 is already August 2 in UTC. Every observation is filed under the operator's day, so an evening press asked the planner about a day with no readings at all: it reported a whole round still owed and refused the second reading the operator had just pressed for.
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-08-02T02:00:00.000Z"));
-    await refreshAllConnectedDataNow(); expect(CALLS.extraDays).toEqual(["2026-08-01"]);});
-  it("leaves a connected account exactly as it was: the sources still sync and no native line is added", async () => {
+describe("Update data is a true $0 refresh", () => {
+  it("buys nothing on a press, with due research, an unread backlog and undecided rivals all standing", async () => {
+    // The seams that used to spend are wired to count; a running account with everything tempting on the table
+    // still reaches none of them, twice, and the free republish runs each time.
+    const first = await refreshAllConnectedDataNow();
+    const second = await refreshAllConnectedDataNow();
+    expect([CALLS.extraSample, CALLS.warm >= 2, first.results.length > 0, second.results.length > 0]).toEqual([0, true, true, true]);
+    const line = first.results.find((r) => r.provider === "beacon_research");
+    expect(line?.detail, "the press says what it did: stored truth at no cost").toContain("no cost");
+    expect(line?.detail).not.toContain("reading");
+  });
+  it("still repaints from stored evidence when nothing is connected, and reports connector truth when one is", async () => {
     CALLS.connected = true;
-    const result = await refreshAllConnectedDataNow(); expect(CALLS.synced).toBe(3);
-    expect(CALLS.extraSample).toBe(1); expect(result.results.map((r) => r.provider)).toEqual(["google_gsc", "google_ga4", "clarity"]);
-    expect(result.results.every((r) => r.ok)).toBe(true);});});
+    const res = await refreshAllConnectedDataNow();
+    expect(CALLS.synced, "connected sources sync").toBeGreaterThan(0);
+    expect(CALLS.extraSample, "and connected changes nothing about spend").toBe(0);
+    expect(res.results.some((r) => r.provider === "beacon_research"), "no native line when real connectors answered").toBe(false);
+  });
+});
