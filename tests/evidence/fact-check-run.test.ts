@@ -223,7 +223,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const r = db.rows[0] as FactCheck;
     // The passage IS about the right subject, so the claim survives. The WORDING is not in it, so it may not
     expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
-    expect(r.note).toContain("not carried by the verified quote"); });
+    expect(r.note).toContain("Held below confirmed:"); });
 
   it("a confirmed verdict the quote-bound contract refuses reopens as owed, and a carried one does not", async () => {
     const banked = (subject: string, proposed: string, says: string) => row({ statementKey: subject.toLowerCase(), subject,
@@ -243,7 +243,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
         subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "البرز", why: "about this name" }] } }) });
     const r = db.rows[0] as FactCheck;
     expect([r.confidence, r.verdict]).toEqual(["likely", "page_wrong"]);
-    expect(r.note).toContain("not carried by the verified quote"); });
+    expect(r.note).toContain("Held below confirmed:"); });
 
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
     // THE DEADLOCK, LIVE. Bumping the verification rules re-opened 21 settled claims on the names page, the owed
@@ -340,8 +340,11 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect(out.status).toBe("advanced"); // NOT none_found and NOT source_quality_unresolved
     expect([fetched.length, fetched.some((u) => u.includes("youtube"))]).toEqual([2, false]); // video excluded
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
-  it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
+  it("two credible publishers with no authoritative source stay a finding, credited separately, and never reopen", async () => {
     await unit({ held: [row({ statementKey: "k1", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
-    const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
-    expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence
+    const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "likely"]);
+    expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
+    // AND NEVER A LOOP: below confirmed it is a finding the card door was always going to refuse, so nothing reopens it.
+    db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
+    expect(db.reopened).toEqual([]); }); });

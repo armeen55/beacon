@@ -317,35 +317,32 @@ export function citationOfQuote(proposed: string, quotes: readonly string[], cur
     for (const w of qt) if (w === pt[i]) { i += 1; if (i === pt.length) return true; }
     return false; });
 }
-/** Does this ONE quote contribute any of the proposed wording? A source that contributes nothing cannot vouch
- *  for words it never said, whatever kind of publisher it is. */
-const carriesAny = (proposed: string, quote: string): boolean => {
-  const said = new Set(allTokens(quote).flatMap(stems));
-  const hit = (w: string): boolean => stems(w).some((v) => said.has(v));
-  const tokens = contentTokens(proposed);
-  return (tokens.length > 0 ? tokens : allTokens(proposed).filter((w) => !GLOSS_STOP.has(w))).some(hit);
-};
 const AUTHORITATIVE_KIND: ReadonlySet<SourceKind> = new Set(["scholarly", "dictionary", "encyclopedia"]);
+/** THE CORRECTION AS BOTH ENDS SEE IT: the evidence run judges a candidate before banking it and the card door
+ *  judges the banked row, through the ONE rule below, so a row can never be banked `confirmed` and then be
+ *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
+export type CorrectionCandidate = { subject: string; current: string; proposed: string | null;
+  sources: readonly { kind: SourceKind; says: string }[] };
 
-/** WHY a checked, confirmed row still may not become customer work, in one typed sentence, or null. THE ONE
- *  AUTHORIZATION RULE, so the refusal and the withdrawal that reports it can never drift apart.
+/** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by
+ *  the evidence run before it banks and by the card door before it offers, so a refusal, a withdrawal and a
+ *  confidence can never drift apart.
  *
- *  AUTHORITY AND WORDING ARE ONE QUESTION, NOT TWO. They were asked independently, so an authoritative quote
- *  about something else could elevate words supplied only by an ordinary publisher: a dictionary saying "the
- *  name is Persian" beside a baby-name site saying "it means silver" authorized "silver". The set that CARRIES
- *  the proposed wording is now the set that must satisfy the authority contract, so an authoritative source
- *  has to contribute to the words it is vouching for. An ordinary source may still corroborate alongside it,
- *  which is the honest residual of a provenance test: it bounds who may speak, never what the words mean. */
-export function unauthorizedReason(c: FactCheck): string | null {
+ *  EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET, NOT MERELY ONE OF THEM. Authority and wording were
+ *  asked independently, then bound only by "an authoritative source contributed something", which live left
+ *  Parisa publishing "beautiful like a fairy" while its encyclopedia said only "fairy-like" and "beautiful"
+ *  came from a baby-name publisher alone. An ordinary source may CORROBORATE wording the authoritative quotes
+ *  already carry; it may never supply a word of it. That is the whole boundary: it decides which sources may
+ *  speak, never what their words mean, and semantic reassembly stays the paid reviewer's residual. */
+export function unauthorizedReason(c: CorrectionCandidate): string | null {
   const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject));
-  if (!qualified.some((s) => AUTHORITATIVE_KIND.has(s.kind))) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
+  const authoritative = qualified.filter((s) => AUTHORITATIVE_KIND.has(s.kind));
+  if (authoritative.length === 0) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
   // A missing-information row proposes what the page LACKS, has no quotation to grade, and keeps the contract
   // it was banked under; only the correction shape is bound to its quotes here.
   if (c.current.trim() === "" || !c.proposed?.trim()) return null;
-  const carriers = qualified.filter((s) => carriesAny(c.proposed!, s.says));
-  if (!carriers.some((s) => AUTHORITATIVE_KIND.has(s.kind))) return "the authoritative quote carries none of the proposed wording, so those words stand only on an ordinary source";
-  const quotes = carriers.map((s) => s.says);
-  if (!glossCarriedBy(c.proposed, quotes)) return "the banked quote does not carry the proposed wording, so the receipt cannot support publishing it";
+  const quotes = authoritative.map((s) => s.says);
+  if (!glossCarriedBy(c.proposed, quotes)) return "the authoritative quotes do not carry every word of the proposal, so part of the wording stands only on an ordinary source";
   if (citationOfQuote(c.proposed, quotes, c.current)) return "the proposal restates the source's own sentence instead of giving the page's line a meaning";
   return null;
 }

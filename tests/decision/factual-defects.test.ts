@@ -101,26 +101,28 @@ describe("a page's own statements against their sources", () => {
     // D rides A: the literal repeats the gloss and may not vouch for itself.
     expect(cards.map((c) => c.id.split("fact-")[1]), "only the quote-carried gloss mints").toEqual(["yas"]);
     const { unauthorizedReason } = await import("@/domains/evidence/pages/fact-checks");
-    expect(unauthorizedReason(checks.rows[0] as never)).toContain("the banked quote does not carry the proposed wording");
+    expect(unauthorizedReason(checks.rows[0] as never)).toContain("do not carry every word of the proposal");
     expect(unauthorizedReason(checks.rows[2] as never)).toContain("restates the source's own sentence");
     expect(unauthorizedReason(checks.rows[1] as never)).toBeNull();
     // Reviewer-driven boundaries: a word inside another word is not that word; digits match across grouping;
     // plain inflection folds both ways; a gloss too short for content tokens must still appear whole.
-    // AUTHORITY AND WORDING ARE ONE QUESTION: an authoritative quote about something else may not elevate
-    // words supplied only by an ordinary source, and an authoritative carrier needs no help from a weak one.
+    // EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET. An authoritative source contributing ONE word while
+    // an ordinary publisher supplies the decisive one is still incomplete provenance: live, Parisa published
+    // "beautiful like a fairy" off an encyclopedia saying only "fairy-like".
     const two = (a: Record<string, string>, b: Record<string, string>) => [a, b] as never;
-    const split = check({ subject: "Aryana", proposed: "silver", literal: "silver",
-      sources: two({ url: "https://en.wiktionary.org/s", kind: "dictionary", says: "Aryana is a Persian feminine given name." },
-        { url: "https://babynames.example/s", kind: "publisher", says: "Aryana means silver." }) });
-    expect(unauthorizedReason(split as never)).toContain("carries none of the proposed wording");
-    const carried = check({ subject: "Aryana", proposed: "silver",
-      sources: two({ url: "https://en.wiktionary.org/s", kind: "dictionary", says: 'Aryana means "silver".' },
-        { url: "https://babynames.example/s", kind: "publisher", says: "A popular name this year." }) });
-    expect(unauthorizedReason(carried as never), "an authoritative carrier needs no help").toBeNull();
-    // News-only keeps its existing authorization behavior: refused at the card door, whatever generation banked.
+    const src = (kind: string, says: string) => ({ url: `https://x.example/${kind}${says.length}`, kind, says });
+    const parisa = check({ subject: "Parisa", current: "Meaning:Fairy-like, ethereal, or angelic.", proposed: "like a fairy; beautiful like a fairy",
+      sources: two(src("encyclopedia", "Parisā ( Persian : پریسا, lit. ' fairy-like ' ) is a Persian feminine given name."),
+        src("publisher", '"Parisa" means "like a fairy" or "beautiful like a fairy."')) });
+    expect(unauthorizedReason(parisa as never), "the live Parisa record").toContain("do not carry every word of the proposal");
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", literal: "silver",
+      sources: two(src("dictionary", "Aryana is a Persian feminine given name."), src("publisher", "Aryana means silver.")) }) as never)).toContain("do not carry every word");
     expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
-      sources: two({ url: "https://bbc.com/a", kind: "news", says: "Aryana means silver." },
-        { url: "https://cnn.com/a", kind: "news", says: "Aryana means silver." }) }) as never)).toContain("no authoritative source");
+      sources: two(src("dictionary", 'Aryana means "silver".'), src("publisher", "A popular name this year.")) }) as never), "authoritative carries all, weak corroborates").toBeNull();
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "bright silver",
+      sources: two(src("dictionary", 'Aryana means "silver".'), src("encyclopedia", "The name reads as bright.")) }) as never), "two authoritative sources together").toBeNull();
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
+      sources: two(src("news", "Aryana means silver."), src("news", "Aryana means silver.")) }) as never)).toContain("no authoritative source");
     const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
     expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false);
     expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);

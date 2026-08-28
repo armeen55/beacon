@@ -14,7 +14,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  VERIFICATION_RULES_VERSION, citationOfQuote, glossCarriedBy, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  VERIFICATION_RULES_VERSION, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
   confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null,
@@ -222,8 +222,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   let cov: InventoryCoverage = covRead && covRead.pageContentHash === hash
     ? covRead : { pageContentHash: hash, coveredChars: 0, totalChars: page.body.length };
   // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
-  // researched by a query built from the subject alone, and reading it as current would have made the engine
-  // skip for ever the exact claim it was repaired to research. Its evidence is archived and the claim re-opens.
   // AND A CONFIRMED VERDICT THE QUOTE-BOUND CONTRACT NOW REFUSES IS A CLAIM STILL OWED, not a settled finding: withdrawing the card without reopening the claim would strand the exact live defects this contract was written about (Alborz, Jasmine) as permanent dead findings, because a checked row is never re-inventoried. TARGETED, never a blanket version bump: only the rows the new authorization refuses reopen, so the four sound live corrections keep their verdicts and cards. Loop-safe: generation now binds to quotes too, so a re-researched claim either banks a carried gloss or holds below confirmed, where unauthorizedReason is null.
   const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION)
     || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
@@ -421,10 +419,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const read = norm(supporters.map((p) => verified.get(p.url) ?? "").join(" "));
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
   const share = words.length === 0 ? 1 : words.filter((w) => read.includes(w)).length / words.length;
-  const isCorrection = claim.current.trim() !== "";
-  const quotes = supporters.map((p) => verified.get(p.url) ?? "");
-  const cites = isCorrection && citationOfQuote(v.proposed ?? "", quotes, claim.current);
-  const carried = (isCorrection ? glossCarriedBy(v.proposed ?? "", quotes) : share >= SUPPORTED_SHARE) && !cites;
+  // A CORRECTION IS JUDGED HERE BY THE RULE THE CARD DOOR WILL APPLY, so nothing is banked `confirmed` that the
+  // door then refuses for ever: such a row reopens, is re-researched, and is refused again. Below confirmed it
+  // stays an honest finding and never reopens. Missing information keeps its own share against the quotes.
+  const blocked = unauthorizedReason({ subject: claim.subject, current: claim.current, proposed: v.proposed ?? null,
+    sources: supporters.map((p) => ({ kind: p.kind, says: verified.get(p.url) ?? "" })) });
+  const carried = blocked == null && (claim.current.trim() !== "" || share >= SUPPORTED_SHARE);
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
@@ -433,7 +433,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : cites ? " The proposal restates the source's own sentence instead of stating the page's line, so it is held below confirmed." : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
 }
 
 type FactCheckPassDeps = {

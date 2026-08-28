@@ -760,7 +760,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     /** WHAT A READER GETS TWICE IS THE SUBJECT, AND THE PAGE ALREADY SAYS WHAT ITS SUBJECTS ARE. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means" or in an ordinary sentence walked past it, and a live replacement scored ZERO of six lines and went READY at rank 1 while all five entries kept their sections underneath. The page's own stored headings are the subjects; the only question is whether the replacement says them again, however it writes them. */
     it("catches a repeated subject in any formatting, and lets only a claim-preserving consolidation name its removals", async () => {
       const { canonicalUrlKey: ck3 } = await import("@/domains/evidence/snapshot");
-      // The page as production stores it: every entry is its own H2, exactly like /funny-farsi-phrases.
       const H = ["Playful Persian expressions", "Pedar Sag (پدر سگ)", "Topoli (تپلی)", "Gooz (گوز)", "Bikhial (بی‌خیال)", "Boro Baa Baad (برو با باد)", "Chert-o-Pert (چرت و پرت)", "Olagh (الاغ)", "Divooneh (دیوانه)"];
       const SECTIONS = ["Pedar Sag (پدر سگ)", "Literally father dog, a harsh insult close friends trade as a joke.",
         "Topoli (تپلی)", "Chubby, an affectionate nickname for children and pets.",
@@ -780,7 +779,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const run = async (copy: string) => (await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never))[0]!;
-      // FIVE WAYS TO WRITE THE SAME DUPLICATION, and punctuation decides none of them: colon, em dash, hyphen, bullet, bold-then-means, and ordinary prose.
       const shapes: Array<[string, string]> = [
         ["colon", "Pedar Sag (پدر سگ): a colourful insult.\nTopoli (تپلی): an affectionate word.\nGooz (گوز): a dismissive word."],
         ["em dash", "Pedar Sag — a colourful insult.\nTopoli — an affectionate word.\nGooz — a dismissive word."],
@@ -792,14 +790,11 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         const r = await run(copy);
         expect([shape, r.status]).not.toEqual([shape, "ready"]);
         expect([shape, (r.faults ?? []).join(" ")]).toEqual([shape, expect.stringContaining("repeats what stays")]);}
-      // A SUMMARY that names no surviving subject is finished work.
       const sum = await run("Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.");
       expect([sum.status, (sum.recommendedChange as { where?: string }).where]).toEqual(["ready", 'Replaces the existing passage under "Playful Persian expressions"']);
-      // NEAR-COMPLETE IS NOT COMPLETE: this carries almost all of Pedar Sag and drops "literally father dog", so deleting that section would take the literal meaning off the page.
       const lossy = await run("Pedar Sag (پدر سگ): a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
       expect(lossy.status).not.toBe("ready");
       expect((lossy.operatorSteps ?? []).join(" ")).not.toContain("Delete the sections below for");
-      // COMPLETE: every material sentence of every absorbed section survives here, so the removal is safe and the card NAMES it.
       const whole = await run("Pedar Sag (پدر سگ): literally father dog, a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
       expect(whole.status).toBe("ready");
       expect((whole.operatorSteps ?? []).join(" ")).toContain("Delete the sections below for Pedar Sag, Topoli, Gooz");
@@ -823,7 +818,6 @@ describe("one score orders every kind of change, and says why", () => { it("puts
           budget,
           complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
         return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
-      // Owing nothing, the shared manifest funds nothing: no family draws, whatever it was going to write.
       expect((await run(0, true)).asked).toBe(0);
       // One owed and the store KEEPS the first one: the pass stops there and never buys the other two.
       const landed = await run(1, true);
