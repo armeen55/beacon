@@ -210,8 +210,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
   it("the site being corrected is never its own source, and a wording no source carries is not confirmed", async () => {
     // BOTH LIVE. The Nazanin correction cited iranopedia.com/persian-female-first-names, which is the page it
-    // was correcting, and banked it as sourced. The Maryam correction proposed "beloved; wished-for child"
-    // over a quote deriving the name from Hebrew for "rebellious", and banked that confirmed too.
     const fetched: string[] = [];
     const both = { organic: [{ domain: "www.iranopedia.com", url: "https://www.iranopedia.com/persian-female-first-names", title: "Persian names" },
       { domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Maryam" }] };
@@ -244,8 +242,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect((db.cov as unknown as { coveredChars: number }).coveredChars).toBeGreaterThan(0);
 
     // AND THE CAP IS MEASURED ON WHAT CAME BACK, NOT ON WHAT SURVIVED THE DEDUPE. Forty returned, most of them
-    // already known, so the deduped list is short: reading the short list says "not capped" and jumps the cursor
-    // over the whole chunk, dropping everything past statement forty in silence.
     db.rows = []; db.owed = []; db.cov = { pageContentHash: pageHashOf(body), coveredChars: 0, totalChars: body.length } as never;
     const full = Array.from({ length: 40 }, (_, i) => ({ subject: `Name${i}`, current: `Meaning${i}`, locator: null }));
     const known = full.slice(0, 35).map((c, i) => row({ statementKey: claimIdentity(c.subject, c.current, null), subject: c.subject, current: c.current, state: "checked" as const, pageContentHash: pageHashOf(body) }));
@@ -256,8 +252,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
   it("sets aside a claim whose sources will not resolve and reaches the next one, instead of stopping the pass", async () => {
     // LIVE on /persian-female-first-names: one claim whose sources would not parse returned `fetch_refused` at
-    // outage, which repeat; the owed order is stable, so a failure ABOUT ONE CLAIM put that claim back at the
-    // head every time and 167 other owed claims were never reached once.
     const body = "Alpha means one. Beta means two. Gamma means three. Delta four. Epsilon five. Zeta six.";
     const owed = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"].map((subject) => row({ statementKey: subject.toLowerCase(), subject,
       current: `${subject} means something`, pageContentHash: pageHashOf(body) }));

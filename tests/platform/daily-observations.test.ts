@@ -100,6 +100,13 @@ describe("extra readings", () => {
     const one = planObservations(DAY, { ...base, observed: fullDay(), extraSamples: 1, maxBatch: 99 }); expect(new Set(one.map(key)).size).toBe(12);
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1, maxBatch: 99 })).toEqual([]); // ONE grant buys ONE extra round: with slot 1 in, a second slot needs a second ask.
     expect(planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 2, maxBatch: 99 }).every((d) => d.slot === 2)).toBe(true);});
+  it("the scheduled path stops buying while paid answers sit unread, and reads drain the pause", async () => {
+    // Over the cap the run path plans nothing new; at the cap it plans normally; a broken count fails open.
+    const world = { readPrompts: async () => PROMPTS, readObservations: async () => [], readMarkers: async () => ({}) };
+    expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 201 })).toEqual([]);
+    expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 200 })) ?? []).length).toBeGreaterThan(0);
+    expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })) ?? []).length).toBeGreaterThan(0); });
+
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
     expect(out.reason).toContain("could not be read");});

@@ -161,8 +161,6 @@ export function planObservations(day: string, input: ObservationPlanInput): DueO
     || engineRank(a.engine) - engineRank(b.engine));
 
   // THE PLANNER KNOWS THE EXECUTOR'S CEILINGS. The unit drains at most three perplexity asks per
-  // pass, and a skipped pair writes no row, so it re-sorted to the head of the very next plan: the
-  // perplexity block grew until it owned half the batch and every other engine's coverage decayed
   // with it. The plan now carries at most one pass's worth of perplexity and fills the rest of the
   // batch with work the pass can actually finish.
   const picked: typeof candidates = []; let perp = 0;
@@ -408,6 +406,9 @@ export async function dailyChecks(tenantId: string, reportingDay: string, opts: 
  * spent stops saying "failed" on the row and says `unavailable`, with the provider's reason left in place.
  */
 export async function dueObservations(tenantId: string, reportingDay: string, opts: PlannerDeps = {}): Promise<DueObservation[] | null> {
+  // MONEY IS NOT SPENT ON A NEW ANSWER WHILE PAID ANSWERS SIT UNREAD, on the SCHEDULED path exactly as on the button: the extra-sample door got this refusal after 891 unread answers carrying $7.75 and the run path kept buying through it. Reading stays due (analyze_answers plans separately) so a backlog drains and sampling resumes on its own; a count that cannot be read fails open, because a broken meter must not stop the day's one canonical round.
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => 0);
+  if (behind > UNREAD_BACKLOG_MAX) { log.info("[daily-observations] buying paused: paid answers are waiting to be read", { tenantId, unread: behind }); return []; }
   const state = await readDayState(tenantId, reportingDay, opts);
   if (state == null) return null;
   const { due } = planFrom(reportingDay, state, opts);
