@@ -131,7 +131,8 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
 
 /** PERSISTED JSON IS UNTRUSTED (operator, 2026-08-28): a malformed or older-contract diagnosis is NO usable diagnosis. It never throws the queue, never authorizes work, and is never repaired into something valid-looking, because a repaired verdict is a verdict nobody made. */
 describe("a persisted diagnosis is decoded, never trusted", () => {
-  const ok = { kind: "scattered_answer", treatment: "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z" };
+  const CONTRACT = 2; // the CURRENT contract, stated literally: a fixture that tracked the constant would pass under any bump and prove nothing about the version rule
+  const ok = { kind: "scattered_answer", treatment: "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: CONTRACT, decidedAt: "2026-08-28T00:00:00.000Z" };
   it("keeps a whole record and fails closed on every broken one", async () => {
     const { decodeDiagnosis, freshDiagnosis } = await import("@/domains/decision/ai-case-store");
     expect(decodeDiagnosis(ok)).toMatchObject({ kind: "scattered_answer", packet: "pk" });
@@ -140,5 +141,8 @@ describe("a persisted diagnosis is decoded, never trusted", () => {
       ["unknown carrying a rewrite", { ...ok, kind: "unknown" }], ["already answered carrying an add", { ...ok, kind: "already_answered", treatment: "add_answer_section" }],
       ["scatter carrying an add", { ...ok, treatment: "add_answer_section" }], ["a rewrite kind carrying null", { ...ok, treatment: null }]] as const) expect(decodeDiagnosis(bad), what).toBeNull();
     expect(decodeDiagnosis({ ...ok, kind: "extraction_or_structure_gap" }), "structure keeps its rewrite").toMatchObject({ treatment: "rewrite_existing_section" });
+    // THE CONTRACT VERSION IS THE QUESTION THE READING ANSWERED: v1 read a packet that did not bind the page's words and validated freshness and authority differently.
+    const { DIAGNOSIS_CONTRACT } = await import("@/domains/decision/ai-case-store");
+    expect([DIAGNOSIS_CONTRACT > 1, decodeDiagnosis({ ...ok, version: DIAGNOSIS_CONTRACT - 1 })], "the contract moved with its rules, and the previous version fails closed").toEqual([true, null]);
     expect(decodeDiagnosis({ ...ok, kind: "missing_information", treatment: "add_answer_section" }), "missing information decodes; the gate is what holds it acquisition-first").toMatchObject({ kind: "missing_information" });
     expect([freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "pk"), freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "OTHER")], "the exact packet is current; any other is stale").toEqual([true, false]); }); });

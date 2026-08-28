@@ -82,7 +82,7 @@ describe("stage copy is honest and the diagnosis owns the treatment", () => {
     expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples");
     expect(readableSubject("funny Persian idioms phrases examples")).toBe("funny Persian idioms phrases");
     expect(caseCopy(standing({ stage: "own_not_in_reported_sources" })).headline).not.toMatch(/\bread\b|passed over|opened/i); });
-  const dx = (over: Record<string, unknown> = {}) => ({ kind: "already_answered", treatment: null, explanation: "The page lists every item with its meaning.", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z", ...over }) as never;
+  const dx = (over: Record<string, unknown> = {}) => ({ kind: "already_answered", treatment: null, explanation: "The page lists every item with its meaning.", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 2, decidedAt: "2026-08-28T00:00:00.000Z", ...over }) as never;
   it("a refusing diagnosis mints no card, scatter hires on its own passages, missing information never hires, and an unruled case names no treatment at all", () => {
     expect(gateOf(dx())).toMatchObject({ emit: false, state: "monitoring", reason: expect.stringContaining("already answers this question") });
     expect(gateOf(dx({ kind: "unknown" }))).toMatchObject({ emit: false, reason: expect.stringContaining("no content change is authorized yet") });
@@ -113,6 +113,13 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     expect((await ask())!, "freshness needs a dated conflict, not a sentence").toMatchObject({ kind: "unknown", limitation: expect.stringContaining("dated conflict") });
     net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the credited page says 2024 and this one does not" });
     expect((await ask())!, "a year the model typed but no supplied passage contains proves nothing").toMatchObject({ kind: "unknown", treatment: null });
+    // A DATED CONFLICT NEEDS BOTH SIDES DATED AND DIFFERING, not two dates coexisting anywhere in the packet.
+    net.answer = drafted({ kind: "freshness_gap", ownedIds: ["own-1"], evidenceIds: ["ans-1"], missing: "the rival says 2024 and 2025" });
+    net.body = page({ passages: ["The rule has not changed.", "A second passage."] });
+    const bothOnRival = (await ask({ passages: ["The rival says 2024 and also 2025."] }))!;
+    net.body = page({ passages: ["An unrelated note about 2019 opening hours.", "A second passage."] });
+    const sameDate = (await ask({ passages: ["The rival says the rule changed in 2019."] }))!;
+    expect([bothOnRival.kind, bothOnRival.treatment, sameDate.kind, sameDate.treatment], "both dates on the credited side, or the same date on each side, is not a conflict").toEqual(["unknown", null, "unknown", null]);
     net.answer = drafted({ kind: "authority_or_source_gap", evidenceIds: ["ans-1"] });
     expect((await ask())!, "passage text alone never establishes a publisher's standing").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("typed source authority") });
     for (const kind of ["missing_information", "authority_or_source_gap", "freshness_gap"]) { // a fan-out packet carries no credited passage, so nothing outside the page is in evidence

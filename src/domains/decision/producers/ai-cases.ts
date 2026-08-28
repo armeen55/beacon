@@ -130,9 +130,16 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   if ([...v.ownedIds, ...v.evidenceIds].some((id) => !known.has(id))) return null; // an id nobody supplied rules nothing
   let kind = v.kind; const limits: string[] = [];
   // A DATE THE MODEL TYPED IS NOT A DATED CONFLICT. Every date the diagnosis names must appear VERBATIM in a passage this packet supplied, and the packet must carry both sides, or there is nothing to compare.
-  const hasCredited = ev.length > 0, supplied = [...owned, ...ev].map(([, t]) => t).join(" ");
-  const claimedDates = [...new Set(v.missing.match(/\b(19|20)\d{2}\b|\b\d{1,2}\/\d{1,2}\b/g) ?? [])];
-  const dated = claimedDates.length > 0 && claimedDates.every((d) => supplied.includes(d)) && ev.length > 0 && owned.length > 0;
+  // A DATED CONFLICT IS TWO SIDES DISAGREEING, NOT TWO DATES COEXISTING. Joining every passage into one string and
+  // asking whether the model's dates appear somewhere in it proved nothing: the dates could both sit in the rival's
+  // text, or in unrelated passages about different subjects. Proving a proposition-level conflict needs semantics
+  // this packet does not carry, so the honest rule is the narrow one: the reading must NAME an owned passage and a
+  // credited passage, each must itself carry a date, and those dates must differ. Anything less is `unknown`.
+  const hasCredited = ev.length > 0, DATE = /\b(19|20)\d{2}\b|\b\d{1,2}\/\d{1,2}\b/g;
+  const datesIn = (ids: readonly string[], from: readonly [string, string][]): string[] =>
+    [...new Set(from.filter(([id]) => ids.includes(id)).flatMap(([, t]) => t.match(DATE) ?? []))];
+  const ownDates = datesIn(v.ownedIds, owned), rivalDates = datesIn(v.evidenceIds, ev);
+  const dated = ownDates.length > 0 && rivalDates.length > 0 && rivalDates.some((d) => !ownDates.includes(d));
   if (kind === "already_answered" && v.ownedIds.length === 0) return null;
   if (kind === "scattered_answer" && new Set(v.ownedIds).size < 2) return null;
   if (kind === "extraction_or_structure_gap" && (v.ownedIds.length === 0 || !v.missing.trim())) return null;
@@ -158,7 +165,7 @@ function gateOf(d: AeoGapDiagnosis | null): GapGate {
   if (d.treatment == null) {
     const why = d.kind === "already_answered" ? `The page already answers this question, so no duplicate copy is recommended. ${d.explanation}`
       : d.kind === "authority_or_source_gap" ? `${d.explanation} The information matches; the difference is the credited source's standing, so no generic copy is ordered.`
-        : d.kind === "freshness_gap" ? `${d.explanation} The work is an exact update tied to the dated evidence, not new body copy.`
+        : d.kind === "freshness_gap" ? `${d.explanation} What differs between the dates on each side is not established here, so no update is ordered yet.`
           : `The evidence does not show why the assistants chose another source, so no content change is authorized yet.${d.limitation ? ` ${d.limitation}` : ""}`;
     return { emit: false, state: "monitoring", reason: why, diagnosis: d };
   }

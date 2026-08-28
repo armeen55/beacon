@@ -1479,7 +1479,7 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
   const aeoCard = (id: string, hold: boolean) => prop({ id, pagePath: `/${id}`, pageUrl: `https://fixture-content.example/${id}`, pageLabel: id, primaryQuery: `about ${id}`, changeFamily: "section", status: "needs_review", researchOnly: true, treatment: hold ? "rewrite_existing_section" : "add_answer_section", opportunityType: "Win an AI answer", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The stage line and the work brief." }, evidence: { query: `about ${id}`, hints: [], evidenceRefCount: 1 } });
   it("no undiagnosed card is drafted, no missing-information diagnosis hires, and an authorized sibling still is", async () => {
     const { AI_CASE_COPY } = await import("@/domains/decision/producers/ai-cases");
-    const dx = (kind: string) => ({ kind, treatment: kind === "missing_information" ? "add_answer_section" : "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: ["ans-1"], missing: "the 1979 rule", packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z" }) as never;
+    const dx = (kind: string) => ({ kind, treatment: kind === "missing_information" ? "add_answer_section" : "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: ["ans-1"], missing: "the 1979 rule", packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 2, decidedAt: "2026-08-28T00:00:00.000Z" }) as never;
     // A CONFIRMED FACT ELSEWHERE ON THE PAGE IS A PAGE MATCH, NEVER SUPPORT FOR THIS PROPOSITION: the gate takes no fact argument at all any more, so no arrangement of the page's fact bank can hire the writer for a claim nothing binds to its evidence.
     expect(AI_CASE_COPY.gateOf.length, "the gate reads the diagnosis and nothing else").toBe(1);
     expect(AI_CASE_COPY.gateOf(dx("missing_information"))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
@@ -1493,7 +1493,13 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
     expect(new Set(out.paid.receipts.filter((r) => r.providerCalls > 0 || r.ops > 0).map((r) => r.key)).has("/held-case"), "the undiagnosed card bought nothing").toBe(false);
     expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]);
     // THE COST OF READING PAGES RIDES THE CANONICAL RECEIPT, never only a log: a caller reads it here or nowhere.
-    expect(out.paid.aeo, "a pass that funded no reading says so in all four numbers").toEqual({ funded: 0, attempted: 0, cached: 0, left: 0 }); });});
+    expect(out.paid.aeo, "a pass that funded no reading says so in all four numbers").toEqual({ funded: 0, attempted: 0, cached: 0, left: 0 });
+    // EVERY ENDING CARRIES THE RECEIPT, including the one that never reached a producer at all.
+    const snap = snapshot() as unknown as { sources: { source: string; status: string }[] };
+    env.snap = { ...snap, sources: [...snap.sources.filter((x) => x.source !== "gsc"), { source: "gsc", status: "failed" }] };
+    const dark = await run(TENANT, { complete: seam, ...OPTS }); const n = dark.paid.aeo;
+    expect([dark.outcome, n, n.attempted + n.cached + n.left], "an unreadable pass still accounts for the reading it did not buy, and the four numbers reconcile").toEqual(["evidence_unreadable", { funded: 0, attempted: 0, cached: 0, left: 0 }, n.funded]);
+    env.snap = snapshot(); });});
 
 /** ONE PAGE IS NOT ONE OPPORTUNITY. Coverage was keyed on the PAGE, so one Ready row anywhere on a URL dropped every other card for it: /farsi-numbers owes a title aligned to "persian numbers 0-9 names and symbols" (4,744 impressions, ZERO clicks), a zero row its table never had, and FAQ schema for four question headings carrying none, and the queue could offer exactly ONE, forever. Two cards collide only when they would overwrite the same mutation, which is what this key names. */
 describe("distinct atomic changes on one page do not suppress each other", () => {

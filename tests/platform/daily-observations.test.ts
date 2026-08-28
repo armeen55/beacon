@@ -91,8 +91,7 @@ describe("extra readings", () => {
     expect([after.granted, after.due.length, after.due.every((d) => d.slot === 1)]).toEqual([true, 12, true]);
     const twice = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1)], extraSamples: 1 }); // one already granted; this is the second press
     const full = extraSampleVerdict(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2 });
-    expect([twice.granted && twice.due.every((d) => d.slot === 2), full.granted, full.due]).toEqual([true, false, []]); expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`);
-  });
+    expect([twice.granted && twice.due.every((d) => d.slot === 2), full.granted, full.due]).toEqual([true, false, []]); expect(full.reason).toContain(`${MAX_SAMPLES_PER_DAY} readings`); });
   it("never plans slot 1 or 2 without an explicit ask, and stops at three even when asked", () => {
     expect(planObservations(DAY, { ...base, observed: fullDay(), maxBatch: 99 })).toEqual([]); // complete day, no ask, no work
     const capped = planObservations(DAY, { ...base, observed: [...fullDay(), ...fullDay(DAY, 1), ...fullDay(DAY, 2)], extraSamples: 2, maxBatch: 99 }); expect(capped).toEqual([]);

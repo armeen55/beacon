@@ -32,7 +32,7 @@ export const PROMPT_REGISTRY = {
   // there is no stale answer a version could protect. Any change to the wording from here must bump them.
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
   // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
-  "draft.aeo_gap": 1,
+  "draft.aeo_gap": 2, // v2 (2026-08-28): the reader's packet and instructions changed (it is told explicitly when no credited passage is on file, and the owned side is supplied as exact id/text tuples), so a v1 answer was given to a different question and must not be served from cache.
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

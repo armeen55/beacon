@@ -268,14 +268,9 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const aeo = run.cards.filter((c) => c.id.endsWith("::ai_answer_gap"));
     expect(aeo.length, "the cards must exist or this test proves nothing").toBeGreaterThan(0);
     for (const c of aeo) {
-      const fields = [c.opportunityType, c.whyItMatters, c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "",
-        ...(c.evidence.hints ?? []), ...(c.operatorSteps ?? []), c.causeFinding?.explanation ?? "", c.research?.next ?? "",
-        ...(c.causeFinding?.competingExplanations ?? []).map((x) => x.reason)].join(" ").toLowerCase();
-      for (const banned of ["make it reachable", "align the title", "link to ", "add an answer block", "add a section", "opening to win",
-        "lift whole", "liftable", "has to be one the assistants reach", "make the page they reach"]) {
-        expect(fields, `an undiagnosed card may not say "${banned}"`).not.toContain(banned); }
-      expect(c.treatment ?? null, "and it names no treatment").toBeNull();
-      expect((c.operatorSteps ?? []).join(" "), "its only step is that nothing is owed yet").toContain("Nothing to do yet"); }
+      const fields = [c.opportunityType, c.whyItMatters, c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "", ...(c.evidence.hints ?? []), ...(c.operatorSteps ?? []), c.causeFinding?.explanation ?? "", c.research?.next ?? "", ...(c.causeFinding?.competingExplanations ?? []).map((x) => x.reason)].join(" ").toLowerCase();
+      for (const banned of ["make it reachable", "align the title", "link to ", "add an answer block", "add a section", "opening to win", "lift whole", "liftable", "has to be one the assistants reach", "make the page they reach"]) expect(fields, `an undiagnosed card may not say "${banned}"`).not.toContain(banned);
+      expect([c.treatment ?? null, (c.operatorSteps ?? []).join(" ")], "it names no treatment and its only step is that nothing is owed yet").toEqual([null, expect.stringContaining("Nothing to do yet")]); }
     expect(run.aeoSpend, "an unfunded pass bought nothing").toMatchObject({ funded: 0, attempted: 0 });
     vi.doUnmock("@/domains/decision/producers/page-job"); });
   /** AN UNFUNDED PASS BUYS NO READING, NAMES NO TREATMENT AND HIRES NOBODY. This fixture's page has never been read, so every case lands held: what it proves is that the pass spends nothing and claims nothing when it cannot diagnose. The rendered-copy promise is proved where cards exist, on the live replay. */
@@ -286,7 +281,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect([run.cards.filter((c) => c.treatment === "technical_reachability" || c.treatment === "consolidate_or_differentiate"), run.families.includes("ai_answer_gap")], "no treatment from a stage fact alone, and the family still answers for its own record").toEqual([[], true]); });
   it("a banked diagnosis survives a pass that did not rule, exactly as the migration's coalesce writes it", async () => {
     const { recordAiCaseDispositions, readAiCaseDispositions } = await import("@/domains/decision/ai-case-store");
-    const dx = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-20T08:00:00.000Z" } as never;
+    const dx = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 2, decidedAt: "2026-08-20T08:00:00.000Z" } as never;
     const row = { caseKey: "prompt:pDx", state: "monitoring" as const, query: "q", reason: "r", days: 1, engines: 1, parents: 1, executions: 1 };
     await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T08:00:00.000Z", diagnosis: dx }]);
     await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T09:00:00.000Z" }]); // newer, unruled

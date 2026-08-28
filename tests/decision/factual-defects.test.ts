@@ -204,7 +204,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { PROMPT_REGISTRY } = await import("@/domains/decision/llm/prompt-registry");
     expect(REVIEW_CONTRACT).not.toBe(PROMPT_REGISTRY["draft.factual_review"]);
     // AND A PROMPT WHOSE RESPONSE CONTRACT CHANGED CARRIES A NEW VERSION, or an answer shaped for the old one is served from cache and refused on arrival: the editor stopped returning `claimsEntailed` at v3.
-    expect(PROMPT_REGISTRY["draft.editor_judgement"]).toBeGreaterThanOrEqual(3);
+    expect([PROMPT_REGISTRY["draft.editor_judgement"] >= 3, PROMPT_REGISTRY["draft.aeo_gap"] >= 2], "a changed reader packet may not serve its old cached answers").toEqual([true, true]);
     const live = await roundTrip(earned[0]!);
     expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
