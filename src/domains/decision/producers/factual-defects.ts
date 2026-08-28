@@ -5,6 +5,7 @@ import "server-only";
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { labelOf } from "@/domains/decision/completeness";
 import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
@@ -26,18 +27,6 @@ function replacedSpanOf(c: FactCheck): string {
     ? lines.slice(1).join("\n") : c.current.trim();
 }
 
-/** THE LEADING "Label:" OF A LABEL AND VALUE LINE, or null. Deliberately narrow, and every part of that narrowness
- *  is load-bearing: it is anchored at the start, so a colon inside ordinary prose is never reached; the first
- *  character must be a letter and the rest letters or single spaces, so a clock time ("12:30") and an identifier
- *  never open one; and a real value has to follow, which is what keeps a scheme ("https://") out, since what comes
- *  after a label is a value and never a second slash. `gap` is the page's OWN spacing after the colon. */
-function labelOf(s: string): { label: string; gap: string } | null {
-  const m = /^([\p{L}][\p{L} ]{0,22}):([^\S\n]*)(?=[^\s/])/u.exec(s);
-  return m ? { label: m[1]!, gap: m[2]! } : null;
-}
-/** A LATIN LABEL, which is the only kind whose spacing this repairs. Persian and every other script keep the page's
- *  own spacing exactly, because "leave the page's script alone" matters more here than one space. */
-const latinLabel = (label: string): boolean => /^[A-Za-z][A-Za-z ]*$/.test(label);
 
 /** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS
  *  (operator, 2026-08-28). The label, its wording and the page's terminology are copied exactly; what is NOT copied
@@ -48,7 +37,7 @@ const latinLabel = (label: string): boolean => /^[A-Za-z][A-Za-z ]*$/.test(label
  *  "A, B, or C". Every alternative the source gave survives; only the punctuation between them is Beacon's. */
 function composedReplacement(before: string, proposed: string): string {
   const lv = labelOf(before);
-  const prefix = lv ? `${lv.label}:${latinLabel(lv.label) ? " " : lv.gap}` : "";
+  const prefix = lv ? `${lv.label}:${lv.latin ? " " : lv.gap}` : "";
   const parts = proposed.trim().split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
   const listed = parts.length <= 1 ? (parts[0] ?? "")
     : parts.length === 2 ? `${parts[0]} or ${parts[1]}`
@@ -128,7 +117,7 @@ function unfitToStandIn(before: string | null, after: string, subject: string): 
   // there, and this is the gate that holds the line if a future producer writes the replacement some other way: the
   // customer is never handed "Meaning:Light." again because one composer was bypassed (operator, 2026-08-28).
   const av = labelOf(a);
-  if (av && latinLabel(av.label) && av.gap === "") return "its label runs straight into the words after it, so the line would paste onto the page as one glued phrase";
+  if (av && av.latin && av.gap === "") return "its label runs straight into the words after it, so the line would paste onto the page as one glued phrase";
   if (bare(core) === bare(subject)) return "it offers the name itself as the name's meaning, which tells a reader nothing";
   if (b === "") return null; // nothing is being replaced, so there is no shape to match
   if (/[.!?]["')\]]?$/.test(b) && !/[.!?]["')\]]?$/.test(a)) return "the words it replaces finish a sentence and these do not, so the page would be left mid-sentence";

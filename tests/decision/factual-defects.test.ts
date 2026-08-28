@@ -250,9 +250,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
-    // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the
-    // label to its value; the replacement keeps the label, the terminology and the sentence shape, and puts the one
-    // space there rather than reproducing the page's mistake for a paying customer to paste back onto the site.
+    // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the label to its value; the
+    // replacement keeps the label, terminology and sentence shape, and puts the one space there rather than reproducing the page's mistake.
     expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning: Light." });
     expect(rc("mahsa").after).toBe("Meaning: Like the moon.");
     expect(rc("leila").after, "two glosses read as a person writes them").toBe("Meaning: Night or dark.");
@@ -268,9 +267,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(openHold(by.get("leila")!).need, "two quoted sources honestly clear the second-source ask").toBeUndefined();
     expect(openHold(by.get("noor")!).need?.reasonCode).toBe("single_source"); });
 
-  /** THE RULE IS ABOUT MECHANICAL MISTAKES, AND ONLY THOSE. The page owns its label, its terminology and its
-   *  voice; what it does not own is a missing space, and what Beacon must never do is reformat an address, a
-   *  clock time or another script on the way past. */
+  /** THE RULE IS ABOUT MECHANICAL MISTAKES, AND ONLY THOSE. The page owns its label, its terminology and its voice; what it does not
+   *  own is a missing space, and what Beacon must never do is reformat an address, a clock time or another script on the way past. */
   it("holds a glued label whoever wrote it, and leaves a url, a time, Persian and prose colons exactly as the page had them", async () => {
     const q1 = (says: string) => [{ url: "https://en.wikipedia.org/y", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light", sources: q1('The name Noor means "light"') }),
@@ -281,18 +279,15 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
-    // An address is not a label, a clock time never opens one, another script keeps the page's own spacing, and a
-    // colon the page already spaced is left exactly as it was. Exact copy, so nothing was inserted anywhere.
+    // An address is not a label, a clock time never opens one, another script keeps its own spacing, and a colon the page already spaced is left alone.
     expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]);
     // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
     const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal;
-    const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly",
-      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });
-    const held = await reviewFactualBundle([glued], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok });
-    expect(held[0]!.status, "a glued label may not reach Ready").toBe("needs_review");
-    expect(held[0]!.limitations[0]).toContain("runs straight into the words after it");
-    const clean = await reviewFactualBundle([by.get("noor")!], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok });
-    expect(clean[0]!.status, "and the composed line passes the same gate").toBe("ready"); });
+    const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });
+    const seen = async (c: ChangeProposal) => (await reviewFactualBundle([c], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok }))[0]!;
+    const [held, clean] = [await seen(glued), await seen(by.get("noor")!)];
+    expect([held.status, held.limitations[0], clean.status], "a glued label may not reach Ready, and the composed line passes the same gate")
+      .toEqual(["needs_review", expect.stringContaining("runs straight into the words after it"), "ready"]); });
 
   it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
     checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine",

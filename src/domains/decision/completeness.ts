@@ -17,6 +17,19 @@ const flat = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 const notFinal = (t: string): boolean => BLANK_TO_FILL.test(t) || SAYS_UNFINISHED.test(t);
 
 /** WHY THIS IS NOT YET A CHANGE, in plain phrases, or empty when the deliverable is complete BY ITS TYPE. A title, description or heading owes its exact final replacement. An opening or a section owes final copy AND the place it lands, which only a bundle component's `where` carries. A new page owes a publish-ready page and is NEVER title-only, so every section it names owes written copy. */
+/** THE LEADING "Label:" OF A LABEL AND VALUE LINE, or null. Deliberately narrow, and every part of that narrowness
+ *  is load-bearing: it is anchored at the start, so a colon inside ordinary prose is never reached; the first
+ *  character must be a letter and the rest letters or single spaces, so a clock time ("12:30") and an identifier
+ *  never open one; and a real value has to follow, which is what keeps a scheme ("https://") out, since what comes
+ *  after a label is a value and never a second slash. `gap` is the page's OWN spacing after the colon, and `latin`
+ *  says whether this is a script whose spacing Beacon may repair at all. */
+export function labelOf(s: string): { label: string; gap: string; latin: boolean } | null {
+  const m = /^([\p{L}][\p{L} ]{0,22}):([^\S\n]*)(?=[^\s/])/u.exec(s);
+  return m ? { label: m[1]!, gap: m[2]!, latin: /^[A-Za-z][A-Za-z ]*$/.test(m[1]!) } : null;
+}
+/** A LINE THAT WOULD PASTE ONTO THE PAGE AS ONE GLUED PHRASE ("Meaning:Light."). */
+const glued = (t: string): boolean => { const lv = labelOf(t); return !!lv && lv.latin && lv.gap === ""; };
+
 export function deliverableGaps(p: ChangeProposal): string[] {
   const gaps: string[] = [];
   if (p.researchOnly === true) gaps.push("nothing has been written for it yet");
@@ -35,6 +48,10 @@ export function deliverableGaps(p: ChangeProposal): string[] {
   }
   if (noCopy(c.after)) gaps.push("it carries no copy");
   else if (notFinal(c.after)) gaps.push("it describes the work instead of being it");
+  // A LABEL GLUED TO ITS VALUE IS NOT FINISHED OPERATOR WORK. Without this, banked copy carrying the page's own
+  // missing space counted as finished, so `preferFinished` kept "Meaning:Light." and the repair that puts the one
+  // space there could never reach the rows it was written for (proved live, 2026-08-28).
+  else if (glued(c.after)) gaps.push("its label runs straight into the words after it, so it would paste as one glued phrase");
   // COPY THAT LANDS SOMEWHERE NEW OWES ITS PLACE. A title, a description or a heading replaces a field the page already has, so its own address is its placement; an opening or a section does not, and a Change is never an instruction to guess where copy goes. A PLACEMENT MUST ITSELF BE FINISHED: a blank-ish or instruction-shaped `where` is no placement at all, whichever writer stamped it.
   const placed = (t: string | null | undefined): boolean => !!t && t.trim().length >= 12 && !notFinal(t);
   // A CHANGE ON SEVERAL PAGES IS FINISHED ONLY WHEN EVERY PAGE IT NAMES IS. Differentiating four siblings is one decision, and three rewritten pages plus one still owed is not three quarters of a change, it is an unfinished one.

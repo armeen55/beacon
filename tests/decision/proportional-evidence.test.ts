@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows }));
 vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerCached: async () => null }));
 import { unsettledCause } from "@/domains/decision/authorization";
-import { openHold, preferFinished } from "@/domains/decision/completeness";
+import { deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness";
 import { loadProposalQueue } from "@/domains/decision/load-proposals";
 import { REVIEW_CONTRACT, copyKey, evidenceShortfall, mechanicalRepair, proofOf } from "@/domains/decision/proof";
 import { unauthorizedReason } from "@/domains/evidence/pages/fact-checks";
@@ -129,6 +129,13 @@ describe("the proof burden matches the promise, at the one door every surface re
     const carried = preferFinished(draftB, bankedA);
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
+    // PRESERVATION KEEPS FINISHED WORK, AND A LINE THAT WOULD PASTE AS ONE GLUED PHRASE IS NOT FINISHED WORK (operator, 2026-08-28):
+    // three corrections sat Ready reading "Meaning:Light." because the page's own missing space had been copied into them, and preservation
+    // kept handing that banked line back, so the repair that puts the one space there could never reach the rows it was written for.
+    const glue = (after: string) => ({ ...authorized, informationGain: undefined, preservation: undefined, recommendedChange: { ...authorized.recommendedChange, field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after } }) as ChangeProposal;
+    const banked = glue("Meaning:Light."), repaired = glue("Meaning: Light.");
+    expect([deliverableGaps(banked)[0], deliverableGaps(repaired), (preferFinished(repaired, banked).recommendedChange as { after: string }).after],
+      "a glued label is unfinished, the spaced line is finished, and the repair replaces the banked typo").toEqual([expect.stringContaining("one glued phrase"), [], "Meaning: Light."]);
     expect(evidenceShortfall(body(KEEP, `${KEEP} Extra.`, { informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "no shape earns an empty evidence list").toContain("naming no evidence");
     expect(evidenceShortfall(row("bundle2", { demandImpressions90d: 9000, ...edit("title", "A", "Anything at all"), diagnosisCause: "cannibalization", // a treatable cause is not wording evidence either
       bundle: { objective: "o", components: [{ kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/a" }, { kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/b" }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a split proves the treatment, never the words").toContain("demand evidence alone");
