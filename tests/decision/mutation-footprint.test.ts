@@ -76,7 +76,6 @@ describe("what a change actually writes", () => {
 
   it("what takes the whole page takes everything on it", () => {
     // The deleted page-wide rule covered this pair by accident. Without it the queue would tell the operator to
-    // retitle a page it also says to forward away for good.
     const gone = withPieces("redirect", [piece("redirect", { after: "/elsewhere" })]);
     for (const other of [field("t", "title"), field("h", "h1"), withPieces("row", [piece("table_or_list_add", { where: "row 1" })])])
       expect(footprintsOverlap(gone, other), `a redirect must cover ${other.id}`).toBe(true);
@@ -86,7 +85,6 @@ describe("what a change actually writes", () => {
 
   it("covering is what lets one change replace another, and a bare intersection is not covering", () => {
     // A title-only rewrite intersects a bundle that ALSO moves the canonical and adds a link. Letting it supersede
-    // that bundle would throw the rest of the bundle's work away with no receipt saying so.
     const rich = withPieces("rich", [piece("title"), piece("internal_link_add", { where: "footer" })]);
     const thin = field("title", "title");
     expect(footprintsOverlap(rich, thin)).toBe(true);

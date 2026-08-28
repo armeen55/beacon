@@ -82,7 +82,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect((await unit({ held, read: reader({ claims: CLAIMS, judge: null }) })).failure).toBe("judge_unavailable");
     expect((await unit({ held, read: async () => ({ hold: "refused" as const }) })).failure).toBe("judge_refused"); // refused is not unavailable
     // Each case above also reads a section now, so this one starts from a page nobody has read: extraction is
-    // no longer skipped just because something is owed, which is what unblocked the names page.
     reset(); db.cov = null;
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
@@ -194,7 +193,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect([wrong.agreement, wrong.confidence === "confirmed"]).toEqual(["none_found", false]);
     expect(wrong.note).toContain("about a different subject or language");
     // And a reader that CLAIMS the same subject is still checked: a passage with no Persian in it has not shown
-    // the Persian word it says it is defining, so the claim stays below confirmed rather than taking its word.
     db.rows = [];
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),

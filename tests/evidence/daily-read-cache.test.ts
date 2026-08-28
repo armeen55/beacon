@@ -30,7 +30,6 @@ describe("the day's heavy evidence is computed once per watermark", () => {
 
   it("never banks a partial or failed read as the day's truth", async () => {
     // Both GA4 readers fail SOFT to a partial map, indistinguishable from an account with no traffic. Cached,
-    // that lie would be read back all day; live, it dies with the request.
     const paid: string[] = [];
     expect(await read("2026-08-24", { payload: "truncated", cacheable: false }, paid)).toBe("truncated");
     expect(await read("2026-08-24", { payload: "whole", cacheable: true }, paid)).toBe("whole");

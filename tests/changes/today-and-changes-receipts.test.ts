@@ -123,6 +123,16 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(r.limits).toContain("Two sources give different dates for the 1980 change.");
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
+  it("an answer that narrates page furniture is refused: the reader wanted the answer, not a tour", async () => {
+    // LIVE: Ready copy said "with simple pronunciations shown beside each" while the pronunciations sat right
+    const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
+    const P = (after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
+      claims: [{ text: "x.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after } } as ChangeProposal);
+    const long = " The rest of this answer carries enough real words to clear the section floor on its own merit for the test.";
+    expect(staleCopyReasons(P("Common phrases are hello and thanks, with pronunciations shown beside each." + long), new Map(), []).join(" ")).toContain("points at the page instead of answering");
+    expect(staleCopyReasons(P("Anzali sits beside the Caspian Sea and is Iran's busiest northern port." + long), new Map(), []).join(" ")).not.toContain("points at the page"); });
+
   it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
     // The crawler fuses copy and controls into one chunk, so a span-sized rewrite can silently delete a
     const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
@@ -233,7 +243,6 @@ describe("a ranked card explains itself without being opened", () => {
     const bundled = await renderList(viewOf([two]));
     expect(bundled).toContain("2 edits together");
     // A single edit's chip is verb plus object even when its id carries a family slug: "AI answer gap" told
-    // the operator the diagnosis and hid the action.
     const fam = await renderList(viewOf([{ ...atomic(), id: "t::/basic-persian::existing_edit::ai_answer_gap",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished forty word answer block for this fixture, complete and pasteable, standing in for real copy that satisfies the section band by carrying enough words to pass every length check applied to it.", where: "After the intro." } } as ChangeProposal]));
     expect(fam).toContain("Add section"); expect(fam).not.toContain("AI answer gap");

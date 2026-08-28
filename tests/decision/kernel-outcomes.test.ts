@@ -148,7 +148,6 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(rankProposals([smallSection, bigTitle], { familyHistory: history }).map((p) => p.id)).toEqual(["title-539", "section-tiny"]); });
   it("never renders an uncalibrated prior as a measured figure, and says which half is assumed", () => {
     // 0.5 and 0.2 are POLICY, not measurements (operator, 2026-08-27). A prior multiplied by a real number is a
-    // PRIORITY, and printing it as expected clicks makes invented certainty look empirical.
     const card = baseProposal({ impactScore: 400, diagnosisCause: undefined });
     const shown = rankProposals([card])[0]!.rankingReceipt!;
     const vis = shown.factors.find((f) => f.name === "visibility")!.input;
@@ -210,7 +209,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => {
     reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
     // EVERY FUNDED KEY CARRIES A TRUTHFUL BLOCKER (Codex, 2026-08-23; reversed from "a not_reached row says nothing"). Silence sent the operator looking for money that was never spent, so an unreached page now names why it was
-    // not reached; only work that PRODUCED says nothing, because there is nothing to explain.
     const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
     expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]);
     expect(unreached.every((r) => /time box|still stands|before this page was reached/.test(r.why ?? ""))).toBe(true); // and it is one of the three things that are actually true here
@@ -740,7 +738,6 @@ describe("why this page loses the click, one named cause at a time", () => { it(
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
     // The discount is a share of what is riding on the change, so a fresh measurement costs it and a finished
-    // one costs nothing at all. The words are what the operator reads either way.
     expect(fresh.contribution).toBeLessThan(0);
     expect([Math.abs(stale.contribution), stale.input]).toEqual([0, "nothing is being measured on this page"]);
     expect(fresh.input).toBe("this page already has a change under measurement"); });
