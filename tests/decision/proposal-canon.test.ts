@@ -2,15 +2,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
-  // `missing` = the TABLE is not in the schema cache; `rpcMissing` = the table is there and the supersession FUNCTION is not. They are separate flags because they are separate deploy accidents, and one flag could only ever test the first: the table read failed before the function was ever called. `raceForeign` is a concurrent insert of the SUCCESSOR id under another account, landing after the guard read: the upsert's tenant WHERE then matches nothing, so nothing lands and the whole handover must unwind rather than report saved. `race` is a write by SOMEBODY ELSE, fired once at the next read: the interleaving a confirmation lives inside, where the row moves between the reading that validated it and the write that lands it.
   const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "", race: null as null | (() => void) };
   const client: Record<string, unknown> = {
-    // The atomic handover: guard, step-aside, and landing commit together or not at all, exactly like the supersede_change_proposal function in production.
     rpc(name: string, args: { p_tenant_id: string; p_predecessor_id: string; p_row: Row }) { state.rpcCalls += 1;
       const run = (): { data: string | null; error: { message: string; code?: string } | null } => {
         if (name !== "supersede_change_proposal") return { data: null, error: { message: `unknown function ${name}` } };
         if (state.rpcMissing) return { data: null, error: { code: "PGRST202", message: "Could not find the function public.supersede_change_proposal" } };
-        // The tenant guard the SQL now opens with: a successor id living under another account fails whole.
         if (state.rows.some((r) => r.id === (args.p_row as Row).id && r.tenant_id !== args.p_tenant_id)) return { data: "failed", error: null };
         const pred = state.rows.find((r) => r.tenant_id === args.p_tenant_id && r.id === args.p_predecessor_id);
         if (!pred) return { data: "failed", error: null };
@@ -21,7 +18,6 @@ const db = vi.hoisted(() => {
           && ["tenant_id", "case_id", "page_key", "action_family", "mutation_key"].every((c) => r[c] === row[c]));
         if (clash) return { data: "failed", error: null };
         if (state.raceForeign) state.rows.push({ id: row.id, tenant_id: state.raceForeign, status: "ready", created_at: "2026-07-01T00:00:00.000Z" });
-        // THE INSERT'S OWN LANDING IS THE PROOF, exactly as the SQL now reads it: zero rows back means the successor never landed, so it raises and BOTH writes unwind with the predecessor still in place.
         const at = state.rows.findIndex((r) => r.id === row.id);
         if (at >= 0 && state.rows[at]!.tenant_id !== args.p_tenant_id) return { data: "failed", error: null };
         Object.assign(pred, { terminal_disposition: "superseded", superseded_by: row.id, updated_at: row.updated_at });
@@ -40,7 +36,6 @@ import { confirmedVersion } from "@/domains/decision/completeness"; import { cop
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
-// The row budget and the sort order are part of what the queue read is asked to prove, so the fake honours order + limit; `clash` is the partial unique index: one current row per (tenant, case, page, family).
 Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),
@@ -87,7 +82,6 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(deep())).toBe("saved"); // the deep form of the same page and the same family
     expect([db.state.rows.length, current().map((r) => [r.id, r.proposal_version, r.action_family])]).toEqual([2, [[`${T}::${PAGE}::existing_edit::title-family`, 2, "title-family"]]]);
     const retired = db.state.rows.find((r) => r.id === `${T}::${PAGE}::existing_edit::title`)!; expect([retired.terminal_disposition, retired.superseded_by]).toEqual(["superseded", `${T}::${PAGE}::existing_edit::title-family`]);
-    // History is not served as current work, by id or in the queue.
     expect(await loadChangeProposal(T, retired.id as string)).toBeNull(); expect([...(await loadChangeProposals(T)).keys()]).toEqual([`${T}::${PAGE}::existing_edit::title-family`]); });
   it("bumps the version in place when the same id says something new, and writes NOTHING when it says the same thing", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
@@ -96,7 +90,6 @@ describe("canonical proposal persistence", () => {
     expect([db.state.rows.length, db.state.rows[0]!.proposal_version]).toEqual([1, 1]); expect(await saveChangeProposal(proposal({ status: "needs_review" }))).toBe("saved");
     expect(db.state.rows).toHaveLength(1); // still one row: the same id is the same hypothesis
     expect([db.state.rows[0]!.proposal_version, db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition]).toEqual([2, "needs_review", null]);
-    // The same id whose components moved to another family MOVES: it is still one change, not two.
     expect(await saveChangeProposal(proposal({ bundle: bundle("section_rewrite") }))).toBe("saved"); expect([db.state.rows.length, db.state.rows[0]!.action_family, db.state.rows[0]!.proposal_version]).toEqual([1, "section-family", 3]); });
   it("lands the reasoning on the stored row exactly once: the cause is material, and a re-save carrying the same one writes nothing", async () => {
     expect(await saveChangeProposal(proposal())).toBe("saved"); // filed before the ladder ever named a cause
@@ -117,18 +110,15 @@ describe("canonical proposal persistence", () => {
     await saveChangeProposal(proposal());
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // the operator put it away
     expect(await saveChangeProposal(proposal({ confidence: "high" }))).toBe("refused"); expect([db.state.rows[0]!.terminal_disposition, (await loadChangeProposals(T)).size]).toEqual(["dismissed", 0]);
-    // A different basis is a genuinely different reading of the account, so the change may be made again.
     expect(await saveChangeProposal(proposal({ basis: "basis_tomorrow::d6" }))).toBe("saved"); expect([db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.proposal_version]).toEqual([null, 2]); });
   it("the operator's own put-this-aside writes the dismissal, and refuses to retire a change already being measured", async () => {
     await saveChangeProposal(proposal());
     expect(await dismissChangeProposal(T, proposal().id)).toBe(true); // it stops being the current answer immediately
     expect([db.state.rows[0]!.terminal_disposition, (await loadChangeProposals(T)).size]).toEqual(["dismissed", 0]);
     expect(await dismissChangeProposal(T, proposal().id)).toBe(false); // already put away, nothing to write
-    // A change the operator marked implemented is under measurement, so it is not theirs to put away.
     Object.assign(db.state.rows[0]!, { terminal_disposition: null, status: "implemented_pending_verification" });
     expect([await dismissChangeProposal(T, proposal().id), db.state.rows[0]!.terminal_disposition, await dismissChangeProposal(T, "an-id-nobody-holds")]).toEqual([false, null, false]);});
   it("refuses a crafted successor id that lives under another account, and nothing moves", async () => {
-    // Account B holds a row whose id a malicious caller hands to account A's handover as the successor.
     expect(await saveChangeProposal(proposal())).toBe("saved");
     db.state.rows.push({ id: "acct-b::/other::existing_edit::title", tenant_id: "acct-b", case_id: "", page_key: "/other",
       action_family: "title-family", proposal_version: 1, basis: "b1", status: "ready", terminal_disposition: null,
@@ -151,13 +141,11 @@ describe("canonical proposal persistence", () => {
     db.state.missing = true; // before the migration is applied: history still renders, nothing is invented
     expect((await loadChangeProposals(T)).size).toBe(2); expect(await saveChangeProposal(proposal({ status: "implemented_pending_verification" }))).toBe("failed"); });
   it("proves the handover row belongs to this account BEFORE it writes, and names a missing supersession function for what it is", async () => {
-    // NOTHING UNSCOPED EVER REACHES THE HANDOVER. The store refuses a save with no account before it reads anything, and the row handed to the function is asserted against the caller's own account on the way in (the same check every other write in this product passes through, which going straight to .rpc() had given up), so a row that cannot prove its scope is never written by it.
     db.state.rows.push({ id: "held", tenant_id: "", site: "fixture-outdoors.example", case_id: "", page_key: PAGE,
       action_family: "title-family", status: "ready", terminal_disposition: null, proposal_version: 1,
       payload: JSON.parse(serializeChangeProposal(proposal({ id: "held" }))) as unknown });
     expect(await saveChangeProposal(proposal({ tenantId: "" }))).toBe("failed"); expect(db.state.rpcCalls).toBe(0);
     expect(db.state.rows[0]!.terminal_disposition).toBeNull(); // nothing moved
-    // THE FUNCTION IS NOT THERE. A deploy that ran ahead of its migration is not a blocked handover, and it used to read exactly like one. The table is fine here; only the routine is missing.
     db.state.rows = [];
     expect(await saveChangeProposal(proposal())).toBe("saved");
     db.state.rpcMissing = true;
@@ -175,13 +163,10 @@ describe("canonical proposal persistence", () => {
     expect([db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.superseded_by])
       .toEqual(["implemented_pending_verification", null, null]); // the change being measured is still the current answer
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); // the queue is exactly what it was
-    // A draft I withdrew myself is history under this basis WHILE ITS EVIDENCE HOLDS STILL, so the same idea off the same readings is refused, not filed.
     Object.assign(db.state.rows[0]!, { status: "needs_review", terminal_disposition: "withdrawn", basis: "basis_today::d6",
       payload: JSON.parse(JSON.stringify({ v: 1, proposal: deep() })) });
     expect(await saveChangeProposal(deep())).toBe("refused");
-    // AND IT STOPS BEING HISTORY THE MOMENT THE EVIDENCE MOVES. The basis fingerprints the ACCOUNT, so on basis alone this stayed shut for a whole generation while the readings under it changed completely, and the redraft those readings had earned was refused forever.
     const moved = deep(); moved.bundle!.receipt.items[0]!.observedAt = "2026-08-04T00:00:00.000Z"; expect(await saveChangeProposal(moved)).toBe("saved");
-    // A REORDERED RECEIPT IS THE SAME EVIDENCE. Hashing the items in producer order would have let a shuffle alone lift a refusal the operator meant to stand.
     Object.assign(db.state.rows[0]!, { status: "needs_review", terminal_disposition: "withdrawn", payload: JSON.parse(JSON.stringify({ v: 1, proposal: moved })) });
     const two = (b: typeof moved) => { const i = b.bundle!.receipt.items[0]!; b.bundle!.receipt.items = [i, { ...i, key: "k2", fact: "Two rivals now answer it with a table." }]; return b; };
     const twoWay = two(deep()); twoWay.bundle!.receipt.items[0]!.observedAt = "2026-08-04T00:00:00.000Z";
@@ -198,7 +183,6 @@ describe("canonical proposal persistence", () => {
     Object.assign(db.state.rows[0]!, { terminal_disposition: "dismissed" }); // put away under basis_a
     expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("saved"); // a new reading, so it may try again
     Object.assign(db.state.rows[1]!, { terminal_disposition: "dismissed" }); // put away under basis_b too
-    // The dismissal that decides is the one under THIS basis, wherever it sits in an unordered read.
     expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("refused"); expect(await saveChangeProposal(deep({ basis: "basis_c" }))).toBe("saved"); });
   it("repairs a handover whose successor never landed: the predecessor reads as current again until a real successor exists", async () => {
     await saveChangeProposal(proposal());

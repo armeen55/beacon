@@ -43,3 +43,19 @@ describe("the day's heavy evidence is computed once per watermark", () => {
     expect(await read("2026-08-24", { payload: "still live", cacheable: true }, paid)).toBe("still live");
     expect(paid).toEqual(["live", "still live"]); });
 });
+
+/** TWO LOADERS RUNNING TOGETHER MAY NOT ANSWER FOR EACH OTHER. One module-level completeness flag served both
+ *  GA4 readers, which run inside the same Promise.all, so whichever started second reset it and a truncated
+ *  aggregate banked under a valid watermark (Codex, 2026-08-28). Completeness travels with its own rows now. */
+describe("a truncated read never banks as the day's truth", () => {
+  it("keeps each concurrent loader's completeness apart", async () => {
+    store.rows = []; store.readFails = false;
+    const read = (kind: string, complete: boolean, rows: number[]) => readThroughDaily<number[]>({
+      tenantId: "t", kind, watermark: "w", compute: async () => { await new Promise((r) => setTimeout(r, complete ? 8 : 1)); return { payload: rows, cacheable: complete }; } });
+    // The partial read starts FIRST and finishes LAST, exactly the interleaving the shared flag lost.
+    const [partial, whole] = await Promise.all([read("partial", false, [1]), read("whole", true, [2])]);
+    expect([partial, whole]).toEqual([[1], [2]]);
+    const banked = (store.rows as { kind?: string }[]).map((r) => r.kind).filter(Boolean);
+    expect(banked, "only the complete read may be banked").toEqual(["whole"]);
+  });
+});

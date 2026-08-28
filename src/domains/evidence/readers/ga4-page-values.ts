@@ -27,8 +27,8 @@ import {
 export const loadGa4PageValuesForTenant = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, Ga4PageValue>> =>
   readThroughDaily<[string, Ga4PageValue][]>({
     tenantId, kind: "ga4-values", watermark: await ga4Watermark(tenantId),
-    compute: async () => { const m = await loadGa4PageValuesForTenantUncached(tenantId, now);
-      return { payload: [...m], cacheable: lastReadComplete }; },
+    compute: async () => { const r = await loadGa4PageValuesForTenantUncached(tenantId, now);
+      return { payload: [...r.rows], cacheable: r.complete }; },
   }).then((entries) => new Map(entries)));
 
 /** GA4's own clock: the newest synced day on file, so a sync landing rows is the one thing that recomputes. */
@@ -54,16 +54,14 @@ const WINDOW_DAYS = 28;
 // GROUP BY RPC (one row per page) would remove the cap entirely.
 const MAX_ROWS = 80_000;
 
-/** Whether the LAST uncached read finished its pagination. Both readers fail SOFT to a partial or empty map,
- *  so a failed read is indistinguishable from an account with no traffic; the read-through below must never
- *  bank that as the day's truth. Module-local and set synchronously before each return. */
-let lastReadComplete = true;
+/** WHETHER THIS READ FINISHED ITS PAGINATION, CARRIED OUT WITH ITS OWN ROWS. Both readers fail SOFT to a partial or empty map, so a failed read looks exactly like an account with no traffic and must never bank as the day's truth. One module-level flag served BOTH loaders and both run inside the same Promise.all, so whichever started second reset it to true and a truncated aggregate banked under a valid watermark (Codex, 2026-08-28); a completeness travelling with its own rows cannot be reset by a neighbour. */
+type Read<T> = { rows: Map<string, T>; complete: boolean };
 
 async function loadGa4PageValuesForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
-): Promise<Map<string, Ga4PageValue>> {
-  lastReadComplete = true;
+): Promise<Read<Ga4PageValue>> {
+  let complete = true;
   const out = new Map<string, Ga4PageValue>();
   type Row = {
     url: string;
@@ -93,7 +91,7 @@ async function loadGa4PageValuesForTenantUncached(
           tenantId,
           error: error.message,
         });
-        lastReadComplete = false;
+        complete = false;
         break;
       }
       const batch = (data ?? []) as unknown as Row[];
@@ -101,8 +99,8 @@ async function loadGa4PageValuesForTenantUncached(
       if (batch.length < PAGE) break;
     }
   } catch {
-    lastReadComplete = false;
-    return out;
+    complete = false;
+    return { rows: out, complete };
   }
   for (const r of rows) {
     const page = canonicalizeCitationUrl(r.url) ?? r.url;
@@ -117,7 +115,7 @@ async function loadGa4PageValuesForTenantUncached(
     cur.conversions28d += r.conversions ?? 0;
     out.set(page, cur);
   }
-  return out;
+  return { rows: out, complete };
 }
 
 /**
@@ -177,15 +175,15 @@ export const loadGa4SessionSplitForTenant = async (
 export const loadGa4PageRevenueForTenant = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, PageRevenueValue>> =>
   readThroughDaily<[string, PageRevenueValue][]>({
     tenantId, kind: "ga4-revenue", watermark: await ga4Watermark(tenantId),
-    compute: async () => { const m = await loadGa4PageRevenueForTenantUncached(tenantId, now);
-      return { payload: [...m], cacheable: lastReadComplete }; },
+    compute: async () => { const r = await loadGa4PageRevenueForTenantUncached(tenantId, now);
+      return { payload: [...r.rows], cacheable: r.complete }; },
   }).then((entries) => new Map(entries)));
 
 async function loadGa4PageRevenueForTenantUncached(
   tenantId: string,
   now: Date = new Date(),
-): Promise<Map<string, PageRevenueValue>> {
-  lastReadComplete = true;
+): Promise<Read<PageRevenueValue>> {
+  let complete = true;
   const out = new Map<string, PageRevenueValue>();
   type Row = {
     url: string;
@@ -233,8 +231,8 @@ async function loadGa4PageRevenueForTenantUncached(
           tenantId,
           error: error.message,
         });
-        lastReadComplete = false;
-        return out; // empty → all pages "revenue unknown"
+        complete = false;
+        return { rows: out, complete }; // empty → all pages "revenue unknown"
       }
       const batch = (data ?? []) as unknown as Row[];
       for (const r of batch) {
@@ -265,8 +263,8 @@ async function loadGa4PageRevenueForTenantUncached(
       if (batch.length < PAGE) break;
     }
   } catch {
-    lastReadComplete = false;
-    return out; // fail-soft → revenue unknown everywhere
+    complete = false;
+    return { rows: out, complete }; // fail-soft → revenue unknown everywhere
   }
   for (const [page, a] of accs) {
     out.set(
@@ -284,5 +282,5 @@ async function loadGa4PageRevenueForTenantUncached(
       }),
     );
   }
-  return out;
+  return { rows: out, complete };
 }
