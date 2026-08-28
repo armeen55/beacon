@@ -80,7 +80,7 @@ describe("a card says why this opportunity and why these words, and never trades
   it("search-backed: names the search and BOTH windows, states the diagnosed defect, promises no traffic", () => {
     const r = proofOf(P({ demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag", rankingReceipt: rank(false),
       causeFinding: { ...FINDING, explanation: "Two of your own pages come up for this search" } }));
-    expect(r.ranksHere).toBe('This page was shown 30,423 times for "iran flag" over 90 days and is short about 76 clicks in the last 28. Two of your own pages come up for this search.');
+    expect(r.ranksHere).toBe('This page had 30,423 impressions for "iran flag" over 90 days and is short about 76 clicks in the last 28. Two of your own pages come up for this search.');
     for (const n of NEVER) expect(r.ranksHere!, n).not.toContain(n); });
 
   it("AEO: names the question and the exact citation stage, and never invents a gap nobody measured", () => {
@@ -189,7 +189,7 @@ describe("a card says why this opportunity and why these words, and never trades
   it("the rendered card leads with the proof line and no bare check count survives anywhere", async () => {
     const html = await renderList(viewOf([{ ...atomic(), demandImpressions90d: 30423, impactScore: 76, primaryQuery: "iran flag" } as ChangeProposal]));
     expect(html).toContain("Why this ranks here:");
-    expect(html).toContain("shown 30,423 times for &quot;iran flag&quot; over 90 days and is short about 76 clicks in the last 28");
+    expect(html).toContain("30,423 impressions for &quot;iran flag&quot; over 90 days and is short about 76 clicks in the last 28");
     for (const n of ["Backed by", "Who beats you today", "Strongest reason"]) expect(html, n).not.toContain(n); });
 });
 

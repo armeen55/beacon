@@ -75,7 +75,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             <tr className="text-muted-foreground">
               <th className="w-16 text-left font-normal" />
               <th className="pr-5 text-left font-normal">Clicks</th>
-              <th className="text-left font-normal">Appearances</th>
+              <th className="text-left font-normal">Impressions</th>
             </tr>
           </thead>
           <tbody>

@@ -88,8 +88,8 @@ function demandClause(p: ChangeProposal): string | null {
   }
   const shown = p.demandImpressions90d, short = p.impactScore;
   const hasShown = shown != null && shown > 0, hasShort = short != null && short > 0;
-  if (hasShown && hasShort) return sentence(`This page was shown ${num(shown!)} times${forSearch(p)} over 90 days and is short about ${num(short!)} clicks in the last 28`);
-  if (hasShown) return sentence(`This page was shown ${num(shown!)} times${forSearch(p)} over 90 days`);
+  if (hasShown && hasShort) return sentence(`This page had ${num(shown!)} impressions${forSearch(p)} over 90 days and is short about ${num(short!)} clicks in the last 28`);
+  if (hasShown) return sentence(`This page had ${num(shown!)} impressions${forSearch(p)} over 90 days`);
   if (hasShort) return sentence(`About ${num(short!)} clicks over 28 days are missing${searchable(p) ? ` on ${quoted(p.primaryQuery)}` : " here"}`);
   return null;
 }

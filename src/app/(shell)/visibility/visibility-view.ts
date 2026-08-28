@@ -64,7 +64,7 @@ const GOOGLE_UNREAD = "Google's page movement could not be read in time just now
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
-    return { limitation: "No Search Console numbers are on file for this account, so clicks, appearances, and rankings cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, watermark: "", coverage: "" };
+    return { limitation: "No Search Console numbers are on file for this account, so clicks, impressions, and average position cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, watermark: "", coverage: "" };
   }
   const span = Math.min(input.rangeDays, input.days.length);
   const now = input.days.slice(-span), prior = input.days.slice(Math.max(0, input.days.length - span * 2), input.days.length - span);
@@ -81,10 +81,10 @@ export function googleView(input: GoogleInput) {
   const windowEnd = monthDayLabel(input.decay[0]?.windowNowEnd ?? null);
   const tiles: Tile[] = [
     { label: "Clicks", value: num(c), basis: `over the last ${num(span)} reported days, ${before}`, ...delta(c, pc) },
-    { label: "Appearances", value: num(i), basis: `times a page of yours was shown, ${prior.length === span ? `against ${num(pi)} the ${num(span)} days before` : "no full window before this one"}`, ...delta(i, pi) },
-    { label: "Click rate", value: i > 0 ? pct(c / i) : "not yet", basis: i > 0 ? `${num(c)} clicks out of ${num(i)} appearances` : "no appearances reported in this window", ...points(i > 0 ? c / i : null, pi > 0 ? pc / pi : null) },
+    { label: "Impressions", value: num(i), basis: `times a page of yours was shown, ${prior.length === span ? `against ${num(pi)} the ${num(span)} days before` : "no full window before this one"}`, ...delta(i, pi) },
+    { label: "CTR", value: i > 0 ? pct(c / i) : "not yet", basis: i > 0 ? `click-through rate: ${num(c)} clicks out of ${num(i)} impressions` : "no impressions reported in this window", ...points(i > 0 ? c / i : null, pi > 0 ? pc / pi : null) },
     { label: "Average position", value: posNow == null ? "not yet" : posNow.toFixed(1),
-      basis: posNow == null ? (noPages ? "Google's per page windows could not be read in time just now; the totals above are current" : "no page of yours was shown in the last 28 days") : `weighted by appearances across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
+      basis: posNow == null ? (noPages ? "Google's per page windows could not be read in time just now; the totals above are current" : "no page of yours was shown in the last 28 days") : `weighted by impressions across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
       delta: posNow != null && posPrior != null ? `${posNow < posPrior ? "" : "+"}${(posNow - posPrior).toFixed(1)}` : null,
       tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },
   ];

@@ -13,7 +13,7 @@ import type { googleView } from "./visibility-view";
  */
 
 const RANGES = [7, 28, 84];
-const METRICS = [{ key: "clicks", label: "Clicks" }, { key: "impressions", label: "Appearances" }, { key: "ctr", label: "Click rate" }];
+const METRICS = [{ key: "clicks", label: "Clicks" }, { key: "impressions", label: "Impressions" }, { key: "ctr", label: "CTR" }];
 
 /** One row of choices as links, so the choice lives in the address bar and a screen can be sent to somebody. */
 function Choices({ options }: { options: Array<{ href: string; label: string; active: boolean }> }) {

@@ -89,7 +89,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     // The searches Google named, each on the page it lands on, with its own rate rather than the site's.
     expect(v.queries!.rows[0]!.cells.map((c) => c.text)).toEqual(["nowruz table", "/nowruz", "12", "900", "1.3%", "8.2"]);
     expect(v.tiles[0]!.basis).toBe("over the last 7 reported days, against 189 over the 7 days before"); // Clicks against the stretch before it, and a rank that names the only window Google gives me per page.
-    expect(v.tiles[3]!.basis).toContain("weighted by appearances across 2 pages over the 28 days ending Aug 1");
+    expect(v.tiles[3]!.basis).toContain("weighted by impressions across 2 pages over the 28 days ending Aug 1");
     expect(v.chart!.prior).toHaveLength(7); // the stretch before, drawn behind the line rather than described
   });
   // PIN: NOTHING CHECKED IS NOT ZERO MENTIONS. A live account had answers on file and none of them read, and the old surface reported "0%" about every one of them: a customer-facing false negative built out of an empty denominator.

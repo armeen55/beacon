@@ -87,7 +87,7 @@ export default async function ProofPage({
               <div className={`font-semibold tracking-tight tabular-nums ${view.header.appearances.positive ? "text-4xl text-emerald-700" : "text-xl text-muted-foreground"}`}>
                 {view.header.appearances.value}
               </div>
-              <div className="mt-0.5 text-[13px] text-foreground/80">appearances in Google, wins minus losses</div>
+              <div className="mt-0.5 text-[13px] text-foreground/80">impressions in Google, wins minus losses</div>
               <div className="text-[11px] text-muted-foreground">{view.header.appearances.note ?? ""}</div>
             </div>
             <div>
