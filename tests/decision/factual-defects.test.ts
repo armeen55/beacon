@@ -6,6 +6,9 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
   const real = await orig<typeof import("@/domains/evidence/pages/fact-checks")>();
   return { ...real, readFactChecks: async () => checks.rows };});
 const store = vi.hoisted(() => ({ rows: [] as { id: string }[], withdrew: [] as string[], why: [] as string[], bodyFails: false }));
+/** THE REAL PERSISTENCE DOOR, behind the shared fake: saveChangeProposal and loadChangeProposal below are production. */
+const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {} as Record<string, unknown> }));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<typeof import("@/domains/decision/proposal-store")>()),
   loadChangeProposals: async () => new Map(store.rows.map((r) => [r.id, r])),
   withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return true; } }));
@@ -13,6 +16,12 @@ vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await o
   loadOwnedPageBodies: async () => { if (store.bodyFails) throw new Error("the page bodies could not be read");
     return new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
+import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
+import { openHold } from "@/domains/decision/completeness";
+import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { supabaseFake } from "../helpers/supabase-fake";
+import type { ChangeProposal } from "@/domains/decision/contracts";
+Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () => ({ created_at: "2026-07-01T00:00:00.000Z" }) }));
 const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_DEFECTS.review;
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
@@ -178,6 +187,13 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       ["the reviewer's own no", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }],
       ["a sense refusal over an entailed claim", { publish: false, reason: "reads badly" }]] as const)
       expect(await promoted(over), `${what} authorizes nothing`).toEqual([]);
+    // AND NOTHING RETURNED IS SILENTLY DROPPED: a ruling for a component nobody asked about was ignored, so a
+    // response could carry anything at all beside the real ones and still clear the batch.
+    const withStray = async () => ({ status: "drafted" as const, value: { rulings: [...cards.map((_c, i) => ({ index: i, publish: true, reason: "fine",
+      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }] })),
+      { index: 99, publish: true, reason: "about nothing here", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }] } });
+    expect((await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: withStray })).filter((c) => c.status === "ready"),
+      "a ruling about a component nobody asked about").toEqual([]);
     // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
     const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] });
     expect(earned.length, "an exact ruling still earns Ready").toBeGreaterThan(0);
@@ -200,11 +216,24 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(shown).toContain("claim 0:");
     expect(shown).toContain("must be entailed by exactly these fact ids: fact-1");
     expect(shown, "the exact passage, not an anonymous source blob").toMatch(/fact-1: "[^"]{10,}/);
-    // AND IT SURVIVES THE ROUND TRIP UNCHANGED, so what the door re-reads is what the reviewer returned.
-    const { serializeChangeProposal, deserializeChangeProposal } = await import("@/domains/decision/contracts");
-    const back = deserializeChangeProposal(serializeChangeProposal(earned[0]!))!;
-    expect(back.semanticReview).toEqual(earned[0]!.semanticReview);
-    expect((await import("@/domains/decision/proof")).unreviewed(back), "and it still authorizes after reload").toBeNull();
+    // AND THE PRODUCTION DOOR AGREES AFTER A REAL SAVE AND RELOAD, not a serializer round trip: the mapping the
+    // reviewer returned is what comes back, the row is still Ready, and the one servability verdict holds nothing.
+    const roundTrip = async (p: ChangeProposal) => { db.rows = []; await saveChangeProposal(p);
+      return (await loadChangeProposal("t", p.id))!; };
+    expect(REVIEW_CONTRACT, "the corrected factual contract is v3").toBe(3);
+    const live = await roundTrip(earned[0]!);
+    expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
+    expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
+    // The same path refuses each defective receipt, and the store will not keep `ready` on any of them.
+    for (const [what, broken] of [
+      // LITERALLY 2: the prompt, schema, packet, validation and persistence all changed after v2, so a receipt
+      // banked under the broken implementation must not be able to look current.
+      ["a receipt banked under the v2 contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 2 } }],
+      ["a mapping naming evidence the claim does not", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, claims: [{ i: 0, by: ["fact-9"], entailed: true }] } }],
+      ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
+      const held2 = await roundTrip(broken as ChangeProposal);
+      expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);
+    }
     // A TRANSPORT FAILURE BANKS NOTHING and fabricates no receipt.
     const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);

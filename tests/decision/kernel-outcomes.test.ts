@@ -203,11 +203,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
     reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
     expect((await run(counting().complete)).paid.receipts.filter((r) => (r.why ?? "").includes("already taken back")).every((r) => r.outcome === "deterministic_refusal")).toBe(true); });
-  /** SAME PAGE IS NOT SAME WORK, AND retryKeys MUST REACH THE PLANNER (Codex, 2026-08-23). Both proved through the
-   *  REAL producer, because the planner-only versions of these tests passed while the integration was dead: the
-   *  producer never forwarded retryKeys at all, and any stored bundle on an address satisfied a newly selected
-   *  job, so the writer was skipped and the receipt then invented "the pass ended before this page was reached"
-   *  for a page the pass reached in two seconds. */
+  /** SAME PAGE IS NOT SAME WORK, AND retryKeys MUST REACH THE PLANNER (Codex, 2026-08-23). Both proved through the  REAL producer, because the planner-only versions of these tests passed while the integration was dead: the  producer never forwarded retryKeys at all, and any stored bundle on an address satisfied a newly selected  job, so the writer was skipped and the receipt then invented "the pass ended before this page was reached"  for a page the pass reached in two seconds. */
   it("passes retryKeys through to the plan, so work already tried today ranks behind work nobody has tried", async () => {
     reset(BOTH());
     const plain = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
@@ -227,11 +223,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     for (const r of out.paid.receipts) expect(r.why ?? "").not.toContain("no branch of this pass recorded what happened");
     const guide = out.paid.receipts.find((r) => r.key === "/nowruz-guide");
     if (guide) expect(guide.outcome).not.toBe("not_reached"); });
-  /** SAME PAGE AND SAME CAUSE IS STILL NOT SAME WORK, AND A DRAFT AWAITING REVIEW IS NEVER READY (Codex, 2026-08-23).
-   *  Both proved through the REAL producer against the live counterexample: an incomplete title bundle on
-   *  /iran-flags/iran-islamic-republic-flag-history answered a newly selected rewrite because both said
-   *  "cannibalization", so the writer was skipped, zero calls were spent, and the receipt said produced for a page
-   *  the queue could not see. */
+  /** SAME PAGE AND SAME CAUSE IS STILL NOT SAME WORK, AND A DRAFT AWAITING REVIEW IS NEVER READY (Codex, 2026-08-23).  Both proved through the REAL producer against the live counterexample: an incomplete title bundle on  /iran-flags/iran-islamic-republic-flag-history answered a newly selected rewrite because both said  "cannibalization", so the writer was skipped, zero calls were spent, and the receipt said produced for a page  the queue could not see. */
   it("never reuses a stored bundle that is not this exact work, and never calls a review draft produced", async () => {
     reset(BOTH());
     const sameCause = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide",
@@ -255,9 +247,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       const spent = out.paid.receipts.find((r) => r.key === owed.key);
       expect(spent?.outcome).toBe("evidence_required");   // the page reports what it needs
     } });
-  /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that
-   *  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one
-   *  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */
+  /** THE METER IS WIRED TO SOMETHING (Codex, 2026-08-23). Every earlier receipt test ran an injected transport that  reported nothing, so a receipt of zeroes could not be told from a meter connected to nothing at all. This one  makes the transport report REAL requests and REAL dollars and follows them to the page's own row. */
   it("carries the transport's own request count and dollars onto the page that spent them", async () => {
     reset(SEEN());
     let n = 0;
@@ -272,9 +262,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(r.ops).toBeGreaterThan(0);}
     const total = out.paid.receipts.reduce((a, r) => a + r.costUsd, 0);
     expect(total).toBeCloseTo(spent.reduce((a, r) => a + r.costUsd, 0), 6); });
-  /** WHAT CANNOT BE DONE IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came
-   *  back `not_reached` while completable work below them went unfunded, because a page already carrying a change
-   *  under measurement was funded first and skipped later. The fact was on file the whole time. */
+  /** WHAT CANNOT BE DONE IS DECIDED BEFORE THE MONEY IS (Codex, 2026-08-23). Live, three of five funded slots came  back `not_reached` while completable work below them went unfunded, because a page already carrying a change  under measurement was funded first and skipped later. The fact was on file the whole time. */
   it("never funds a page already under measurement, and the slot goes to work that can actually finish", async () => {
     reset(BOTH());
     const measured = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide",
@@ -286,10 +274,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(out.paid.receipts.some((r) => r.key === guide)).toBe(false); // so it took no slot and owns no funded receipt
     expect(out.paid.funded).toContain(food);                          // the one slot went to work that can finish
     expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); });
-  /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a
-   *  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder
-   *  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.
-   *  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
+  /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
   it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => {
     reset(SEEN()); const out = await run(counting().complete);
     expect(out.paid.funded.length).toBeGreaterThan(0);
@@ -761,10 +746,7 @@ describe("the click curve is fitted to the account it judges", () => {
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
     expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });
 // ── work identity is the JOB'S OWN evidence, never the account's ──────────────
-/** The audited defect this pins: every fixture in this suite hardcodes `evidenceHash: "fixture"`, so an entire
- *  class of account-wide identity bugs was invisible to the suite BY CONSTRUCTION (627 versions on one live row,
- *  a finished answer overwritten by a worse redraft, twelve-call rewrites re-bought). These tests use the REAL
- *  `hashSnapshot`, move an UNRELATED page's Google figures between passes, and hold the identity still. */
+/** The audited defect this pins: every fixture in this suite hardcodes `evidenceHash: "fixture"`, so an entire  class of account-wide identity bugs was invisible to the suite BY CONSTRUCTION (627 versions on one live row,  a finished answer overwritten by a worse redraft, twelve-call rewrites re-bought). These tests use the REAL  `hashSnapshot`, move an UNRELATED page's Google figures between passes, and hold the identity still. */
 describe("work identity survives unrelated drift and moves with the job's own evidence", () => {
   const AT = ownedPage("fixture-outdoors.example/hiking-socks", "Hiking Socks", { impressions: 9000, clicks: 700 }, [{ query: "hiking socks", impressions: 9000, clicks: 700, position: 1.2 }]);
   /** Healthy on every axis (a description on file, clicks at position), so no producer mints work for it: its ONLY role is to drift. */

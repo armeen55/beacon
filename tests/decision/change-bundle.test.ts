@@ -694,10 +694,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: RIVAL_COPY, claims: [{ text: RIVAL_COPY, supportedBy: ["rival-1"] }] } }) } as never);
       expect([...refusals.values()].join(" ")).toContain("stands on a rival"); });
-    /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor
-     *  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page
-     *  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with
-     *  what the pass could read for it; only being WRONG refuses it. */
+    /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with  what the pass could read for it; only being WRONG refuses it. */
     it("still drafts for a page whose card carries little material, instead of refusing it unread", async () => {
       const asked: string[] = [];
       const card = prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::thin_page`, pagePath: "/iran-animals/persian-wolf",
@@ -730,10 +727,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(budget.spent().calls).toBe(2); // and both drafts came off the page's one declared allowance
       expect(asked.at(-1)).toContain("it points at the page instead of answering"); // the CTA objection, in the gate's own words
       expect([out[0]!.status, out[0]!.recommendedChange.kind === "existing_edit" ? out[0]!.recommendedChange.after.includes("Jeegareto") : false]).toEqual(["ready", true]); });
-    /** THE REWRITE TREATMENT REPLACES AN IDENTIFIED SECTION OR REFUSES (Codex, 2026-08-23). Live, a
-     *  rewrite_existing_section card still rendered "A new section ... placed after the H1": the output was a
-     *  different deliverable than the treatment sold. The card must name the stored passage it replaces, and a
-     *  page whose stored copy cannot be identified is a refusal, never a new section. */
+    /** THE REWRITE TREATMENT REPLACES AN IDENTIFIED SECTION OR REFUSES (Codex, 2026-08-23). Live, a  rewrite_existing_section card still rendered "A new section ... placed after the H1": the output was a  different deliverable than the treatment sold. The card must name the stored passage it replaces, and a  page whose stored copy cannot be identified is a refusal, never a new section. */
     it("a rewrite names the exact stored passage it replaces, never a new section", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
       bodyStore.map = new Map([[canonicalUrlKey(BODY.url), BODY]]);
@@ -1404,12 +1398,7 @@ describe("typed refusal contract", () => {
     expect((out2[0]!.recommendedChange as { where?: string }).where).toContain("placed after"); // exact placement on the rendered change
     bodyStore.map = null; });
 
-  /** THE DEADLOCK ITSELF, PINNED. Live for weeks: the card brief, the last drafting hint and the answer-block system
-   *  clause each told the writer to build only from the page's own material, while `addsNothing` refused copy that
-   *  stood only on the page's own material. Worse, the gate ARMED on `rival-*` briefing, which is the one class no
-   *  claim may cite, so a list page carrying rival evidence and no checked fact was refused for declining a route it
-   *  never had. Not one substantive body change reached Ready in production. A list page whose gain is genuinely the
-   *  SHAPE now lands, and the quality bar does not move: a one-line restatement still fails on structure. */
+  /** THE DEADLOCK ITSELF, PINNED. Live for weeks: the card brief, the last drafting hint and the answer-block system  clause each told the writer to build only from the page's own material, while `addsNothing` refused copy that  stood only on the page's own material. Worse, the gate ARMED on `rival-*` briefing, which is the one class no  claim may cite, so a list page carrying rival evidence and no checked fact was refused for declining a route it  never had. Not one substantive body change reached Ready in production. A list page whose gain is genuinely the  SHAPE now lands, and the quality bar does not move: a one-line restatement still fails on structure. */
   it("lands a list page whose gain is the shape, where no checked fact and no sibling page exists", async () => {
     const { canonicalUrlKey: ck6 } = await import("@/domains/evidence/snapshot");
     const URL_R = "https://www.iranopedia.com/persian-rugs";

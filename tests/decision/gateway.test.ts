@@ -123,10 +123,7 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
     const stopped = credit("held"), held = fakeFetch(completedEnvelope("{}")), refused = await call({ creditBreakerImpl: stopped.impl, fetchImpl: held.impl });
     expect([refused.kind, held.capture.calls, stopped.seen, refused.kind === "blocked_credit" && refused.reason.includes("out of credit")]).toEqual(["blocked_credit", 0, [], true]); // every caller inherits the stop, and a HELD account claims no probe and reaches no network
     const back = credit(), through = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null }))).impl; expect([(await call({ creditBreakerImpl: back.impl, fetchImpl: through })).kind, back.seen]).toEqual(["ok", ["clear"]]); });
-  /** A REQUEST THAT NEVER LEFT IS NOT A PROVIDER CALL (Codex, 2026-08-23). The count used to be made by the
-   *  caller one line BEFORE this door, so research being paused, an empty balance, a refused budget or a schema
-   *  this transport cannot convert were all reported to the operator as charged calls. The only honest place to
-   *  count is either side of the fetch, so the outcome carries it and every pre-network refusal carries zero. */
+  /** A REQUEST THAT NEVER LEFT IS NOT A PROVIDER CALL (Codex, 2026-08-23). The count used to be made by the  caller one line BEFORE this door, so research being paused, an empty balance, a refused budget or a schema  this transport cannot convert were all reported to the operator as charged calls. The only honest place to  count is either side of the fetch, so the outcome carries it and every pre-network refusal carries zero. */
   it("reports zero requests for every refusal decided before the network, and one once the request is on the wire", async () => {
     const never = fakeFetch(completedEnvelope("{}"));
     const held = await call({ creditBreakerImpl: credit("held").impl, fetchImpl: never.impl });

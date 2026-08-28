@@ -1,8 +1,4 @@
-/** Runtime acquisition executes EVERY kind the requirement union declares, through the machinery that already
- *  exists: serp through the serp unit, competitor_page through the winning-pages unit's priority-query read,
- *  page_source through that unit's owned-read seat, and factual_source through the fact-check pass. Two of the
- *  four kinds used to be typed dead ends: minted by producers, refused at the one consumer with "nothing here
- *  can buy a competitor_page", so the requirement system promised readings the runtime could never make. */
+/** Runtime acquisition executes EVERY kind the requirement union declares, through the machinery that already  exists: serp through the serp unit, competitor_page through the winning-pages unit's priority-query read,  page_source through that unit's owned-read seat, and factual_source through the fact-check pass. Two of the  four kinds used to be typed dead ends: minted by producers, refused at the one consumer with "nothing here  can buy a competitor_page", so the requirement system promised readings the runtime could never make. */
 import { describe, expect, it, vi } from "vitest";
 const CALLS = vi.hoisted(() => ({ serp: [] as string[][], win: [] as { qs: string[]; owned: string | null }[] }));
 vi.mock("@/domains/evidence", async (actual) => ({ ...(await actual<Record<string, unknown>>()),

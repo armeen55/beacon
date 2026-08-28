@@ -1,9 +1,4 @@
-/** THE PROOF BURDEN MATCHES THE PROMISE (operator, 2026-08-28). One composed walk through the canonical door:
- *  a typo repair owes nothing beyond its own diff, a factual correction may narrow and must say so, demand
- *  never chooses words, a missing field survives on banked claims, a pattern claim rides a stored shape,
- *  assistant recurrence authorizes investigation and never copy, and a replacement may not silently drop what
- *  the passage carries. The door is completeness's openHold, the same verdict the queue, Today, the detail
- *  page, Mark done, the promotion chain and the producer sweep all read, so one refusal refuses everywhere. */
+/** THE PROOF BURDEN MATCHES THE PROMISE (operator, 2026-08-28). One composed walk through the canonical door:  a typo repair owes nothing beyond its own diff, a factual correction may narrow and must say so, demand  never chooses words, a missing field survives on banked claims, a pattern claim rides a stored shape,  assistant recurrence authorizes investigation and never copy, and a replacement may not silently drop what  the passage carries. The door is completeness's openHold, the same verdict the queue, Today, the detail  page, Mark done, the promotion chain and the producer sweep all read, so one refusal refuses everywhere. */
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => store.rows }));
 vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerCached: async () => null }));

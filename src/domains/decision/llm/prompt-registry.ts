@@ -27,7 +27,7 @@ export const PROMPT_REGISTRY = {
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
   "draft.atomic_edit": 4, // v4 (2026-08-24): a meta carries META_SUBJECT_CLAUSE, which forbids the page's FAQ rail as its subject and requires it to open by naming the thing. No v2/v3 description can be served under wording that forbids what it did.
   "draft.editor_judgement": 2, // v2 (2026-08-25): a refusal owes a TYPED resolution (the smallest correct next step) and a synthesis pass must name the concrete utility gained. No v1 verdict can be served under an output contract it never carried.
-  "draft.factual_review": 2,
+  "draft.factual_review": 3, // v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
   // there is no stale answer a version could protect. Any change to the wording from here must bump them.
   "draft.internal_link": 1,

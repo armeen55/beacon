@@ -896,11 +896,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
       const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
     }});
-  /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed
-   *  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only
-   *  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and
-   *  stopped the pass that would have caught it. The free re-read runs first now and buys nothing, and the count is
-   *  no longer a ceiling either: the drive goes on to draft the row the bad one was hiding. */
+  /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and  stopped the pass that would have caught it. The free re-read runs first now and buys nothing, and the count is  no longer a ceiling either: the drive goes on to draft the row the bad one was hiding. */
   it("proves a stocked count against today's rules before it closes the day", async () => {
     vi.resetModules();
     const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] };
@@ -964,9 +960,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => REPLENISHED });
     expect([rows.at(-1)!.progress?.replenish?.day, rows.at(-1)!.progress?.replenish?.closed]).toEqual([ckey(T, NOW).slice(-10), "candidates_exhausted"]);});
   /** THE OBLIGATION AT SCHEDULER LEVEL, not four calls to the helper (Codex, 2026-08-22). The runtime used to make no promise at all: replenishReady tops up by at most two, the drive asks once, and dueWork did not count a Ready shortage as owed work, so a queue could go 0 to 2, the run could finish, and the account would sit three changes short until some UNRELATED debt happened to open the next run. Here the REAL dueWork decides what is owed and the REAL runner performs each dispatch. */
-  /** THE DISPATCH GOES AND GETS THE READING A REFUSED CANDIDATE NAMED (Codex, 2026-08-23). Storing it, logging it and
-   *  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the
-   *  dispatch ended, and the next drive drafted from the same missing evidence. Proved through the REAL runtime. */
+  /** THE DISPATCH GOES AND GETS THE READING A REFUSED CANDIDATE NAMED (Codex, 2026-08-23). Storing it, logging it and  checking it as a boolean is not acquisition: /persian-female-first-names named the exact search it needed, the  dispatch ended, and the next drive drafted from the same missing evidence. Proved through the REAL runtime. */
   it("buys exactly the search a funded candidate was refused for, even on a run that opened only for the stock", async () => {
     const asked: Array<{ kind: string; query: string; basis: string }> = [];
     const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
@@ -979,9 +973,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(asked.map((a) => ({ kind: a.kind, query: a.query }))).toEqual([{ kind: "serp", query: "persian girl names" }]); // the EXACT search, not a topic the run picked
     expect(asked[0]!.basis).not.toBe("(none)"); // AND IT CARRIES THE RUN'S BASIS: a null one failed before reading anything
     void rows; });
-  /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never
-   *  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The
-   *  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
+  /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
   it("carries only what settled into the day's memory, so an unreached page is asked again immediately", async () => {
     const seen: Array<readonly string[]> = [];
     const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });

@@ -1,8 +1,4 @@
-/** A FAILED REFRESH MAY NOT REPLACE SAVED TRUTH WITH NOTHING. A mirrored slot ages out after its TTL and the
- *  durable read then answered `null` to both "no row" and "could not be read", so one transient Supabase
- *  failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and
- *  stamped freshly read: a saved release could vanish from Today and Changes for a TTL while valid truth sat
- *  in hand. Behavioural, on the real readStore: an injected clock ages the slot and a seam fails the read. */
+/** A FAILED REFRESH MAY NOT REPLACE SAVED TRUTH WITH NOTHING. A mirrored slot ages out after its TTL and the  durable read then answered `null` to both "no row" and "could not be read", so one transient Supabase  failure sent the read to a file hosted does not have, then to the caller's `[]`, which was cached and  stamped freshly read: a saved release could vanish from Today and Changes for a TTL while valid truth sat  in hand. Behavioural, on the real readStore: an injected clock ages the slot and a seam fails the read. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const STORE = "customer-surface";

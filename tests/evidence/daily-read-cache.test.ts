@@ -1,7 +1,4 @@
-/** THE DAY'S HEAVY EVIDENCE IS COMPUTED ONCE, and a failure is never banked as the day's truth. The four
- *  GSC/GA4 aggregates cost 1.6 to 6.3 seconds of PostgREST pool time each and were re-paid by every scheduler
- *  tick (request-scoped cache() is a no-op outside a React request), which saturated the 9-connection pool,
- *  stalled the customer release for 8+ hours and timed out the sign-in membership read on the same jam. */
+/** THE DAY'S HEAVY EVIDENCE IS COMPUTED ONCE, and a failure is never banked as the day's truth. The four  GSC/GA4 aggregates cost 1.6 to 6.3 seconds of PostgREST pool time each and were re-paid by every scheduler  tick (request-scoped cache() is a no-op outside a React request), which saturated the 9-connection pool,  stalled the customer release for 8+ hours and timed out the sign-in membership read on the same jam. */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 const store = vi.hoisted(() => ({ rows: [] as unknown[], readFails: false }));
 vi.mock("@/lib/persistence/json-store", () => ({
@@ -44,9 +41,7 @@ describe("the day's heavy evidence is computed once per watermark", () => {
     expect(paid).toEqual(["live", "still live"]); });
 });
 
-/** TWO LOADERS RUNNING TOGETHER MAY NOT ANSWER FOR EACH OTHER. One module-level completeness flag served both
- *  GA4 readers, which run inside the same Promise.all, so whichever started second reset it and a truncated
- *  aggregate banked under a valid watermark (Codex, 2026-08-28). Completeness travels with its own rows now. */
+/** TWO LOADERS RUNNING TOGETHER MAY NOT ANSWER FOR EACH OTHER. One module-level completeness flag served both  GA4 readers, which run inside the same Promise.all, so whichever started second reset it and a truncated  aggregate banked under a valid watermark (Codex, 2026-08-28). Completeness travels with its own rows now. */
 describe("a truncated read never banks as the day's truth", () => {
   it("keeps each concurrent loader's completeness apart", async () => {
     store.rows = []; store.readFails = false;

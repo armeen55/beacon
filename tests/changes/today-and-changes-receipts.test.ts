@@ -67,10 +67,7 @@ async function renderDetail(p: ChangeProposal): Promise<string> {
   vi.mocked(resolveCurrentBasis).mockResolvedValue(p.basis ?? null);
   const { default: Page } = await import("@/app/(shell)/changes/[id]/page");
   return renderToStaticMarkup(await Page({ params: Promise.resolve({ id: encodeURIComponent(p.id) }) }) as ReactElement);}
-/** THE TWO ANSWERS, AND THE WALL BETWEEN THEM. "Backed by 3 checks" was the whole argument on five of seven live
- *  finished cards: a count that reads the same whether it stands on a 90-day search record or one look at the page.
- *  Search demand may never be offered as proof of WORDING, and a source proving a fact may never be offered as proof
- *  of TRAFFIC. Every clause is composed from a typed field, so an absent field prints nothing at all. */
+/** THE TWO ANSWERS, AND THE WALL BETWEEN THEM. "Backed by 3 checks" was the whole argument on five of seven live  finished cards: a count that reads the same whether it stands on a 90-day search record or one look at the page.  Search demand may never be offered as proof of WORDING, and a source proving a fact may never be offered as proof  of TRAFFIC. Every clause is composed from a typed field, so an absent field prints nothing at all. */
 describe("a card says why this opportunity and why these words, and never trades one for the other", () => {
   const rank = (directional: boolean) => ({ score: 5, factors: [], directional, basis: "b" });
   const P = (over: Partial<ChangeProposal>): ChangeProposal => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, ...over } as ChangeProposal);

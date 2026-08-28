@@ -1,8 +1,4 @@
-/** DECISION - one page is not one opportunity. The queue used to drop every non-bundle row on a page as soon as
- *  ANY row there carried a bundle, which hid eight standing rows behind one table-row bundle, three of them
- *  already shown to the operator as Ready. Two changes collide only where what they WRITE collides, and this
- *  pins that boundary from both sides: unrelated mutations on one page all survive, and work that really would
- *  be overwritten still hands over. Pure over the shared kernel definition, so no mock can absorb the answer. */
+/** DECISION - one page is not one opportunity. The queue used to drop every non-bundle row on a page as soon as  ANY row there carried a bundle, which hid eight standing rows behind one table-row bundle, three of them  already shown to the operator as Ready. Two changes collide only where what they WRITE collides, and this  pins that boundary from both sides: unrelated mutations on one page all survive, and work that really would  be overwritten still hands over. Pure over the shared kernel definition, so no mock can absorb the answer. */
 import { describe, it, expect } from "vitest";
 import { mutationFootprint, footprintsOverlap, footprintCovers, footprintKey } from "@/domains/decision/mutation-footprint";
 import type { BundleComponent, BundleComponentKind, ChangeProposal } from "@/domains/decision/contracts";

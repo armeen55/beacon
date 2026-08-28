@@ -56,8 +56,15 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
       ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
     wiring.attempts?.record?.(r); // BEFORE the status branch: a paid failure is still paid, and the receipt says so
     if (r?.status !== "drafted") return null;
-    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; claims?: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
+    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; claims: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
     // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass. AND THE RETURNED MAPPING IS CHECKED, NOT TIDIED: a ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean-looking authorization from its OWN ids, which is self-authorization wearing a reviewer's name (Codex, 2026-08-28).
+    // NOTHING THE REVIEWER RETURNED IS SILENTLY IGNORED. Every expected component was checked, and a ruling for a
+    // component nobody asked about was simply dropped, so a response could carry anything alongside the real ones.
+    const seen = rulings.map((x) => x.index).sort((a, b) => a - b);
+    if (seen.length !== batch.length || seen.some((x, n) => x !== n)) {
+      for (let i = 0; i < batch.length; i += 1) held.set(b + i, "the review answered about components this batch never asked about");
+      continue;
+    }
     const ruled = new Map(rulings.map((x) => [x.index, x] as const));
     for (let i = 0; i < batch.length; i += 1) {
       const v = ruled.get(i), item = batch[i]!, got = v?.claims ?? [];
