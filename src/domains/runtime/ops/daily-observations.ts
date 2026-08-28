@@ -485,7 +485,8 @@ export async function requestExtraSample(tenantId: string, day: string, opts: Pl
   // answers carrying $7.75 of paid text had never been analysed, every one of them dated 2026-08-16 or later,
   // and the button that buys more was still saying yes. Buying more of what nobody is reading is the one spend
   // this product can never justify, so the refusal names the backlog and the money rather than a policy.
-  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => 0);
+  const behind = await (opts.unreadBacklog ?? unreadAnswerCount)(tenantId).catch(() => null); // AND A METER THAT WILL NOT READ MAY NOT GRANT THE EXTRA: both gates treated a failed count as zero, so buying proceeded exactly when the protection could not be measured (Codex, 2026-08-28). The SCHEDULED round above keeps failing OPEN on purpose, because a broken meter must not stop the canonical day; this is the discretionary grant and it fails closed.
+  if (behind == null) return { granted: false, due: [], reason: "how many paid answers are still unread could not be read, and an extra sample is not bought while that is unknown" };
   if (behind > UNREAD_BACKLOG_MAX) return { granted: false, due: [], reason: `${behind.toLocaleString("en-US")} answers already paid for are still waiting to be read, so no more are bought today. Reading those comes first, and the next fresh round starts once they are read.` };
   const grant = state.markers?.extraSamples;
   const already = grant?.day === day ? grant.granted : 0;

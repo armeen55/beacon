@@ -103,7 +103,11 @@ describe("extra readings", () => {
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => [], readMarkers: async () => ({}) };
     expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 201 })).toEqual([]);
     expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 200 })) ?? []).length).toBeGreaterThan(0);
-    expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })) ?? []).length).toBeGreaterThan(0); });
+    expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })) ?? []).length).toBeGreaterThan(0);
+    // A BROKEN METER MUST NOT STOP THE CANONICAL DAY, and it may not grant the DISCRETIONARY extra either: both
+    // gates read a failed count as zero, so buying proceeded exactly when the protection could not be measured.
+    const blind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } });
+    expect([blind.granted, blind.reason?.includes("could not be read")]).toEqual([false, true]); });
 
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {
     const out = await requestExtraSample(T, DAY, { readPrompts: async () => null, readObservations: async () => { throw new Error("db down"); } }); expect([out.granted, out.due]).toEqual([false, []]);
@@ -128,7 +132,7 @@ describe("extra readings", () => {
 
   it("SAVES the grant so the next pass actually plans it, and refuses rather than promising a reading it could not record", async () => {
     let stored: ExtraSampleGrant | null = null;
-    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
+    const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(), unreadBacklog: async () => 0,
       readMarkers: async () => (stored ? { extraSamples: stored } : {}),
       writeMarkers: async (_t: string, p: { extraSamples?: ExtraSampleGrant }) => { if (p.extraSamples) stored = p.extraSamples; return true; } };
     const first = await requestExtraSample(T, DAY, world); expect([first.granted, stored]).toEqual([true, { day: DAY, granted: 1 }]);

@@ -129,7 +129,6 @@ const BENIGN: ResearchCycleSteps = {
 /** Healthy logging stub: each step logs its name so phase ordering is observable. */
 const healthySteps = (log: string[]): Partial<ResearchCycleSteps> => ({
   refreshSources: async () => (log.push("refresh"), { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }), backfillChunk: async () => (log.push("backfill"), { kind: "advanced", daysPulled: 30 }),
-  // A batch that reads nothing is the site already read whole: one round, then the phase advances.
   crawlPages: async () => (log.push("crawl"), 0), publishSurface: async () => void log.push("publish"), surfaceStale: async () => false }); const run = (steps: Partial<ResearchCycleSteps>, deadlineMs?: number) =>
   runResearchCycle(T, { now: () => new Date(NOW), steps: { ...BENIGN, ...steps }, ...(deadlineMs === undefined ? {} : { deadlineMs }) });
 beforeEach(() => { NOW = 1_700_000_000_000; RR.setResearchRunRepoForTests(null); ACCOUNT_STATUS.clear(); PAUSED.clear(); DB.missing.clear(); DB.ignoresWrites.clear(); DB.readThrows = false; DB.fleet = []; DB.served = []; DB.fleetError = null; installAccountRepo(); });  // ACCOUNT_STATUS is cleared so every tenant defaults to active.
@@ -180,7 +179,6 @@ describe("a fact check that cannot finish withholds that correction, not Beacon"
     const rows = withRun({ current_phase: "fact_check" }); const ran: string[] = [];
     await run({ ...held(failure), surfaceStale: async () => true, publishSurface: async () => void ran.push("publish"),
       funnelUnit: async (phase) => (ran.push(phase), { status: "done", cursor: null, progress: {} }) });
-    // The typed fact debt is persisted and no correction comes of it, but nothing else is held hostage.
     expect([rows[0]!.progress.factCheck?.failure, rows[0]!.progress.factsChecked, rows[0]!.status, rows[0]!.current_phase]).toEqual([failure, 0, "completed", "done"]);
     for (const growth of ["keyword_discovery", "prompt_observations", "serp_analysis", "publish"]) expect(ran).toContain(growth); });
   it("still STOPS the run when the failure means it can no longer safely write", async () => {
@@ -427,7 +425,6 @@ describe("research-run conflict-free research closure", () => {
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests({ ...repo, renew: async () => false }); rows.push(mk({ current_phase: "prompt_observations" })); let ran = false; // a lost lease aborts BEFORE the side effect
     await run({ funnelUnit: async () => (ran = true, { status: "done", cursor: null, progress: {} }) }); expect([ran, rows[0]!.last_error]).toEqual([false, null]); }); // the unit never ran and nothing was recorded
   it("reads the answers already paid for BEFORE it walks back into a long step, so a step that runs for hours can never starve them", async () => {
-    // The dispatch RESUMES this account's one unfinished run every half hour, so a run parked at the results-page step was handed the whole turn again and again: on 7 August one held the day for ten and a half hours while 687 bought answers sat unread, because the only door that opens a reading pass is the one the claim never reaches while a run is open.
     const order: string[] = [], rows = withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "plan_cases"] } } });
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "plan_cases"] }), analyzeAnswers: async () => (order.push("read"), { attempted: 40, settled: 38, refused: 2, read: 36, outcomes: { settled: 38, provider_refused: 2 } }),
       funnelUnit: async (phase) => (order.push(phase), { status: "done", cursor: null, progress: {} }) });
@@ -437,7 +434,6 @@ describe("research-run conflict-free research closure", () => {
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), analyzeAnswers: async () => (walked.push("read"), { attempted: 1, settled: 1, refused: 0, read: 1, outcomes: { settled: 1 } }) });
     expect([walked.length, fresh[0]!.status]).toEqual([1, "completed"]); });
   it("reads that slice ONCE a turn, however many times the turn passes back through a long step, and starts none at all with no time to store one", async () => {
-    // ONE PER TURN, because the slice buys real readings: a phase that iterates, and a turn that walks from the results-page step into the winners step, would otherwise spend the whole allowance over and over.
     const order: string[] = [], rows = withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "acquire_case_evidence"] } } }); let unit = 0; const reading = (into: string[]) => async () => (into.push("read"), { attempted: 5, settled: 5, refused: 0, read: 5, outcomes: { settled: 5 } });
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "acquire_case_evidence"] }), analyzeAnswers: reading(order),
       funnelUnit: async (phase) => (order.push(phase), (unit += 1) === 1 ? { status: "advanced", cursor: { n: 1 }, progress: {} } : { status: "done", cursor: null, progress: {} }) });
