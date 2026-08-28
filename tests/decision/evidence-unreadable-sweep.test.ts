@@ -218,10 +218,14 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     return buildEvidenceSnapshot({
       scope: { tenantId: TENANT, site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" },
       gsc: src([]), ga4: src([]), clarity: src([]), dataforseo: src([]),
-      wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"])]),
+      wix: src([wixPage("/shiraz", "Things to do in Shiraz", ["Things to do in Shiraz", "Day trips from Shiraz"]),
+        wixPage("/rugs", "Persian rug buying guide", ["Knot density", "Dyes and wool"]),
+        wixPage("/food", "Persian food classics", ["Kabob", "Stews"]),
+        wixPage("/music", "Persian music instruments", ["Tar", "Setar"])]),
       research: src({ ...emptyResearchEvidence(), aiObservations: [
         storedAnswer("pA", "things to do in shiraz", [{ url: "https://rival.example/shiraz", domain: "rival.example", title: "Shiraz guide" }]),
-        storedAnswer("pB", "best time to visit shiraz", null)] }), aiAnswersUnread: false });};
+        storedAnswer("pB", "best time to visit shiraz", null),
+        storedAnswer("pC", "shiraz day trips", [{ url: "https://rival.example/trips", domain: "rival.example", title: "Shiraz day trips" }])] }), aiAnswersUnread: false });};
   const coldExtras = async () => { vi.resetModules(); return import("@/domains/decision/producers/extra"); };
   const runExtras = async (snapshot: unknown) => (await coldExtras()).extraQueueCards({
     tenantId: TENANT, snapshot: snapshot as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
@@ -250,6 +254,30 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true }); expect(out.outcome).not.toBe("persistence_failed");
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported"); });
+  /** REAL RENDERED CARDS, INSPECTED FIELD BY FIELD (operator, 2026-08-28). A banned-word check over an empty set
+   *  passes vacuously, so this asserts the cards EXIST first, then reads every customer-visible field of a tracked
+   *  card and a fan-out card: an undiagnosed case may say what happened and what is being checked, and may not
+   *  tell the operator to touch the website. */
+  it("renders undiagnosed tracked and fan-out cards that prescribe nothing", async () => {
+    env.aiWindow = []; vi.resetModules();
+    vi.doMock("@/domains/decision/producers/page-job", async (orig) => { const real = await orig() as Record<string, unknown>;
+      return { ...real, pageUnderstanding: async () => ({ of: async () => ({ job: { subjects: ["shiraz"], answers: [] }, reason: "read" }),
+        corpus: new Map(), hold: () => {}, held: [] }), sectionFit: () => "fits" }; });
+    const m = await import("@/domains/decision/producers/extra");
+    const run = await m.extraQueueCards({ tenantId: TENANT, snapshot: aiSnapshot() as never, now: new Date("2026-08-20T09:00:00Z"), reads: { left: 0 } });
+    const aeo = run.cards.filter((c) => c.id.endsWith("::ai_answer_gap"));
+    expect(aeo.length, "the cards must exist or this test proves nothing").toBeGreaterThan(0);
+    for (const c of aeo) {
+      const fields = [c.opportunityType, c.whyItMatters, c.recommendedChange.kind === "existing_edit" ? c.recommendedChange.after : "",
+        ...(c.evidence.hints ?? []), ...(c.operatorSteps ?? []), c.causeFinding?.explanation ?? "", c.research?.next ?? "",
+        ...(c.causeFinding?.competingExplanations ?? []).map((x) => x.reason)].join(" ").toLowerCase();
+      for (const banned of ["make it reachable", "align the title", "link to ", "add an answer block", "add a section", "opening to win",
+        "lift whole", "liftable", "has to be one the assistants reach", "make the page they reach"]) {
+        expect(fields, `an undiagnosed card may not say "${banned}"`).not.toContain(banned); }
+      expect(c.treatment ?? null, "and it names no treatment").toBeNull();
+      expect((c.operatorSteps ?? []).join(" "), "its only step is that nothing is owed yet").toContain("Nothing to do yet"); }
+    expect(run.aeoSpend, "an unfunded pass bought nothing").toMatchObject({ funded: 0, attempted: 0 });
+    vi.doUnmock("@/domains/decision/producers/page-job"); });
   /** AN UNFUNDED PASS BUYS NO READING, NAMES NO TREATMENT AND HIRES NOBODY. This fixture's page has never been read, so every case lands held: what it proves is that the pass spends nothing and claims nothing when it cannot diagnose. The rendered-copy promise is proved where cards exist, on the live replay. */
   it("an unfunded pass funds nothing, attempts nothing, and names no treatment", async () => {
     env.aiWindow = [];

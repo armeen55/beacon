@@ -1491,7 +1491,9 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
     env.snap = snapshot();
     const out = await run(TENANT, { complete: seam, ...OPTS, readyTarget: 3 });
     expect(new Set(out.paid.receipts.filter((r) => r.providerCalls > 0 || r.ops > 0).map((r) => r.key)).has("/held-case"), "the undiagnosed card bought nothing").toBe(false);
-    expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]); });});
+    expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]);
+    // THE COST OF READING PAGES RIDES THE CANONICAL RECEIPT, never only a log: a caller reads it here or nowhere.
+    expect(out.paid.aeo, "a pass that funded no reading says so in all four numbers").toEqual({ funded: 0, attempted: 0, cached: 0, left: 0 }); });});
 
 /** ONE PAGE IS NOT ONE OPPORTUNITY. Coverage was keyed on the PAGE, so one Ready row anywhere on a URL dropped every other card for it: /farsi-numbers owes a title aligned to "persian numbers 0-9 names and symbols" (4,744 impressions, ZERO clicks), a zero row its table never had, and FAQ schema for four question headings carrying none, and the queue could offer exactly ONE, forever. Two cards collide only when they would overwrite the same mutation, which is what this key names. */
 describe("distinct atomic changes on one page do not suppress each other", () => {

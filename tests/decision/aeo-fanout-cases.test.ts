@@ -75,7 +75,7 @@ describe("every material search the assistants ran terminates somewhere a person
 /** THE CARD SAYS WHAT HAPPENED; ONLY THE DIAGNOSIS SAYS WHAT THE PAGE LACKS (operator, 2026-08-28). caseCopy derives stage-honest headlines; gateOf turns a diagnosis into the one treatment it supports and names NO treatment without one; diagnoseGap binds the exact packet, funds every uncached attempt from the pass's own purse, and refuses a claim the packet cannot carry. */
 describe("stage copy is honest and the diagnosis owns the treatment", () => {
   const { caseCopy, intentOf, readableSubject, gateOf } = AI_CASE_COPY;
-  const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({ quoted: '"What animals live in Iran?"', path: "/iran-animals", intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited", domain: "rival.example", ...over });
+  const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({ quoted: '"What animals live in Iran?"', path: "/iran-animals", intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited", domain: "rival.example", diagnosed: false, ...over });
   it("no case card carries a content strategy, a reading overclaim, or a raw fan-out as the thing to answer", () => {
     const rugs = caseCopy(standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs" }));
     for (const c of [caseCopy(standing()), rugs]) expect(`${c.headline} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every|liftable|lift whole/i);
@@ -111,6 +111,10 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     expect((await ask())!, "no technical evidence, no reachability diagnosis").toMatchObject({ kind: "unknown", treatment: null });
     net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the rival is newer" });
     expect((await ask())!, "freshness needs a dated conflict, not a sentence").toMatchObject({ kind: "unknown", limitation: expect.stringContaining("dated conflict") });
+    net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the credited page says 2024 and this one does not" });
+    expect((await ask())!, "a year the model typed but no supplied passage contains proves nothing").toMatchObject({ kind: "unknown", treatment: null });
+    net.answer = drafted({ kind: "authority_or_source_gap", evidenceIds: ["ans-1"] });
+    expect((await ask())!, "passage text alone never establishes a publisher's standing").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("typed source authority") });
     for (const kind of ["missing_information", "authority_or_source_gap", "freshness_gap"]) { // a fan-out packet carries no credited passage, so nothing outside the page is in evidence
       net.answer = drafted({ kind, evidenceIds: [], missing: "the 1979 rule" });
       expect((await ask({ passages: [] }))!, `${kind} without a credited passage`).toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("no credited passage") }); }
@@ -126,6 +130,10 @@ describe("the gap reader is exact, fail-closed and metered", () => {
       expect(net.calls, `${what} was re-earned`).toBe(1); }
     net.calls = 0;
     expect((await ask({ banked: { ...first, contentHash: "OLD", packet: "OLD" } }))!.decidedAt, "a moved page body is re-earned").toBe(NOW.toISOString());
+    // THE WORDS ARE PART OF THE IDENTITY, not only a hash the crawler may never have stored.
+    net.body = { ...page({ contentHash: null }) }; const noHashA = (await ask({ query: "hashless" }))!;
+    net.body = { ...page({ contentHash: null }), passages: ["Entirely different words on the very same page.", "And a second different passage."] };
+    expect((await ask({ query: "hashless" }))!.packet, "no content hash, changed words: a different packet").not.toBe(noHashA.packet);
     const meter = aeoMeter(5); net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] }); // every one refuses
     for (let i = 0; i < 5; i += 1) expect(await ask({ meter, query: `q${i}` })).toBeNull();
     net.calls = 0;

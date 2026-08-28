@@ -21,7 +21,7 @@ type ProduceProposalsOptions = ProposeOptions & {
 export type ProducerOutcome = "evidence_unreadable" | "no_actionable_candidate" | "investigating" | "actionable_but_no_trusted_draft" | "persistence_failed" | "proposals_persisted";
 type ProduceProposalsResult = {
   /** The ranked proposals this pass produced (may be empty and still a success). */ proposals: ChangeProposal[]; candidates: QualifiedCandidate[]; /** Which of the honest endings this pass reached. */ outcome: ProducerOutcome; /** Candidates that earned an action: a page to edit, plus every consolidation this kernel cannot draft yet. */ actionable: number; /** Proven gaps whose cause is not identified yet: real work, not silence. */ investigating: number; noDraft: number; persisted: number; /** Drafts the store REFUSED to file because that page already carries a change under measurement. */ heldForMeasurement: number; /** Proposals carried forward unchanged: no draft, no write, no dollars. */ reused: number; /** What has been investigated about each topic, over the SAME evidence this pass judged. Research only. */ investigations: TopicInvestigation[]; coverage: DecidedTopic | null; /** the earliest date any page this pass could not read may be tried again; null when nothing is waiting, which is what stops a surface saying "checking" */ waitingUntil: string | null; /** Cards a producer would have minted and HELD instead, each with the typed reason. Refused work is on the receipt, never a silent absence. */ held: { pageUrl: string; reason: string }[]; /** THE PASS'S OWN RECEIPT, PER JOB. Every candidate the manifest saw, the ones it funded, and what actually BECAME of each funded one. The aggregate this replaces was a fiction: allowances are decremented BEFORE the gateway is called, so one charged-looking number made every funded page look attempted even when the first call came back out of quota and the rest were never reached (Codex, 2026-08-22). `attemptUnitsSpent` keeps its honest name: it is allowance consumed, and it is not a billing figure and not proof anybody was asked. */
-  paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number; readyShortfall?: number | null; declined?: readonly { key: string; family: string; reason: string }[];
+  paid: { declared: readonly string[]; funded: readonly string[]; attemptUnitsSpent: number; readyShortfall?: number | null; aeo?: { funded: number; attempted: number; cached: number; left: number }; declined?: readonly { key: string; family: string; reason: string }[];
     evidenceOwed?: readonly (EvidenceRequirement & { key: string; reason: string; workKey: string })[]; // the exact readings funded candidates were refused for, typed
     /** THE COMPLETE PER-PAGE RECORD, every field of it SET by the builder below and read off the surface that holds it. Nothing here is optional-and-absent: a receipt that cannot name the family, the treatment, the price it was funded at, the operations it ran, the requests that really left the process, the dollars they cost or the store's own answer is not a receipt (Codex, 2026-08-23). `why` is present whenever anything settled or blocked the page, and is never truncated here. */
     receipts: readonly { key: string; funded: boolean; family: string; treatment: string | null; impact: number; allowance: number; fallbacks: readonly string[];
@@ -130,12 +130,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const audience = new Map<string, number>(), worth = new Map<string, number>(); for (const o of snapshot.ownedPages) if (o.search) for (const k of pageKeys(o.url)) audience.set(k, o.search.impressions90d);
   for (const c of candidates) { const k = pageKeys(c.pageUrl).at(-1) ?? ""; if (!k) continue;
     worth.set(k, Math.max(worth.get(k) ?? 0, c.recoverableClicks, (pageKeys(c.pageUrl).map((x) => audience.get(x)).find((x) => x != null) ?? 0) / 100)); }
-  // AND THE AI SIDE OF WORTH, IN THE SAME UNIT, so the one manifest is objective-aware: `worth` was built from Google
-  // candidates alone, which priced a page whose recurring AI answers retrieve-but-never-select it at ZERO and let a
-  // fourteen-impression description outrank it merely because its draft was cheaper. Every card already carries its
-  // own impact (the ranker's unit), so each page's worth is the max of what Google proves recoverable and what any
-  // card on that page is worth to the frozen objective; every family's job on that page then funds off the same number
-  // the display ranks by.
+  // AND THE AI SIDE OF WORTH, IN THE SAME UNIT, so the one manifest is objective-aware: `worth` was built from Google candidates alone, which priced a page whose recurring AI answers retrieve-but-never-select it at ZERO and let a fourteen-impression description outrank it merely because its draft was cheaper. Every card already carries its own impact (the ranker's unit), so each page's worth is the max of what Google proves recoverable and what any card on that page is worth to the frozen objective; every family's job on that page then funds off the same number the display ranks by.
   const foldCardWorth = (cs: readonly ChangeProposal[]) => { for (const c of cs) { const k = pageKeys(c.pageUrl ?? c.pagePath).at(-1) ?? ""; if (k) worth.set(k, Math.max(worth.get(k) ?? 0, c.impactScore ?? 0)); } };
   foldCardWorth(recovery.cards); foldCardWorth([...existing.values()].filter((p) => p.status !== "implemented_pending_verification"));
   const worthOf = (u: string | null | undefined): number => pageKeys(u).map((k) => worth.get(k)).find((v) => v != null) ?? 0;
@@ -194,6 +189,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const receipt = () => ({ declared: budget.declared, funded: budget.funded.map((f) => f.key), attemptUnitsSpent: budget.spent().calls,
     // WHAT THE PASS IS STILL SHORT, off the one shared shortfall every family lands against: null when no target was set. The press receipt owes the operator "remaining due work", and a test can only prove the cross-family landing by reading it here.
     readyShortfall: budget.owed(),
+    // WHAT READING THE PAGES COST THIS PASS, on the SAME receipt as the drafting spend and never only in a log:
+    // a caller must be able to see the AEO purse without reconstructing it. Zeros are stated, not implied.
+    aeo: extra.aeoSpend ?? { funded: 0, attempted: 0, cached: 0, left: 0 },
     declined: budget.declined.map((d) => ({ key: d.key, family: d.family, reason: d.reason })),
     evidenceOwed: [...evidenceOwed.entries()].map(([key, e]) => ({ key, ...e })), // WHAT TO GO AND GET, as data the runtime executes rather than a sentence it parses // WHAT THE PASS REFUSED TO BUY AND WHY, in the operator's words, DURABLE: a log line ages out and was cut at four
     receipts: budget.funded.map((f) => { const r = filed.get(f.key), m = budget.meterOf(f.key); return {
@@ -299,14 +297,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (result === "saved" || result === "unchanged") existing.set(p.id, p);
     return result; };
   /** THE RECEIPT IS BOUND TO THE SAVE, never to the drafting. Work that was written and then could not be stored is not finished work: it is owed again. Filing `produced` before the store answered meant a pass where one save landed and another failed wrote BOTH pages off, and the second was never offered again that day. */
-  /** THE ONE SETTLEMENT EVERY PAID FAMILY SHARES. Every family persists through here, this is the only place the
-   *  shared Ready shortfall moves, and it moves EXACTLY ONCE per durably kept row: the store answered saved or
-   *  unchanged, AND the row it kept is customer-actionable Ready (persistIfChanged already downgrades a held or
-   *  unsettled row to review through the one servability rule, so the stored status IS that verdict). Landing only
-   *  through the generic editor was the proven hole: new-page, factual, deep-bundle and field work saved Ready
-   *  without reducing the deficit, so later families kept spending after the queue was full. A preview save
-   *  (`not_persisted`) is never called produced: nothing durable exists, so nothing counted and nothing may claim
-   *  the top receipt. Answers whether this row counted, so the editor can stop the walk on the store's own word. */
+  /** THE ONE SETTLEMENT EVERY PAID FAMILY SHARES. Every family persists through here, this is the only place the shared Ready shortfall moves, and it moves EXACTLY ONCE per durably kept row: the store answered saved or unchanged, AND the row it kept is customer-actionable Ready (persistIfChanged already downgrades a held or unsettled row to review through the one servability rule, so the stored status IS that verdict). Landing only through the generic editor was the proven hole: new-page, factual, deep-bundle and field work saved Ready without reducing the deficit, so later families kept spending after the queue was full. A preview save (`not_persisted`) is never called produced: nothing durable exists, so nothing counted and nothing may claim the top receipt. Answers whether this row counted, so the editor can stop the walk on the store's own word. */
   const persistAndFile = async (row: ChangeProposal, key: string): Promise<boolean> => { const r = await persistIfChanged(row); // a store that REFUSED the row settled it; one that FAILED or HELD it settled nothing
     persisted_.set(key, r); // the STORE'S OWN ANSWER, on the receipt: "produced" is a claim, "saved" is what happened
     // AND WHAT LANDED IS RE-READ FROM THE MAP THE STORE ANSWERED INTO (Codex, 2026-08-23): a live pass filed `produced` with the store answering "saved" while the stored row still carried its brief, so the one number the operator reads never moved. Finished work is a row that is ready, is not research, and carries words. A DRAFT A HUMAN STILL HAS TO READ IS ITS OWN ANSWER (Codex, 2026-08-23): it SETTLES the attempt, because the writing happened and asking again buys the same draft, and it is NEVER counted as Ready work.
@@ -315,10 +306,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     file(key, r === "saved" || r === "unchanged" ? "produced" : r === "not_persisted" ? "review_saved" : r === "refused" ? "deterministic_refusal" : "retryable_blocked", true,
       r === "refused" ? "the store refused this row: it does not pass the bar a change must clear to be offered" : r === "failed" ? "the store could not save this row" : r === "not_persisted" ? "drafted in preview only, so nothing durable exists yet" : undefined);
     const stored = existing.get(row.id);
-    // ONLY NEW STOCK LANDS. The caller's deficit is target minus the Ready rows ALREADY on file, so a reused row the
-    // store confirms unchanged was counted once in that subtraction and landing it again closed the pass at four of
-    // five forever: every dispatch re-served the same held row, owed hit zero, nothing new was drafted, and the day
-    // burned a drive to stand still (audit, 2026-08-26). A row Ready at pass start confirms; it never lands.
+    // ONLY NEW STOCK LANDS. The caller's deficit is target minus the Ready rows ALREADY on file, so a reused row the store confirms unchanged was counted once in that subtraction and landing it again closed the pass at four of five forever: every dispatch re-served the same held row, owed hit zero, nothing new was drafted, and the day burned a drive to stand still (audit, 2026-08-26). A row Ready at pass start confirms; it never lands.
     const counted = (r === "saved" || r === "unchanged") && stored?.status === "ready" && stored.researchOnly !== true;
     if (counted && !readyAtStart.has(row.id)) budget.land();
     return counted; };
@@ -388,17 +376,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     const reviewed = slot ? await defects.FACTUAL_DEFECTS.review(group, { tenantId, now: opts.now ?? new Date(), attempts: slot, ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => group) : group;
     const moved = reviewed !== group; if (!moved) file(key, "retryable_blocked", false, slot ? undefined : (outOfTime() ? "the drive's time box ended before this page was started" : "the plan did not fund a review of these corrections"));
     for (const [i, card] of reviewed.entries()) { const p = { ...card, ...(basis ? { basis } : {}) };
-      // A PASS WHOSE REVIEW NEVER RULED MAY ADD OWED WORK AND MAY NOT REWRITE A BANKED READING (found live,
-      // 2026-08-28): the $0 release pass persisted fresh mint copies over three reviewed Ready corrections and
-      // erased their paid per-claim receipts minutes after they landed. Unruled, the mint may land only where the
-      // stored row banks no reading; the review's own output still overwrites, exactly as before.
+      // A PASS WHOSE REVIEW NEVER RULED MAY ADD OWED WORK AND MAY NOT REWRITE A BANKED READING (found live, 2026-08-28): the $0 release pass persisted fresh mint copies over three reviewed Ready corrections and erased their paid per-claim receipts minutes after they landed. Unruled, the mint may land only where the stored row banks no reading; the review's own output still overwrites, exactly as before.
       if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); if (slot && moved && i === 0) await persistAndFile(p, key); else if (moved || !existing.get(p.id)?.semanticReview) await persistIfChanged(p); } } }
   const replacing = [...existing.values()].filter((r) => r.recommendedChange.kind === "existing_edit" && (r.recommendedChange.before ?? "").trim().length >= 20 && (r.recommendedChange.field === "section" || r.recommendedChange.field === "answer_block"))
     .map((r) => r.pageUrl ?? r.pagePath ?? "").filter(Boolean).sort((a, b) => a.localeCompare(b)); // sorted, so the window below is the same window on every instance
-  // A DURABLE CURSOR, NEVER A DAY-DERIVED OFFSET: keyed to the day, ten same-day runs inspected the same window and
-  // the rows behind it waited for tomorrow, which is exactly the ten-times-a-day operator this cycle serves. The
-  // cursor advances by what was actually read and survives the process, so repeated runs walk the whole eligible
-  // list even as it changes; an unreadable cursor starts at zero, which re-reads rather than skips.
+  // A DURABLE CURSOR, NEVER A DAY-DERIVED OFFSET: keyed to the day, ten same-day runs inspected the same window and the rows behind it waited for tomorrow, which is exactly the ten-times-a-day operator this cycle serves. The cursor advances by what was actually read and survives the process, so repeated runs walk the whole eligible list even as it changes; an unreadable cursor starts at zero, which re-reads rather than skips.
   const { readStore, writeStore } = await import("@/lib/persistence/json-store");
   const cursorRow = replacing.length > 0 ? await readStore<{ at: number }>("sweep-cursor", [], { tenantId }).then((r) => r[0] ?? { at: 0 }).catch(() => ({ at: 0 })) : { at: 0 };
   const turn = replacing.length > 0 ? Math.abs(cursorRow.at) % replacing.length : 0;

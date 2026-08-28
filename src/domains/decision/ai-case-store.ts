@@ -24,22 +24,32 @@ export type AeoGapDiagnosis = {
   contentHash: string; completeness: string; observationIds: readonly string[];
   version: number; decidedAt: string;
 };
-const KINDS = new Set(["already_answered", "scattered_answer", "missing_information", "extraction_or_structure_gap", "authority_or_source_gap", "freshness_gap", "reachability_gap", "unknown"]);
-const TREATMENTS = new Set(["rewrite_existing_section", "add_answer_section"]);
+/** THE ONE LAW BINDING A DIAGNOSIS TO THE WORK IT MAY ORDER, written once and read by the producer that
+ *  constructs a diagnosis AND the decoder that reads one back. Two copies of this drift, and a drifted copy is
+ *  how a persisted row pairing `unknown` with a rewrite reaches the hiring branch. `missing_information` maps to
+ *  an answer section and STILL never hires: the gate holds it acquisition-first, because nothing on file binds
+ *  the proposition to the facts that support it. */
+export const TREATMENT_FOR_KIND: Record<AeoGapKind, "rewrite_existing_section" | "add_answer_section" | null> = {
+  scattered_answer: "rewrite_existing_section", extraction_or_structure_gap: "rewrite_existing_section",
+  missing_information: "add_answer_section", already_answered: null, authority_or_source_gap: null,
+  freshness_gap: null, reachability_gap: null, unknown: null };
 /** PERSISTED JSON IS UNTRUSTED. A row written by an older contract, half-written, or carrying a shape nobody recognises decodes to null: no usable diagnosis, which authorizes nothing and crashes nothing. Never repaired into something valid-looking, because a repaired verdict is a verdict nobody made. */
 export function decodeDiagnosis(raw: unknown): AeoGapDiagnosis | null {
   if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
   const d = raw as Record<string, unknown>;
   const ids = (v: unknown): string[] | null => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0) ? (new Set(v as string[]).size === v.length ? v as string[] : null) : null;
   const owned = ids(d.ownedIds), evidence = ids(d.evidenceIds), obs = ids(d.observationIds);
-  const treatment = d.treatment === null ? null : typeof d.treatment === "string" && TREATMENTS.has(d.treatment) ? d.treatment : undefined;
-  if (typeof d.kind !== "string" || !KINDS.has(d.kind) || treatment === undefined) return null;
+  // THE PAIR IS THE CHECK, not two enums that happen to be legal apart: `unknown` carrying a rewrite is a row
+  // that would hire a writer off a verdict which authorized nothing.
+  if (typeof d.kind !== "string" || !(d.kind in TREATMENT_FOR_KIND)) return null;
+  const treatment = TREATMENT_FOR_KIND[d.kind as AeoGapKind];
+  if ((d.treatment ?? null) !== treatment) return null;
   if (owned == null || evidence == null || obs == null) return null;
   if (typeof d.explanation !== "string" || !d.explanation.trim()) return null;
   if (typeof d.packet !== "string" || !d.packet || typeof d.contentHash !== "string") return null;
   if (typeof d.completeness !== "string" || typeof d.decidedAt !== "string") return null;
   if (d.version !== DIAGNOSIS_CONTRACT) return null; // an older contract is re-earned, never served on
-  return { kind: d.kind as AeoGapKind, treatment: treatment as AeoGapDiagnosis["treatment"], explanation: d.explanation,
+  return { kind: d.kind as AeoGapKind, treatment, explanation: d.explanation,
     ownedIds: owned, evidenceIds: evidence, ...(typeof d.missing === "string" && d.missing ? { missing: d.missing } : {}),
     ...(typeof d.limitation === "string" && d.limitation ? { limitation: d.limitation } : {}),
     packet: d.packet, contentHash: d.contentHash, completeness: d.completeness, observationIds: obs, version: DIAGNOSIS_CONTRACT, decidedAt: d.decidedAt };
