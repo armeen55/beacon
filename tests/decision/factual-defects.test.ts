@@ -52,8 +52,6 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([dead]);
-    // A WITHDRAWAL NAMES THIS ROW'S OWN REFUSAL: a subject keeps superseded history under the same slug, so
-    // reading every row let an old reading's reason be reported as the live one's (live, on Jasmine).
     const LIFT = "The name comes from Old French jessemin, from Persian yasamin and nothing else besides";
     checks.rows = [check({ subject: "Afsaneh", proposed: LIFT, sources: [{ url: "https://en.wiktionary.org/j", kind: "dictionary", says: LIFT }] }),
       check({ subject: "Afsaneh", state: "superseded", proposed: "Nothing any quote carries" })];
@@ -72,7 +70,6 @@ describe("a page's own statements against their sources", () => {
     expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40);
     expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
     expect(cards.every((c) => c.bundle === undefined)).toBe(true);
-    // AND NO CAP: the queue is unlimited, so nothing is held back "behind this batch".
     expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
     checks.rows = [check({ alsoAt: ["the FAQ answer on this page"] })];
@@ -86,35 +83,27 @@ describe("a page's own statements against their sources", () => {
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
-    // Maryam's quote hedges ("may have... possibly"); Ariana's derives from "the Ancient Greek name Ariadne". Both shipped as flat corrections past the model reviewer.
     const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
     checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
       check({ subject: "Ariana", proposed: "Most holy", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
       check({ subject: "Aryana", proposed: "silver", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
       check({ subject: "Leila", proposed: "Night", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    // "Used as a Welsh name" is another use of the spelling; a word etymology (Arabic layl) is this name's own story; distance one is a transliteration (Laila/Leila), never a different name.
     expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
   it("the banked quote is the only text that may authorize a short gloss, and a citation is not a gloss", async () => {
     const q = (says: string) => [{ url: "https://en.wikipedia.org/z", kind: "encyclopedia", says }];
     const ALBORZ_QUOTE = "The name Alborz is derived from Hara Barazaiti, a legendary mountain in the Avesta.";
     const JQ = "The name comes from Old French jessemin, from Persian یاسمن, romanized: yāsamin";
     checks.rows = [
-      // A. LIVE Alborz: "Mountain Rampart" sits elsewhere on the fetched page; the banked quote never carries it.
       check({ subject: "Alborz", proposed: "Mountain Rampart", literal: "Mountain Rampart", sources: q(ALBORZ_QUOTE) }),
-      // B+E. Supported control with normalization noise: diacritics, hyphen, capitals never false-refuse.
       check({ subject: "Yas", current: "Meaning:Old words.", proposed: "The jasmine flower", sources: q('yās means the jasmíne-flower') }),
-      // Jasmine class: the proposal IS the quote, a citation standing where a meaning phrase stands.
       check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: JQ, sources: q(JQ) })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    // D rides A: the literal repeats the gloss and may not vouch for itself.
     expect(cards.map((c) => c.id.split("fact-")[1]), "only the quote-carried gloss mints").toEqual(["yas"]);
     const { unauthorizedReason } = await import("@/domains/evidence/pages/fact-checks");
     expect(unauthorizedReason(checks.rows[0] as never)).toContain("do not carry every word of the proposal");
     expect(unauthorizedReason(checks.rows[2] as never)).toContain("restates the source's own sentence");
     expect(unauthorizedReason(checks.rows[1] as never)).toBeNull();
-    // Reviewer-driven boundaries: a word inside another word is not that word; digits match across grouping;
-    // plain inflection folds both ways; a gloss too short for content tokens must still appear whole.
     // EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET. An authoritative source contributing ONE word while
     // an ordinary publisher supplies the decisive one is still incomplete provenance: live, Parisa published
     // "beautiful like a fairy" off an encyclopedia saying only "fairy-like".

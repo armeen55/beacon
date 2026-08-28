@@ -68,7 +68,7 @@ type VerifyDeps = {
 
 /** How many live pages ONE pass may read for verification. A verification is one free read of a page the
  *  account owns, and three of them is a pass's worth: the rest are still due on the next visit. */
-const MAX_VERIFICATIONS_PER_PASS = 3;
+const MAX_VERIFICATIONS_PER_PASS = 3, TARGET_SCAN_BOUND = 50; // the bounded window a targeted lookup may scan for its id
 /** Under this many words at the proposed address, a new page is live but not yet a page. */
 const THIN_PAGE_WORDS = 120;
 /** The kinds a live page answers for on its own, with no wording needed to check them. */
@@ -340,10 +340,11 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
  * here pauses a run, and nothing here spends a cent. Returns how many verifications actually landed.
  */
 /** ONE SHIPMENT, CHECKED NOW: "did my paste land" waited for the next sweep, which is the wrong answer at ten to thirty applies a day, and the verifier, the due read and the record all existed already (Codex, 2026-08-28). Same path, so this is no second verification route; a shipment no longer due is simply absent and this returns 0. */
-export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId);
+export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId); // the target is picked BY ID across a wider bound, so a shipment fourth in the due order is still the one checked
 
 export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}, only?: (s: { id: string }) => boolean): Promise<number> { // `only` narrows the SAME due read to one shipment
-  const due = (await shipmentsAwaitingVerification(tenantId, MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)); let written = 0;
+  // A TARGETED CHECK SELECTS ITS SHIPMENT BEFORE ANY SWEEP LIMIT: filtering after the three-row cap meant a target fourth in line was never the one verified (Codex, 2026-08-28). The sweep keeps its own cap.
+  const due = (await shipmentsAwaitingVerification(tenantId, only ? TARGET_SCAN_BOUND : MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)).slice(0, MAX_VERIFICATIONS_PER_PASS); let written = 0;
   const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);

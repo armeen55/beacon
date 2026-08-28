@@ -1,7 +1,7 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-const led = vi.hoisted(() => ({ records: [] as Array<{ id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }>, breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
+const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Array<{ id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }>, breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
@@ -12,7 +12,9 @@ vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async 
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadChangeProposal: async () => stored.proposal, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
+vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } })); // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
+  verifyShipmentNow: async (_t: string, id: string) => { led.verified.push(id); return 1; },
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
   recordShipment: async (f: { proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }) => {
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
@@ -37,7 +39,6 @@ const press = async (p: ChangeProposal) => { stored.proposal = p;
 beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
-    // Every card owned its own server action, and Next runs those strictly one at a time: twenty cards meant
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
     stored.proposal = change(); surf.rebuilds = 0;
     const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
@@ -45,12 +46,25 @@ describe("many at once is one trip, and still one shipment each", () => {
     expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1);
     expect(out.done + out.already, "and every id is answered").toBe(20);
     expect(led.flip).toHaveBeenCalledTimes(20); // still one atomic transition each
-    // AND IT IS IDEMPOTENT: pressing the same twenty again records nothing new and rebuilds nothing new.
     surf.rebuilds = 0; led.flip.mockClear();
     const again = await mark({ proposalIds: ids });
     expect(again.done, "nothing is recorded twice").toBe(0);
     expect(again.already).toBe(20); });});
 describe("nothing is marked done that no record stands behind", () => {
+  it("schedules the exact shipment it just wrote, on the full press and on a partial bundle alike", async () => {
+    led.verified = [];
+    const whole = change("Whole-press verification target");
+    await press(whole);
+    expect(led.verified, "the full press schedules its own shipment").toEqual([led.records[led.records.length - 1]!.id]);
+    led.verified = [];
+    const two = change("Partial-press verification target");
+    (two.bundle as { components: unknown[] }).components = [
+      { kind: "title", label: "Title", risk: "safe", before: "Comedians", after: "A", evidenceKeys: ["k1"] },
+      { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
+    stored.proposal = two;
+    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] });
+    expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]);
+    expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); });
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");
     expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });

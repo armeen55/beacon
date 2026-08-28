@@ -21,7 +21,6 @@ vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () 
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
-  // THE ONE DOOR that writes a record, standing in for the real one: it always writes and always answers with the id the flip is required to carry, so there is no press that closes a change no record stands behind. What it can be compared against is pinned in mark-implemented-transaction.
   recordShipment: async (r: unknown) => { shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
 const NOW = "basis_now::d4";
 const EXACT = "Iranian Comedians: the 12 names people actually search for";
@@ -62,7 +61,6 @@ describe("a direct link renders only what the ranked list would, and always land
     expect([live.includes(EXACT), live.includes("Mark done"), live.includes("This idea was set aside")]).toEqual([true, true, false]);
     const stale = await link(bundled("basis_old::d2")); // no exact copy, no before/after, no way to record it
     expect([stale.includes("This idea was set aside"), stale.includes("See the work that stands now")]).toEqual([true, true]); expect(stale).not.toMatch(new RegExp(`${EXACT}|Comedians</p>|Mark done`)); });
-  // THE DOOR IS THE SAME DOOR. A direct link is not a side entrance: everything the ranked list refuses is refused here too, on the row's own evidence rather than on its basis stamp alone.
   it("refuses at the link what the list refuses: a receipt that does not resolve, a merge filed as ready, evidence gone cold", async () => {
     const b = bundled(NOW).bundle!, cold = new Date(Date.now() - 120 * 86_400_000).toISOString();
     for (const bundle of [
@@ -83,7 +81,6 @@ describe("a direct link renders only what the ranked list would, and always land
     const mixed = { ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta" as const, label: "Description", after: "A description", evidenceKeys: ["k2"] }],
       receipt: { items: [item, { ...item, key: "k2", observedAt: cold }], missing: [], freshestObservedAt: SEEN } } } as ChangeProposal;
     const { bundle: _b, ...atomic } = bundled(NOW);
-    // AND A BUNDLE WHOSE EVERY READING IS UNDATED still ages: real receipt keys (the page's own demand, the diagnosis, the winner pattern) carry no observation date at all, so per-component freshness alone would have let such a change stand forever. With nothing dated to age, it ages on the day it was drafted, exactly as an atomic change does.
     const undated = { ...bundled(NOW), createdAt: cold, bundle: { ...b, receipt: { items: [{ ...item, observedAt: null }], missing: [], freshestObservedAt: null } } } as ChangeProposal;
     expect([failures(mixed, ctx).length > 0, failures(bundled(NOW), ctx).length, failures({ ...atomic, createdAt: cold } as ChangeProposal, ctx).length > 0,
       failures(undated, ctx).length > 0, failures({ ...undated, createdAt: SEEN } as ChangeProposal, ctx).length]).toEqual([true, 0, true, true, 0]); });
@@ -101,18 +98,14 @@ describe("a direct link renders only what the ranked list would, and always land
     expect(page).not.toContain("Mark done");
     expect(page).toContain("held"); // the reason renders where the controls were
   });
-  // AND NOTHING LANDS IN THE LEDGER THAT THIS SCREEN WOULD NOT SHOW: the same verdict runs at the moment of the press, and a stale screen or a hand-made request cannot merge a page on its own say-so.
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
     const b = bundled(NOW).bundle!;
-    // the same stored row this screen would be rendered from
     const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
     const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
     const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
-    // A PAGE-MOVER IS GRADED DANGEROUS AND A DANGEROUS PIECE CAN NEVER SIT IN READY, so the lane refuses it before the deliberate yes is ever reached, with or without one: nothing about a change in review is recordable, and no ticked box changes that.
     const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
     expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
-    // STEP TWO, AND THE ONLY WAY OUT OF THE HOLD: Product Truth asks for two steps and only the first one existed, so a merge, a forward, a canonical or a de-index was held for a confirmation nobody could give. The confirmation lives on the change's own detail page, beside the pieces, the addresses, the destination and the risks, and it binds to ONE version: a version that has moved since the screen was drawn refuses, safe work sitting in review for a quality gate cannot reach this door at all, and the yes is written back onto the row so the queue and the mutation read it rather than trust a screen.
     const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, answerReviewedProposal: promote } = await import("@/domains/decision");
     const safe = { ...merge, bundle: { ...merge.bundle!, components: [b.components[0]!] } } as ChangeProposal;
     await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
@@ -143,7 +136,6 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    // THE APPROVED CONTRACT (operator, 2026-08-27): Beacon's unfinished writing is Beacon's responsibility and is
     expect(html).toContain("Beacon is working on 2 more opportunities");
     expect(html).toContain("Writing and checking the exact change. It appears above when it is finished.");
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
@@ -224,6 +225,7 @@ export async function markProposalImplementedAction(args: {
     const n = shipment.recorded, left = shipment.remaining;
     const one = (a: string, b: string) => (left === 1 ? a : b);
     if (!shipment.complete) {
+      after(() => verifyShipmentNow(tenantId, shipment.shipmentId).catch(() => 0)); // a PARTIAL bundle's pieces are recorded and measuring, so the just-shipped state is checked exactly like a whole card's
       await invalidateCoreSurfaces().catch(() => {});
       revalidatePath("/changes");
       const landed = n > 0
@@ -237,7 +239,7 @@ export async function markProposalImplementedAction(args: {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
     if (!args.deferSurfaces) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
-    void verifyShipmentNow(tenantId, shipment.shipmentId).catch(() => 0); // ANSWERED IN MINUTES, NOT ON THE NEXT SWEEP; a failure leaves the shipment due exactly as before
+    after(() => verifyShipmentNow(tenantId, shipment.shipmentId).catch(() => 0)); // ANSWERED IN MINUTES, NOT ON THE NEXT SWEEP, under the request-lifetime after() every other deferred action uses: a void promise could be killed with the lambda, and a failure leaves the shipment due exactly as before
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };

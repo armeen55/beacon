@@ -157,6 +157,11 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);});
+  it("finds its target past the sweep cap, and rules nothing else in its place", async () => {
+    for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-${id === "e" ? "31" : "30"}T09:00:00Z` }));
+    const read: string[] = [];
+    const written = await verifyShipmentNow(T, "e", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
+    expect([written, read.length, WRITES.map((w) => w[1])], "the fifth-in-line target, one read, one record").toEqual([1, 1, ["e"]]); });
   it("checks the one shipment just marked done, through the same path and nothing else", async () => {
     for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" }));
     const read: string[] = [];
