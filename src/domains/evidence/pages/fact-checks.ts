@@ -317,11 +317,34 @@ export function citationOfQuote(proposed: string, quotes: readonly string[], cur
     for (const w of qt) if (w === pt[i]) { i += 1; if (i === pt.length) return true; }
     return false; });
 }
-/** WHY a checked, confirmed row still may not become customer work, in one typed sentence, or null. Read by
- *  the producer so a withdrawal can say the real reason instead of a generic one. */
+/** Does this ONE quote contribute any of the proposed wording? A source that contributes nothing cannot vouch
+ *  for words it never said, whatever kind of publisher it is. */
+const carriesAny = (proposed: string, quote: string): boolean => {
+  const said = new Set(allTokens(quote).flatMap(stems));
+  const hit = (w: string): boolean => stems(w).some((v) => said.has(v));
+  const tokens = contentTokens(proposed);
+  return (tokens.length > 0 ? tokens : allTokens(proposed).filter((w) => !GLOSS_STOP.has(w))).some(hit);
+};
+const AUTHORITATIVE_KIND: ReadonlySet<SourceKind> = new Set(["scholarly", "dictionary", "encyclopedia"]);
+
+/** WHY a checked, confirmed row still may not become customer work, in one typed sentence, or null. THE ONE
+ *  AUTHORIZATION RULE, so the refusal and the withdrawal that reports it can never drift apart.
+ *
+ *  AUTHORITY AND WORDING ARE ONE QUESTION, NOT TWO. They were asked independently, so an authoritative quote
+ *  about something else could elevate words supplied only by an ordinary publisher: a dictionary saying "the
+ *  name is Persian" beside a baby-name site saying "it means silver" authorized "silver". The set that CARRIES
+ *  the proposed wording is now the set that must satisfy the authority contract, so an authoritative source
+ *  has to contribute to the words it is vouching for. An ordinary source may still corroborate alongside it,
+ *  which is the honest residual of a provenance test: it bounds who may speak, never what the words mean. */
 export function unauthorizedReason(c: FactCheck): string | null {
+  const qualified = c.sources.filter((s) => s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject));
+  if (!qualified.some((s) => AUTHORITATIVE_KIND.has(s.kind))) return "no authoritative source that was read, is unhedged and is about this subject stands behind it";
+  // A missing-information row proposes what the page LACKS, has no quotation to grade, and keeps the contract
+  // it was banked under; only the correction shape is bound to its quotes here.
   if (c.current.trim() === "" || !c.proposed?.trim()) return null;
-  const quotes = c.sources.map((s) => s.says);
+  const carriers = qualified.filter((s) => carriesAny(c.proposed!, s.says));
+  if (!carriers.some((s) => AUTHORITATIVE_KIND.has(s.kind))) return "the authoritative quote carries none of the proposed wording, so those words stand only on an ordinary source";
+  const quotes = carriers.map((s) => s.says);
   if (!glossCarriedBy(c.proposed, quotes)) return "the banked quote does not carry the proposed wording, so the receipt cannot support publishing it";
   if (citationOfQuote(c.proposed, quotes, c.current)) return "the proposal restates the source's own sentence instead of giving the page's line a meaning";
   return null;
@@ -339,14 +362,8 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     && (c.verdict === "page_wrong" || c.verdict === "page_imprecise" || c.current.trim() === "")
     && !!c.proposed?.trim()
     && !!c.sourceReadAt
-    // THE LOAD-BEARING AUTHORITY IS ONE WHOSE OWN QUOTE CAN CARRY THE WEIGHT: read, non-hedging, and about this
-    // subject rather than a different name it derives from. Kind alone let a hypothesis and a homograph through.
-    && c.sources.some((s) => (s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")
-      && s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject))
-    // THE QUOTE-BOUND CONTRACT for the correction shape: the receipt's own quotes carry the gloss, and the
-    // gloss is a gloss rather than the quote itself. A missing-information row (no current wording) is the
-    // writer's evidence shape and is not gated here.
-    && (c.current.trim() === "" || (glossCarriedBy(c.proposed!, c.sources.map((s) => s.says)) && !citationOfQuote(c.proposed!, c.sources.map((s) => s.says), c.current)))
+    // AUTHORITY, SUBJECT IDENTITY AND QUOTE-BOUND WORDING, asked once, by the one rule above.
+    && unauthorizedReason(c) == null
     && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
 }

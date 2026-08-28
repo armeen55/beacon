@@ -98,6 +98,21 @@ describe("a page's own statements against their sources", () => {
     expect(unauthorizedReason(checks.rows[1] as never)).toBeNull();
     // Reviewer-driven boundaries: a word inside another word is not that word; digits match across grouping;
     // plain inflection folds both ways; a gloss too short for content tokens must still appear whole.
+    // AUTHORITY AND WORDING ARE ONE QUESTION: an authoritative quote about something else may not elevate
+    // words supplied only by an ordinary source, and an authoritative carrier needs no help from a weak one.
+    const two = (a: Record<string, string>, b: Record<string, string>) => [a, b] as never;
+    const split = check({ subject: "Aryana", proposed: "silver", literal: "silver",
+      sources: two({ url: "https://en.wiktionary.org/s", kind: "dictionary", says: "Aryana is a Persian feminine given name." },
+        { url: "https://babynames.example/s", kind: "publisher", says: "Aryana means silver." }) });
+    expect(unauthorizedReason(split as never)).toContain("carries none of the proposed wording");
+    const carried = check({ subject: "Aryana", proposed: "silver",
+      sources: two({ url: "https://en.wiktionary.org/s", kind: "dictionary", says: 'Aryana means "silver".' },
+        { url: "https://babynames.example/s", kind: "publisher", says: "A popular name this year." }) });
+    expect(unauthorizedReason(carried as never), "an authoritative carrier needs no help").toBeNull();
+    // News-only keeps its existing authorization behavior: refused at the card door, whatever generation banked.
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
+      sources: two({ url: "https://bbc.com/a", kind: "news", says: "Aryana means silver." },
+        { url: "https://cnn.com/a", kind: "news", says: "Aryana means silver." }) }) as never)).toContain("no authoritative source");
     const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
     expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false);
     expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
