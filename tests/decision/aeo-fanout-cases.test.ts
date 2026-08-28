@@ -1,5 +1,10 @@
 /** WHERE A SEARCH THE ASSISTANTS RAN ENDS UP (AEO terminal closure, 2026-08-19). Fan-outs used to decorate a card built from something else: the strongest recurring search in an account could sit in the canonical demand layer for ever and reach no page, no verdict, no draft and no refusal. These pins hold the one pure resolver both sides read, so the queue and the screen can never disagree about a search, and so no material search can quietly terminate nowhere. The resolver is EVIDENCE ONLY on purpose: a search that had to consult the queue to decide whether the queue should hold it could never produce the first card. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+const net = vi.hoisted(() => ({ calls: 0, answer: null as unknown, body: null as unknown }));
+vi.mock("@/domains/decision/llm/structured-drafter", () => ({ callStructuredLLM: async () => { net.calls += 1; return net.answer; } }));
+vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => {
+  const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
+  return new Map(net.body ? urls.map((u) => [canonicalUrlKey(u), net.body]) : []); } }));
 import { AI_CASE_COPY, resolveFanoutCase } from "@/domains/decision/producers/ai-cases";
 import { buildFanoutEvidence, type FanoutSourceObservation } from "@/domains/evidence/ai-visibility/fanout-evidence";
 const SITE = "own.example";
@@ -67,24 +72,52 @@ describe("every material search the assistants ran terminates somewhere a person
     const other = resolveFanoutCase(rowOf(recurring({ fanOutQueries: ["haft seen set prices"] })));
     expect(a.caseKey).toBe(b.caseKey); // a capital letter and a question mark are the SAME search
     expect(a.caseKey).not.toBe(other.caseKey);});});
-/** THE BRIEF DERIVES FROM THE ANSWER INTENT AND THE STAGE, NEVER FROM A TOPIC STRATEGY (operator, 2026-08-21): a phrase-page recipe hardcoded in the producer shipped on wildlife and rug cards. */
-describe("no case card carries a content strategy written for another page", () => {
-  const { caseCopy, intentOf, readableSubject } = AI_CASE_COPY;
-  const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({
-    voice: "What animals live in Iran?", quoted: '"What animals live in Iran?"', path: "/iran-animals",
-    intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited",
-    retrievedNotCited: 3, domain: "rival.example", covers: "iran, animals", factLine: null, ...over });
-  it("a wildlife case and a rug case never inherit language-learning instructions", () => {
-    const rugs = standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs", intent: intentOf("What are Persian rugs known for?") });
-    for (const c of [caseCopy(standing()), caseCopy(rugs)]) {
-      expect(`${c.headline} ${c.after} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every/i);
-    }
-    expect(intentOf("What are Persian rugs known for?")).toBe("definition"); expect(caseCopy(rugs).after).toContain("the definition in the first sentence");});
-  it("a phrase question earns the list shape from its own intent, not from its topic", () => {
-    expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples"); expect(caseCopy(standing({ intent: "examples" })).after).toContain("each on its own line");});
-  it("a raw fan-out is quoted as evidence and never pasted as the thing to answer", () => {
-    expect(readableSubject("funny Persian idioms phrases examples")).toBe("funny Persian idioms phrases"); const c = caseCopy(standing({ quoted: "searches for funny Persian idioms phrases" }));
-    expect(c.after).not.toContain("funny Persian idioms phrases examples"); expect(c.after).toContain("answers searches for funny Persian idioms phrases");});
-  it("a case with no reported retrieval claims no reading and nothing passed over", () => {
-    const c = caseCopy(standing({ stage: "own_not_in_reported_sources", retrievedNotCited: 0 })); expect(c.headline).not.toMatch(/\bread\b|passed over|opened/i);
-    expect(c.after).not.toMatch(/passed over|already open/); expect(c.after).toContain("whether this page was read is unknown");});});
+/** THE CARD SAYS WHAT HAPPENED; ONLY THE DIAGNOSIS SAYS WHAT THE PAGE LACKS (operator, 2026-08-28). caseCopy derives stage-honest headlines and steps; gateOf turns a banked or freshly ruled diagnosis into the one treatment it supports, and an unruled case keeps its card without hiring the writer. diagnoseGap validates the reader hard: only supplied ids, absence only against a complete page, scatter only across separate passages, reachability never without technical evidence. */
+describe("stage copy is honest and the diagnosis owns the treatment", () => {
+  const { caseCopy, intentOf, readableSubject, gateOf } = AI_CASE_COPY;
+  const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({ quoted: '"What animals live in Iran?"', path: "/iran-animals", intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited", domain: "rival.example", ...over });
+  it("no case card carries a content strategy, a reading overclaim, or a raw fan-out as the thing to answer", () => {
+    const rugs = caseCopy(standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs" }));
+    for (const c of [caseCopy(standing()), rugs]) expect(`${c.headline} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every|liftable/i);
+    expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples"); // the shape rides the drafter seam by intent, never a topic recipe
+    expect(readableSubject("funny Persian idioms phrases examples")).toBe("funny Persian idioms phrases");
+    expect(caseCopy(standing({ stage: "own_not_in_reported_sources" })).headline).not.toMatch(/\bread\b|passed over|opened/i); }); // no reading claim where reading is not reported
+  const dx = (over: Record<string, unknown> = {}) => ({ kind: "already_answered", treatment: null, explanation: "The page lists every item with its meaning.", ownedIds: ["own-1"], evidenceIds: [], contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z", ...over }) as never;
+  it("a refusing diagnosis mints no card, an authorizing one names the treatment, and an unruled case never hires", () => {
+    const answered = gateOf(dx(), "rewrite_existing_section", false);
+    expect([answered.emit, (answered as { state: string }).state, (answered as { reason: string }).reason]).toEqual([false, "monitoring", expect.stringContaining("already answers this question")]);
+    expect(gateOf(dx({ kind: "unknown" }), "add_answer_section", false)).toMatchObject({ emit: false, reason: expect.stringContaining("no content change is authorized yet") });
+    expect(gateOf(dx({ kind: "authority_or_source_gap", evidenceIds: ["ans-1"] }), "add_answer_section", false)).toMatchObject({ emit: false, reason: expect.stringContaining("no generic copy is ordered") }); // same information, stronger rival: never an answer block
+    const scattered = gateOf(dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-1", "own-4"] }), "add_answer_section", false);
+    expect(scattered).toMatchObject({ emit: true, hire: true, treatment: "rewrite_existing_section", work: expect.stringContaining("structural synthesis of the page's own material") });
+    expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the work brief
+    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the festival's date rule" }), "add_answer_section", false)).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") }); // rival text stays briefing; acquisition first
+    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }), "add_answer_section", true)).toMatchObject({ emit: true, hire: true });
+    expect(gateOf(null, "rewrite_existing_section", false)).toMatchObject({ emit: true, hire: false, work: expect.stringContaining("no copy is ordered") }); }); }); // unruled: the card stays, the writer is never hired
+/** THE READER IS VALIDATED HARD AFTER IT ANSWERS, and an unruled reader moves nothing. */
+describe("the gap reader's answer is checked, never trusted", () => {
+  const { diagnoseGap } = AI_CASE_COPY;
+  const NOW = new Date("2026-08-28T00:00:00.000Z");
+  const page = (over: Record<string, unknown> = {}) => ({ passages: ["The seven items and their meanings, listed."], faqs: [{ question: "What is it?", answer: "The table." }], completeness: "complete", contentHash: "h1", ...over });
+  const ask = (banked?: unknown) => diagnoseGap({ tenantId: "t", query: "what is on the table", stage: "owned_retrieved_not_cited", pageUrl: "https://own.example/haft-seen", observationIds: ["o1"], passages: ["rival passage"], banked: banked as never, persist: true, now: NOW });
+  const drafted = (v: Record<string, unknown>) => ({ status: "drafted", value: { ownedIds: [], evidenceIds: [], missing: "", explanation: "e", ...v } });
+  it("only supplied ids rule, absence needs a complete page, scatter needs separate passages, and reachability needs technical evidence", async () => {
+    net.body = page();
+    net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] });
+    expect(await ask(), "an id nobody supplied rules nothing").toBeNull();
+    net.answer = drafted({ kind: "scattered_answer", ownedIds: ["own-1"] });
+    expect(await ask(), "one passage is not scatter").toBeNull();
+    net.body = page({ completeness: "sample_only" });
+    net.answer = drafted({ kind: "missing_information", evidenceIds: ["ans-1"], missing: "the date rule" });
+    expect((await ask())!, "absence against a sample degrades to unknown with the recrawl owed").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("incomplete") });
+    net.body = page();
+    net.answer = drafted({ kind: "reachability_gap" });
+    expect((await ask())!, "no technical evidence, no reachability diagnosis").toMatchObject({ kind: "unknown", treatment: null });
+    net.answer = { status: "refused" };
+    expect(await ask(), "an unruled reader moves nothing").toBeNull(); });
+  it("a fresh banked reading is served without a call, and a stale one is re-earned", async () => {
+    net.body = page(); net.calls = 0;
+    const banked = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-27T00:00:00.000Z" };
+    expect([(await ask(banked))!.kind, net.calls], "fresh: served, nothing bought").toEqual(["already_answered", 0]);
+    net.answer = drafted({ kind: "already_answered", ownedIds: ["own-1"] });
+    expect([(await ask({ ...banked, contentHash: "OLD" }))!.decidedAt, net.calls], "the page moved: re-earned through the reader").toEqual([NOW.toISOString(), 1]); }); });

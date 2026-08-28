@@ -1,15 +1,32 @@
 import "server-only";
 
-/** decision/ai-case-store - WHERE EVERY SEARCH THE ASSISTANTS RAN ENDED UP, written down durably. Decision
- *  knows what the screen does not (which pages exist, which were read, whether any job fits), so the verdict
- *  is PERSISTED once and both surfaces READ it. A json blob behind a process cache failed three ways on a
- *  hosted instance (read error = empty file; swallowed write reported filed; cold instances overwrote each
- *  other; reviewer 2026-08-20), so it is a TABLE: one row per (tenant, case), one SQL writer whose per-row
- *  upsert refuses stale overwrites, merging concurrent passes by row. Decision is the only writer; this is
- *  the verdict about the evidence, never a second record of it, stamped so a stale verdict is legible. */
+/** decision/ai-case-store - WHERE EVERY SEARCH THE ASSISTANTS RAN ENDED UP, written down durably. Decision knows what the screen does not (which pages exist, which were read, whether any job fits), so the verdict is PERSISTED once and both surfaces READ it. A json blob behind a process cache failed three ways on a hosted instance (read error = empty file; swallowed write reported filed; cold instances overwrote each other; reviewer 2026-08-20), so it is a TABLE: one row per (tenant, case), one SQL writer whose per-row upsert refuses stale overwrites, merging concurrent passes by row. Decision is the only writer; this is the verdict about the evidence, never a second record of it, stamped so a stale verdict is legible. */
 
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
+
+/** THE PRE-WRITING DIAGNOSIS CONTRACT. Bump whenever the reader's question, packet shape or validation changes:
+ *  a verdict taken under the old contract is then re-earned, never served on. */
+export const DIAGNOSIS_CONTRACT = 1;
+/** What the evidence proves about the PAGE, decided before any writer is hired. Deliberately separate from the observation stage: "retrieved and not cited" is what the assistant DID; these name what the page LACKS, if anything. `unknown` is a real verdict (the reader ran and the material does not say why) and authorizes no body treatment; a reader that never ran leaves no diagnosis at all. */
+export type AeoGapKind = "already_answered" | "scattered_answer" | "missing_information" | "extraction_or_structure_gap"
+  | "authority_or_source_gap" | "freshness_gap" | "reachability_gap" | "unknown";
+export type AeoGapDiagnosis = {
+  kind: AeoGapKind;
+  /** The one treatment this diagnosis supports, or null when no content change is authorized. */
+  treatment: "rewrite_existing_section" | "add_answer_section" | null;
+  /** One plain sentence for the operator. */ explanation: string;
+  /** The exact owned passage ids the reading stood on, and the exact credited or observation evidence ids. */
+  ownedIds: readonly string[]; evidenceIds: readonly string[];
+  /** The specifically missing proposition or the named structural defect, when one exists. */ missing?: string; /** The stated limit when causation stays unknown. */ limitation?: string; /** THE BINDING: the owned content version and completeness the reading was made against, and every observation id it weighed. A page change or a new observation makes this stale, never silently reused. */
+  contentHash: string; completeness: string; observationIds: readonly string[];
+  version: number; decidedAt: string;
+};
+/** Is this banked reading still about the page and evidence as they stand NOW? */
+export function freshDiagnosis(d: AeoGapDiagnosis | undefined, contentHash: string | null, obsIds: readonly string[]): boolean {
+  return !!d && d.version === DIAGNOSIS_CONTRACT && !!contentHash && d.contentHash === contentHash
+    && obsIds.every((id) => d.observationIds.includes(id));
+}
 
 /** Eight ways a search ends. `monitoring` belongs to noise and single-dimension repetition; `held` means the landing page has never been read; `covered` means a tracked question or a change this pass already owns it, a decision and never "not judged yet". */
 export type AiCaseState = "already_credited" | "actionable" | "no_page" | "unreported" | "monitoring" | "held" | "covered";
@@ -31,6 +48,9 @@ export type AiCaseDisposition = {
   /** Recurrence as it stood when this was decided, so a stale verdict is legible rather than invisible. */
   days: number; engines: number; parents: number; executions: number;
   decidedAt: string;
+  /** The banked pre-writing diagnosis, where one has been earned. Absent rows on file keep theirs: the writer
+   *  coalesces, so a pass that did not rule strips nothing. */
+  diagnosis?: AeoGapDiagnosis;
 };
 
 const TABLE = "ai_case_dispositions";
@@ -44,13 +64,9 @@ export type AiCaseFile = { state: "read"; rows: AiCaseDisposition[] } | { state:
 export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFile> {
   try {
     const { data, error } = await getSupabaseAdmin().from(TABLE)
-      .select("case_key,state,query,page_url,stage,proposal_id,reason,days,engines,parents,executions,decided_at")
+      .select("case_key,state,query,page_url,stage,proposal_id,reason,days,engines,parents,executions,decided_at,diagnosis")
       .eq("tenant_id", tenantId)
-      // A TOTAL ORDER, OR EVERY BUILD SHUFFLES THE TIES. days/engines/executions leave dozens of rows equal, and
-      // Postgres returns equals in whatever heap order it likes, differently on every read: two back-to-back
-      // builds of an unchanged account swapped tied rows, the release material moved, and every operator press
-      // published a "new" release that said nothing new (three in three minutes, 15 rows rewritten each). The
-      // key also makes the READ_LIMIT cut stable, so which rows are read stops depending on tie luck.
+      // A TOTAL ORDER, OR EVERY BUILD SHUFFLES THE TIES. days/engines/executions leave dozens of rows equal, and Postgres returns equals in whatever heap order it likes, differently on every read: two back-to-back builds of an unchanged account swapped tied rows, the release material moved, and every operator press published a "new" release that said nothing new (three in three minutes, 15 rows rewritten each). The key also makes the READ_LIMIT cut stable, so which rows are read stops depending on tie luck.
       .order("days", { ascending: false }).order("engines", { ascending: false }).order("executions", { ascending: false })
       .order("case_key", { ascending: true })
       .limit(READ_LIMIT);
@@ -61,6 +77,7 @@ export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFi
       ...(r.proposal_id ? { proposalId: String(r.proposal_id) } : {}), reason: String(r.reason),
       days: Number(r.days) || 0, engines: Number(r.engines) || 0, parents: Number(r.parents) || 0,
       executions: Number(r.executions) || 0, decidedAt: String(r.decided_at),
+      ...(r.diagnosis && typeof r.diagnosis === "object" ? { diagnosis: r.diagnosis as AeoGapDiagnosis } : {}),
     }));
     // Sorted here TOO, so the promise ("same account state, same rows, same order") holds whatever the
     // transport did, and holds in every test that fakes it.
@@ -96,11 +113,7 @@ export function dispositionOf(
       : evidence.reason };
 }
 
-/** What the writer answers with, so a pass can never claim durability it did not get. `filed` means THIS
- *  PASS'S WHOLE DECISION SET IS CANONICAL: every row it sent is what the table now holds. A stale pass whose
- *  rows lost to newer verdicts gets `superseded`, which is not a failure and is not this pass's success
- *  either, and above all it is not a license to sweep: the sweep behind a filing retires cards on the claim
- *  that this pass's conclusions are the standing record, and for a superseded pass they are not. */
+/** What the writer answers with, so a pass can never claim durability it did not get. `filed` means THIS PASS'S WHOLE DECISION SET IS CANONICAL: every row it sent is what the table now holds. A stale pass whose rows lost to newer verdicts gets `superseded`, which is not a failure and is not this pass's success either, and above all it is not a license to sweep: the sweep behind a filing retires cards on the claim that this pass's conclusions are the standing record, and for a superseded pass they are not. */
 type AiCaseWrite = { filed: true; landed: number } | { filed: false; reason: "unwritable" | "superseded"; landed?: number };
 
 /** THE ONE WRITER, called once per pass with every decided case: per-row atomic, stale-writer-guarded, and a failure is a failure the caller must not paper over. */

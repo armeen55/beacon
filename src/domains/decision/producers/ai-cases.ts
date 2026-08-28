@@ -1,11 +1,5 @@
 import "server-only";
-/** decision/producers/ai-cases - THE ONE AEO DECISION PATH. Two sources of case (a tracked question the
- *  operator approved; a search the assistants ran themselves), one ladder, one family. Both stage the AI
- *  position BEFORE a page is chosen, because the stage IS the work: read-and-passed-over needs a liftable
- *  answer, named-never-credited needs a citable passage, never-retrieved needs reachability first, and
- *  unreported sourcing is a reporting gap no edit closes. CLASSIFICATION IS NEVER BOUNDED, only paid drafting
- *  is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE
- *  card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
+/** decision/producers/ai-cases - THE ONE AEO DECISION PATH. Two sources of case (a tracked question the operator approved; a search the assistants ran themselves), one ladder, one family. Both stage the AI position BEFORE a page is chosen. THE STAGE IS WHAT HAPPENED, NEVER WHAT IS WRONG WITH THE PAGE: what a page lacks, if anything, is decided by the diagnosis reader against the complete stored copy, and only that verdict may order body work. CLASSIFICATION IS NEVER BOUNDED, only paid drafting is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
 import { log } from "@/lib/logger";
 import type { ChangeProposal } from "../contracts";
 import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
@@ -19,13 +13,13 @@ import { readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 import { sectionFit } from "./page-job";
-import { recordAiCaseDispositions, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
+import { DIAGNOSIS_CONTRACT, freshDiagnosis, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
+import { callStructuredLLM } from "../llm/structured-drafter";
+import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
 import { asWritten, askable, bestPageFor, count, labelOf, MAX_PER_PRODUCER, noteNeedsOwnPage, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Fit, type Understanding } from "./page-fit";
 
-/** WHERE A SEARCH ENDS UP AS FAR AS THE EVIDENCE ALONE CAN SAY. The vocabulary is the store's (ai-case-store)
- *  and is not spelled a second time here: two names for one set of states is the same defect this closure
- *  exists to remove. `held` and the landing states below need facts only a producer pass holds. */
+/** WHERE A SEARCH ENDS UP AS FAR AS THE EVIDENCE ALONE CAN SAY. The vocabulary is the store's (ai-case-store) and is not spelled a second time here: two names for one set of states is the same defect this closure exists to remove. `held` and the landing states below need facts only a producer pass holds. */
 type FanoutStage = "owned_retrieved_not_cited" | "rivals_cited_own_not_retrieved" | "own_not_in_reported_sources";
 
 // ── THE ONE CASE STANDING, AND THE ONE WRITER OVER IT ─────────────────────────
@@ -45,59 +39,35 @@ const INTENT_OF: [Intent, RegExp][] = [
   ["category", /\b(buy|shops?|stores?|prices?|costs?|delivery|products?)\b/i],
 ];
 const intentOf = (t: string): Intent => INTENT_OF.find(([, re]) => re.test(t))?.[0] ?? "question";
-/** What each intent's finished section is SHAPED like. Structure only: every fact still has to stand on evidence
- *  already on file, and the editor contract refuses anything these words could not license. THE SHAPE MAY NOT ORDER
- *  A RESTATEMENT: clauses here reading "on this page" and "only what this page carries" told the writer to reuse the
- *  page while the information-gain gate refused copy that only reused the page, so no body section could ever land. */
-const SHAPE: Record<Intent, string> = {
-  examples: "a one-sentence direct answer first, then the strongest items each on its own line with the one fact a reader needs about it",
-  definition: "the definition in the first sentence, then the two or three checked facts that support it",
-  comparison: "what each option is and the one difference that decides between them",
-  process: "the steps in order, one per line, each something a reader can do",
-  history: "the turns in order, earliest first, with their dates",
-  category: "what this category offers and how a buyer narrows it",
-  question: "the direct answer in the first two sentences, then the specifics that settle it",
-};
-/** A search rendered as a subject a reader would say, for copy that must not paste the machine's phrasing:
- *  the intent-marker words come off and what is left is a noun phrase about the subject itself. */
+/** A search rendered as a subject a reader would say, for copy that must not paste the machine's phrasing. */
 const MARKERS = /\b(examples?|lists?|ideas?|websites?|sites?|best|top|guides?)\b/gi;
 const readableSubject = (q: string): string => plain(q).replace(MARKERS, " ").replace(/\s+/g, " ").trim() || plain(q);
-/** The case as one object, and the four card texts as pure derivations of it. */
-type Standing = { voice: string; quoted: string; path: string; intent: Intent; stage: FanoutStage | "owned_mentioned_not_cited";
-  retrievedNotCited: number; domain: string | null; covers: string; factLine: string | null };
-function caseCopy(s: Standing): { headline: string; after: string; steps: string[]; next?: string } {
+/** THE STAGE, SAID AS WHAT HAPPENED AND NOTHING MORE. Retrieval-and-no-citation never proves a missing or
+ *  unliftable answer; the diagnosis layer below is the only thing allowed to claim what the page lacks. */
+const OBS: Record<string, string> = {
+  owned_retrieved_not_cited: "The assistants retrieved this page while answering and credited another source.",
+  owned_mentioned_not_cited: "Assistants name this brand in prose while answering and credit other pages, never one of this site.",
+  rivals_cited_own_not_retrieved: "No stored answer reports reading this page while rivals are credited.",
+  own_not_in_reported_sources: "These instruments report the sources they relied on, not everything they read, so whether this page was read is unknown; the credit goes elsewhere.",
+};
+const OWED_WORK = "Whether this page already answers it has not been read against its complete stored copy, so no copy is ordered: that reading comes first.";
+const OWED_NEXT = "The next funded pass reads the complete stored page against this search and banks what, if anything, it lacks. No writer runs before that verdict.";
+/** The case as one object, and the card texts as pure derivations of it. */
+type Standing = { quoted: string; path: string; intent: Intent; stage: FanoutStage | "owned_mentioned_not_cited"; domain: string | null };
+function caseCopy(s: Standing): { headline: string; steps: string[] } {
   const q = s.quoted, credit = s.domain ? `credit ${s.domain} instead` : "credit other sites";
   const open = `Open the site editor on ${s.path}`, close = "Mark it done here and the next answers get checked against it";
-  const section = `Add a section on ${s.path} that answers ${q}: ${SHAPE[s.intent]}, under a heading a reader would look for. The section owes a reader at least one thing this page does not already say: a checked fact, a figure, or a stated relation to another page of this site. Nothing is invented, and every claim stands on evidence already on file.`;
-  if (s.stage === "owned_retrieved_not_cited") return {
-    headline: `Assistants read ${s.path} for ${q} and ${credit}`,
-    after: `${section} The assistants already open this page while answering and credit somebody else, so a restatement of what it lists changes nothing: the section has to be a block an assistant can lift whole.`,
-    steps: [open, `Add the section answering ${q}`, "Put the answer in the first two sentences, before any background", close],
-    next: `The next pass reads what the credited pages answer for ${q} that ${s.path} does not, and the section brief lands only after that comparison is on file. Nothing here invents the missing facts.` };
-  if (s.stage === "owned_mentioned_not_cited") return {
-    headline: `Assistants name this brand for ${q} and ${credit}; ${s.path} needs a passage worth citing`,
-    after: `Write the passage an assistant can credit on ${s.path}: the direct answer to ${q} in the first two sentences, every factual claim backed by a source the page names. ${s.factLine ?? "No verified source fact is on file for this page yet, so the fact is acquired first; a passage never invents its backing."} Assistants already say the name in prose and hand the credit elsewhere, so the missing thing is a passage that earns the citation, not awareness.`,
-    steps: [open, `Write the direct answer to ${q} with its source named in the passage`, s.factLine ? "Build on the verified fact already on file" : "Hold publishing until a verified source for the claim is on file", close],
-    next: s.factLine ? undefined : `No verified source fact is on file for ${s.path}. The fact pass acquires one for the claim this passage will make, and the wording lands only after the fact is confirmed; a passage with invented backing never ships.` };
+  const steps = [open, `Apply the change this card carries for ${q} once its wording lands`, close];
+  if (s.stage === "owned_retrieved_not_cited") return { headline: `Assistants read ${s.path} for ${q} and ${credit}`, steps };
+  if (s.stage === "owned_mentioned_not_cited") return { headline: `Assistants name this brand for ${q} and ${credit}`, steps };
   if (s.stage === "rivals_cited_own_not_retrieved") return {
     headline: `AI answers cite ${s.domain ?? "other sites"} for ${q} and none reports reading ${s.path}; make it reachable first`,
-    after: `Make ${s.path} the page an assistant reaches for ${q}: align the title and H1 with the subject's own words, link it from the strongest related pages, confirm it is indexed, then put the answer in the first two sentences. No stored answer reports reading this page, so reachability comes before wording.`,
-    steps: [open, "Align the title and H1 with the subject's own words", `Link to ${s.path} from the strongest related pages`, close],
-    next: "Reachability is checked first: the next pass confirms the page is indexed and linked before any wording is written, because a section on a page no assistant reads changes nothing." };
-  return {
-    headline: `AI answers rely on other sites for ${q}; ${s.path} is not among the sources they report`,
-    after: `${section} These instruments report the sources they relied on and not what they read, so whether this page was read is unknown; what is known is that the credit goes elsewhere, and the work is a passage worth relying on.`,
-    steps: [open, `Add the section answering ${q}`, "Put the answer in the first two sentences, before any background", close] };
+    steps: [open, "Align the title and H1 with the subject's own words", `Link to ${s.path} from the strongest related pages`, close] };
+  return { headline: `AI answers rely on other sites for ${q}; ${s.path} is not among the sources they report`, steps };
 }
 type FanoutCase = { caseKey: string; state: AiCaseState; stage?: FanoutStage; pageUrl?: string; reason: string };
 
-/** PURE, AND IT NEVER CONSULTS THE QUEUE: evidence in, one state out; `landing` is the coverage answer the
- *  producer already computed. RECURRENCE ALONE IS NEVER WORK (Codex, 2026-08-21): days>=3 on one question and
- *  one assistant measures that assistant's habit, so actionable needs a dimension beyond time: a second
- *  tracked question, a second assistant, a page here read-and-passed-over on an instrument that reports
- *  reading, or the caller's corroboration that real Google demand asks the same. And a reading claim is
- *  legal only where reading is reported: otherwise "never read" degrades to "not among the sources relied
- *  on", which prescribes a liftable answer rather than reachability work. */
+/** PURE, AND IT NEVER CONSULTS THE QUEUE: evidence in, one state out; `landing` is the coverage answer the producer already computed. RECURRENCE ALONE IS NEVER WORK (Codex, 2026-08-21): days>=3 on one question and one assistant measures that assistant's habit, so actionable needs a dimension beyond time: a second tracked question, a second assistant, a page here read-and-passed-over on an instrument that reports reading, or the caller's corroboration that real Google demand asks the same. And a reading claim is legal only where reading is reported: otherwise "never read" degrades to "not among the sources relied on", a stage fact that on its own prescribes no work at all. */
 export function resolveFanoutCase(row: FanoutRow, landing?: { pageUrl: string | null; refused: boolean },
   corroboration?: { googleDemand?: boolean }): FanoutCase {
   const caseKey = `fanout:${row.key}`;
@@ -123,15 +93,82 @@ export function resolveFanoutCase(row: FanoutRow, landing?: { pageUrl: string | 
         ? `${row.materialBecause} ${dimension}, and no assistant reports reading a page of this account for it.`
         : `${row.materialBecause} ${dimension}, and this site is not among the sources the assistants relied on for it. Whether any page here was read is not something these instruments report.` };
 }
+/** THE PRE-WRITING DIAGNOSIS: what, if anything, this page LACKS for this search, read from the complete stored page and the credited passages, never inferred from the stage. Ruled by the aeo_gap reader through the one gateway (spend scope, daily and monthly budget, call cache), validated hard afterward: only ids the packet supplied, absence claims only against a complete page, scatter only across separate passages, and reachability never from a packet that carries no technical evidence. Null = the reader did not rule (unpaid pass, refused budget, unusable answer): NOTHING moves on null, the banked reading stays, no writer is hired. */
+const GAP_SYSTEM = "You are Beacon's AEO gap reader. Decide what, if anything, the owned page LACKS for the given search, strictly from the numbered material supplied; never use outside knowledge. kinds: already_answered (the page already answers it clearly; cite the owned ids where), scattered_answer (every needed fact is present but spread across separate passages; cite them all), missing_information (a material proposition the credited answers carry is absent from the COMPLETE page; name it in missing and cite the evidence ids carrying it), extraction_or_structure_gap (the page answers it but the answer is buried or fragmented; name the defect in missing and cite the owned ids), authority_or_source_gap (same information, stronger sourcing or standing behind the credited page; cite the evidence ids), freshness_gap (the credited material is dated newer and conflicts; name the dated conflict in missing), reachability_gap (only with technical evidence, which this packet does not carry), unknown (the material does not show why). ownedIds and evidenceIds repeat ids exactly as given. explanation is one plain sentence for a site owner. Restating the page is never a gap: a question the page answers plainly is already_answered.";
+const GAP_TREATMENT: Record<AeoGapDiagnosis["kind"], AeoGapDiagnosis["treatment"]> = {
+  already_answered: null, unknown: null, authority_or_source_gap: null, freshness_gap: null, reachability_gap: null,
+  scattered_answer: "rewrite_existing_section", extraction_or_structure_gap: "rewrite_existing_section", missing_information: "add_answer_section" };
+async function diagnoseGap(c: { tenantId: string; query: string; stage: string; pageUrl: string; observationIds: readonly string[];
+  passages: readonly string[]; banked?: AeoGapDiagnosis; persist: boolean; now: Date }): Promise<AeoGapDiagnosis | null> {
+  const body = (await loadOwnedPageBodies(c.tenantId, [c.pageUrl]).catch(() => new Map())).get(canonicalUrlKey(c.pageUrl)) ?? null;
+  const obsIds = [...c.observationIds].slice(0, 40);
+  if (c.banked && freshDiagnosis(c.banked, body?.contentHash ?? null, obsIds)) return c.banked;
+  if (!c.persist || body == null) return null;
+  const owned: [string, string][] = [
+    ...body.passages.slice(0, 40).map((t: string, i: number) => [`own-${i + 1}`, t.slice(0, 700)] as [string, string]),
+    ...body.faqs.slice(0, 12).map((f: { question: string; answer: string }, i: number) => [`faq-${i + 1}`, `${f.question} ${f.answer}`.slice(0, 500)] as [string, string])];
+  if (owned.length === 0) return null;
+  const ev: [string, string][] = c.passages.slice(0, 4).map((t, i) => [`ans-${i + 1}`, t.slice(0, 700)] as [string, string]);
+  const completeness = body.completeness;
+  const user = [`Search or question: "${c.query}"`, `What the assistants did (the stage): ${c.stage}`,
+    `The owned page, ${completeness === "complete" ? "complete" : `INCOMPLETE (${completeness}): what is not shown is UNKNOWN, never absent`}. Its stored passages and FAQ entries, by id:`,
+    ...owned.map(([id, t]) => `${id}: ${t}`),
+    ev.length > 0 ? "What credited answers drew on, by id:" : "No credited passage is on file for this search.",
+    ...ev.map(([id, t]) => `${id}: ${t}`), "Return the JSON now."].join("\n");
+  const r = await callStructuredLLM({ kind: "aeo_gap", tenantId: c.tenantId, system: GAP_SYSTEM, user, grounded: user,
+    projectedCostUsd: 0.005, maxTokens: 900, timeoutMs: 95_000, now: c.now }).catch(() => null);
+  if (r?.status !== "drafted") return null;
+  const v = r.value as { kind: AeoGapDiagnosis["kind"]; ownedIds: string[]; evidenceIds: string[]; missing: string; explanation: string };
+  const known = new Set([...owned, ...ev].map(([id]) => id));
+  if ([...v.ownedIds, ...v.evidenceIds].some((id) => !known.has(id))) return null; // an id nobody supplied rules nothing
+  let kind = v.kind; const limits: string[] = [];
+  if (kind === "already_answered" && v.ownedIds.length === 0) return null;
+  if (kind === "scattered_answer" && new Set(v.ownedIds).size < 2) return null;
+  if (kind === "extraction_or_structure_gap" && (v.ownedIds.length === 0 || !v.missing.trim())) return null;
+  if (kind === "missing_information" && (v.evidenceIds.length === 0 || !v.missing.trim())) return null;
+  if (kind === "missing_information" && completeness !== "complete") { kind = "unknown"; limits.push("the stored copy of this page is incomplete, so absence cannot be claimed; a full page read comes first"); }
+  if (kind === "authority_or_source_gap" && v.evidenceIds.length === 0) kind = "unknown";
+  if (kind === "freshness_gap" && (v.evidenceIds.length === 0 || !v.missing.trim())) { kind = "unknown"; limits.push("no dated conflict is on file"); }
+  if (kind === "reachability_gap") { kind = "unknown"; limits.push("this packet carries no technical reachability evidence, so reachability is not diagnosable here"); }
+  return { kind, treatment: GAP_TREATMENT[kind], explanation: v.explanation, ownedIds: v.ownedIds, evidenceIds: v.evidenceIds,
+    ...(v.missing.trim() ? { missing: v.missing.trim() } : {}), ...(limits.length > 0 ? { limitation: limits.join("; ") } : {}),
+    contentHash: body.contentHash ?? "", completeness, observationIds: obsIds, version: DIAGNOSIS_CONTRACT, decidedAt: c.now.toISOString() };
+}
+/** WHAT THE DIAGNOSIS AUTHORIZES, closed. `emit: false` files the verdict and mints no card at all; `hire: false` keeps the card visible while refusing the writer a call. Treatment derives from the diagnosis and never from the stage; an unruled case keeps the stage treatment only as the card's working identity. */
+type GapGate = { emit: false; state: AiCaseState; reason: string; diagnosis: AeoGapDiagnosis }
+  | { emit: true; hire: boolean; treatment: "rewrite_existing_section" | "add_answer_section"; work: string; next?: string; diagnosis?: AeoGapDiagnosis };
+function gateOf(d: AeoGapDiagnosis | null, stageTreatment: "rewrite_existing_section" | "add_answer_section", hasFact: boolean): GapGate {
+  if (!d) return { emit: true, hire: false, treatment: stageTreatment, work: OWED_WORK, next: OWED_NEXT };
+  if (d.treatment == null) {
+    const why = d.kind === "already_answered" ? `The page already answers this question, so no duplicate copy is recommended. ${d.explanation}`
+      : d.kind === "authority_or_source_gap" ? `${d.explanation} The information matches; the difference is the credited source's standing, so no generic copy is ordered.`
+        : d.kind === "freshness_gap" ? `${d.explanation} The work is an exact update tied to the dated evidence, not new body copy.`
+          : `The evidence does not show why the assistants chose another source, so no content change is authorized yet.${d.limitation ? ` ${d.limitation}` : ""}`;
+    return { emit: false, state: "monitoring", reason: why, diagnosis: d };
+  }
+  if (d.kind === "missing_information" && !hasFact) return { emit: true, hire: false, treatment: d.treatment,
+    work: `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. An authoritative source for it is acquired first; the credited page's wording stays briefing and never becomes published copy.`,
+    next: "The fact pass acquires an authoritative source for the missing proposition; the section is written only after that evidence is on file.", diagnosis: d };
+  const work = d.kind === "scattered_answer"
+    ? `The facts are on this page in ${count(new Set(d.ownedIds).size, "separate passage")} and no single passage answers the question, so the work is one structural synthesis of the page's own material, keeping every fact, link and call to action. ${d.explanation}`
+    : d.kind === "extraction_or_structure_gap" ? `The page answers this and the answer is buried: ${d.missing ?? d.explanation} The work is a structural rewrite of the named material, adding no new claims.`
+      : `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. A verified source is on file, so the section states it with that source named. ${d.explanation}`;
+  return { emit: true, hire: true, treatment: d.treatment, work, diagnosis: d };
+}
 /** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE, staged before a page is ever chosen. WHERE THIS SITE STOOD across the stored answers is the case, and the case decides the work: a page an engine read and passed over needs an answer it can lift; a brand named in prose and never credited needs a passage that earns the citation; a page no engine reports reading needs to be reachable before any wording matters; and a question whose answers never report sources is a reporting gap no page edit can close, so it stays visible and mints nothing. RECURRENCE IS COUNTED IN DISTINCT DAYS AND ASSISTANTS over the stored window through the same projection Visibility renders, never in raw rows, so a card and the screen can never disagree. */
 export async function aiCaseCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
   units: readonly CanonicalDemandUnit[], windowObs: readonly CanonicalPairObservation[] | null, now: Date,
-  persist: boolean, googleKeys?: ReadonlySet<string> | null): Promise<{ drafts: Draft[]; filed: boolean }> {
+  persist: boolean, googleKeys?: ReadonlySet<string> | null): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
-  if (!site) return { drafts: [], filed: true }; // nothing to conclude is not a filing that failed
+  if (!site) return { drafts: [], filed: true, hold: new Set<string>() }; // nothing to conclude is not a filing that failed
   // THE STORED WINDOW, through the one shared projection: distinct days, assistants and the material follow-up searches behind every tracked question. The snapshot alone is the newest answer per question and engine, which cannot count days, and reading row totals as recurrence is the defect this replaced.
   const fanouts = windowObs && windowObs.length > 0 ? buildFanoutEvidence(windowObs, site) : null;
+  // THE BANKED VERDICTS, read once: a fresh diagnosis is served on, a stale one is re-earned, and a case this
+  // pass cannot rule keeps whatever reading is on file (the writer coalesces, so absence strips nothing).
+  const bankedFile = await readAiCaseDispositions(tenantId);
+  const banked = new Map(bankedFile.state === "read" ? bankedFile.rows.map((r) => [r.caseKey, r] as const) : []);
+  const holdIds = new Set<string>();
   const windows = new Map<string, { days: Set<string>; engines: Set<string>; reporting: number; rnc: number }>();
   for (const o of windowObs ?? []) {
     const w = windows.get(canonicalQueryKey(o.promptText)) ?? { days: new Set<string>(), engines: new Set<string>(), reporting: 0, rnc: 0 };
@@ -218,10 +255,7 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const stand = standingOf(journeys);
     const passages = journeys.filter((j) => j.citedPassage != null).slice(0, 2).map((j) => `The ${journeyLabel(j)} answer drew on ${domain}: "${j.citedPassage}"`);
     const linkOnly = journeys.length > 0 && passages.length === 0 ? [`The stored answers cite ${domain} in their source list without quoting it in prose, so the opening to win is being the page an engine can lift a direct answer from.`] : [];
-    // THE STAGE, DECIDED BEFORE THE WORK IS NAMED: each stage is a different job, and pretending they all
-    // needed "a section" was the defect. A reading claim is legal only where reading is reported (Codex,
-    // 2026-08-21): with no retrieval-reporting instrument behind this question's stored answers, "never
-    // read" degrades to "not among the sources".
+    // THE STAGE, DECIDED BEFORE THE WORK IS NAMED: each stage is a different job, and pretending they all needed "a section" was the defect. A reading claim is legal only where reading is reported (Codex, 2026-08-21): with no retrieval-reporting instrument behind this question's stored answers, "never read" degrades to "not among the sources".
     const w = windows.get(g.key) ?? null;
     const passedOver = stand.retrievedNotCitedEngines.length > 0 || (w?.rnc ?? 0) > 0;
     const mentioned = !passedOver && g.mentioned > 0;
@@ -235,74 +269,74 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     // THE ASSISTANTS' OWN FOLLOW-UP SEARCHES behind this question, recurring ones only, off the same projection Visibility renders: the cluster travels with the card into shipment scope, so Results can remeasure it.
     const cluster = (fanouts?.rows ?? []).filter((f) => f.material && f.parents.some((pr) => pr.promptId === g.promptId)).slice(0, 5);
     const clusterLine = cluster.length > 0 ? `While answering it, assistants ran their own searches on repeat: ${cluster.map((f) => `"${f.query}" (${count(f.days, "day")}, ${count(f.engines.length, "assistant")})`).join("; ")}.` : "";
-    const fact = mentioned ? facts.find((f) => f.page.toLowerCase() === path.toLowerCase()) ?? null : null;
-    const engines = engineList([...g.engines].sort()), covers = asWritten(g.prompt, match.hits).join(", "), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
-    // ONE WRITER, OFF THE STANDING: the words on the card can only claim what the standing carries.
-    const copy = caseCopy({ voice: g.prompt, quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage,
-      retrievedNotCited: w?.rnc ?? 0, domain,
-      covers, factLine: fact ? `A verified fact is already on file for this page (${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}), so the passage stands on it.` : null });
-    const tr = treatmentFor({ unreachable: unreach, passedOver, coversAsked: match.hits.length > 0 });
+    const fact = facts.find((f) => f.page.toLowerCase() === path.toLowerCase()) ?? null;
+    const engines = engineList([...g.engines].sort()), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
+    const copy = caseCopy({ quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage, domain });
+    const obsIds = (windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationId).slice(0, 40);
+    // THE STAGE NEVER ORDERS BODY COPY. A decision treatment stays a decision; everything else must earn its
+    // assignment from the banked or freshly ruled diagnosis, and an unruled case keeps its card without a writer.
+    const decisionTr = unreach ? { treatment: "technical_reachability" as const, work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves this intent." }
+      : match.hits.length === 0 ? { treatment: "consolidate_or_differentiate" as const, work: "This page's own coverage serves a different intent than the question asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block." } : null;
+    const gate = decisionTr ? null : gateOf(await diagnoseGap({ tenantId, query: g.prompt, stage, pageUrl: match.page.url, observationIds: obsIds,
+      passages: journeys.filter((j) => j.citedPassage != null).slice(0, 3).map((j) => j.citedPassage!), banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, persist, now }),
+      passedOver ? "rewrite_existing_section" : "add_answer_section", !!fact);
+    if (gate && !gate.emit) { notePrompt(g, gate.state, gate.reason, { pageUrl: match.page.url, stage, diagnosis: gate.diagnosis }); continue; }
     out.push({
-      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt, treatment: tr.treatment,
-      ...(tr.draftable ? {} : { next: tr.work }),
-      headline: copy.headline, before: null, after: tr.draftable ? `${copy.after} ${tr.work}` : copy.after,
-      why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${labelOf(match.page)} at ${path} already covers ${covers}, so ${passedOver ? "the page is already being read and passed over: the work is making the answer liftable, not making it exist" : mentioned ? "the name is already in the answers: the work is a passage that converts the mention into a citation" : unreach ? "the work starts with making this page reachable, because no stored answer reports reading it" : "the work is a passage worth relying on, because these instruments report what they relied on rather than what they read"}.`,
+      page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
+      treatment: decisionTr?.treatment ?? gate!.treatment,
+      ...(decisionTr ? { next: decisionTr.work } : gate!.next ? { next: gate!.next } : {}),
+      headline: copy.headline, before: null, after: `${OBS[stage]} ${decisionTr ? decisionTr.work : gate!.work}`,
+      why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${gate?.diagnosis ? gate.diagnosis.explanation : decisionTr ? decisionTr.work : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
       steps: copy.steps,
       hints: [`${engineLabel(cite.engine)} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
         ...passages, ...linkOnly, ...(standLine ? [standLine] : []), ...(recurLine ? [recurLine] : []), ...(clusterLine ? [clusterLine] : []),
-        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited on none of those answers, so the page is reachable and not liftable`] : []),
+        ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited on none of those answers, so the page is reachable; why the credit went elsewhere is what the whole-page reading decides`] : []),
         ...(mentioned ? [`Assistants say the name in prose on ${count(g.mentioned, "stored answer")} without crediting any page of this site`] : []),
         ...(fact ? [`Verified fact on file for this page: ${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}`] : []),
+        ...(gate?.diagnosis ? [`Beacon's own reading of the complete stored page: ${gate.diagnosis.explanation}`] : []),
         `The newest answer from each of ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // THE AI SIDE RIDES IN ITS OWN UNITS: the reporting answers behind the claim, recurrence in distinct days and assistants off the stored window, how often the site was read and passed over, the rivals credited instead, the stage by name, and the landing page's own Google audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click, and a raw row total is never an audience.
       aiImpact: { answers: g.answers, mentionRate: g.rows > 0 ? g.mentioned / g.rows : 0, citedRivals: g.domains.size, audienceWeight: match.page.search?.impressions90d ?? null, prompts: 1, stage,
         ...(w ? { days: w.days.size, engines: w.engines.size, reportedAnswers: w.reporting, retrievedNotCited: w.rnc } : {}) },
-      // THE CANONICAL CASE IDENTITY rides the scope, so every surface joins this Change to the search it was
-      // aimed at on an identity and never on wording that merely resembles it, and the OBSERVATIONS it was
-      // minted from ride with it, so a question later retired or reworded cannot strand its own measurement.
+      // THE CANONICAL CASE IDENTITY rides the scope, so every surface joins this Change to the search it was aimed at on an identity and never on wording that merely resembles it, and the OBSERVATIONS it was minted from ride with it, so a question later retired or reworded cannot strand its own measurement.
       aiScope: { caseKey: `prompt:${g.promptId}`, promptIds: [g.promptId], engines: [...g.engines].sort(),
         models: [...new Set((windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.modelServed).filter((m) => typeof m === "string" && m.length > 0) as string[])],
         modes: [...new Set((windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationMode).filter((m) => typeof m === "string" && m.length > 0) as string[])],
         fanouts: cluster.flatMap((f) => f.variants.map((v) => v.text)),
-        observationIds: (windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationId).slice(0, 40), stage },
+        observationIds: obsIds, stage },
       // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17: empty arrays do not constitute causal evidence); every entry is computed from what this producer holds.
       cause: { cause: passedOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section",
         evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current", ...(passedOver ? ["retrieval:own-page"] : []), ...(mentioned ? ["brand-mentions"] : [])],
         explanation: passedOver ? `The stored record shows ${path} retrieved while answering "${g.prompt}" and credited nowhere (${domain} credited on ${count(cite.n, "answer")} instead). ${standLine} ${recurLine} The page is reachable and is being read: what it does not carry is an answer an engine can lift whole, and that is the cause by name.`
           : mentioned ? `Assistants name this brand in prose on ${count(g.mentioned, "stored answer")} while answering "${g.prompt}" and credit ${domain} instead (${count(cite.n, "answer")}). ${standLine} ${recurLine} A mention with no citable passage earns no credit, and no stored answer reports retrieving ${path}: the passage an engine could credit does not exist there yet.`
-            : unreach ? `The newest stored answer from each of ${engines} on "${g.prompt}" credits other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, and no stored answer reports retrieving this page, while ${path} already covers ${covers}: before wording matters, the page has to be one the assistants reach at all.`
-              : `The newest stored answer from each of ${engines} on "${g.prompt}" relies on other sites (${domain} on ${count(cite.n, "answer")}) and never this one, while ${path} already covers ${covers}. These instruments report the sources they relied on and not what they read, so absence from the reading is not shown; absence from the credit is.`,
+            : unreach ? `The newest stored answer from each of ${engines} on "${g.prompt}" credits other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, and no stored answer reports retrieving this page: before wording matters, the page has to be one the assistants reach at all.`
+              : `The newest stored answer from each of ${engines} on "${g.prompt}" relies on other sites (${domain} on ${count(cite.n, "answer")}) and never this one. These instruments report the sources they relied on and not what they read, so absence from the reading is not shown; absence from the credit is.`,
         competingExplanations: [...(inst.length > 0 ? [{ cause: "competitor_content_gap" as const, reason: `the cited rivals include institutional sources (${inst.join(", ")}), so assistants may be preferring that authority, and a better section narrows the gap without guaranteeing the citation flips` }] : []),
-          ...(passedOver ? [{ cause: "ai_citation_gap" as const, reason: "absence was ruled out by the retrieval record itself: the engine reports fetching this page, so the answer it wants is missing from the page rather than the page missing from the index" }]
+          ...(passedOver ? [{ cause: "ai_citation_gap" as const, reason: "the retrieval record rules out index absence: the engine reports fetching this page and credited another source, and why it chose the other source is what the whole-page reading decides" }]
             : unreach ? [{ cause: "technical_indexability" as const, reason: "no stored answer reports retrieving this page, so an access problem is not ruled out until a fetch is on file" }]
               : [{ cause: "technical_indexability" as const, reason: "these instruments do not report retrieval, so an access problem is neither shown nor ruled out by anything on file" }]),
           ...(stand.cited > 0 ? [{ cause: "no_problem" as const, reason: `this site HAS been cited on ${count(stand.cited, "stored answer")}${stand.lastCitedAt ? `, last on ${stand.lastCitedAt.slice(0, 10)}` : ""}, so the citation is winnable and this is a slipped position rather than an absent one`, fired: true }] : [])],
         notConsidered: [{ cause: "intent_shift" as const, missing: "no results page for this question is on file, so whether searchers now want a different shape of answer is not decided here" }],
-        falsifier: passedOver ? "If a newly stored answer credits this site without the section shipping, the page was already liftable and this card retires itself."
+        falsifier: passedOver ? "If a newly stored answer credits this site before anything ships, the gap was already closing and this card retires itself."
           : mentioned ? "If a newly stored answer credits this site before the passage ships, the mention was already converting and this card retires itself."
             : "If newly stored answers to this question credit this site before the page is relinked, the gap was already closing and this card retires itself." },
-      // WHAT THE NEXT PASS OWES, per stage, off the same writer: never a content plan this producer invented.
-      ...(copy.next ? { next: copy.next } : {}),
       minutes: 30, confidence: g.answers >= 3 && (w == null || w.days.size >= 3) ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
+    if (gate && !gate.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
     notePrompt(g, "actionable", `Rivals are credited on this question and this site is not. A change is open for it on ${path}.`,
-      { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap` });
+      { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gate?.diagnosis ? { diagnosis: gate.diagnosis } : {}) });
     if (out.length >= MAX_PER_PRODUCER) break;
   }
 
-  // ── SECOND SOURCE: THE SEARCHES THE ASSISTANTS RAN THEMSELVES. Classification is deliberately unbounded
-  // (bounding it abandons the fourth strongest search in silence); only paid drafting is bounded, where the
-  // money is spent. A cluster whose page already carries a card MERGES into it (operator, 2026-08-19).
+  // ── SECOND SOURCE: THE SEARCHES THE ASSISTANTS RAN THEMSELVES. Classification is deliberately unbounded (bounding it abandons the fourth strongest search in silence); only paid drafting is bounded, where the money is spent. A cluster whose page already carries a card MERGES into it (operator, 2026-08-19).
   const trackedKeys = new Set((windowObs ?? []).map((o) => canonicalQueryKey(o.promptText)).filter(Boolean));
   const claimed = new Set(out.map((d) => canonicalQueryKey(d.query)));
   const byPage = new Map(out.map((d, i) => [pathOf(d.page.url), i]));
   const byKey = new Map(pages.map((pg) => [canonicalUrlKey(pg.url), pg]));
   const states: Record<string, number> = {};
-  // WHAT THIS PASS CONCLUDED ABOUT EVERY SEARCH joins the same `decided` list the tracked questions filed
-  // into: one write, both identities. Only this pass holds the landing evidence; re-deriving from evidence
-  // alone, a screen put an action button under a search Decision had already refused for want of a page.
+  // WHAT THIS PASS CONCLUDED ABOUT EVERY SEARCH joins the same `decided` list the tracked questions filed into: one write, both identities. Only this pass holds the landing evidence; re-deriving from evidence alone, a screen put an action button under a search Decision had already refused for want of a page.
   const noteCase = (row: FanoutRow, state: AiCaseState, reason: string, over: Partial<AiCaseDisposition> = {}): void => {
     decided.push({ caseKey: `fanout:${row.key}`, state, query: row.query, reason, days: row.days,
       engines: row.engines.length, parents: row.parents.length, executions: row.executions,
@@ -376,32 +410,39 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const readOver = stage === "owned_retrieved_not_cited";
     const unreachF = stage === "rivals_cited_own_not_retrieved" && fit.match.page.content == null; // same rule as above: a banked fetch settles the reachability question
     const rival = row.rivalPages[0] ?? null;
-    // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a
-    // subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the
-    // copy is told to answer, because a retrieval trace is not a sentence a person publishes.
+    // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the copy is told to answer, because a retrieval trace is not a sentence a person publishes.
     const voice = parent && askable(plain(parent.promptText)) ? plain(parent.promptText) : readableSubject(subject);
-    const copyF = caseCopy({ voice, quoted: parent && askable(plain(parent.promptText)) ? `"${voice}"` : `searches for ${voice}`,
-      path, intent: intentOf(subject), stage, retrievedNotCited: row.retrievedNotCitedAnswers,
-      domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null,
-      covers: asWritten(subject, fit.match.hits).join(", "), factLine: null });
-    const trF = treatmentFor({ unreachable: unreachF, passedOver: readOver, coversAsked: fit.match.hits.length > 0 });
+    const copyF = caseCopy({ quoted: parent && askable(plain(parent.promptText)) ? `"${voice}"` : `searches for ${voice}`,
+      path, intent: intentOf(subject), stage, domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null });
+    const decisionF = unreachF ? { treatment: "technical_reachability" as const, work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves this intent." }
+      : fit.match.hits.length === 0 ? { treatment: "consolidate_or_differentiate" as const, work: "This page's own coverage serves a different intent than the search asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block." } : null;
+    const gateF = decisionF ? null : gateOf(await diagnoseGap({ tenantId, query: subject, stage, pageUrl: fit.match.page.url,
+      observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, persist, now }),
+      readOver ? "rewrite_existing_section" : "add_answer_section", false);
+    if (gateF && !gateF.emit) {
+      states.diagnosed = (states.diagnosed ?? 0) + 1;
+      noteCase(row, gateF.state, gateF.reason, { pageUrl: fit.match.page.url, stage, diagnosis: gateF.diagnosis });
+      continue;
+    }
     out.push({
-      page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject, treatment: trF.treatment,
-      ...(trF.draftable ? {} : { next: trF.work }),
+      page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject,
+      treatment: decisionF?.treatment ?? gateF!.treatment,
+      ...(decisionF ? { next: decisionF.work } : gateF!.next ? { next: gateF!.next } : {}),
       headline: readOver
         ? `Assistants search "${row.query}" and read ${path} without crediting it`
         : unreachF
           ? `Assistants search "${row.query}" and none reports reading ${path}; make it the page they reach`
           : `Assistants search "${row.query}" and rely on other sites; ${path} is not among the sources they report`,
       before: null,
-      after: trF.draftable ? `${copyF.after} ${trF.work}` : copyF.after,
-      why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${rival.answers} of those answers.` : "No page is credited on it often enough to name a leader."} ${labelOf(fit.match.page)} at ${path} already covers ${asWritten(subject, fit.match.hits).join(", ")}, so ${readOver ? "the page is reachable and being read: the work is making the answer liftable" : unreachF ? "the work starts with being reachable for it at all" : "the work is a passage worth relying on, because whether the page was read is not something these instruments report"}.`,
+      after: `${OBS[stage]} ${decisionF ? decisionF.work : gateF!.work}`,
+      why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${rival.answers} of those answers.` : "No page is credited on it often enough to name a leader."} ${gateF?.diagnosis ? gateF.diagnosis.explanation : decisionF ? decisionF.work : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
       steps: copyF.steps,
       hints: [`Assistants ran this search themselves: ${row.materialBecause}`,
         ...(row.variants.length > 1 ? [`Wordings collapsed onto one search: ${variants.slice(0, 4).map((v) => `"${v}"`).join(", ")}`] : []),
         `Behind ${row.parents.slice(0, 2).map((pr) => `"${plain(pr.promptText)}"`).join(" and ")}${row.parents.length > 2 ? ` and ${count(row.parents.length - 2, "more question")}` : ""}`,
         ...(rival ? [`${rival.url} is credited on ${count(rival.answers, "answer")} that ran it`] : []),
         ...(readOver ? [`A page here was read for it and passed over ${count(row.retrievedNotCitedAnswers, "time")}`] : []),
+        ...(gateF?.diagnosis ? [`Beacon's own reading of the complete stored page: ${gateF.diagnosis.explanation}`] : []),
         `Assistants that ran it: ${engineList(row.engines)}`],
       aiImpact: { answers: row.reportingAnswers, mentionRate: 0, citedRivals: row.rivalPagesTotal,
         audienceWeight: fit.match.page.search?.impressions90d ?? null, days: row.days, engines: row.engines.length,
@@ -412,54 +453,34 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
         fanoutKey: row.key, fanouts: variants, observationIds: row.observationIds, stage },
       cause: { cause: readOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section",
         evidenceKeys: ["ai-fanouts", `fanout:${row.key}`, ...row.parents.slice(0, 3).map((pr) => `answers:${pr.promptId}`), "copy-current"],
-        explanation: `${count(row.executions, "stored answer")} across ${count(row.days, "day")} and ${count(row.engines.length, "assistant")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}. ${readOver ? `${path} was read on ${row.retrievedNotCitedAnswers} of those answers and credited on none of them, so the page is reachable and what it lacks is an answer an engine can lift.` : unreachF ? `No stored answer reports reading ${path} for it, so before wording matters the page has to be one the assistants reach at all.` : `The sources relied on for it are other sites, and these instruments do not report what they read, so absence from the reading is not shown; absence from the credit is.`}`,
+        explanation: `${count(row.executions, "stored answer")} across ${count(row.days, "day")} and ${count(row.engines.length, "assistant")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}. ${readOver ? `${path} was read on ${row.retrievedNotCitedAnswers} of those answers and credited on none of them, so the page is reachable; why the credit went elsewhere is decided by the whole-page reading, never assumed.` : unreachF ? `No stored answer reports reading ${path} for it, so before wording matters the page has to be one the assistants reach at all.` : `The sources relied on for it are other sites, and these instruments do not report what they read, so absence from the reading is not shown; absence from the credit is.`}`,
         competingExplanations: [readOver
-          ? { cause: "ai_citation_gap" as const, reason: "absence is ruled out by the retrieval record itself: the engine reports fetching this page, so what it wants is missing from the page rather than the page missing from the index" }
+          ? { cause: "ai_citation_gap" as const, reason: "the retrieval record rules out index absence: the engine reports fetching this page and credited another source, and why it chose the other source is what the whole-page reading decides" }
           : unreachF
             ? { cause: "technical_indexability" as const, reason: "no stored answer reports retrieving this page for this search, so an access problem is not ruled out until a fetch is on file" }
             : { cause: "technical_indexability" as const, reason: "these instruments do not report retrieval, so an access problem is neither shown nor ruled out by anything on file" }],
         notConsidered: [{ cause: "intent_shift" as const, missing: "no results page for this search is on file, so whether searchers want a different shape of answer is not decided here" }],
         falsifier: "If a newly stored answer credits this page on this search before anything ships, the gap was already closing and this card retires itself." },
-      ...(copyF.next ? { next: copyF.next } : {}),
       minutes: 30, confidence: row.days >= 3 && row.engines.length >= 2 ? "medium" : "low", refs: row.executions,
       limitation: FANOUT_LINKAGE_CAVEAT,
     });
+    if (gateF && !gateF.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
     byPage.set(path, out.length - 1);
     claimed.add(row.key);
     noteCase(row, "actionable", `${row.materialBecause}. A change is open for it on ${path}.`,
-      { pageUrl: fit.match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap` });
+      { pageUrl: fit.match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gateF?.diagnosis ? { diagnosis: gateF.diagnosis } : {}) });
   }
-  // FILED ONCE, AT THE END, so a surface reads what this pass concluded instead of guessing it again. A pass
-  // that persists nothing files nothing: a dry run must never leave a verdict on disk for a screen to read.
-  // A CONCLUSION THAT IS NOT ON RECORD IS NOT A CONCLUSION. When the file could not be written, this pass may
-  // not be treated as having rewritten its family in full: the sweep behind it would then retire cards on the
-  // strength of a pass whose verdicts nothing can read back.
-  // AND A PASS THAT NEVER SAW THE WINDOW DECIDED NOTHING WORTH KEEPING. With the 28 day read failed or empty,
-  // every verdict above was reached blind: recurrence at zero, every fan-out invisible. Filing those rows
-  // would overwrite real verdicts with blindness, and reporting filed:true would authorize the sweep to
-  // retire cards on the strength of a read that never happened. So the pass keeps its drafts, files nothing,
-  // leaves an unavailable receipt in the log, and the family is held exactly as an unwritable store holds it.
+  // FILED ONCE, AT THE END, so a surface reads what this pass concluded instead of guessing it again. A pass that persists nothing files nothing: a dry run must never leave a verdict on disk for a screen to read. A CONCLUSION THAT IS NOT ON RECORD IS NOT A CONCLUSION. When the file could not be written, this pass may not be treated as having rewritten its family in full: the sweep behind it would then retire cards on the strength of a pass whose verdicts nothing can read back. AND A PASS THAT NEVER SAW THE WINDOW DECIDED NOTHING WORTH KEEPING. With the 28 day read failed or empty, every verdict above was reached blind: recurrence at zero, every fan-out invisible. Filing those rows would overwrite real verdicts with blindness, and reporting filed:true would authorize the sweep to retire cards on the strength of a read that never happened. So the pass keeps its drafts, files nothing, leaves an unavailable receipt in the log, and the family is held exactly as an unwritable store holds it.
   if (windowObs == null) {
     log.warn("[ai-cases] the stored AI window could not be read, so nothing is filed and nothing behind it is swept", { tenantId, decidedUnfiled: decided.length });
-    return { drafts: out, filed: false };
+    return { drafts: out, filed: false, hold: holdIds };
   }
   const write = persist ? await recordAiCaseDispositions(tenantId, decided) : { filed: true as const };
   if (!write.filed) log.warn("[ai-cases] this pass decided these searches and could not file the decision, so it does not claim to have finished", { tenantId, reason: write.reason, decided: decided.length });
   // WHAT EVERY OTHER MATERIAL SEARCH BECAME, counted by state. Silence here would be the old defect wearing a
   // new coat: a search that reached no card and no debt has to be nameable, and it is.
   if (Object.keys(states).length > 0) log.info("[ai-cases] every search the assistants ran, by where it ended up", { tenantId, ...states });
-  return { drafts: out, filed: write.filed };
+  return { drafts: out, filed: write.filed, hold: holdIds };
 }
 /** ONE test surface for the copy layer: every derivation pinned through one export. */
-/** THE TREATMENT PLANNER (Codex, 2026-08-23): between diagnosis and drafting, ONE closed decision about what kind of work this page actually needs. The stage rules are the point. A page RETRIEVED and passed over needs information gain, structure and precision, never a restatement; a page NO ANSWER REPORTS READING needs reachability work before wording; a page whose own coverage does not answer the asked intent needs a differentiation decision, not a forced block; and a page already carrying the answer gets that section REWRITTEN, never a duplicate beside it. */
-function treatmentFor(x: { unreachable: boolean; passedOver: boolean; coversAsked: boolean }): { treatment: NonNullable<ChangeProposal["treatment"]>; draftable: boolean; work: string } {
-  if (x.unreachable) return { treatment: "technical_reachability", draftable: false,
-    work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves the asked intent. Copy written before that lands cannot be selected." };
-  if (!x.coversAsked) return { treatment: "consolidate_or_differentiate", draftable: false,
-    work: "This page's own coverage serves a different intent than the question asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block that answers past the page." };
-  if (x.passedOver) return { treatment: "rewrite_existing_section", draftable: true,
-    work: "Assistants already read this page and select other sources, so the work is INFORMATION GAIN in the section that covers this: mapping, structure, definitions or precise facts the page lacks, never a restatement of what it already says." };
-  return { treatment: "add_answer_section", draftable: true,
-    work: "The page is credited or mentioned without a liftable passage, so the work is one new section that answers the question outright in the required shape." };
-}
-export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, treatmentFor } as const;
+export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, gateOf, diagnoseGap } as const;

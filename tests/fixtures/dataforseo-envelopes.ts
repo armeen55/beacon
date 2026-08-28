@@ -1,5 +1,4 @@
-/** BOUNDED exact-shape DataForSEO response fixtures, transcribed from docs.dataforseo.com on 2026-07-24. Giant arrays are trimmed to 2-3 representative items; every field name and nesting level is preserved exactly so the
- *  provider-contract tests bind to the REAL envelope, not a guess. Sources are cited inline per fixture. */
+/** BOUNDED exact-shape DataForSEO response fixtures, transcribed from docs.dataforseo.com on 2026-07-24. Giant arrays are trimmed to 2-3 representative items; every field name and nesting level is preserved exactly so the provider-contract tests bind to the REAL envelope, not a guess. Sources are cited inline per fixture. */
 
 // dataforseo_labs/google/keywords_for_site/live
 export const labsKeywordsForSiteLive = {

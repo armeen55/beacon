@@ -1,27 +1,4 @@
-/**
- * source-authority (W5, 2026-07-09, J-69). This is the ONLY place authority gets decided for a draft's cited sources. "EVERY factual draft requires
- * 1-2 authoritative sources before it is paste-ready. No exceptions." The LLM may PROPOSE a source (url/title/domain/claim) inside a structured
- * draft, but its own guess at `authority` is never trusted; this module re-derives it deterministically from the domain alone (plus the tenant's
- * own curated allowlist), so a draft can never talk itself into "authoritative."
- *
- * Rules (checked in order, first match wins):
- *   1. A source with no `claim` is a bare URL. "A bare URL with no claim
- *      association counts as no source" (per the approved architecture), so
- *      it is stamped "unverified" regardless of domain.
- *   2. `.gov` / `.edu`. Government and academic domains are authoritative
- *      everywhere, for every tenant, with no configuration.
- *   3. A small NAMED set of encyclopedic / major-press domains. Generic,
- *      cross-industry, never tenant-specific (English-first product; no
- *      vertical hardcoding).
- *   4. The tenant's own `authoritativeSourceDomains` allowlist
- *      (`BusinessProfile`). Per-tenant DATA, never code. Unset for a tenant
- *      = this tier contributes nothing (byte-identical for every tenant that
- *      hasn't curated one).
- *   5. Anything else with a real claim: "weak" (a real citation, just not
- *      from a domain this gate trusts yet).
- *
- * PURE, no I/O, no LLM, no randomness. Same input always produces the same output. Tenant-agnostic: callers thread in the tenant's own allowlist.
- */
+/** source-authority (W5, 2026-07-09, J-69). This is the ONLY place authority gets decided for a draft's cited sources. "EVERY factual draft requires 1-2 authoritative sources before it is paste-ready. No exceptions." The LLM may PROPOSE a source (url/title/domain/claim) inside a structured draft, but its own guess at `authority` is never trusted; this module re-derives it deterministically from the domain alone (plus the tenant's own curated allowlist), so a draft can never talk itself into "authoritative." Rules (checked in order, first match wins): 1. A source with no `claim` is a bare URL. "A bare URL with no claim association counts as no source" (per the approved architecture), so it is stamped "unverified" regardless of domain. 2. `.gov` / `.edu`. Government and academic domains are authoritative everywhere, for every tenant, with no configuration. 3. A small NAMED set of encyclopedic / major-press domains. Generic, cross-industry, never tenant-specific (English-first product; no vertical hardcoding). 4. The tenant's own `authoritativeSourceDomains` allowlist (`BusinessProfile`). Per-tenant DATA, never code. Unset for a tenant = this tier contributes nothing (byte-identical for every tenant that hasn't curated one). 5. Anything else with a real claim: "weak" (a real citation, just not from a domain this gate trusts yet). PURE, no I/O, no LLM, no randomness. Same input always produces the same output. Tenant-agnostic: callers thread in the tenant's own allowlist. */
 
 import { createHash } from "node:crypto";
 import {
@@ -60,14 +37,7 @@ export type ClassifiableSource = {
    *  confirmed. `authority` stays authoritative, `verified` stays false, and the
    *  gate holds the draft as `needs_source_check` rather than `missing_source`. */
   fetchBlocked?: boolean;
-  /** Drafter last-mile G6 (2026-07-10): the FULL fetched page text, present ONLY
-   *  at generation time (a caller that just fetched this source). When set, the
-   *  per-claim coverage check runs findSupportingSpan against this whole page
-   *  (fresh spans per draft sentence), so ONE qualifying source page (e.g. a
-   *  Wikipedia list) can back MANY sentences of a roundup - not just the single
-   *  stamped `supportingExcerpt`. TRANSIENT: not part of SourceRefSchema, never
-   *  persisted (the render/eval path keeps using the ~400-char excerpt). Absent
-   *  = coverage falls back to supportingExcerpt / claim, byte-identical to before. */
+  /** Drafter last-mile G6 (2026-07-10): the FULL fetched page text, present ONLY at generation time (a caller that just fetched this source). When set, the per-claim coverage check runs findSupportingSpan against this whole page (fresh spans per draft sentence), so ONE qualifying source page (e.g. a Wikipedia list) can back MANY sentences of a roundup - not just the single stamped `supportingExcerpt`. TRANSIENT: not part of SourceRefSchema, never persisted (the render/eval path keeps using the ~400-char excerpt). Absent = coverage falls back to supportingExcerpt / claim, byte-identical to before. */
   fetchedText?: string | null;
 };
 
@@ -205,38 +175,12 @@ function normalizeUnicodeDigits(text: string): string {
   });
 }
 
-/**
- * Re-audit P2 fix (2026-07-10): LOCAL widening of "what counts as a number" for THIS module's protected-sentence + per-span coverage checks only.
- * `draftNumbers` (factual-entailment.ts) stays exactly as-is - ASCII \d-only - for its existing callers (checkFactualEntailment's invented-number
- * firewall keeps its current behavior byte-for-byte, no test there changes). A factual claim written with Persian/Arabic-Indic numerals (e.g. "ایران
- * ۳۰۰۰ گونه دارد") was previously invisible to `sentenceIsProtected` (its only number check was `draftNumbers`'s ASCII \d+), so the sentence carried
- * zero protected tokens and fell into the weaker zero-protected branch below that never checks a number against any source excerpt - a real trust hole
- * for Persian-content tenants. This helper normalizes the digits first, then delegates to `draftNumbers` unchanged (same thousands-stripping, same
- * length>=2 filter), so a Persian-numeral claim is recognized as carrying a checkable number exactly like an ASCII-digit claim: it becomes PROTECTED
- * and its number is actually matched, span-by-span, against a qualifying source's excerpt - not waved through. Because normalization happens before
- * comparison, a Persian-numeral YEAR still lands in the ASCII `structural` set (groundedNumberSet) exactly like an ASCII-digit year would, so the
- * structural-number exclusion (year +/-1, the 7/14/28 proof window) is unchanged in behavior, only in what digits it can now see.
- */
+/** Re-audit P2 fix (2026-07-10): LOCAL widening of "what counts as a number" for THIS module's protected-sentence + per-span coverage checks only. `draftNumbers` (factual-entailment.ts) stays exactly as-is - ASCII \d-only - for its existing callers (checkFactualEntailment's invented-number firewall keeps its current behavior byte-for-byte, no test there changes). A factual claim written with Persian/Arabic-Indic numerals (e.g. "ایران ۳۰۰۰ گونه دارد") was previously invisible to `sentenceIsProtected` (its only number check was `draftNumbers`'s ASCII \d+), so the sentence carried zero protected tokens and fell into the weaker zero-protected branch below that never checks a number against any source excerpt - a real trust hole for Persian-content tenants. This helper normalizes the digits first, then delegates to `draftNumbers` unchanged (same thousands-stripping, same length>=2 filter), so a Persian-numeral claim is recognized as carrying a checkable number exactly like an ASCII-digit claim: it becomes PROTECTED and its number is actually matched, span-by-span, against a qualifying source's excerpt - not waved through. Because normalization happens before comparison, a Persian-numeral YEAR still lands in the ASCII `structural` set (groundedNumberSet) exactly like an ASCII-digit year would, so the structural-number exclusion (year +/-1, the 7/14/28 proof window) is unchanged in behavior, only in what digits it can now see. */
 function sentenceNumbers(text: string): string[] {
   return draftNumbers(normalizeUnicodeDigits(text));
 }
 
-/**
- * W5 stop-ship F2 (2026-07-09), the SPAN-LEVEL claim verifier. Replaces the old whole-page token-share check (`claimSupportedByText`), which passed when
- * a claim's words were merely SCATTERED across an unrelated page. Instead this requires the claim to be entailed by ONE localized span - a single sentence
- * or an adjacent-sentence pair - so a genuine supporting passage is found and a page that only happens to contain the same words in different places is NOT accepted.
- *
- * A span qualifies iff, WITHIN that span:
- *   - every protected number in the claim (sentenceNumbers - draftNumbers,
- *     thousands-normalized, plus Persian/Arabic-Indic digit recognition, see
- *     `sentenceNumbers` above) is present, AND
- *   - every capitalized entity span in the claim (extractCapitalizedSpans) is
- *     grounded (entityGrounded), AND
- *   - at least CLAIM_SPAN_MIN_COVERAGE of the claim's central content tokens
- *     (claimTokens) appear.
- * The highest-coverage qualifying span wins (shortest on a tie); its trimmed
- * <=400-char excerpt and a sha256-16 content hash are returned so the caller can persist exactly what backed the claim. PURE, no I/O, never throws.
- */
+/** W5 stop-ship F2 (2026-07-09), the SPAN-LEVEL claim verifier. Replaces the old whole-page token-share check (`claimSupportedByText`), which passed when a claim's words were merely SCATTERED across an unrelated page. Instead this requires the claim to be entailed by ONE localized span - a single sentence or an adjacent-sentence pair - so a genuine supporting passage is found and a page that only happens to contain the same words in different places is NOT accepted. A span qualifies iff, WITHIN that span: - every protected number in the claim (sentenceNumbers - draftNumbers, thousands-normalized, plus Persian/Arabic-Indic digit recognition, see `sentenceNumbers` above) is present, AND - every capitalized entity span in the claim (extractCapitalizedSpans) is grounded (entityGrounded), AND - at least CLAIM_SPAN_MIN_COVERAGE of the claim's central content tokens (claimTokens) appear. The highest-coverage qualifying span wins (shortest on a tie); its trimmed <=400-char excerpt and a sha256-16 content hash are returned so the caller can persist exactly what backed the claim. PURE, no I/O, never throws. */
 export function findSupportingSpan(
   claim: string,
   pageText: string,
@@ -332,28 +276,7 @@ type FactCoverageResult = {
   receipts: { claim: string; sourceUrl: string; excerpt: string }[];
 };
 
-/**
- * trust-230 (Codex P1), the fix for the vacuous single-token bug. The old check passed a factual draft the moment ANY authoritative + verified source
- * shared ONE content token with the draft, so a generic topic word ("Iran") satisfied it while the draft's actual claims went unbacked. This replaces
- * that with real, per-claim coverage, reusing `findSupportingSpan` SYMMETRICALLY (draft sentence as the claim, the source's evidence as the page text):
- *
- *   (a) QUALIFYING SOURCES are authoritative (re-derived here, never the LLM's
- *       guess) AND generation-time verified. Each contributes its
- *       `supportingExcerpt` (what the fetch actually confirmed) or, absent one,
- *       its `claim`. Zero qualifying sources => nothing can be backed.
- *   (b) The draft is split into sentences; only PROTECTED sentences (a
- *       non-structural number, a named entity, or a superlative) need a source.
- *   (c) A protected sentence is COVERED when some qualifying source's evidence
- *       yields findSupportingSpan(sentence, evidence).supported AND the two
- *       agree in negation parity (an affirmative source cannot back a negated
- *       claim). The first match wins and is recorded as a receipt.
- *   (d) covered = EVERY protected sentence covered. A factual draft with NO
- *       isolable protected sentence (e.g. a lowercase definitional assertion)
- *       is covered only when >= 1 qualifying source exists - never vacuously,
- *       since the caller already established the draft is factual.
- *
- * PURE, no I/O, no LLM. Tenant-agnostic: no vertical vocabulary, callers thread in the tenant's own allowlist.
- */
+/** trust-230 (Codex P1), the fix for the vacuous single-token bug. The old check passed a factual draft the moment ANY authoritative + verified source shared ONE content token with the draft, so a generic topic word ("Iran") satisfied it while the draft's actual claims went unbacked. This replaces that with real, per-claim coverage, reusing `findSupportingSpan` SYMMETRICALLY (draft sentence as the claim, the source's evidence as the page text): (a) QUALIFYING SOURCES are authoritative (re-derived here, never the LLM's guess) AND generation-time verified. Each contributes its `supportingExcerpt` (what the fetch actually confirmed) or, absent one, its `claim`. Zero qualifying sources => nothing can be backed. (b) The draft is split into sentences; only PROTECTED sentences (a non-structural number, a named entity, or a superlative) need a source. (c) A protected sentence is COVERED when some qualifying source's evidence yields findSupportingSpan(sentence, evidence).supported AND the two agree in negation parity (an affirmative source cannot back a negated claim). The first match wins and is recorded as a receipt. (d) covered = EVERY protected sentence covered. A factual draft with NO isolable protected sentence (e.g. a lowercase definitional assertion) is covered only when >= 1 qualifying source exists - never vacuously, since the caller already established the draft is factual. PURE, no I/O, no LLM. Tenant-agnostic: no vertical vocabulary, callers thread in the tenant's own allowlist. */
 export function draftFactsCoveredBySources(
   draftText: string,
   sources: readonly ClassifiableSource[] | undefined,
@@ -443,17 +366,7 @@ export function hasQualifyingAuthoritativeSource(
   return draftFactsCoveredBySources(draftText, sources, tenantAllowlist, nowYear).covered;
 }
 
-/**
- * Drafter last-mile G6 (2026-07-10): does ONE authoritative page's FULL TEXT entail the draft's own claims? Used at GENERATION time by the drafter's
- * source-verification step to decide whether a fetchable authoritative page whose model-written META-claim did not span-match should STILL verify. A roundup list
- * page ("List of Iranian singers") backs its many names through the PAGE, not
- * through the one-line claim the model attached to the citation; requiring the meta-claim to span-match wrongly forced such a page to `weak`.
- *
- * The bar is the SAME per-sentence + negation-parity discipline as draftFactsCoveredBySources (never looser): a protected draft sentence counts
- * only when the page yields findSupportingSpan(sentence, pageText).supported AND the two agree in negation parity. `entails` is true when at least one protected
- * sentence is covered (this page genuinely backs part of the draft; the full every-sentence arbitration still happens in draftFactsCoveredBySources). Returns
- * the first covering span so a verified roundup source still carries a persistable ~400-char receipt for the fetchedText-stripped render path. PURE, no I/O.
- */
+/** Drafter last-mile G6 (2026-07-10): does ONE authoritative page's FULL TEXT entail the draft's own claims? Used at GENERATION time by the drafter's source-verification step to decide whether a fetchable authoritative page whose model-written META-claim did not span-match should STILL verify. A roundup list page ("List of Iranian singers") backs its many names through the PAGE, not through the one-line claim the model attached to the citation; requiring the meta-claim to span-match wrongly forced such a page to `weak`. The bar is the SAME per-sentence + negation-parity discipline as draftFactsCoveredBySources (never looser): a protected draft sentence counts only when the page yields findSupportingSpan(sentence, pageText).supported AND the two agree in negation parity. `entails` is true when at least one protected sentence is covered (this page genuinely backs part of the draft; the full every-sentence arbitration still happens in draftFactsCoveredBySources). Returns the first covering span so a verified roundup source still carries a persistable ~400-char receipt for the fetchedText-stripped render path. PURE, no I/O. */
 export function pageEntailsDraftClaims(
   draftText: string,
   pageText: string,
@@ -498,18 +411,7 @@ function findAllSuperlatives(text: string): string[] {
   return [...out];
 }
 
-/**
- * Drafter last-mile G4 (2026-07-10): SUPERLATIVE-PARITY coverage. A superlative is the highest-risk unsupported claim, so the firewall must NOT ship one the
- * evidence does not prove - AND it must not blanket-reject a superlative-intent topic ("most famous iranian singers") whose answer legitimately ranks.
- *
- * This is the deterministic middle: a superlative sentence is GROUNDED only when some QUALIFYING source (authoritative - re-derived here, never the LLM's guess
- * - AND generation-time verified) offers a supporting span that ITSELF asserts a superlative (superlative-parity, mirroring the negation-parity guard). A source
- * that merely mentions the entity, or backs the sentence's non-superlative facts without asserting the ranking, does NOT ground the superlative.
- *
- * Returns every superlative phrase from a superlative-bearing draft sentence that no qualifying source asserts. Empty = every superlative in the draft is source-
- * asserted (or the draft has none). The drafter uses a non-empty result to
- * trigger ONE rephrase retry, then fails closed - an ungrounded superlative never ships. PURE, no I/O; callers thread the tenant's own allowlist.
- */
+/** Drafter last-mile G4 (2026-07-10): SUPERLATIVE-PARITY coverage. A superlative is the highest-risk unsupported claim, so the firewall must NOT ship one the evidence does not prove - AND it must not blanket-reject a superlative-intent topic ("most famous iranian singers") whose answer legitimately ranks. This is the deterministic middle: a superlative sentence is GROUNDED only when some QUALIFYING source (authoritative - re-derived here, never the LLM's guess - AND generation-time verified) offers a supporting span that ITSELF asserts a superlative (superlative-parity, mirroring the negation-parity guard). A source that merely mentions the entity, or backs the sentence's non-superlative facts without asserting the ranking, does NOT ground the superlative. Returns every superlative phrase from a superlative-bearing draft sentence that no qualifying source asserts. Empty = every superlative in the draft is source- asserted (or the draft has none). The drafter uses a non-empty result to trigger ONE rephrase retry, then fails closed - an ungrounded superlative never ships. PURE, no I/O; callers thread the tenant's own allowlist. */
 export function ungroundedSuperlatives(
   draftText: string,
   sources: readonly ClassifiableSource[] | undefined,

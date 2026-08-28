@@ -43,8 +43,7 @@ export function gscDecay(page: string, clicksNow: number, clicksPrior: number): 
 }
 export const gscGain = (): GscDecaySignal => gscDecay(WINNER_URL, 320, 210);
 export const gscDecline = (): GscDecaySignal => gscDecay(GAP_URL, 140, 260);
-/** The SERP agenda's first-party portfolio, exactly as the funnel's own reader hands it over
- *  (a page whose last 28 days fell against the 28 before marks its queries declining). */
+/** The SERP agenda's first-party portfolio, exactly as the funnel's own reader hands it over (a page whose last 28 days fell against the 28 before marks its queries declining). */
 export function agendaFromDecay(rows: { decay: GscDecaySignal; queries: OwnedQuerySignal[] }[]): SerpAgendaPageQuery[] {
   return rows.flatMap((r) => r.queries.map((k) => ({ query: k.query, impressions: k.impressions, declining: r.decay.clicksNow < r.decay.clicksPrior })));
 }

@@ -709,8 +709,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf", family: "editor", impact: 91, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
       expect(asked.length).toBeGreaterThan(0); }); // it was ASKED: the page is thin, which is a reason to find facts
-    /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted
-     *  the closing line outside the attempt budget, so the declared price of a deliverable was false. */
+    /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
       const asked: string[] = []; let round = 0;
       const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
@@ -1412,8 +1411,7 @@ describe("typed refusal contract", () => {
     expect(seen.join(" ")).toContain("fact-1: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready");
-    // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping,
-    // so the one canonical gate has something to trust instead of holding substantive work it just approved.
+    // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
     const done = out2[0]!;
     expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
     expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
@@ -1478,6 +1476,19 @@ describe("a day holding writable AI work is not a quiet day", () => {
     expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 0)).toBe(true); // a free refresh nobody asked finished work from still buys nothing
     expect(isQuietDay(0, 0, [card("technical_reachability"), card("new_page")], 5)).toBe(true); // a DECISION treatment is not writing work
     expect([isQuietDay(0, 0, [], 5), isQuietDay(1, 0, []), isQuietDay(0, 1, [])]).toEqual([true, false, false]); });});
+
+/** AN AEO CARD WITHOUT AN AUTHORIZING DIAGNOSIS NEVER HIRES THE WRITER (operator, 2026-08-28): the assignment is proven before the writer is paid, or the card waits as research. The hold rides extra's own return. */
+describe("the writer-hire gate on undiagnosed AEO cards", () => {
+  const aeoCard = (id: string, hold: boolean) => prop({ id, pagePath: `/${id}`, pageUrl: `https://fixture-content.example/${id}`, pageLabel: id, primaryQuery: `about ${id}`, changeFamily: "section", status: "needs_review", researchOnly: true, treatment: hold ? "rewrite_existing_section" : "add_answer_section", opportunityType: "Win an AI answer", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The stage line and the work brief." }, evidence: { query: `about ${id}`, hints: [], evidenceRefCount: 1 } });
+  it("a held card is never drafted, an authorized sibling still is", async () => {
+    vi.resetModules(); sent.length = 0; kinds.length = 0;
+    const held = aeoCard("held-case", true), cleared = aeoCard("cleared-case", false);
+    vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [held, cleared], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"], aeoHold: new Set([held.id]) }, unitLoad: null }) }));
+    const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
+    env.snap = snapshot();
+    const out = await run(TENANT, { complete: seam, ...OPTS, readyTarget: 3 });
+    expect(new Set(out.paid.receipts.filter((r) => r.providerCalls > 0 || r.ops > 0).map((r) => r.key)).has("/held-case"), "the undiagnosed card bought nothing").toBe(false);
+    expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]); });});
 
 /** ONE PAGE IS NOT ONE OPPORTUNITY. Coverage was keyed on the PAGE, so one Ready row anywhere on a URL dropped every other card for it: /farsi-numbers owes a title aligned to "persian numbers 0-9 names and symbols" (4,744 impressions, ZERO clicks), a zero row its table never had, and FAQ schema for four question headings carrying none, and the queue could offer exactly ONE, forever. Two cards collide only when they would overwrite the same mutation, which is what this key names. */
 describe("distinct atomic changes on one page do not suppress each other", () => {

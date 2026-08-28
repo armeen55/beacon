@@ -1,6 +1,4 @@
-/** ONE in-memory Postgres for the tests that each hand-rolled the same chainable query engine over an array of rows: filters, order, limit/range, update, upsert, thenable. What one file needs differently rides in as an option: `rows`
- *  picks the array behind a table name, `error` is the failure a table hands back instead of running, `same` is the identity an upsert lands on (the id by default), `clash` is a unique index the write must not violate, `insertDefaults`
- *  are the columns a fresh INSERT gets and an update never touches, `landsNothing` is the write Postgres accepts and stores nothing for. Anything a file's fake does that is not here stays in that file. */
+/** ONE in-memory Postgres for the tests that each hand-rolled the same chainable query engine over an array of rows: filters, order, limit/range, update, upsert, thenable. What one file needs differently rides in as an option: `rows` picks the array behind a table name, `error` is the failure a table hands back instead of running, `same` is the identity an upsert lands on (the id by default), `clash` is a unique index the write must not violate, `insertDefaults` are the columns a fresh INSERT gets and an update never touches, `landsNothing` is the write Postgres accepts and stores nothing for. Anything a file's fake does that is not here stays in that file. */
 export type Row = Record<string, unknown>;
 type Err = { code?: string; message: string } | null;
 type Op = "select" | "update" | "upsert";

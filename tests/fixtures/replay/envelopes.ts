@@ -81,8 +81,7 @@ export function llmAnswer(over: LlmOver = {}): ProviderEnvelope {
 export type SerpOver = { keyword?: string; ownedTitle?: string; ownedUrl?: string; organic?: Record<string, unknown>[]; aiOverview?: boolean };
 const organicRow = (rank: number, url: string, title: string) =>
   ({ type: "organic", rank_group: rank, rank_absolute: rank + 1, domain: new URL(url).hostname, url, title, description: title });
-/** Deliberately VARIED page types: guide, guide-by-host, forum, list, product, plus two rows that
- *  classify as nothing at all (a null vote must vote for nothing, never pad the majority). */
+/** Deliberately VARIED page types: guide, guide-by-host, forum, list, product, plus two rows that classify as nothing at all (a null vote must vote for nothing, never pad the majority). */
 export function serpOrganic(over: SerpOver = {}): ProviderEnvelope {
   const owned = organicRow(6, `https://${over.ownedUrl ?? GAP_URL}`, over.ownedTitle ?? "Kite Festival");
   const items: Record<string, unknown>[] = over.organic ?? [

@@ -1,5 +1,4 @@
-/** Vitest globalSetup — hydrate `.data/` from the synthetic fixture tree ONLY when the operator's real `.data/` is absent (sentinel: .data/global/ tenants.json). CI gets a deterministic substrate; a real local data dir is never touched or
- *  overwritten, and teardown removes only what this created. */
+/** Vitest globalSetup — hydrate `.data/` from the synthetic fixture tree ONLY when the operator's real `.data/` is absent (sentinel: .data/global/ tenants.json). CI gets a deterministic substrate; a real local data dir is never touched or overwritten, and teardown removes only what this created. */
 
 import {
   existsSync,

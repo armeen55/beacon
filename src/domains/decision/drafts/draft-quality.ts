@@ -1,26 +1,4 @@
-/**
- * draft-quality: a PURE, deterministic trust gate over prepared output. It answers one question per draft: "is
- * this good enough to copy and paste, does it need a human review first, or is it junk we should not call ready?" No LLM at runtime, no I/O, just the parsed draft fields.
- *
- * REJECT (hide the copy) is NARROW and high confidence: generic dictionary openings, punt or meta non-answers,
- * off topic, no draft, too thin, malformed, strong marketing superlatives. `useful_but_needs_review` is BROAD:
- * real factual claims stay COPYABLE and flagged for a human check, because auto-rejecting them killed good
- * output. The generic-opening rule fires ONLY when the FIRST sentence is a dictionary frame AND carries no
- * content-context token, which separates "A gift is a voluntarily transferred item" from "An Iranian wedding comprises".
- *
- * The other four rules this file composes:
- *  - QUOTABILITY: an answer block that fails the shared passage-answerability rubric is rejected like a generic
- *    or thin draft, with a plain-English fix instead of a lint label.
- *  - FACTUAL ENTAILMENT: numbers, dates, named entities and superlatives must be backed by the page's own
- *    stored body, the evidence text, or the query. Opt-in on the fields the caller supplies; a violation
- *    downgrades to `unverified_claim` and blocks the copy.
- *  - AN ANSWER-BLOCK WORD BAND of 80 to 150 words: under is `too_thin`, over is `not_quotable`, because it no
- *    longer reads as one liftable answer.
- *  - `missing_source`: a FACTUAL draft with zero authoritative sources overlapping its own claim tokens is
- *    held, copy blocked, and NOT regeneratable, because redrafting cannot invent authority and the honest fix
- *    is "add a source". Formatting and technical kinds are never source-gated. A source check runs
- *    only where the account configured one, and a miss downgrades rather than blocks.
- */
+/** draft-quality: a PURE, deterministic trust gate over prepared output. It answers one question per draft: "is this good enough to copy and paste, does it need a human review first, or is it junk we should not call ready?" No LLM at runtime, no I/O, just the parsed draft fields. REJECT (hide the copy) is NARROW and high confidence: generic dictionary openings, punt or meta non-answers, off topic, no draft, too thin, malformed, strong marketing superlatives. `useful_but_needs_review` is BROAD: real factual claims stay COPYABLE and flagged for a human check, because auto-rejecting them killed good output. The generic-opening rule fires ONLY when the FIRST sentence is a dictionary frame AND carries no content-context token, which separates "A gift is a voluntarily transferred item" from "An Iranian wedding comprises". The other four rules this file composes: - QUOTABILITY: an answer block that fails the shared passage-answerability rubric is rejected like a generic or thin draft, with a plain-English fix instead of a lint label. - FACTUAL ENTAILMENT: numbers, dates, named entities and superlatives must be backed by the page's own stored body, the evidence text, or the query. Opt-in on the fields the caller supplies; a violation downgrades to `unverified_claim` and blocks the copy. - AN ANSWER-BLOCK WORD BAND of 80 to 150 words: under is `too_thin`, over is `not_quotable`, because it no longer reads as one liftable answer. - `missing_source`: a FACTUAL draft with zero authoritative sources overlapping its own claim tokens is held, copy blocked, and NOT regeneratable, because redrafting cannot invent authority and the honest fix is "add a source". Formatting and technical kinds are never source-gated. A source check runs only where the account configured one, and a miss downgrades rather than blocks. */
 import { checkPassageRules } from "@/domains/evidence/pages/passage-answerability";
 import { checkFactualEntailment, type AuthoritativeFact } from "@/domains/decision/drafts/factual-entailment";
 import {
@@ -54,14 +32,7 @@ export type DraftQualityResult = {
   /** Re-drafting this is likely to help (generic/thin/off-topic/malformed). */
   canRegenerate: boolean;
   confidence: "high" | "medium" | "low";
-  /** N8 (2026-07-02, operator correction): plain-English lines for claims that
-   *  CONTRADICT the target page's own text but are backed by a dated,
-   *  authoritative source (a stale page being corrected, not an invention).
-   *  Present only when the factual-entailment check ran AND found at least
-   *  one correction; absent otherwise (never an empty array vs. "not checked"
-   *  ambiguity - callers test for `undefined`). A draft can be "ready" AND
-   *  carry corrections at the same time - corrections never block copy/publish,
-   *  they are shown alongside it so the operator sees what changed and why. */
+  /** N8 (2026-07-02, operator correction): plain-English lines for claims that CONTRADICT the target page's own text but are backed by a dated, authoritative source (a stale page being corrected, not an invention). Present only when the factual-entailment check ran AND found at least one correction; absent otherwise (never an empty array vs. "not checked" ambiguity - callers test for `undefined`). A draft can be "ready" AND carry corrections at the same time - corrections never block copy/publish, they are shown alongside it so the operator sees what changed and why. */
   corrections?: string[];
 };
 
@@ -172,16 +143,7 @@ export function isFactualClaim(text: string): boolean {
   );
 }
 
-/**
- * Drafter last-mile G5 (2026-07-10): when a FACTUAL draft's claims are not covered by a qualifying (authoritative + verified) source, decide HOW to hold
- * it. If one of the cited sources is from an authority-strong domain that Beacon could not READ (a 403/robots block, marked `fetchBlocked` at generation time),
- * this is NOT "no source" - it is "I could not check this citation." Hold it as `needs_source_check` (copy blocked, one-click-from-ready, NEVER silently ready)
- * with copy that names the domain, instead of the harsher `missing_source`.
- *
- * The distinction is honest and never weakens the floor: paste-ready still REQUIRES verified coverage (this branch is only reached when coverage FAILED),
- * so a blocked authoritative source can never masquerade as verified. Authority
- * is re-derived here (never the LLM's guess), consistent with the rest of the source gate. Returns the exact operator-facing hold verdict.
- */
+/** Drafter last-mile G5 (2026-07-10): when a FACTUAL draft's claims are not covered by a qualifying (authoritative + verified) source, decide HOW to hold it. If one of the cited sources is from an authority-strong domain that Beacon could not READ (a 403/robots block, marked `fetchBlocked` at generation time), this is NOT "no source" - it is "I could not check this citation." Hold it as `needs_source_check` (copy blocked, one-click-from-ready, NEVER silently ready) with copy that names the domain, instead of the harsher `missing_source`. The distinction is honest and never weakens the floor: paste-ready still REQUIRES verified coverage (this branch is only reached when coverage FAILED), so a blocked authoritative source can never masquerade as verified. Authority is re-derived here (never the LLM's guess), consistent with the rest of the source gate. Returns the exact operator-facing hold verdict. */
 function resolveSourceHold(
   coverage: { uncovered: string[] },
   sources: readonly ClassifiableSource[] | undefined,
@@ -369,15 +331,7 @@ export function evaluateDraftQuality(input: EvaluateDraftInput): DraftQualityRes
     };
   }
 
-  // 8. Factual entailment (N8, law 3; operator correction 2026-07-02) - only
-  //    runs when a caller supplies page body and/or evidence text; otherwise
-  //    this is a no-op (see the module docstring). Every number, named entity,
-  //    and superlative in the draft must be traceable to the page's own body,
-  //    the evidence, the query, or a dated authoritative fact. An UNSUPPORTED
-  //    claim (found nowhere) blocks copy. A claim that contradicts the page
-  //    but IS backed by a dated fact is an allowed CORRECTION - it never
-  //    blocks, it rides along on a "ready" result so the operator sees what
-  //    changed and why.
+  // 8. Factual entailment (N8, law 3; operator correction 2026-07-02) - only runs when a caller supplies page body and/or evidence text; otherwise this is a no-op (see the module docstring). Every number, named entity, and superlative in the draft must be traceable to the page's own body, the evidence, the query, or a dated authoritative fact. An UNSUPPORTED claim (found nowhere) blocks copy. A claim that contradicts the page but IS backed by a dated fact is an allowed CORRECTION - it never blocks, it rides along on a "ready" result so the operator sees what changed and why.
   let entailmentCorrections: string[] | undefined;
   if (input.pageBodyText || input.evidenceText || input.authoritativeFacts?.length) {
     const entailment = checkFactualEntailment({
@@ -526,15 +480,7 @@ export function evaluateTitleMetaQuality(input: EvaluateTitleInput): DraftQualit
     if (entailment.corrections.length > 0) entailmentCorrections = entailment.corrections;
   }
 
-  // J-69 (no exceptions): a rewrite that introduces a NEW specific fact (a date/count/"official"/"national X" that `before` did NOT already carry)
-  // needs an authoritative source before it is paste-ready. A pure rephrase, the same facts as before, just reworded, asserts nothing new and is
-  // never held up on this; that mirrors the COUNT_CLAIM check above, using the same narrow SPECIFIC_FACT signal rather than the broader classifier
-  // evaluateDraftQuality uses (a title/meta field is a formatting edit, not a fresh answer-block claim, see the module docstring).
-  // A FIELD SUMMARISES THE PAGE, SO ITS FACTS COME FROM THE PAGE. Comparing only against the line being replaced
-  // makes any figure a "new" fact the moment a generic description is improved: /iran-animals/asiatic-cheetah was
-  // held for "a new fact with no cited authoritative source" over "Iran's national animal is the Asiatic cheetah",
-  // a sentence its own stored page carries word for word. What is new is what the PAGE does not say. Only the matched fact is looked for, never every word of the line, because requiring the whole sentence verbatim refuses ordinary paraphrase around a fact the page does carry. A fact the page never states still needs one.
-  // A PAGE ASSERTING A THING ABOUT THE WORLD IS NOT EVIDENCE THE THING IS TRUE. Summarising the page is a description's whole job so its facts may come from the page, but "Iran's national animal is the Asiatic cheetah" is a claim about a COUNTRY and iranopedia.com saying it does not make it so. Authoritative sources confirm the cheetah is critically endangered and survives only in Iran; they do not establish the national-animal claim. A symbol or officialness claim is never carried by the page alone and owes a real source; an ordinary page fact still is.
+  // J-69 (no exceptions): a rewrite that introduces a NEW specific fact (a date/count/"official"/"national X" that `before` did NOT already carry) needs an authoritative source before it is paste-ready. A pure rephrase, the same facts as before, just reworded, asserts nothing new and is never held up on this; that mirrors the COUNT_CLAIM check above, using the same narrow SPECIFIC_FACT signal rather than the broader classifier evaluateDraftQuality uses (a title/meta field is a formatting edit, not a fresh answer-block claim, see the module docstring). A FIELD SUMMARISES THE PAGE, SO ITS FACTS COME FROM THE PAGE. Comparing only against the line being replaced makes any figure a "new" fact the moment a generic description is improved: /iran-animals/asiatic-cheetah was held for "a new fact with no cited authoritative source" over "Iran's national animal is the Asiatic cheetah", a sentence its own stored page carries word for word. What is new is what the PAGE does not say. Only the matched fact is looked for, never every word of the line, because requiring the whole sentence verbatim refuses ordinary paraphrase around a fact the page does carry. A fact the page never states still needs one. A PAGE ASSERTING A THING ABOUT THE WORLD IS NOT EVIDENCE THE THING IS TRUE. Summarising the page is a description's whole job so its facts may come from the page, but "Iran's national animal is the Asiatic cheetah" is a claim about a COUNTRY and iranopedia.com saying it does not make it so. Authoritative sources confirm the cheetah is critically endangered and survives only in Iran; they do not establish the national-animal claim. A symbol or officialness claim is never carried by the page alone and owes a real source; an ordinary page fact still is.
   const carried = (t: string): boolean => { const body = (input.pageBodyText ?? "").replace(/\s+/g, " ").toLowerCase();
     const facts = t.match(new RegExp(SPECIFIC_FACT.source, "gi")) ?? [];
     return body.length > 0 && facts.length > 0 && !facts.some((f) => /\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(f)) && facts.every((f) => body.includes(f.replace(/\s+/g, " ").toLowerCase())); };

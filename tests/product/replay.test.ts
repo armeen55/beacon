@@ -149,8 +149,7 @@ const META_EDIT = { ...EDIT, field: "meta", before: null, placementAnchor: "Kite
 const META2 = { ...META_EDIT, placementAnchor: "Lantern Release",
   claims: [{ text: "The page tells when the lanterns go up and how the release works", supportedBy: ["page-heading-1", "page-heading-2"] }],
   after: "A plain guide to when the lanterns go up and how the release works, so first time visitors know what to expect on the night." };
-/** The writer AND its final editor, both deterministic and both answering the EXACT ask: the field the prompt names, and a
- *  ruling per claim parsed off the judgement's own prompt. Every gate between the ask and the store is the production gate. */
+/** The writer AND its final editor, both deterministic and both answering the EXACT ask: the field the prompt names, and a ruling per claim parsed off the judgement's own prompt. Every gate between the ask and the store is the production gate. */
 const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => string[] } => { let n = 0; const asked: string[] = [];
   const complete: CompleteFn = async (a) => { n += 1; asked.push(`${a.kind}: ${a.user.slice(0, 240)}`);
     if (a.kind === "editor_judgement") return { value: { pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true,
@@ -187,10 +186,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(res.proposals.filter((p) => p !== landed).every((p) => p.status === "needs_review")).toBe(true); // and nothing else claims Ready
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
-  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven END TO END on the real chain: the producer funds the page,
-   *  drafted-copy writes the owed description and its evaluator reads it, the store takes the row, and the ONE settlement
-   *  (`persistAndFile` -> `budget.land`) is the only thing that moves the shared Ready shortfall. A second fundable page
-   *  sits on the same manifest so the stop is observable: filled means the later candidate is never bought. */
+  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven END TO END on the real chain: the producer funds the page, drafted-copy writes the owed description and its evaluator reads it, the store takes the row, and the ONE settlement (`persistAndFile` -> `budget.land`) is the only thing that moves the shared Ready shortfall. A second fundable page sits on the same manifest so the stop is observable: filled means the later candidate is never bought. */
   const SECOND_URL = `${SITE}/lantern-release-guide`, SECOND_QUERY = "lantern release walkthrough";
   const twoGapWorld = (evidence: FunnelResearchEvidence): ReturnType<typeof fx.replaySnapshot> => {
     const s2 = parsed("serp_organic", fx.serpOrganic({ keyword: SECOND_QUERY, ownedUrl: SECOND_URL, ownedTitle: "Lantern Release" }));
@@ -211,8 +207,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     // NOTHING OWED, NOTHING BOUGHT: a pass with its stock already full makes no drafting call at all.
     const full = await drive(evidence, 0, []);
     expect([full.calls, full.res.proposals.every((p) => p.status !== "ready")]).toEqual([0, true]);
-    // THE LANDING, on the real chain: the store answered saved, the row on file is customer-actionable Ready, and the
-    // ONE settlement moved the shared shortfall to zero. The receipt carries the store's own word, never the drafter's.
+    // THE LANDING, on the real chain: the store answered saved, the row on file is customer-actionable Ready, and the ONE settlement moved the shared shortfall to zero. The receipt carries the store's own word, never the drafter's.
     const ok = await drive(evidence, 1, []);
     const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
     expect([ok.res.paid.readyShortfall, ok.landed.length, row.status, row.researchOnly ?? false]).toEqual([0, 1, "ready", false]);
@@ -222,8 +217,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     // FILLED MEANS CLOSED FOR EVERY FAMILY: the second fundable page is told the queue is full and no drafting call names it.
     expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.why).toEqual("the queue's shortfall was already filled, so this work waits for the next short day");
     expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(false);
-    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING. The shortfall stands, no receipt claims
-    // produced, and the pass keeps walking to the second page rather than closing on copy nobody can act on.
+    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING. The shortfall stands, no receipt claims produced, and the pass keeps walking to the second page rather than closing on copy nobody can act on.
     const lost = await drive(evidence, 1, [TENANT]);
     expect([lost.landed, lost.res.paid.readyShortfall, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], 1, false]);
     expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true);
@@ -232,8 +226,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
   });
   it("Ready stock on file confirms and never lands, so the pass still buys the new work it owes", async () => {
     const { evidence } = await replayFunnel();
-    // Seed the exact Ready row a prior pass landed. The caller's deficit already subtracted rows Ready on file, so this
-    // row may only CONFIRM: if the pass landed it again, owed would hit zero here and the second page would never be bought.
+    // Seed the exact Ready row a prior pass landed. The caller's deficit already subtracted rows Ready on file, so this row may only CONFIRM: if the pass landed it again, owed would hit zero here and the second page would never be bought.
     const prior = await drive(evidence, 1, []);
     const seeded = await drive(evidence, 1, [], prior.store);
     expect([seeded.res.paid.readyShortfall, seeded.landed.length]).toEqual([0, 2]); // one confirmed, one NEW landing, and the shortfall was filled by the new work

@@ -8,8 +8,7 @@ vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), 
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => ({
     from: () => ({ select: () => ({ eq: (_c: string, key: string) => ({ maybeSingle: async () => {
-      // ONLY the store under test answers here; every other key a path resolution touches reads as "no row",
-      // so this fixture cannot accidentally reshape where the store resolves to.
+      // ONLY the store under test answers here; every other key a path resolution touches reads as "no row", so this fixture cannot accidentally reshape where the store resolves to.
       if (!String(key).startsWith(STORE)) return { data: null, error: null };
       durable.keys.push(String(key));
       if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
@@ -22,7 +21,6 @@ vi.mock("@/lib/persistence/supabase", () => ({
 /** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
 const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
 import { readStore } from "@/lib/persistence/json-store";
-
 
 let clock = 1_000_000;
 beforeEach(() => { clock = 1_000_000; vi.useFakeTimers(); vi.setSystemTime(clock); durable.rows = null; durable.fail = false; durable.keys = []; });

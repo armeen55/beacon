@@ -39,7 +39,7 @@ vi.mock("@/lib/persistence/supabase", () => {
       env.dispositions.set(k, { tenant_id: tenant, case_key: r.caseKey, state: r.state, query: r.query,
         page_url: r.pageUrl ?? null, stage: r.stage ?? null, proposal_id: r.proposalId ?? null, reason: r.reason,
         days: r.days ?? 0, engines: r.engines ?? 0, parents: r.parents ?? 0, executions: r.executions ?? 0,
-        decided_at: r.decidedAt });
+        decided_at: r.decidedAt, diagnosis: r.diagnosis ?? held?.diagnosis ?? null }); // the migration's coalesce: an unruled pass strips no banked reading
       landed += 1;}
     return landed;};
   return {
@@ -165,8 +165,7 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     await produceProposalsForTenant(TENANT);
     // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
     expect(env.withdrawn).toEqual([stale.id]); });
-  /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the
-   *  harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
+  /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
   it("writes nothing at all when it is told not to persist", async () => {
     env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
     const stale = openCard("title"), theirs = openCard("ai_answer_gap");
@@ -175,8 +174,7 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     await produceProposalsForTenant(TENANT, { persist: false });
     // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
     expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); });
-  /** AND WHAT A DRY RUN HANDS BACK IS WHAT PERSISTENCE WOULD KEEP. The guard used to sit at the TOP of persistIfChanged, so a dry run returned the row BEFORE nine transforms (identity stamp, banked-copy
-   *  preservation, soft downgrade, ranking inheritance) and the copy an operator inspected was not the copy that later landed. Inspecting one object and storing another is the whole defect. */
+  /** AND WHAT A DRY RUN HANDS BACK IS WHAT PERSISTENCE WOULD KEEP. The guard used to sit at the TOP of persistIfChanged, so a dry run returned the row BEFORE nine transforms (identity stamp, banked-copy preservation, soft downgrade, ranking inheritance) and the copy an operator inspected was not the copy that later landed. Inspecting one object and storing another is the whole defect. */
   it("hands back exactly the payload persistence would keep", async () => {
     const shape = (p: ChangeProposal) => ({ id: p.id, rc: p.recommendedChange, steps: p.operatorSteps, claims: p.claims, support: (p.supportFacts ?? []).map((f) => f.id),
       workKey: p.workKey, status: p.status, pieces: (p.bundle?.components ?? []).map((c) => [c.kind, c.page, c.where, c.after]) });
@@ -253,6 +251,15 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect(env.upserts).toBeGreaterThan(0); // the quiet pass filed
     expect(env.dispositions.get(`${TENANT}|prompt:pB`)?.state).toBe("unreported");
   });
+  it("a banked diagnosis survives a pass that did not rule, exactly as the migration's coalesce writes it", async () => {
+    const { recordAiCaseDispositions, readAiCaseDispositions } = await import("@/domains/decision/ai-case-store");
+    const dx = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-20T08:00:00.000Z" } as never;
+    const row = { caseKey: "prompt:pDx", state: "monitoring" as const, query: "q", reason: "r", days: 1, engines: 1, parents: 1, executions: 1 };
+    await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T08:00:00.000Z", diagnosis: dx }]);
+    await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T09:00:00.000Z" }]); // newer, unruled
+    const file = await readAiCaseDispositions(TENANT);
+    const kept = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pDx") : null;
+    expect([kept?.decidedAt?.slice(11, 13), kept?.diagnosis?.kind], "the newer pass lands and the reading survives it").toEqual(["09", "already_answered"]); });
   it("denies a stale concurrent pass the sweep: its rows lose, it claims no family, the newer verdicts stand", async () => {
     env.aiWindow = [];
     await runExtras(aiSnapshot()); // the NEWER pass files (decidedAt = 2026-08-20T09:00Z)

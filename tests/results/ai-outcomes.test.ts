@@ -393,8 +393,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     // DOCTRINE REVERSED (Codex, 2026-08-23). This pin used to demand 44: the model never filtered the read, because emptying the after side was the feared failure. The live counter-case is worse: comparing a gpt-5 baseline against gpt-5.5 answers sells an instrument swap as the change working or failing. An answer on a model the baseline never saw now starts its OWN segment: excluded from the direction arithmetic, still listed in instruments, and named in its own sentence.
     expect(outcome?.after.checked).toBe(20);
     expect(outcome?.line ? [outcome.line, ...(outcome.metricLines ?? [])].join(" ") : "").toBeDefined();});
-  /** THE INSTRUMENT IS THE EXACT TUPLE (Codex, 2026-08-23): engine, served model and mode TOGETHER. The marginal
-   *  lists cross, and a cross authorizes pairings nobody observed; the frozen tuples are the only authority. */
+  /** THE INSTRUMENT IS THE EXACT TUPLE (Codex, 2026-08-23): engine, served model and mode TOGETHER. The marginal lists cross, and a cross authorizes pairings nobody observed; the frozen tuples are the only authority. */
   it("never lets engines and modes seen apart authorize the pairing, and names the cross as its own segment", async () => {
     const readObservations = reader([
       ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })), // the one frozen tuple: chatgpt, gpt-5, api
@@ -416,8 +415,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       { readObservations, now: NOW });
     expect(outcome?.after.checked).toBe(44); // gpt-5 on api is not one instrument: Gemini's copy is its own segment
     expect(outcome?.line).toContain("Gemini on gpt-5 (api), which this change's starting numbers never saw");});
-  /** CONTROLS SIT ON THE SAME TUPLE AS THE READING THEY ADJUST: an unaffected question answered on an instrument
-   *  the comparison excludes would subtract that other instrument's weather from this verdict. */
+  /** CONTROLS SIT ON THE SAME TUPLE AS THE READING THEY ADJUST: an unaffected question answered on an instrument the comparison excludes would subtract that other instrument's weather from this verdict. */
   it("holds no control from an instrument the comparison excludes, and keeps the same rows as controls on the frozen tuple", async () => {
     const ctl = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
       row({ prompt_id: "p-ctl", prompt_text: "an unaffected question", ...over });

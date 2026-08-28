@@ -30,6 +30,9 @@ export const PROMPT_REGISTRY = {
   "draft.factual_review": 3, // v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
   // there is no stale answer a version could protect. Any change to the wording from here must bump them.
+  // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
+  // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
+  "draft.aeo_gap": 1,
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

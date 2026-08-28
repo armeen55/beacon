@@ -1,20 +1,4 @@
-/**
- * decision/load-proposals (CORE 100K cutover, 2026-07-22): the ONE read path
- * the live surfaces (Changes + Today) consume. It loads the persisted, re- validated ChangeProposals for a tenant, ranks them by honest value, and partitions them into the operator-facing lifecycle:
- *
- *   ready     validated safe, every hold answered: act now.
- *   toDo      the exact copy exists and a judgement or one named check stands between it and ready.
- *   research  a real ranked signal with nothing exact written for it yet. VISIBLE, never a bare count.
- *   (a withdrawn draft is history and never surfaces; an implemented one has moved to the ledger.)
- *
- * Every lane above holds CURRENT-BASIS work only. A proposal drafted under an older basis, one carrying no basis, and every proposal at all when the current
- * basis cannot be read are withheld from the queue and counted, never shown as work to do.
- *
- * The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger (a shipped change under measurement), NOT here: a proposal the operator
- * applied is recorded as a shipped change and measured there. This module owns only the pre-ship queue. PURE partition over a fail-soft load.
- *
- * server-only (reads the proposal store).
- */
+/** decision/load-proposals (CORE 100K cutover, 2026-07-22): the ONE read path the live surfaces (Changes + Today) consume. It loads the persisted, re- validated ChangeProposals for a tenant, ranks them by honest value, and partitions them into the operator-facing lifecycle: ready     validated safe, every hold answered: act now. toDo      the exact copy exists and a judgement or one named check stands between it and ready. research  a real ranked signal with nothing exact written for it yet. VISIBLE, never a bare count. (a withdrawn draft is history and never surfaces; an implemented one has moved to the ledger.) Every lane above holds CURRENT-BASIS work only. A proposal drafted under an older basis, one carrying no basis, and every proposal at all when the current basis cannot be read are withheld from the queue and counted, never shown as work to do. The "measuring / decided" side of the lifecycle lives in the proof-gsc ledger (a shipped change under measurement), NOT here: a proposal the operator applied is recorded as a shipped change and measured there. This module owns only the pre-ship queue. PURE partition over a fail-soft load. server-only (reads the proposal store). */
 
 import "server-only";
 
@@ -27,26 +11,7 @@ import { footprintsOverlap, mutationFootprint } from "./mutation-footprint";
 import { CAUSE_LEVERS, unsettledCause, withholdReason } from "./authorization";
 import type { ChangeProposal } from "./contracts";
 
-/**
- * The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is
- * unsupported history the moment those rules change: it can never render Ready,
- * it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change.
- *   1 = every owned page over 20 impressions got a title and a description.
- *   2 = a proposal exists only where exact query rows proved a recoverable gap.
- *   3 = a proven gap is an INVESTIGATION until the live results page for that exact
- *       search is held; confidence follows evidence completeness, not the draft.
- *   4 = holding that results page is not reading it. A change exists only where the
- *       page was DIAGNOSED off what those results actually say, so every proposal
- *       picked by whether the search words appeared in the stored title is history.
- *   5 = no new page is proposed at all. Turning a competitor's example prompt into a
- *       page shipped duplicates of pages the account already owned, so generation is
- *       deleted until the evidence can prove a distinct page should exist.
- *   6 = a new page is proposed again, and ONLY where the page by page comparison proved
- *       the winning pages share searches no page of this account reaches. Every page
- *       brief drafted under any earlier rule is history.
- *   7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry.
- *   8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead.
- */
+/** The DECISION generation this kernel proposes under. It rides on the basis stamp, so every proposal manufactured under an earlier generation's rules is unsupported history the moment those rules change: it can never render Ready, it is demoted in presentation only, and no row is rewritten or deleted. Bump ONLY when the rules that decide WHAT earns a proposal change. 1 = every owned page over 20 impressions got a title and a description. 2 = a proposal exists only where exact query rows proved a recoverable gap. 3 = a proven gap is an INVESTIGATION until the live results page for that exact search is held; confidence follows evidence completeness, not the draft. 4 = holding that results page is not reading it. A change exists only where the page was DIAGNOSED off what those results actually say, so every proposal picked by whether the search words appeared in the stored title is history. 5 = no new page is proposed at all. Turning a competitor's example prompt into a page shipped duplicates of pages the account already owned, so generation is deleted until the evidence can prove a distinct page should exist. 6 = a new page is proposed again, and ONLY where the page by page comparison proved the winning pages share searches no page of this account reaches. Every page brief drafted under any earlier rule is history. 7 = what earns a change is picked against the account's own trusted curve, a proven fall reaches its own rung instead of falling through to more copy, a measured page earns nothing, and a split is settled off the words BOTH pages carry. 8 = a merge may move nothing. Winning ONE search never makes a page the home for a whole other page, so a redirect is earned only where the survivor already carries every section the loser carries; anything else is told apart instead. */
 const DECISION_GENERATION = 8;
 
 /**
@@ -76,14 +41,7 @@ const MEASUREMENT_WINDOW_DAYS = 28;
 /** A reading only votes once its window has closed and it was read against pages nobody changed. */
 const SETTLED_WINDOW_DAYS = 28;
 
-/**
- * WHAT EACH KIND OF CHANGE HAS ACTUALLY DONE ON THIS ACCOUNT, off its own finished readings: how many
- * settled and the net clicks they moved against comparable pages. The producing pass has always handed
- * this to the ranking and the SCREEN never did, so every card the operator actually read was ranked as
- * though the account had no track record at all. Same ledger, same rule. THE REQUEST-CACHED READ, because
- * this runs on every render of every queue surface and the uncached one would re-read the whole ledger each
- * time. Fail-soft to nothing: "I could not read the ledger" is never "this kind of change has done nothing".
- */
+/** WHAT EACH KIND OF CHANGE HAS ACTUALLY DONE ON THIS ACCOUNT, off its own finished readings: how many settled and the net clicks they moved against comparable pages. The producing pass has always handed this to the ranking and the SCREEN never did, so every card the operator actually read was ranked as though the account had no track record at all. Same ledger, same rule. THE REQUEST-CACHED READ, because this runs on every render of every queue surface and the uncached one would re-read the whole ledger each time. Fail-soft to nothing: "I could not read the ledger" is never "this kind of change has done nothing". */
 async function familyHistoryFor(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
   const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerCached(tenantId)).catch(() => null);
@@ -163,15 +121,7 @@ export async function loadProposalQueue(
     deps.currentBasis !== undefined ? deps.currentBasis : await resolveCurrentBasis(tenantId);
   const byId = await loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>());
   const live = [...byId.values()].filter((p) => p.status !== "implemented_pending_verification");
-  // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at
-  // all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is
-  // proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it
-  // just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work
-  // again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of
-  // that is an older idea however current its basis looks, and reviving the ones that
-  // turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below.
-  // AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving
-  // kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
+  // Your queue is CURRENT WORK ONLY. A proposal enters it only when I can show it was drafted under the basis this account holds right now. An older basis, no basis at all, and a current basis I could not read all SET THE ROW ASIDE. Unreadable fails closed: being unable to read the basis is not proof anything is current, it is proof I cannot tell, so I show you nothing rather than guess. A set-aside row keeps its words, its status and its history: no stored row is rewritten or deleted, it just stops presenting as work waiting on you, and it is counted below so I can say so. A NEW PAGE PASSES THE SAME BAR TWICE. Under generation 6 a page brief may be work again, but only one built to today's evidence contract: the earned verdict it came from, an outline, and every piece tracing to a receipt item. A brief carrying none of that is an older idea however current its basis looks, and reviving the ones that turned a rival's example question into an article is the worst thing this queue could do, so it is refused here and still COUNTED below. AND EVERY DEEP CHANGE PASSES ITS OWN RECEIPT AT READ TIME. A stored bundle whose claims stopped resolving kept rendering exactly as written until something re-selected its page, so the screen is the safety net: a row that cannot show its work is withheld here whatever the producer pass has had a chance to do.
   const standing = live.filter((p) => actionableProposalFailures(p, { tenantId, currentBasis, now }).length === 0
     && (p.kind !== "new_page" || validateProposal(p).verdict !== "rejected"));
   // THE COMPLETENESS BOUNDARY DECIDES THE LANE, NEVER WHETHER THE WORK IS SEEN (operator, 2026-08-15). A row whose
@@ -179,15 +129,7 @@ export async function loadProposalQueue(
   // genuine opportunities the account had already paid to find. Every standing row is ranked and shown; what the
   // boundary decides is which of the three lanes it lands in and which controls its card carries.
   const all = standing;
-  // A CHANGE REPLACES ONLY THE WORK IT ACTUALLY OVERWRITES (operator, 2026-08-26). This asked instead whether any
-  // OTHER row on the page carried a bundle, and dropped every non-bundle row when one did. Live that hid eight
-  // standing rows behind a single table-row bundle, three of them already shown to the operator as Ready: the
-  // /farsi-numbers zero explainer, and the Late Safavid linked paragraph and title. One page is not one opportunity,
-  // so the question is what each row WRITES: a bundle rewriting a title still takes the plain title rewrite with it,
-  // while a table row, a heading, a schema block and a title on one page are four changes and all four stand.
-  // READ AFTER the basis filter above, never before it: a row that cannot be presented may not suppress one that can.
-  // Richest first, so the bundle that subsumes several atomic cards is the one kept, and ties break on id so the
-  // queue is the same on every read. Ranking has not run yet, which is why worth cannot decide it here.
+  // A CHANGE REPLACES ONLY THE WORK IT ACTUALLY OVERWRITES (operator, 2026-08-26). This asked instead whether any OTHER row on the page carried a bundle, and dropped every non-bundle row when one did. Live that hid eight standing rows behind a single table-row bundle, three of them already shown to the operator as Ready: the /farsi-numbers zero explainer, and the Late Safavid linked paragraph and title. One page is not one opportunity, so the question is what each row WRITES: a bundle rewriting a title still takes the plain title rewrite with it, while a table row, a heading, a schema block and a title on one page are four changes and all four stand. READ AFTER the basis filter above, never before it: a row that cannot be presented may not suppress one that can. Richest first, so the bundle that subsumes several atomic cards is the one kept, and ties break on id so the queue is the same on every read. Ranking has not run yet, which is why worth cannot decide it here.
   const held: ChangeProposal[] = [];
   for (const p of [...all].sort((a, b) => mutationFootprint(b).size - mutationFootprint(a).size || a.id.localeCompare(b.id)))
     if (!held.some((k) => footprintsOverlap(k, p))) held.push(p);
@@ -199,14 +141,7 @@ export async function loadProposalQueue(
   // discounts it hard and says so on the card. The applied rows are already in hand here, so this costs no read and reaches past no kernel boundary.
   const ranked = rankProposals(current, { measuringPagePaths: pagesUnderMeasurement(byId.values()),
     familyHistory: await familyHistoryFor(tenantId) });
-  // READY has to mean ready: the validator passed it (status "ready"), it owes nobody a source, AND its lever
-  // treats the cause its own evidence named. That last one is the screen's half of the same boundary the
-  // producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve
-  // as paste-ready work just because it is already on file. Every other current-basis row is a to-do.
-  // THE THREE LANES, off the ONE hold: nothing written yet is research, exact copy with anything at all still
-  // standing is a draft to review, and a row stamped ready whose holds are all answered is ready. `blocking` is
-  // asked here as well as at the mutation, so a row promoted by an older pass, or one whose banked placement can
-  // no longer be checked, is demoted in presentation instead of being served as paste-ready work.
+  // READY has to mean ready: the validator passed it (status "ready"), it owes nobody a source, AND its lever treats the cause its own evidence named. That last one is the screen's half of the same boundary the producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve as paste-ready work just because it is already on file. Every other current-basis row is a to-do. THE THREE LANES, off the ONE hold: nothing written yet is research, exact copy with anything at all still standing is a draft to review, and a row stamped ready whose holds are all answered is ready. `blocking` is asked here as well as at the mutation, so a row promoted by an older pass, or one whose banked placement can no longer be checked, is demoted in presentation instead of being served as paste-ready work.
   const ready: ChangeProposal[] = [], toDo: ChangeProposal[] = [], research: ChangeProposal[] = [];
   for (const p of ranked) {
     const hold = openHold(p);

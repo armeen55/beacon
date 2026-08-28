@@ -840,8 +840,7 @@ describe("the unruled review pass", () => {
     const writes = env.saved.filter((p) => p.id === reviewed.id);
     expect(writes.every((w) => !!w.semanticReview), "no write of this pass strips the banked reading").toBe(true); // the defect wrote the mint copy, review gone
     const kept = env.store.get(reviewed.id)!;
-    // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed
-    // reason, but only a ruling review may replace or remove the receipt itself.
+    // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
     expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]);
     expect(out.paid.receipts.find((r) => r.key === "/x")?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
     // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.

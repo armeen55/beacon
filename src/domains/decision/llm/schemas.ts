@@ -354,6 +354,7 @@ export type PageJob = z.infer<typeof PageJobSchema>;
 // ── registry: kind → schema (the structured-drafter dispatches on this) ──────
 
 export type StructuredDraftKind =
+  | "aeo_gap"
   | "answer_block"
   | "atomic_edit"
   | "editor_judgement"
@@ -397,7 +398,13 @@ const FactualReviewSchema = z.object({ rulings: z.array(z.object({
   claims: z.array(z.object({ claim: z.number().int().min(0), factIds: z.array(z.string().min(1)),
     entailed: z.boolean(), why: z.string().min(1).max(200) })).min(1).max(12) })).min(1).max(12) });
 
+/** THE AEO GAP READER'S ANSWER: a closed diagnosis vocabulary and only ids the packet supplied. A reader, never a writer. */
+const AeoGapSchema = z.object({ kind: z.enum(["already_answered", "scattered_answer", "missing_information", "extraction_or_structure_gap", "authority_or_source_gap", "freshness_gap", "reachability_gap", "unknown"]),
+  ownedIds: z.array(z.string().max(16)).max(12).default([]), evidenceIds: z.array(z.string().max(16)).max(12).default([]),
+  missing: z.string().max(400).default(""), explanation: z.string().min(1).max(300) });
+
 export const SCHEMA_BY_KIND = {
+  aeo_gap: AeoGapSchema,
   editor_judgement: EditorJudgementSchema,
   fact_claim_extraction: FactClaimExtractionSchema,
   fact_claim_judgement: FactClaimJudgementSchema,

@@ -1,31 +1,4 @@
-/**
- * decision/rank-proposals: THE ONE ranking, across every kind of change this kernel can propose. ONE inspectable score built from bounded factors, each naming the input it read:
- *
- *   CORRECTNESS IS THE ADMISSION TICKET AND NEVER A SCORE. A 250-wide lifecycle band used to sit on top of
- *   every other factor put together, so being safe to paste outweighed everything riding on the change and a
- *   description on a page shown three times ranked beside a page bleeding 152 clicks. Whether a change may be
- *   shown at all is settled BEFORE this file (completeness's deliverable gaps and the authorization verdict);
- *   what is left here is worth, and worth is what the order is built from.
- *
- *   visibility     the clicks the diagnosis proved are recoverable, or the page's own 90-day views at a THIRD
- *                  of the ceiling when those are bigger, named as an audience and never as a recovery: a
- *                  defect card carries no click figure at all, and without this the order collapsed onto
- *                  effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times.
- *   evidence       how much receipt there is to show.
- *   causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same
- *                  amount a match earns AND forfeits the proven recovery above, because that recovery
- *                  belongs to the cause and not to the page, so a wrong lever can never win on size alone.
- *   strategic      how many of the questions customers actually ask are in scope.
- *   effort         a one minute paste beats an hour of writing when everything else is equal, and only then.
- *   risk           a change that moves or hides a page is discounted, never promoted.
- *   overlap        a page already carrying a change under measurement is discounted hard.
- *   confounding    several changes landing on the same page in one batch discount each other.
- *   history        what this KIND of change has actually done on this site, off finished readings only, shrunk
- *                  hard towards nothing: THE KIND OF CHANGE NEVER DECIDES THE ORDER, the expected traffic does.
- *
- * NO INVENTED NUMBERS: with no proven figure the receipt is marked directional and says the order is a direction, not a size. Every ranked proposal carries `rankingReceipt`, and every one but the last carries
- * `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order).
- */
+/** decision/rank-proposals: THE ONE ranking, across every kind of change this kernel can propose. ONE inspectable score built from bounded factors, each naming the input it read: CORRECTNESS IS THE ADMISSION TICKET AND NEVER A SCORE. A 250-wide lifecycle band used to sit on top of every other factor put together, so being safe to paste outweighed everything riding on the change and a description on a page shown three times ranked beside a page bleeding 152 clicks. Whether a change may be shown at all is settled BEFORE this file (completeness's deliverable gaps and the authorization verdict); what is left here is worth, and worth is what the order is built from. visibility     the clicks the diagnosis proved are recoverable, or the page's own 90-day views at a THIRD of the ceiling when those are bigger, named as an audience and never as a recovery: a defect card carries no click figure at all, and without this the order collapsed onto effort alone and a page shown twice outranked a rebuild of one shown thirty thousand times. evidence       how much receipt there is to show. causeFit       does the lever address the cause the evidence NAMED. A mismatch is discounted the same amount a match earns AND forfeits the proven recovery above, because that recovery belongs to the cause and not to the page, so a wrong lever can never win on size alone. strategic      how many of the questions customers actually ask are in scope. effort         a one minute paste beats an hour of writing when everything else is equal, and only then. risk           a change that moves or hides a page is discounted, never promoted. overlap        a page already carrying a change under measurement is discounted hard. confounding    several changes landing on the same page in one batch discount each other. history        what this KIND of change has actually done on this site, off finished readings only, shrunk hard towards nothing: THE KIND OF CHANGE NEVER DECIDES THE ORDER, the expected traffic does. NO INVENTED NUMBERS: with no proven figure the receipt is marked directional and says the order is a direction, not a size. Every ranked proposal carries `rankingReceipt`, and every one but the last carries `whyRankedAboveNext`. PURE, no I/O, deterministic and stable (equal scores keep input order). */
 
 import type { ChangeProposal } from "./contracts";
 import { dangerousComponents } from "./contracts";
@@ -45,29 +18,14 @@ type Cause = CauseFinding["cause"];
 type Receipt = NonNullable<ChangeProposal["rankingReceipt"]>;
 type Factor = Receipt["factors"][number];
 
-/**
- * Bounded ceilings, one per factor. A factor may never contribute more than its max.
- *
- * WHAT IS RIDING ON THE CHANGE DECIDES THE ORDER. Visibility used to top out at 40 and effort at 10, which
- * put the whole queue inside a 51 point band and let a one minute errand on a page shown twice cancel the
- * audience of a page shown thirty thousand times. Visibility now reaches 120 and effort 4: how long the
- * work takes is a tiebreak between two changes worth the same, never a reason to do the smaller one first.
- * NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number
- * on the screen is always the change with the most riding on it.
- */
+/** Bounded ceilings, one per factor. A factor may never contribute more than its max. WHAT IS RIDING ON THE CHANGE DECIDES THE ORDER. Visibility used to top out at 40 and effort at 10, which put the whole queue inside a 51 point band and let a one minute errand on a page shown twice cancel the audience of a page shown thirty thousand times. Visibility now reaches 120 and effort 4: how long the work takes is a tiebreak between two changes worth the same, never a reason to do the smaller one first. NOTHING HERE SCORES BEING CORRECT: every factor is a size, a confidence or a cost, so the biggest number on the screen is always the change with the most riding on it. */
 const MAX = { visibility: 120 } as const;
 /** HOW FAR EACH FACTOR MAY DISCOUNT what is riding on a change, and none of them may ADD to it. These were
  *  additive ceilings, which put 66 points of promotion within reach of a card carrying no traffic at all. */
 const FLOOR = { evidence: 0.85, causeFit: 0.6, strategic: 0.95, effort: 0.75, risk: 0.6, overlap: 0.5, confounding: 0.7, history: 0.9 } as const;
 /** How many readings it takes before a family's record pulls its full (small) weight. High on purpose: the account holds twelve settled readings in total, so nothing here may speak with confidence yet. */
 const HISTORY_SHRINK = 12;
-/** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT
- *  MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a
- *  prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes
- *  invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the
- *  lever treats it, never what family the change belongs to. They become measurements only when this account's
- *  own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says
- *  "assumed" out loud and names the sample it does not have. */
+/** HOW FAR A MEASURED SHORTFALL IS DISCOUNTED BEFORE IT ORDERS THE QUEUE. THESE ARE POLICY PRIORS AND NOT MEASUREMENTS (operator, 2026-08-27), which is why nothing built from them is ever called expected clicks: a prior multiplied by a real number produces a PRIORITY, not a forecast, and printing it as a forecast makes invented certainty look empirical. What separates the two values is whether the cause is diagnosed and the lever treats it, never what family the change belongs to. They become measurements only when this account's own finished readings can calibrate them at `CALIBRATION_MIN` samples, and until then the receipt says "assumed" out loud and names the sample it does not have. */
 const COLLECTS = { diagnosed: 0.5, undiagnosed: 0.2 } as const;
 /** Finished readings of one kind of change before this account's own record may set the discount instead of the
  *  prior above. Twelve settled readings exist in total across every family, so today nothing reaches it. */
@@ -159,16 +117,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   const clicks = Number.isFinite(p.impactScore) && p.impactScore != null ? Math.max(0, p.impactScore) : null;
   const demand = Number.isFinite(p.demandImpressions90d) && p.demandImpressions90d != null ? Math.max(0, p.demandImpressions90d) : null;
   const directional = !(addressed && clicks != null && clicks > 0); // a size is not a proven recovery: an undiagnosed shortfall still ranks, and still says the order is a direction
-  // ONE HORIZON, ONE QUESTION: how many more organic clicks over the NEXT 28 DAYS. `impactScore` is the
-  // 28-day-equivalent SHORTFALL the evidence measured (normalised once, at `evidence/demand-units`, because
-  // `opportunities` used to take Math.max of a 90-day shortfall and a 28-day fall and record no unit at all, so a
-  // card's own sentence could name a different span from its own number). What a change is WORTH is that
-  // shortfall times the chance THIS change collects it, and that chance is stated rather than assumed: a
-  // diagnosed cause with a lever that treats it collects more often than a shortfall nobody has explained.
-  // A midpoint `upsidePerMonth` band sat here too and was unreachable: no producer in this kernel has ever set
-  // the field, so it ranked nothing and is deleted rather than left to look like a rule.
-  // A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change
-  // does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
+  // ONE HORIZON, ONE QUESTION: how many more organic clicks over the NEXT 28 DAYS. `impactScore` is the 28-day-equivalent SHORTFALL the evidence measured (normalised once, at `evidence/demand-units`, because `opportunities` used to take Math.max of a 90-day shortfall and a 28-day fall and record no unit at all, so a card's own sentence could name a different span from its own number). What a change is WORTH is that shortfall times the chance THIS change collects it, and that chance is stated rather than assumed: a diagnosed cause with a lever that treats it collects more often than a shortfall nobody has explained. A midpoint `upsidePerMonth` band sat here too and was unreachable: no producer in this kernel has ever set the field, so it ranked nothing and is deleted rather than left to look like a rule. A WRONG LEVER FORFEITS THE RECOVERY ENTIRELY, and always has: where the cause IS treatable and this change does not treat it, the shortfall belongs to the cause and not to the page, so it rides nothing here.
   const sized = clicks != null && clicks > 0 && (addressed || !treatable);
   // WHAT IS MEASURED AND WHAT IS ASSUMED, SAID SEPARATELY. The shortfall is measured; the share of it this change
   // collects is a policy prior until this account has finished readings enough to calibrate it, so the sentence
@@ -185,14 +134,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       value: Math.min(MAX.visibility, priority / PER_POINT) }
     : { input: `${num(clicks!)} clicks over 28 days of measured shortfall with no cause diagnosed yet, so ${num(priority)} is what it is ranked on: ${basis}`,
       value: Math.min(MAX.visibility / 2, priority / PER_POINT) };
-  // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order
-  // collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty
-  // thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under
-  // AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL, while a proven recovery can reach three
-  // times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both.
-  // A PAGE'S TRAFFIC IS NOT THIS CHANGE'S TRAFFIC. The queue orders on expected Google gain and expected AI
-  // gain; a change whose own cause claims neither may stay visible and may not ride the page's impressions
-  // to the top (Codex, 2026-08-18: an accuracy correction led on 56,804 impressions it does not address).
+  // THE AUDIENCE. A card minted off a defect carries no recoverable click figure at all, so the order collapsed onto how long the work takes and a page shown twice outranked a rebuild of a page shown thirty thousand times. Views are not a recovery, so they earn a THIRD of the ceiling, nothing at all under AUDIENCE_FLOOR, and the whole third only at AUDIENCE_FULL, while a proven recovery can reach three times higher. WHICHEVER IS BIGGER IS WHAT IS RIDING ON THE CHANGE, and the receipt names both. A PAGE'S TRAFFIC IS NOT THIS CHANGE'S TRAFFIC. The queue orders on expected Google gain and expected AI gain; a change whose own cause claims neither may stay visible and may not ride the page's impressions to the top (Codex, 2026-08-18: an accuracy correction led on 56,804 impressions it does not address).
   const claimsAudience = (p.causeFinding?.cause ?? p.diagnosisCause) !== "factual_error";
   const audience = claimsAudience && demand != null && demand > AUDIENCE_FLOOR
     ? { input: `shown ${num(demand)} times in 90 days, an audience size rather than a proven recovery`,
@@ -234,14 +176,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
   // 90,000 times ranked level with one on a page shown none.
   const proxy = ai && (!google || ai.value > google.value) ? ai : google;
   const rode = proven ?? proxy;
-  // AND AN UNMEASURED PROXY MAY NOT OUTRANK MATERIALLY SIZED MEASURED WORK. Impressions and answer counts are
-  // both proxies: at a third of the ceiling each was worth 40 points, which is 160 discounted clicks at
-  // PER_POINT, so no measured recovery this account can produce could ever catch one. Capped at DIRECTIONAL_MAX
-  // so proxies still order each other and always sit under real measured work.
-  // SCALED, NEVER CLAMPED. Clamping flattened every proxy onto the ceiling, so recurrence and stage stopped
-  // ordering AEO cards against each other at all (a question asked once ranked level with one asked every day
-  // for a week). The band keeps its whole shape and is rescaled into the directional range, so proxies order
-  // each other exactly as before and simply cannot reach measured work.
+  // AND AN UNMEASURED PROXY MAY NOT OUTRANK MATERIALLY SIZED MEASURED WORK. Impressions and answer counts are both proxies: at a third of the ceiling each was worth 40 points, which is 160 discounted clicks at PER_POINT, so no measured recovery this account can produce could ever catch one. Capped at DIRECTIONAL_MAX so proxies still order each other and always sit under real measured work. SCALED, NEVER CLAMPED. Clamping flattened every proxy onto the ceiling, so recurrence and stage stopped ordering AEO cards against each other at all (a question asked once ranked level with one asked every day for a week). The band keeps its whole shape and is rescaled into the directional range, so proxies order each other exactly as before and simply cannot reach measured work.
   const ridden = rode && rode !== proven
     ? { ...rode, value: rode.value * (DIRECTIONAL_MAX / (MAX.visibility / 3)) } : rode;
   // WHAT IS RIDING ON IT, HELD AT THE CONFIDENCE IT HAS EARNED. Unfinished copy and a low reading each
@@ -265,13 +200,7 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       : "an accuracy fix with no traffic or citation gain claimed for it, so it is ordered below work that has one"),
     base, MAX.visibility);
 
-  // NOTHING BUT TRAFFIC MAY ADD TO WORTH. Every factor below used to be a flat number added to the score, so 66
-  // points were reachable without any traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history
-  // 12) while a measured 98 clicks a month earned 4.9. That is the `treatment` defect in another costume: an
-  // attribute of the CHANGE deciding an order that is supposed to be built from expected visitors. This file's
-  // own header already said the rule ("shave the worth by a factor and never by a flat fine") and then broke it.
-  // Each factor now DISCOUNTS what is riding on the change, and reports the points that discount cost, so the
-  // receipt still adds up to the score and every reason stays visible. A discount can never exceed 1.
+  // NOTHING BUT TRAFFIC MAY ADD TO WORTH. Every factor below used to be a flat number added to the score, so 66 points were reachable without any traffic at all (evidence 15, causeFit 25, strategic 10, effort 4, history 12) while a measured 98 clicks a month earned 4.9. That is the `treatment` defect in another costume: an attribute of the CHANGE deciding an order that is supposed to be built from expected visitors. This file's own header already said the rule ("shave the worth by a factor and never by a flat fine") and then broke it. Each factor now DISCOUNTS what is riding on the change, and reports the points that discount cost, so the receipt still adds up to the score and every reason stays visible. A discount can never exceed 1.
   let running = base;
   // `max` is THE MOST THIS DISCOUNT COULD HAVE COST on this card, so a factor's contribution still cannot
   // exceed its own ceiling and the receipt can say "of the N points this could have taken, it took M".

@@ -1,34 +1,6 @@
 import "server-only";
 
-/**
- * decision/producers/page-job: WHAT ONE PAGE IS FOR, in a sentence, read off the page's own stored extract.
- *
- * Every producer in this folder decides which page a search belongs on by counting shared words. Shared words are a
- * coincidence detector, not an understanding: a page of Persian boy names and a page about a city in Iran share the
- * word "Iranian", so a section about one landed on the other. A page job is the missing sentence. It says what the
- * page is for, what shape it is, who reads it, which subjects it covers and whether it sells, and a fit check reads
- * that instead of guessing from an overlap.
- *
- * FOUR RULES HOLD THIS FILE.
- *   1. THE READING IS DURABLE. It lives in page_understanding, one row per page, versioned by the fingerprint of the
- *      extract it was read from. It used to live in the shared call cache, which held 300 rows for a whole account
- *      and was emptied nightly by the answer analyses, so a site that had been read woke up knowing nothing about
- *      itself. A row whose fingerprint still matches is served free forever; a row whose page changed under it is
- *      served STALE and refreshed when the pass can afford to.
- *   2. A MISSING READING IS TYPED, never a bare null. "Not asked" and "could not afford" and "the page has no words"
- *      are opposite facts that used to arrive as the same silence. Callers act on the reason: a card that carries a
- *      subject from somewhere else onto a page HOLDS when the reason is not_asked or refused, because placing an
- *      essay on a page nobody has read is research, not publishable work; unaffordable and unreadable keep the old
- *      fail-open behaviour so a budget ceiling never empties the queue.
- *   3. THE WHOLE SITE GETS READ. One pass buys at most MAX_NEW_READS_PER_PASS new readings, spent on the pages that
- *      matter first and then on a rotation through everything else, resumed from a persisted cursor, so a large site
- *      converges over passes instead of re-reading the same sixty pages forever.
- *   4. BOUNDED SPEND. Every read goes through the drafter's own checkBudget/recordSpend gateway, and a durable or
- *      cached hit costs nothing and counts against nothing.
- *
- * The reading NAMES the page. It never writes copy, never proposes a change, and never decides that a page should
- * exist: that verdict belongs to the coverage path, which owns new-page identity.
- */
+/** decision/producers/page-job: WHAT ONE PAGE IS FOR, in a sentence, read off the page's own stored extract. Every producer in this folder decides which page a search belongs on by counting shared words. Shared words are a coincidence detector, not an understanding: a page of Persian boy names and a page about a city in Iran share the word "Iranian", so a section about one landed on the other. A page job is the missing sentence. It says what the page is for, what shape it is, who reads it, which subjects it covers and whether it sells, and a fit check reads that instead of guessing from an overlap. FOUR RULES HOLD THIS FILE. 1. THE READING IS DURABLE. It lives in page_understanding, one row per page, versioned by the fingerprint of the extract it was read from. It used to live in the shared call cache, which held 300 rows for a whole account and was emptied nightly by the answer analyses, so a site that had been read woke up knowing nothing about itself. A row whose fingerprint still matches is served free forever; a row whose page changed under it is served STALE and refreshed when the pass can afford to. 2. A MISSING READING IS TYPED, never a bare null. "Not asked" and "could not afford" and "the page has no words" are opposite facts that used to arrive as the same silence. Callers act on the reason: a card that carries a subject from somewhere else onto a page HOLDS when the reason is not_asked or refused, because placing an essay on a page nobody has read is research, not publishable work; unaffordable and unreadable keep the old fail-open behaviour so a budget ceiling never empties the queue. 3. THE WHOLE SITE GETS READ. One pass buys at most MAX_NEW_READS_PER_PASS new readings, spent on the pages that matter first and then on a rotation through everything else, resumed from a persisted cursor, so a large site converges over passes instead of re-reading the same sixty pages forever. 4. BOUNDED SPEND. Every read goes through the drafter's own checkBudget/recordSpend gateway, and a durable or cached hit costs nothing and counts against nothing. The reading NAMES the page. It never writes copy, never proposes a change, and never decides that a page should exist: that verdict belongs to the coverage path, which owns new-page identity. */
 
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
@@ -426,17 +398,7 @@ type PageUnderstandingPass = {
   held: { pageUrl: string; reason: string }[];
 };
 
-/**
- * WHAT EACH PAGE IS FOR, and in which order the pass pays to find out.
- *
- * The old order was the sixty busiest pages, every pass, forever: the same sixty were re-read and the rest of the
- * site was never read at all, which is how a card landed on a page whose job nobody had ever asked about. The
- * order now is what matters: pages this account already has work queued on, pages losing traffic they used to
- * earn, pages with real demand, pages AI answers already cite, pages whose copy changed since they were last
- * read, and then a rotation through everything else that RESUMES where the last pass stopped, so the whole site
- * is understood over passes instead of one slice of it being understood forever. The caller decides which pages
- * are eligible at all, because what an essay may never land on is the caller's rule, not this file's.
- */
+/** WHAT EACH PAGE IS FOR, and in which order the pass pays to find out. The old order was the sixty busiest pages, every pass, forever: the same sixty were re-read and the rest of the site was never read at all, which is how a card landed on a page whose job nobody had ever asked about. The order now is what matters: pages this account already has work queued on, pages losing traffic they used to earn, pages with real demand, pages AI answers already cite, pages whose copy changed since they were last read, and then a rotation through everything else that RESUMES where the last pass stopped, so the whole site is understood over passes instead of one slice of it being understood forever. The caller decides which pages are eligible at all, because what an essay may never land on is the caller's rule, not this file's. */
 export async function pageUnderstanding(
   tenantId: string, eligible: readonly OwnedPageEvidence[], opts: { openPaths: ReadonlySet<string>; now: Date; store?: Store; reads?: { left: number } },
 ): Promise<PageUnderstandingPass> {

@@ -298,11 +298,9 @@ describe("a badly classified row cannot be waved through", () => {
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
     const bare = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet" }); await saveChangeProposal(bare);
-    // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever
-    // receipt it was handed, so the door's own check became unconditionally true on the way past.
+    // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever receipt it was handed, so the door's own check became unconditionally true on the way past.
     const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } });
-    // THE STORE VALIDATES A READING, IT NEVER ISSUES ONE, and it will not keep `ready` on a row whose sources
-    // were never shown to support its claims: the work is saved and kept, it is simply not offered.
+    // THE STORE VALIDATES A READING, IT NEVER ISSUES ONE, and it will not keep `ready` on a row whose sources were never shown to support its claims: the work is saved and kept, it is simply not offered.
     await saveChangeProposal({ ...withReceipt, status: "ready" });
     expect(current().find((r) => r.id === withReceipt.id)!.status, "no reading, no ready").toBe("needs_review");
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
