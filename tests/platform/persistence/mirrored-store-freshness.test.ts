@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("server-only", () => ({}));
 const STORE = "customer-surface";
-const durable = vi.hoisted(() => ({ rows: null as unknown[] | null, fail: false, keys: [] as string[] }));
+const durable = vi.hoisted(() => ({ rows: null as unknown[] | null, fail: false as boolean | string, keys: [] as string[] }));
 // Path resolution asks for a tenant's slug; that is not what this test is about, so it answers deterministically.
 vi.mock("@/lib/tenant-context", async (orig) => ({ ...(await orig() as object), slugForTenantId: async (id: string) => id }));
 vi.mock("@/lib/persistence/supabase", () => ({
@@ -12,20 +12,22 @@ vi.mock("@/lib/persistence/supabase", () => ({
       // so this fixture cannot accidentally reshape where the store resolves to.
       if (!String(key).startsWith(STORE)) return { data: null, error: null };
       durable.keys.push(String(key));
-      if (durable.fail) return { data: null, error: { message: "read timed out", code: "57014" } };
+      if (durable.fail) return durable.fail === true ? { data: null, error: { message: "read timed out", code: "57014" } }
+        : durable.fail === "throw" ? Promise.reject(new Error("client init failed"))
+          : { data: null, error: { message: "schema cache stale", code: durable.fail } };
       return { data: durable.rows == null ? null : { content: durable.rows }, error: null };
     } }) }) }),
   }),
 }));
 /** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
 const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
-import { readStore, __setStoreClock } from "@/lib/persistence/json-store";
+import { readStore } from "@/lib/persistence/json-store";
 
 
 let clock = 1_000_000;
-beforeEach(() => { clock = 1_000_000; __setStoreClock(() => clock); durable.rows = null; durable.fail = false; durable.keys = []; });
-afterEach(() => { __setStoreClock(null); });
-const age = (ms: number) => { clock += ms; };
+beforeEach(() => { clock = 1_000_000; vi.useFakeTimers(); vi.setSystemTime(clock); durable.rows = null; durable.fail = false; durable.keys = []; });
+afterEach(() => { vi.useRealTimers(); });
+const age = (ms: number) => { clock += ms; vi.setSystemTime(clock); };
 
 describe("a mirrored store refreshes, and a failed refresh keeps the last known good", () => {
   it("holds row A through an outage, retries in a bounded way, and takes row B when the durable read returns", async () => {
@@ -35,7 +37,6 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     const first = blobReads("t-one");
     expect(first, "the durable blob was asked for once").toBe(1);
 
-    // Inside the TTL nothing is re-read at all.
     expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
     expect(blobReads("t-one"), "a warm slot asks the durable store nothing").toBe(first);
 
@@ -45,12 +46,10 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     const afterOutage = blobReads("t-one");
     expect(afterOutage, "and it did try").toBe(first + 1);
 
-    // A read inside the bounded retry window still answers A and does not hammer the durable store.
     age(1_000);
     expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
     expect(blobReads("t-one"), "the failure is not retried on every read").toBe(afterOutage);
 
-    // Past the retry window it tries again, and the stale rows still stand while the outage lasts.
     age(6_000);
     expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(A);
     expect(blobReads("t-one"), "but it does try again").toBe(afterOutage + 1);
@@ -69,5 +68,9 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     expect(await readStore(STORE, fallback, { tenantId: "t-four" }), "a cold key falls back, never to a neighbour's rows").toEqual(fallback);
     durable.rows = [{ release: "A" }];
     expect(await readStore(STORE, [], { tenantId: "t-three" }), "and the first tenant is untouched").toEqual([{ release: "A" }]);
+    // COLD AND UNAVAILABLE stays fail-closed: the fallback, never fabricated rows; and the module exports no test clock, the fake timers above being the seam.
+    durable.fail = "PGRST205";
+    expect(await readStore(STORE, [{ release: "cold" }], { tenantId: "t-five" }), "a cold error falls back").toEqual([{ release: "cold" }]);
+    expect((await import("@/lib/persistence/json-store") as Record<string, unknown>).__setStoreClock, "no public clock seam").toBeUndefined();
   });
 });
