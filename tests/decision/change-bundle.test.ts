@@ -364,7 +364,7 @@ const bundleOf = (components: BundleComponent[], prompts: string[] = []): Change
   components, receipt: { items: [RECEIPT_ITEM], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [],
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
 /** A RECEIPT IS ABOUT EXACT WORDS: fixture receipts bind to the copy they ride, exactly as a producer stamps them. */
-import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey, unreviewed } from "@/domains/decision/proof";
 const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
 const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
   pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
@@ -638,10 +638,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const BODY = { url: "https://www.iranopedia.com/funny-farsi-phrases", title: "Funny Farsi Phrases" as string | null, h1: "Funny Farsi Phrases" as string | null, metaDescription: null, vocabulary: "", headings: ["Playful Persian expressions"], passages: ["Playful Persian expressions", P1, P2, P3] }; // a real crawl streams the heading INTO the body, which is what makes a section cuttable
     const GOOD = { field: "answer_block", before: null, rationale: "grounded", ...TAIL, after: `${P1}\n${P2}\n${P3}`, naturalHeading: "Playful expressions and their meanings",
       claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] }; // ids aimed at the chunks that CARRY each claim: page-copy-1 is the heading passage, and citing it for P1 is the exact mis-aim the draft-time drift gate now refuses
-    const OKJ = { pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" };
-    const drive = (value: Record<string, unknown>, body = BODY) => draftFieldForPage({ field: "answer_block" as const, body: body as never, query: "funny persian phrases meanings",
+    /** THE FIXTURE EDITOR RULES ON THE CLAIMS IT WAS HANDED, naming each claim's own ids: a coarse yes is no longer an answer the store may trust. */
+    const rulesOn = (d: { claims: readonly { supportedBy: readonly string[] }[] }) => d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true }));
+    const OKJ = { pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" };
+    const drive = (value: Record<string, unknown>, body = BODY, judge?: unknown) => draftFieldForPage({ field: "answer_block" as const, body: body as never, query: "funny persian phrases meanings",
       brief: "Add a section that answers the question. Place it directly under the heading and answer directly.", evidenceHints: [], ownedPaths: ["/funny-farsi-phrases"], minutes: 5 },
-      { tenantId: TENANT, now: NOW, complete: async () => ({ value }), judge: async () => OKJ as never });
+      { tenantId: TENANT, now: NOW, complete: async () => ({ value }), judge: (judge ?? (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) }))) as never });
     it("assigns the placement itself, ignores the anchor the model invented, and keeps the brief's workflow words out of the copy", async () => {
       const d = await drive({ ...GOOD, placementAnchor: "Ancient rooftop of the flag hall" }); expect([d?.anchor, (d?.after ?? "x").toLowerCase().includes("directly")]).toEqual(["Funny Farsi Phrases", false]); }); // the invented place that failed live on /iran-flags/achaemenid-empire-flag
     it("still refuses, and never invents, when the page's stored copy carries no clean heading", async () =>
@@ -677,7 +679,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         evidence: { query: "funny persian phrases", hints: [P1], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const run = async (snap: unknown, value: Record<string, unknown>) => { const asked: string[] = [];
-        await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
+        await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
           budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
           complete: async ({ user }: { user: string }) => (asked.push(user), { value }) } as never); return asked.join(" "); };
       const seen = await run(withWinner, GOOD);
@@ -690,7 +692,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const blind = await run({ ...withWinner, research: {} }, GOOD);
       expect(blind).not.toContain("rival-1"); // the same job with nothing acquired is handed nothing
       const refusals = new Map<string, string>(); // and a claim standing on that rival is refused: its words are not checked evidence
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: withWinner as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals,
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: withWinner as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: RIVAL_COPY, claims: [{ text: RIVAL_COPY, supportedBy: ["rival-1"] }] } }) } as never);
       expect([...refusals.values()].join(" ")).toContain("stands on a rival"); });
@@ -703,7 +705,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         evidence: { query: "persian wolf", hints: ["/iran-animals/persian-wolf holds 196 words of copy"], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add words that answer its main question." } });
       const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "Persian Wolf", h1: "Persian Wolf", outline: ["Range"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf", family: "editor", impact: 91, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: GOOD }) } as never);
       expect(asked.length).toBeGreaterThan(0); }); // it was ASKED: the page is thin, which is a reason to find facts
@@ -721,7 +723,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const budget = DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
       const { canonicalUrlKey: ck } = await import("@/domains/evidence/snapshot");
       bodyStore.map = new Map([[ck(BODY.url), BODY]]);
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? cta : good2 }) } as never);
       expect(asked.length).toBe(2); // the repair is a second PAID draft, not a hidden free one
       expect(budget.spent().calls).toBe(2); // and both drafts came off the page's one declared allowance
@@ -737,7 +739,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section with information gain." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: rewritten }) } as never);
       const rc = out[0]!.recommendedChange;
@@ -747,7 +749,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(out[0])).not.toContain("A new section");
       expect(out[0]!.treatment).toBe("rewrite_existing_section"); // the passage WAS found, so this really is a replacement and stays one
       const away = { ...card, primaryQuery: "wholesale freight logistics", evidence: { query: "wholesale freight logistics", hints: [P1], evidenceRefCount: 1 } };
-      const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+      const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },),
         complete: async () => ({ value: rewritten }) } as never);
       const arc = add[0]!.recommendedChange;
@@ -773,7 +775,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 900, title: BODY.title, h1: BODY.h1, outline: H }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
-      const run = async (copy: string) => (await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never,
+      const run = async (copy: string) => (await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never))[0]!;
       const shapes: Array<[string, string]> = [
@@ -811,7 +813,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const run = async (readyTarget: number, settled: boolean) => { const asked: string[] = [];
         const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90, readyTarget });
         const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
-          judge: async () => OKJ as never, settle: async () => { if (settled) budget.land(); return settled; }, // the settlement is the ONE lander, exactly as persistAndFile lands in production
+          judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, settle: async () => { if (settled) budget.land(); return settled; }, // the settlement is the ONE lander, exactly as persistAndFile lands in production
           budget,
           complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
         return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
@@ -834,7 +836,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: TWO.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
-      const run = async (copy: string, refusals?: Map<string, string>) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: async () => OKJ as never, refusals,
+      const run = async (copy: string, refusals?: Map<string, string>) => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, refusals,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
       const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
@@ -857,7 +859,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: ["Playful Persian expressions"] },
         search: { topQueries: [{ query: "what do persian insults mean", clicks: 0, impressions: 900, position: 14 }] } }], research: {}, sources: [], scope: { tenantId: TENANT } };
       const seen: string[] = [];
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "n" }) as never,
+      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "n" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async (r: { user: string }) => { seen.push(r.user); return { value: { ...GOOD, after: `${P2}\n${P3}\n${Q3}` } }; } } as never);
       expect(seen.length).toBeGreaterThan(1); // round one is refused for restating what stays below; the round after it is told BOTH the assignment and the search this page owes
@@ -877,7 +879,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never);
@@ -891,7 +893,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: async () => OKJ as never, reviewer: async () => ({ notes: "fine" }) as never,
+      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         note: (_k: string, o: string, why?: string) => notes.push(`${o}:${why ?? ""}`), refusals: new Map<string, string>(),
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async () => ({ value: GOOD }) } as never); // no stored body is on file, so no passage can be identified
@@ -901,6 +903,21 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const v = validateProposal(prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const,
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: d!.after } }), { pageBodyText: [P1, P2, P3].join(" "), evidenceText: [P1, P2, P3].join(" "), now: NOW });
       expect([v.verdict, v.qualityStatus]).toEqual(["ready", "ready"]); }); // the same copy clears the canon that held every previous draft
+    /** THE EDITOR ALREADY READS EVERY CLAIM AGAINST THE EXACT EVIDENCE IT CITES, and answered one coarse boolean whose reasoning was thrown away, so substantive work could never earn the reading the store is allowed to trust. Its ruling is checked exactly and then banked. */
+    it("earns the reading on an exact per-claim ruling, and fails closed on anything less", async () => {
+      const judged = (claims: (d: { claims: readonly { supportedBy: readonly string[] }[] }) => unknown) =>
+        drive({ ...GOOD }, BODY, (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: claims(d) })) as never);
+      expect(await judged((d) => rulesOn(d)), "an exact ruling for every claim is accepted").toBeDefined();
+      for (const [what, claims] of [
+        ["a claim left unruled", (d: { claims: readonly unknown[] }) => rulesOn(d as never).slice(1)],
+        ["a claim ruled twice", (d: { claims: readonly unknown[] }) => [...rulesOn(d as never), rulesOn(d as never)[0]]],
+        ["a claim the draft never made", (d: { claims: readonly unknown[] }) => [...rulesOn(d as never), { i: 99, by: [], entailed: true }]],
+        ["evidence the claim does not name", (d: { claims: readonly unknown[] }) => rulesOn(d as never).map((r) => ({ ...r, by: ["page-copy-9"] }))],
+        ["only part of the evidence the claim names", (d: { claims: readonly { supportedBy: readonly string[] }[] }) => rulesOn(d).map((r) => ({ ...r, by: r.by.slice(0, Math.max(0, r.by.length - 1)) }))],
+        ["the editor's own no", (d: { claims: readonly unknown[] }) => rulesOn(d as never).map((r) => ({ ...r, entailed: false }))],
+        ["a coarse approval with no rulings at all", () => []]] as const)
+        expect(await judged(claims as never), `${what} earns nothing`).toBeFalsy();
+    });
   });
   it("the cards that reached a customer are refused before a model is asked", () => { const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms, demand: { preserve: [], vocabulary: [] } });
     const d = (o: Record<string, unknown>) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "answer_block", naturalHeading: "A human heading", beforeText: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 30, measurementTarget: "citations", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], ...o } as never, (o.P as never) ?? pk(""));
@@ -1388,13 +1405,25 @@ describe("typed refusal contract", () => {
     const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name confidently from the first try.";
     const seen: string[] = [];
     const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
         after: NEW_COPY, naturalHeading: "How to pronounce them", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
     expect(seen.join(" ")).toContain("fact-1: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready");
+    // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping,
+    // so the one canonical gate has something to trust instead of holding substantive work it just approved.
+    const done = out2[0]!;
+    expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
+    expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
+    expect(done.semanticReview!.claims).toEqual(done.claims!.map((c, i) => ({ i, by: [...c.supportedBy].sort(), entailed: true })));
+    expect(unreviewed(done), "and the canonical gate holds nothing").toBeNull();
+    for (const [what, broken] of [["changed copy", { recommendedChange: { ...done.recommendedChange, after: `${(done.recommendedChange as { after: string }).after} More.` } }],
+      ["a changed claim", { claims: done.claims!.map((c, i) => (i === 0 ? { ...c, text: `${c.text} extra` } : c)) }],
+      ["a changed mapping", { claims: done.claims!.map((c, i) => (i === 0 ? { ...c, supportedBy: ["fact-9"] } : c)) }],
+      ["changed fact words", { supportFacts: done.supportFacts!.map((f, i) => (i === 0 ? { ...f, fact: `${f.fact} and more` } : f)) }]] as const)
+      expect(unreviewed({ ...done, ...broken } as never), `${what} voids the reading`).toContain("actually support what it claims");
     expect((out2[0]!.recommendedChange as { where?: string }).where).toContain("placed after"); // exact placement on the rendered change
     bodyStore.map = null; });
 
@@ -1423,7 +1452,7 @@ describe("typed refusal contract", () => {
     const L3 = "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border.";
     const why = new Map<string, string>();
     const run = async () => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
         after: `${L1}\n${L2}\n${L3}`, naturalHeading: "How the main types differ",
@@ -1432,7 +1461,7 @@ describe("typed refusal contract", () => {
     expect({ s: landed[0]!.status, w: [...why.values()] }).toEqual({ s: "ready", w: [] });
     const why2 = new Map<string, string>();
     const thin = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why2,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
         after: L1, naturalHeading: "How the main types differ", claims: [{ text: L1, supportedBy: ["page-copy-1"] }] } }) } as never);

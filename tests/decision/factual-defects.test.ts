@@ -220,7 +220,10 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     // reviewer returned is what comes back, the row is still Ready, and the one servability verdict holds nothing.
     const roundTrip = async (p: ChangeProposal) => { db.rows = []; await saveChangeProposal(p);
       return (await loadChangeProposal("t", p.id))!; };
-    expect(REVIEW_CONTRACT, "the corrected factual contract is v3").toBe(3);
+    // THE PERSISTED AUTHORIZATION CONTRACT IS ITS OWN NUMBER, not a prompt cache version: it read
+    // draft.factual_review, which would have governed the substantive editor's receipts by accident.
+    const { PROMPT_REGISTRY } = await import("@/domains/decision/llm/prompt-registry");
+    expect(REVIEW_CONTRACT).not.toBe(PROMPT_REGISTRY["draft.factual_review"]);
     const live = await roundTrip(earned[0]!);
     expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
@@ -228,7 +231,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     for (const [what, broken] of [
       // LITERALLY 2: the prompt, schema, packet, validation and persistence all changed after v2, so a receipt
       // banked under the broken implementation must not be able to look current.
-      ["a receipt banked under the v2 contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 2 } }],
+      ["a receipt banked under an earlier contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 3 } }],
       ["a mapping naming evidence the claim does not", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, claims: [{ i: 0, by: ["fact-9"], entailed: true }] } }],
       ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
       const held2 = await roundTrip(broken as ChangeProposal);
