@@ -135,7 +135,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
     expect(evidenceShortfall(body(KEEP, `${KEEP} Extra.`, { informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "no shape earns an empty evidence list").toContain("naming no evidence");
-    expect(evidenceShortfall(row("bundle2", { demandImpressions90d: 9000, ...edit("title", "A", "Anything at all"),
+    expect(evidenceShortfall(row("bundle2", { demandImpressions90d: 9000, ...edit("title", "A", "Anything at all"), diagnosisCause: "cannibalization", // a treatable cause is not wording evidence either
       bundle: { objective: "o", components: [{ kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/a" }, { kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/b" }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a split proves the treatment, never the words").toContain("demand evidence alone");
     // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
     const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); };

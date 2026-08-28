@@ -50,7 +50,8 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   ...over,
 } as ChangeProposal);
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
-const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low",
+const SHAPE = "the stored results page for this search, whose top titles share this shape";
+const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low", modeledOn: SHAPE,
   causeFinding: { ...FINDING, cause: "ctr_snippet", action: "title", explanation: "The line Google shows misses the words people search for.", competingExplanations: [{ cause: "cannibalization", reason: "only one page of yours comes up for this search" }] }, diagnosisCause: "ctr_snippet",
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
 const viewOf = (rows: ChangeProposal[]): ChangesView => ({
@@ -192,7 +193,7 @@ describe("a ranked card explains itself without being opened", () => {
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
     for (const s of ["Replace title", "Copy title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
-    const held = await renderList(viewOf([proposal()]));
+    const held = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
     for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
     for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
     for (const s of ["Proven", "Page-only", "Source-backed", "Search-results-backed"]) expect(ready, s).not.toContain(s);
@@ -223,7 +224,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });
 
   it("a change that moves or hides a page carries its two-step hold on the card", async () => {
-    const html = await renderList(viewOf([proposal()]));
+    const html = await renderList(viewOf([proposal({ modeledOn: SHAPE })]));
     for (const s of ["Canonical tag", "changes where the page lives or whether people can find it",
       "read once and confirm before you make the change"]) expect(html, s).toContain(s);
     expect(await renderList(viewOf([atomic()]))).not.toContain("changes where the page lives"); // nothing dangerous, no hold
@@ -251,7 +252,7 @@ describe("a change detail hands over the whole investigation and the controls to
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
     // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
     const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label });
-    const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
+    const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", modeledOn: SHAPE, bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
       "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");

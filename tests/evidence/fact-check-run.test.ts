@@ -81,7 +81,6 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     for (const hold of ["capped", "waiting", "unavailable"] as const) expect((await unit({ held, searchSources: async () => ({ hold }) })).failure).toBe(`search_${hold}`);
     expect((await unit({ held, read: reader({ claims: CLAIMS, judge: null }) })).failure).toBe("judge_unavailable");
     expect((await unit({ held, read: async () => ({ hold: "refused" as const }) })).failure).toBe("judge_refused"); // refused is not unavailable
-    // Each case above also reads a section now, so this one starts from a page nobody has read: extraction is
     reset(); db.cov = null;
     expect((await unit({ read: async () => ({ hold: "capped" as const }) })).failure).toBe("extraction_capped"); // nothing inventoried yet
     expect(db.rows).toHaveLength(0); // none of them banked anything
@@ -97,7 +96,6 @@ describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("a page longer than one section is NOT complete after its first chunk", async () => {
     const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
     const first = await unit({ page: long, read: reader({ claims: CLAIMS, judge: CONFIRMS }) });
-    // coverage persisted BEFORE any claim research, and one section is never the whole page
     expect([(db.cov as { coveredChars: number }).coveredChars, first.cursor?.pageComplete]).toEqual([EXTRACT_CHUNK, false]);
     // Even with its extracted claim checked, the page stays incomplete until the whole body was inventoried.
     const held = [row({ page: "/long", statementKey: claimIdentity("Afsaneh", "Goddess", "Afsaneh"),

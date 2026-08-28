@@ -251,7 +251,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   if (c.field === "title" || c.field === "meta" || c.field === "h1") {
     if (before) {
       const cause = p.causeFinding?.cause ?? p.diagnosisCause; // NO BUNDLE BYPASS: a differentiation writing on every competing page proves the TREATMENT its split authorizes and never the exact words of any one component, so a bundle answers the same wording question as any other card. A diagnosis the field does not treat is already refused by unsettledCause with the sharper sentence, so this speaks only where nothing else does: no cause at all, or one whose lever set is empty
-      if (!(cause && CAUSE_LEVERS[cause]?.has(c.field)) && !(cause && treatable(cause)) && !p.modeledOn)
+      if (!(cause && CAUSE_LEVERS[cause]?.has(c.field)) && !p.modeledOn) // AND A DIAGNOSIS THE FIELD DOES NOT TREAT IS NOT WORDING EVIDENCE EITHER: "the cause is treatable by something" let a split authorize an exact title, which is the bypass wearing a wider condition (Codex, 2026-08-28)
         return `it replaces the ${FIELD_WORD[c.field]} this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current ${FIELD_WORD[c.field]} or a stored results page backs this shape`;
     } else if ((p.claims ?? []).length === 0) {
       return `it fills the empty ${FIELD_WORD[c.field]} with statements no banked claim carries, so what the copy asserts about this page cannot be re-checked`;
