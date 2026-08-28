@@ -26,8 +26,7 @@ const row = (id: string, over: Record<string, unknown>): ChangeProposal => ({
 const edit = (field: string, before: string | null, after: string, more: Record<string, unknown> = {}) =>
   ({ recommendedChange: { kind: "existing_edit", field, before, after }, ...more });
 /** A RECEIPT IS ABOUT EXACT WORDS: every fixture receipt is bound to the copy it rides, as a producer stamps it. */
-const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, ...(p.informationGain ? { informationGain: { ...p.informationGain, of: copyKey(p) } } : {}),
-  ...(p.preservation ? { preservation: p.preservation.map((u) => ({ ...u, of: u.of ?? copyKey(p) })) } : {}) });
+const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, authorizedFor: copyKey(p) });
 
 describe("the proof burden matches the promise, at the one door every surface reads", () => {
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
@@ -41,9 +40,10 @@ describe("the proof burden matches the promise, at the one door every surface re
     // anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
     for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"],
       ["nowhere", "now here"], ["resign", "re-sign"], ["well", "we'll"], ["therapist", "the rapist"], ["learn more", "learnmore"], ["lets eat grandma", "let's eat, Grandma"], ["its history", "it's history"],
-      ["Polish culture", "polish culture"], ["US policy", "us policy"], ["March 5", "march 5"], ["Alice defeated Bob", "Bob defeated Alice"]])
+      ["Polish culture", "polish culture"], ["US policy", "us policy"], ["March 5", "march 5"], ["Alice defeated Bob", "Bob defeated Alice"],
+      ["The man\u2014eating shark", "The man-eating shark"], ["a \u2013 b", "a - b"]])
       expect(mechanicalRepair(b!, a!), `${b} to ${a} is not a self-proving repair`).toBe(false);
-    for (const [b, a] of [["Rug , where", "Rug, where"], ["a  b", "a b"], [" hi ", "hi"], ['say \u201chi\u201d', 'say "hi"'], ["a \u2013 b", "a - b"]])
+    for (const [b, a] of [["Rug , where", "Rug, where"], ["a  b", "a b"], [" hi ", "hi"], ['say \u201chi\u201d', 'say "hi"']])
       expect(mechanicalRepair(b!, a!), `${b} to ${a} is rendering only`).toBe(true);
     // 2. A FACTUAL CORRECTION MAY NARROW, AND SAYS SO: shorter survives when only the source-carried meaning
     // does, and the receipt discloses the narrowing instead of posing as traffic copy.
@@ -99,16 +99,16 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect(evidenceShortfall(body("This treatment is safe for children.", "Children can safely take this treatment.")), "even a paraphrase owes a typed disposition").toContain("neither says it nor accounts for it");
     const CTA = "start your free lesson today with no sign up";
     // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: nothing read the disposition at all, so these three passed.
-    for (const [u, why] of [[{ text: CTA, disposition: "removed", why: "because reasons" }, "without a typed basis"], [{ text: CTA, disposition: "moved", to: "the moon" }, "somewhere this change does not write"], [{ text: CTA, disposition: "kept" }, "keeps material the new copy no longer carries"], [{ text: CTA, disposition: "corrected", why: "x" }, "without naming the banked facts"]] as const)
+    for (const [u, why] of [[{ text: CTA, disposition: "removed", why: "because reasons" }, "without a basis this door can check"], [{ text: CTA, disposition: "removed", basis: "obsolete", why: "because reasons" }, "without a basis this door can check"], [{ text: CTA, disposition: "removed", basis: "duplicate_of", why: "dup" }, "without a basis this door can check"], [{ text: CTA, disposition: "moved", to: "the moon" }, "a destination that does not carry it"], [{ text: CTA, disposition: "kept" }, "keeps material the new copy no longer carries"], [{ text: CTA, disposition: "corrected", why: "x" }, "without naming the banked facts"]] as const)
       expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [u] })), `${u.disposition} ${why}`).toContain(why);
-    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "moved", to: KEEP, why: "kept as one call to action per page" }] })), "a move that records its destination").toBeNull();
-    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: "a sentence this passage never carried", disposition: "removed", basis: "obsolete", why: "invented" }] })), "a ledger is checked against the passage").toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "moved", to: "Footer", why: "one call to action per page" }], bundle: { objective: "o", components: [{ kind: "section_add", label: "Footer", page: "/p", where: "Footer", before: null, after: `Footer: ${CTA}`, evidenceKeys: [], risk: "safe" }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a move whose destination carries it").toBeNull();
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: "a sentence this passage never carried", disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "invented" }] })), "a ledger is checked against the passage").toContain("neither says it nor accounts for it");
     expect(evidenceShortfall(body(`${KEEP} See https://x.example/lessons for the course.`, KEEP,
-      { preservation: [{ text: "See https://x.example/lessons for the course.", disposition: "removed", basis: "obsolete", why: "the course moved" }] })), "a named link removal, reasoned").toBeNull();
+      { preservation: [{ text: "See https://x.example/lessons for the course.", disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "the course closed" }] })), "a named link removal, reasoned").toBeNull();
     // ONE AUTHORIZATION VOCABULARY: a bundle's plan and a component's preserves are the customer-facing SUMMARY of a change, so prose there authorizes nothing.
     expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { bundle: { plan: { keeps: [], removes: [{ what: CTA, why: "moved to the footer" }], entries: [] },
       components: [{ kind: "section_rewrite", label: "s", before: CTA, after: KEEP, evidenceKeys: [], risk: "safe", preserves: { keeps: [], losses: [{ what: CTA, why: "moved" }] } }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a summary is not a verdict").toContain("neither says it nor accounts for it");
-    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "removed", basis: "duplicate_of", why: "duplicated by the footer button" }] })), "the one ledger answers for a bundle too").toBeNull();
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "removed", basis: "duplicate_of", to: "Footer", why: "the footer carries it" }], bundle: { objective: "o", components: [{ kind: "section_add", label: "Footer", page: "/p", where: "Footer", before: null, after: `Footer: ${CTA}`, evidenceKeys: [], risk: "safe" }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "the one ledger answers for a bundle too").toBeNull();
     expect(evidenceShortfall(body(KEEP, `${KEEP} It is also the usual telephone greeting.`, { recommendedChange: { kind: "existing_edit", field: "section", before: KEEP, after: `${KEEP} It is also the usual telephone greeting.`, where: 'Replaces the existing passage under "Greetings" and absorbs the duplicated entries below it' } })), "an absorption names what it absorbs").toContain("without naming one of them");
     // 9. A FACTUAL CORRECTION MAY DROP THE WORDS IT IS CORRECTING: the removal IS the change, and the narrowing
     // disclosure above already says so, so the unit rule never fires on one.
@@ -121,22 +121,36 @@ describe("the proof burden matches the promise, at the one door every surface re
     // operator as a draft to review and never as Ready, while the diagnosed fill stays Ready.
     // 9b. A RECEIPT IS ABOUT EXACT WORDS. `copyIdentity` excludes the copy and `workKey` names the job, so a
     // reading written for one draft rode another's words and Beacon served "Light" under a receipt for "Radiant".
-    const authorized = body(`${KEEP} ${CTA}`, KEEP, { workKey: "W", copyStamp: "S", preservation: [{ text: CTA, disposition: "removed", basis: "duplicate_of", why: "the footer carries it" }] });
+    const authorized = body(`${KEEP} ${CTA}`, KEEP, { workKey: "W", copyStamp: "S", preservation: [{ text: CTA, disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "the course closed" }] });
     const edited = { ...authorized, recommendedChange: { ...authorized.recommendedChange, after: `${KEEP} Extra.` } } as ChangeProposal;
     expect(evidenceShortfall(edited), "one material word after authorization voids the receipt").toContain("written for different words");
-    expect(evidenceShortfall({ ...authorized, informationGain: { ...authorized.informationGain!, of: "0:copy:zzz" } } as ChangeProposal), "a gain receipt for other words").toContain("written for different words");
-    expect(evidenceShortfall({ ...authorized, preservation: [{ ...authorized.preservation![0]!, of: "0:copy:zzz" }] } as ChangeProposal), "a ledger written for other words").toContain("written for different words");
-    expect(evidenceShortfall(aeo({ informationGain: { adds: "improves clarity", by: [], pageWhole: true, of: copyKey(aeo({})) } })), "an addition naming no evidence").toContain("naming no evidence");
+    expect(evidenceShortfall({ ...authorized, authorizedFor: `${authorized.authorizedFor}x` } as ChangeProposal), "a gain receipt for other words").toContain("written for different words");
+    expect(evidenceShortfall({ ...authorized, authorizedFor: "written for other words" } as ChangeProposal), "a ledger written for other words").toContain("written for different words");
+    expect(evidenceShortfall(aeo({ informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "an addition naming no evidence").toContain("naming no evidence");
     // THE IMPOSSIBLE RECORD: banked copy A, and a redraft of B whose receipts were written for B. Preservation
     // keeps A, so B's receipts may not ride it; identity cannot answer this because it excludes the copy.
     const bankedA = { ...authorized, informationGain: undefined, preservation: undefined } as ChangeProposal;
-    const draftB = { ...edited, informationGain: { adds: "written for B", by: ["fact-1"], pageWhole: true, of: copyKey(edited) } } as ChangeProposal;
+    const draftB = { ...edited, informationGain: { adds: "written for B", by: ["fact-1"], pageWhole: true } } as ChangeProposal;
     const carried = preferFinished(draftB, bankedA);
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
     expect(evidenceShortfall(body(KEEP, `${KEEP} Extra.`, { informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "no shape earns an empty evidence list").toContain("naming no evidence");
     expect(evidenceShortfall(row("bundle2", { demandImpressions90d: 9000, ...edit("title", "A", "Anything at all"), diagnosisCause: "cannibalization", // a treatable cause is not wording evidence either
       bundle: { objective: "o", components: [{ kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/a" }, { kind: "title", label: "t", before: "x", after: "y", evidenceKeys: [], risk: "safe", page: "/b" }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a split proves the treatment, never the words").toContain("demand evidence alone");
+    // 9c. A HASH NAMES A BUCKET; THE IDENTITY NAMES THE THING. componentIdOf is a 32-bit fingerprint for naming a
+    // bundle piece in a browser, and two real drafts collided on it and transferred a receipt through this merge.
+    const draft = (after: string) => row("coll", { workKey: "W", copyStamp: "S", status: "ready",
+      recommendedChange: { kind: "existing_edit", field: "section", before: "before", after, where: 'Replaces the existing passage under "H"' },
+      claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is in Iran." }] });
+    const A = draft("draft-4b7h-1t8gqzx"), B = draft("draft-54d6-1l5sdoa");
+    expect(copyKey(A), "the supplied collision pair").not.toBe(copyKey(B));
+    expect(preferFinished({ ...B, authorizedFor: copyKey(B), preservation: [{ text: "before", disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "for B" }] } as ChangeProposal, A).preservation ?? null, "B's receipt may not ride A").toBeNull();
+    const move = (o: Record<string, unknown>) => copyKey({ ...A, ...o } as ChangeProposal);
+    expect([move({ pagePath: "/other" }) === copyKey(A), move({ supportFacts: [{ id: "fact-1", fact: "changed" }] }) === copyKey(A),
+      move({ recommendedChange: { ...A.recommendedChange, field: "meta" } }) === copyKey(A)],
+      "another page, another field, or the same fact rewritten under its id, is another decision").toEqual([false, false, false]);
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, `${KEEP} Footer`, { preservation: [{ text: CTA, disposition: "moved", to: "Footer" }] })),
+      "a destination that exists but does not carry it").toContain("does not carry it");
     // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
     const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); };
     for (const held of [creative, aeo({}), body(`${KEEP} ${CTA}`, KEEP)])

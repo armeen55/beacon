@@ -365,7 +365,7 @@ const bundleOf = (components: BundleComponent[], prompts: string[] = []): Change
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
 /** A RECEIPT IS ABOUT EXACT WORDS: fixture receipts bind to the copy they ride, exactly as a producer stamps them. */
 import { copyKey } from "@/domains/decision/proof";
-const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, ...(p.informationGain ? { informationGain: { ...p.informationGain, of: copyKey(p) } } : {}), ...(p.preservation ? { preservation: p.preservation.map((u) => ({ ...u, of: u.of ?? copyKey(p) })) } : {}) });
+const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, authorizedFor: copyKey(p) });
 const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
   pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
   changeFamily: "single", status: "ready", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },

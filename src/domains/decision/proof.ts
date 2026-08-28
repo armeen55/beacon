@@ -11,7 +11,7 @@
  *  here is composed from a typed field, so a producer rewording its prose can never change what this says, and
  *  an absent field prints NOTHING rather than a zero, a placeholder or a guess. */
 
-import { componentIdOf, type BundleComponentKind, type ChangeProposal } from "./contracts";
+import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
 
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
@@ -223,23 +223,19 @@ export const treatable = (cause: CauseFinding["cause"]): boolean => cause === "c
 const FIELD_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading" };
 const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
 
-/**
- * WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF
- * BURDEN MATCHES THE PROMISE (operator, 2026-08-28): a typo repair, a factual correction, a title hypothesis
- * and an AEO answer do not make the same promise and may not owe the same evidence. So a mark-only repair is
- * its own evidence and owes no results page; a factual correction answers to the quote-bound authority chain
- * and nothing extra here; a bundle answers on the receipt and plan its mint already gated. What is refused:
- * replacing a title, description or heading that exists on demand figures alone (the live Onager title rode
- * 8,112 impressions and one page claim into Ready with nothing naming a defect in the title it replaces),
- * filling an empty field with statements no banked claim carries, offering assistant-recurrence copy that adds
- * nothing beyond the page's own words (the sweep's own comment calls the empty-claims exemption a real hole),
- * and a body replacement that silently drops a link, a figure or a named phrase no typed removal accounts for.
- * Read at the ONE servability verdict (completeness's openHold), so the queue, Today, the detail page, Mark
- * done, the promotion door and the producer sweep all refuse together. PURE, canonical fields only.
- */
-/** THE EXACT WORDS A RECEIPT WAS WRITTEN FOR. A receipt is about a DRAFT, never a job: `copyIdentity` deliberately excludes the copy and `workKey` names the work, so preservation kept copy A while an incoming draft's receipts rode along and Beacon served "Meaning: Light." under a reading written for "Radiant" (Codex, 2026-08-28). The replaced words fold in too, so a receipt cannot outlive a change to what it replaces. */
-export const copyKey = (p: ChangeProposal): string => componentIdOf({ kind: "copy",
-  after: p.recommendedChange.kind === "existing_edit" ? `${p.recommendedChange.before ?? ""}\u0000${p.recommendedChange.after}` : p.recommendedChange.proposedTitle }, 0);
+/** WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF BURDEN
+ *  MATCHES THE PROMISE (operator, 2026-08-28): a rendering repair, a factual correction, a title hypothesis and an
+ *  AEO answer make different promises and may not owe the same evidence. Refused here: replacing a title,
+ *  description or heading that exists on demand figures alone (the live Onager title rode 8,112 impressions and one
+ *  page claim into Ready with nothing naming a defect in the line it replaced); filling an empty field with
+ *  statements no banked claim carries; body copy with no re-readable gain receipt; and a replacement that loses a
+ *  unit of the passage it replaces without a checkable disposition for it. Read at the ONE servability verdict
+ *  (completeness's openHold), so the queue, Today, the detail page, Mark done, the promotion door and the producer
+ *  sweep refuse together. PURE, canonical fields only. */
+/** WHAT A RECEIPT IS AUTHORIZED FOR, written out EXACTLY and compared exactly. A receipt is about a draft, never a job: `copyIdentity` excludes the copy and `workKey` names the work, so preservation kept copy A while an incoming draft's receipts rode along. The first repair bound it with `componentIdOf`, a 32-bit fingerprint meant for naming a bundle piece in a browser, and two real drafts collided on it and transferred a receipt through the very merge this was written to stop (Codex, 2026-08-28). A HASH NAMES A BUCKET; THIS NAMES THE THING: tenant and page, so the same sentence elsewhere is another decision; field and locator, so the same sentence in another slot is another decision; the replaced and proposed words; every bundle piece in order; and the CONTENT of every banked fact, so a passage rewritten under its old id goes stale. */
+export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
+  return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
+    (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
 
 export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUTHORIZATION VOCABULARY: a bundle's `plan.removes` and a component's `preserves.losses` are the customer-facing SUMMARY of a change and were pooled in as though they were the same verified record, so they are display only now; a ledger entry answers for ONE unit, because one entry quoting the whole passage claimed every unit had been considered while naming none (Codex, 2026-08-28)
   const c = p.recommendedChange;
@@ -263,7 +259,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   if ((c.field === "section" || c.field === "answer_block") && !linkWork && !correction) {
     const g = p.informationGain;
     if (!g) return "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain";
-    if (g.of !== copyKey(p)) return "the reading on file was written for different words than the ones it is attached to, so nothing here was actually judged";
+    if (p.authorizedFor !== copyKey(p)) return "the reading on file was written for different words, a different page or different evidence than the ones it is attached to, so nothing here was actually judged";
     if (!g.pageWhole) return "what it adds was judged against only part of this page, so whether the page already says it is not actually known, and it is held until the whole page is read against it";
     const cited = new Set((p.claims ?? []).flatMap((x) => [...x.supportedBy]));
     if (g.by.length > 0 && !g.by.every((id) => cited.has(id))) return "the evidence named for what it adds is not the evidence its claims stand on, so the gain on file belongs to a different reading";
@@ -275,17 +271,19 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
     const entryFor = (t: string): (typeof ledger)[number] | undefined => ledger.find((u) => units.filter((x) => bareText(u.text).includes(bareText(x))).length <= 1 && (bareText(u.text).includes(bareText(t)) || bareText(t).includes(bareText(u.text))));
     // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: `why` and `to` were optional and nothing read the disposition at all, so "removed" with no reason, "moved" with no destination and "kept" over text the copy does not carry all passed on an overlapping string.
     // A DISPOSITION IS PROVED, NOT EXPLAINED: each passed on a non-empty sentence, so "because reasons" removed a call to action, "the moon" was a destination, and any fact- id anywhere on the row supported any correction (Codex, 2026-08-28). A removal names a TYPED basis, a move names somewhere this change actually writes, and a correction names the banked facts carrying THAT unit.
-    const banked = new Set((p.supportFacts ?? []).map((f) => f.id));
-    const writes = [c.after, ...(p.bundle?.components ?? []).map((x) => `${x.after} ${x.where ?? ""} ${x.page ?? ""}`)].join(" ").toLowerCase();
+    const banked = new Set((p.supportFacts ?? []).map((f) => f.id)); const writes = bareText([c.after, ...(p.bundle?.components ?? []).map((x) => `${x.after} ${x.where ?? ""} ${x.page ?? ""}`)].join(" "));
+    const cites = (u: { by?: readonly string[] }): boolean => (u.by ?? []).length > 0 && (u.by ?? []).every((id) => banked.has(id)); // A DESTINATION IS A PLACE THAT CARRIES THE MATERIAL, not a word that happens to appear: "moon" passed because the copy said moon somewhere
+    const lands = (u: { text: string; to?: string }): boolean => !!u.to?.trim() && writes.includes(bareText(u.to)) && writes.includes(bareText(u.text));
+    const BASIS_PROVED: Record<string, ((u: { text: string; to?: string; by?: readonly string[] }) => boolean) | undefined> = { duplicate_of: lands, replaced_by: lands, moved: lands, obsolete: cites, unsupported: cites, owner_confirmed: () => !!p.confirmedVersion };
     const unverified = (u: { text: string; disposition: string; why?: string; to?: string; of?: string; basis?: string; by?: readonly string[] }): string | null =>
-      u.of !== copyKey(p) ? "carries a reading written for different words than the ones it is attached to"
+      p.authorizedFor !== copyKey(p) ? "carries a reading written for different words, a different page or different evidence than the ones it is attached to"
         : u.disposition === "kept" ? (carriesUnit(u.text, c.after) ? null : "says it keeps material the new copy no longer carries")
-          : u.disposition === "corrected" ? ((u.by ?? []).length > 0 && (u.by ?? []).every((id) => banked.has(id)) ? null : "corrects material without naming the banked facts that carry that correction")
-            : u.disposition === "moved" ? (u.to?.trim() && writes.includes(u.to.trim().toLowerCase()) ? null : "moves material to somewhere this change does not write")
-              : (u.basis ? null : "removes material without a typed basis that can be checked, and a sentence is an explanation rather than a proof");
+          : u.disposition === "corrected" ? (cites(u) ? null : "corrects material without naming the banked facts that carry that correction")
+            : u.disposition === "moved" ? (lands(u) ? null : "moves material to a destination that does not carry it: a word appearing somewhere in the new copy is not a place")
+              // AN ENUM IS NOT EVIDENCE: `basis` alone passed, so "obsolete, because reasons" deleted a call to action and `duplicate_of` named no survivor. A basis that points somewhere must resolve there and carry the material; one that rests on a finding must name the banked fact behind it.
+              : BASIS_PROVED[u.basis ?? ""]?.(u) ? null : "removes material without a basis this door can check, and a sentence is an explanation rather than a proof";
     const unaccounted = (t: string): string | null => { const e = entryFor(t), bad = e ? unverified(e) : null; return e == null ? "neither says it nor accounts for it: every unit of a replaced passage is kept, corrected, moved with its destination, or removed with its reason before the change is offered" : bad ? `${bad}: "${e.text.slice(0, 60)}"` : null; };
-    // AN ENTRY NOBODY NEEDED IS STILL A CLAIM: entries were checked only when an unaccounted unit reached one, so a ledger written for other words rode along untouched whenever every unit happened to survive.
-    const strayed = ledger.map((u) => ({ u, why: unverified(u) })).find((x) => x.why != null);
+    const strayed = ledger.map((u) => ({ u, why: unverified(u) })).find((x) => x.why != null); // AN ENTRY NOBODY NEEDED IS STILL A CLAIM: entries were checked only when an unaccounted unit reached one, so a ledger written for other words rode along untouched whenever every unit happened to survive
     if (strayed) return `it ${strayed.why}: "${strayed.u.text.slice(0, 60)}"`;
     if (c.field === "section" || c.field === "answer_block") {
       const lost = units.filter((u) => !carriesUnit(u, c.after)).map((u) => ({ u, why: unaccounted(u) })).find((x) => x.why != null);
@@ -303,10 +301,10 @@ const unitsOf = (t: string): string[] => t.split(/(?<=[.!?])\s+|\s*[\n\u2022|]\s
 /** LEXICAL LOGIC MAY REFUSE; IT MAY NEVER AUTHORIZE. Material tokens as a SET with one negation flag cannot tell who did what to whom ("Alice defeated Bob" and "Bob defeated Alice" share every token), all from some, or which clause a "not" modifies, and all three passed (Codex, 2026-08-28). A unit is carried automatically ONLY when the new copy still contains it; anything else, a faithful paraphrase included, owes a typed disposition until a banked semantic verdict bound to these exact words exists. */
 const carriesUnit = (unit: string, after: string): boolean => bareText(unit).length > 0 && bareText(after).includes(bareText(unit));
 
-/** ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF: collapsed repeat whitespace, a stray space before an unchanged mark, trimmed ends, equivalent quote and dash glyphs. CASE IS NOT AMONG THEM: "Polish" to "polish", "US" to "us" and "March" to "march" change what a word denotes. Stripping every space and mark before comparing was "meaning is a function of letters alone", which is false in both directions: "nowhere" to "now here", "resign" to "re-sign", "well" to "we'll" and "therapist" to "the rapist" all self-authorized (Codex, 2026-08-28). WORD BOUNDARIES AND MARKS ARE MEANING, so an inserted or removed apostrophe, hyphen or comma, a moved boundary and any letter change owe whatever their treatment owes. */
+/** ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF: collapsed repeat whitespace, a stray space before an unchanged mark, trimmed ends, equivalent quote glyphs. NEITHER CASE NOR A DASH CLASS IS AMONG THEM: an em dash is not a hyphen ("the man-eating shark" is not "the man - eating shark"), and: "Polish" to "polish", "US" to "us" and "March" to "march" change what a word denotes. Stripping every space and mark before comparing was "meaning is a function of letters alone", which is false in both directions: "nowhere" to "now here", "resign" to "re-sign", "well" to "we'll" and "therapist" to "the rapist" all self-authorized (Codex, 2026-08-28). WORD BOUNDARIES AND MARKS ARE MEANING, so an inserted or removed apostrophe, hyphen or comma, a moved boundary and any letter change owe whatever their treatment owes. */
 export function mechanicalRepair(before: string, after: string): boolean {
   const render = (t: string): string => t.normalize("NFKC").replace(/[\u2018\u2019\u02bc]/gu, "'")
-    .replace(/[\u201c\u201d]/gu, '"').replace(/[\u2010-\u2015]/gu, "-").replace(/\s+/gu, " ").replace(/ +([,.;:!?])/gu, "$1").trim();
+    .replace(/[\u201c\u201d]/gu, '"').replace(/\s+/gu, " ").replace(/ +([,.;:!?])/gu, "$1").trim();
   return render(before).length > 0 && render(before) === render(after);
 }
 

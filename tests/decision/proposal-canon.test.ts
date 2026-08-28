@@ -314,6 +314,10 @@ describe("a badly classified row cannot be waved through", () => {
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
     const bare = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet" }); await saveChangeProposal(bare);
+    // AND THE ONE DOOR EVERY ROW PASSES STAMPS THE AUTHORIZATION IDENTITY, so no producer can forget it.
+    const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } });
+    await saveChangeProposal(withReceipt);
+    expect(JSON.stringify(current().find((r) => r.id === withReceipt.id)!.payload)).toContain("authorizedFor");
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
   it("refuses a bundle component whose page this door does not hold", async () => {

@@ -11,7 +11,7 @@ import { serializeChangeProposal, deserializeChangeProposal, type BundleComponen
 import { rankProposals } from "./rank-proposals";
 import { confirmedVersion, deliverableGaps, openHold } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
-import { unsettledCause } from "./authorization"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
+import { unsettledCause } from "./authorization"; import { copyKey } from "./proof"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
 const TABLE = PROPOSAL_TABLE;
@@ -148,6 +148,7 @@ const NO_HANDOVER = Symbol("no-handover");
 
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol): Promise<SaveResult> {
+  if (proposal.informationGain || proposal.preservation) proposal = { ...proposal, authorizedFor: copyKey(proposal) }; // THE AUTHORIZATION IDENTITY IS STAMPED WHERE EVERY ROW PASSES, not by each producer remembering: a receipt is only ever valid for the exact words, page, field and evidence it was saved beside (decision/proof's copyKey)
   if (!proposal.tenantId || !proposal.id) return "failed";
   if (proposal.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) {
     const held = await loadChangeProposal(proposal.tenantId, proposal.id).catch(() => null);

@@ -150,17 +150,14 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(shown.basis, "an undiagnosed card says outright it is an order and not a size").toContain("not a promise about size");
     expect(shown.basis).not.toContain("No click figure backs this one");
     expect(shown.basis).toContain("nothing has named the cause yet");
-    // And where a cause IS diagnosed, the summary still refuses to read as a forecast.
     expect(rankProposals([baseProposal({ impactScore: 400, diagnosisCause: "ctr_snippet",
       recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]!
       .rankingReceipt!.basis).toContain("not a forecast");
-    // A family with too few finished readings may not speak: twelve settled readings exist account-wide.
     const thin = new Map([[actionFamilyOf("title"), { readings: 3, netLift: 900 }]]);
     expect(rankProposals([card], { familyHistory: thin })[0]!.rankingReceipt!.factors
       .find((f) => f.name === "visibility")!.input).toContain("not a figure measured here"); });
 
   it("changing only the treatment label cannot move the traffic estimate", () => {
-    // The kind of work describes an opportunity. It never prices one.
     const same = { impactScore: 400, demandImpressions90d: 9_000 };
     const worth = (family: string): number => rankProposals([baseProposal({ ...same, changeFamily: family })])[0]!
       .rankingReceipt!.factors.find((f) => f.name === "visibility")!.contribution;
@@ -172,7 +169,6 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect([res.actionable, res.candidates.length, called]).toEqual([0, 1, 0]); // the drafter is never called // The early return used to skip the $0 producers entirely (canonical $0 acceptance run, 2026-08-21).
     expect(res.proposals.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); // only $0 work, nothing paid
     expect(env.saved.every((p) => p.researchOnly === true || p.status === "needs_review")).toBe(true); }); // and nothing persisted claims to be drafted copy
-  // ABSENCE OF A SOURCE MAY NEVER BECOME DELETION OF THE QUEUE: a live pass whose search read timed out judged every page clean and published that over a release holding real work.
   it("changes nothing at all when the search data did not answer, and still publishes when the account genuinely holds none", async () => {
     const stored = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::title-family", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today" });
     const gsc = (status: "failed" | "empty") => ({ ...snap([{ ...GAP, search: null }]), sources: [{ source: "gsc" as const, status, lastSyncedAt: null, rowsSeen: 0, note: "" }] });
@@ -200,7 +196,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => {
     reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
-    // EVERY FUNDED KEY CARRIES A TRUTHFUL BLOCKER (Codex, 2026-08-23; reversed from "a not_reached row says nothing"). Silence sent the operator looking for money that was never spent, so an unreached page now names why it was
     const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
     expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]);
     expect(unreached.every((r) => /time box|still stands|before this page was reached/.test(r.why ?? ""))).toBe(true); // and it is one of the three things that are actually true here
@@ -229,7 +224,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
         receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
     env.store = new Map([[other.id, other]]);
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
-    // EVERY funded page carries a real outcome; none is explained by a sentence the pass made up.
     for (const r of out.paid.receipts) expect(r.why ?? "").not.toContain("no branch of this pass recorded what happened");
     const guide = out.paid.receipts.find((r) => r.key === "/nowruz-guide");
     if (guide) expect(guide.outcome).not.toBe("not_reached"); });
@@ -247,7 +241,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
         receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
     env.store = new Map([[sameCause.id, sameCause]]);
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true });
-    // NOT ONE receipt may claim finished work on the strength of a row the queue cannot serve.
     for (const r of out.paid.receipts) {
       if (r.outcome !== "produced") continue;
       expect(r.why ?? "").not.toContain("answers this exact diagnosis"); // the cause-only sentence is gone with the cause-only rule
@@ -268,7 +261,6 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("carries the transport's own request count and dollars onto the page that spent them", async () => {
     reset(SEEN());
     let n = 0;
-    // TWO real requests and a real charge per completion, exactly as the gateway reports them (cost rides provenance).
     const paying: CompleteFn = async () => { n += 1; return { value: VALID_ATOMIC_EDIT, httpAttempts: 2, provenance: { costUsd: 0.0125 } } as never; };
     const out = await produceProposalsForTenant("fixture-tenant", { complete: paying, now: NOW, bypassCache: true });
     const spent = out.paid.receipts.filter((r) => r.providerCalls > 0);
@@ -858,7 +850,7 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     // A SYNTHESIS EARNS ITS GAIN IN FORM, so its receipt names no outside evidence and still stands; the twin
     // that never had a reading banked has nothing to re-read and is held for one.
     const keep0 = row('Replaces the existing passage under "Popular Phrases"', "fixture-tenant::/funny::existing_edit::ai_answer_gap");
-    const keep = { ...keep0, informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true, of: copyKey(keep0) } } as ChangeProposal;
+    const keep = { ...keep0, authorizedFor: copyKey(keep0), informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true } } as ChangeProposal;
     const demote = row('A new section headed "Meanings", placed after "the anchor heading"', "fixture-tenant::/funny2::existing_edit::engine_followup");
     env.store = new Map([[keep.id, keep], [demote.id, { ...demote, pagePath: "/funny2", pageUrl: "https://fixture-outdoors.example/funny2" }]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });

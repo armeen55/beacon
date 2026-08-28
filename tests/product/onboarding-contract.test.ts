@@ -13,7 +13,6 @@ import { CONNECTOR_REGISTRY } from "@/lib/connectors/registry";
 import { historyNote } from "@/app/(shell)/settings/config/tracked-prompts-section";
 import { reserveOnboardingSpend, reconcileOnboardingSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { getTenantLifetimeSpendUsd } from "@/lib/cost/budget-ledger-supabase";
-// Durable ledger: one accumulating aggregate row. Reads sum it; a write applies the row recordSpendSupabase computed (clamped at zero). ledgerThrows = unreadable; ledgerWriteFails = rejected write.
 let ledger = { usd: 0, has: false };
 let ledgerThrows = false;
 let ledgerWriteFails = false;
@@ -34,7 +33,6 @@ function chain(): any {
   return p;}
 vi.mock("@/lib/persistence/supabase", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
-  // THE SPEND WRITE IS ONE ATOMIC INCREMENT: the ledger is handed a DELTA and adds it, never a total this process computed and could lose a concurrent charge from.
   getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
   isSupabaseConfigured: () => true,}));
 // ── in-memory world ─────────────────────────────────────────────────────────
@@ -46,7 +44,6 @@ function makeWorld() {
   let prompts: TrackedPromptRow[] = [];
   const crawls = new Map<string, any>();
   const scheduled: string[] = [];
-  // The fake store models replace_onboarding_website: a real domain change is one atomic invalidation (clears goal, deactivates prompts, resets profile).
   const store: OnboardingStore = {
     async replaceWebsite(id, domain) {
       const t = tenants.get(id); if (!t || t.status !== "pending_onboarding") return "not_pending";
@@ -56,7 +53,6 @@ function makeWorld() {
       profiles.set(id, emptyBusinessProfile(id));
       return "replaced";},
     async updateTenantGoal(id, goal, _at, statuses) { const t = tenants.get(id); if (!t || !(statuses ?? ["pending_onboarding"]).includes(t.status)) return "not_pending"; t.growth_goal = goal; return "ok"; },
-    // Mirrors the one statement: it writes only where the terms are unstamped, so an account already running with its terms on file is untouched and one flipped active without them can still accept them.
     async activateTenant(id, now) { const t = tenants.get(id); if (!t) return "blocked";
       if (t.tos) return t.status === "active" ? "already_active" : "blocked";
       if (t.status !== "pending_onboarding" && t.status !== "active") return "blocked";
@@ -78,7 +74,6 @@ function makeWorld() {
     now: () => NOW,};
   return { tenants, profiles, get prompts() { return prompts; }, crawls, scheduled, deps };}
 const CONFIRMABLE = ["name", "businessType", "siteArchetype", "offerings", "audiences", "customerProblems", "geographicScope", "differentiators", "trustClaims", "topicsToOwn", "topicsToExclude"] as const;
-// A fully operator-confirmed profile (every confirmable section), with optional sparser facts for the thin case.
 function confirmedProfile(id: string, facts: Record<string, any> = {}): BusinessProfile {
   const p = emptyBusinessProfile(id);
   const merged: Record<string, any> = { name: "Acme Rugs", businessType: "local_service", siteArchetype: "service",
@@ -98,7 +93,6 @@ function seedCrawl(w: ReturnType<typeof makeWorld>, id: string) {
     page_cap: 150, source: "homepage", started_at: "", updated_at: "", last_batch_at: null, batches_run: 1,
     page_facts: [{ url: "https://acme.test/", path: "/", title: "Acme Rugs", h1: "Acme", has_meta_description: true, word_count: 200, faq_count: 0, questions: ["how to clean a rug"] }] });
 }
-// Injected model outputs (firewall-safe: no superlatives, no digits, no dashes).
 const inferValue = (sourceUrls: string[]) => ({ value: {
   name: "Acme Rugs", businessType: "local_service", siteArchetype: null, offerings: ["rug cleaning"], audiences: ["homeowners"],
   customerProblems: ["dirty rugs"], geographicScope: ["denver"], differentiators: ["same day service"], trustClaims: ["insured"],
@@ -128,7 +122,6 @@ describe("onboarding contract (Slice 5)", () => {
     seedPending(w, A, { domain: "acme.test" }); seedCrawl(w, A);
     const r = await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/", "https://evil.test/steal"]) }); const p = w.profiles.get(A)!;
     expect([r.status, p.name.origin, p.offerings.value.includes("rug cleaning"), p.name.sourceUrls]).toEqual(["inferred", "inferred", true, ["https://acme.test/"]]); // the outside URL is stripped
-    // ONE SLOW CALL IS NOT A DOWNGRADE, TWO IS. The deterministic profile makes this whole step read as already inferred forever, so a single call abandoned at my own deadline used to cost this account its model read permanently with no way back. That call bought no answer and left no receipt, so it is asked once more, and only a second deadline settles for the profile I can read off the crawl myself.
     const ladder = async (slow: number, failure: "client_timeout" | "provider_refused" = "client_timeout") => { let asks = 0; const w2 = makeWorld();
       seedPending(w2, A, { domain: "acme.test" }); seedCrawl(w2, A); const slowAsk = { error: "the reader would not serve this call", retryable: false, failure };
       const got = await inferProfile(A, { ...w2.deps, complete: async (a) => ((asks += 1) <= slow ? slowAsk : completeInfer(["https://acme.test/"])(a)) }); return [got.source, asks]; };
@@ -252,17 +245,14 @@ describe("onboarding contract (Slice 5)", () => {
     w.profiles.delete(A); ledger = { usd: 0, has: false }; ledgerThrows = true; // ledger unreadable => fail closed
     expect((await inferProfile(A, { ...w.deps, complete: completeInfer(["https://acme.test/"]) })).source).toBe("site_read");
     ledgerThrows = false;
-    // A reservation the ledger will not persist REFUSES (no call).
     ledger = { usd: 0, has: false }; ledgerWriteFails = true;
     expect((await reserveOnboardingSpend(0.02, { tenantId: A })).allowed).toBe(false);
-    // A reserved call whose reconcile write fails KEEPS the conservative reservation (overcount, never undercount).
     ledgerWriteFails = false; ledger = { usd: 0, has: false };
     expect((await reserveOnboardingSpend(0.02, { tenantId: A })).allowed).toBe(true);
     ledgerWriteFails = true;
     await reconcileOnboardingSpend(0.02, 0.005, { tenantId: A }); // the refund write fails
     ledgerWriteFails = false;
     expect(await getTenantLifetimeSpendUsd(A, "onboarding-openai")).toBeCloseTo(0.02, 6); // not reduced to the real 0.005
-    // Reserve writes BEFORE it reads, so the later reader sees both reservations: only one clears the $2 boundary.
     ledger = { usd: 1.98, has: true };
     const r1 = await reserveOnboardingSpend(0.02, { tenantId: A }); const r2 = await reserveOnboardingSpend(0.02, { tenantId: A });
     expect([r1.allowed, r2.allowed].filter(Boolean).length).toBe(1);});
