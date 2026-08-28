@@ -14,14 +14,31 @@
 import "server-only";
 
 import { cache } from "react";
+import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { reportingDay } from "@/lib/reporting-day";
 import { log } from "@/lib/logger";
 import { canonicalizeCitationUrl } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 
-// Request-memoized (see ga4-page-values): the hero post-pass + the money-leak
-// scan both read full-tenant Clarity friction on one render — dedupe to one query.
-export const loadClarityPageSignalsForTenant = cache(loadClarityPageSignalsForTenantUncached);
+// WATERMARK READ-THROUGH, not request memo: React cache() no-ops outside a request scope (the daily-read-cache
+// header's own words), and this loader runs inside the scheduler and after() rebuilds, so the 50-round-trip
+// aggregation was re-paid on every pass. The watermark is the table's own max(date); a partial read is served
+// live and never banked.
+export const loadClarityPageSignalsForTenant = cache(async (tenantId: string, now: Date = new Date()): Promise<Map<string, ClarityPageSignal>> =>
+  readThroughDaily<[string, ClarityPageSignal][]>({
+    tenantId, kind: "clarity-signals", watermark: await clarityWatermark(tenantId),
+    compute: async () => { const { map, complete } = await readClaritySignals(tenantId, now);
+      return { payload: [...map.entries()], cacheable: complete }; },
+  }).then((entries) => new Map(entries)));
+
+async function clarityWatermark(tenantId: string): Promise<string | null> {
+  try {
+    const { data, error } = await getSupabaseAdmin().from("clarity_daily_url_metrics").select("date")
+      .eq("tenant_id", tenantId).order("date", { ascending: false }).limit(1);
+    if (error) return null;
+    return (data?.[0] as { date?: string } | undefined)?.date ?? null;
+  } catch { return null; }
+}
 
 /** Trailing window for Clarity friction aggregation. Clarity itself
  *  only exposes ~1-3 days live (we accumulate nightly), so 28d gives
@@ -60,11 +77,12 @@ function rate(n: number, sessions: number): number {
   return sessions > 0 ? n / sessions : 0;
 }
 
-async function loadClarityPageSignalsForTenantUncached(
+async function readClaritySignals(
   tenantId: string,
   now: Date = new Date(),
-): Promise<Map<string, ClarityPageSignal>> {
+): Promise<{ map: Map<string, ClarityPageSignal>; complete: boolean }> {
   const out = new Map<string, ClarityPageSignal>();
+  let complete = true;
   type Row = {
     url: string;
     sessions: number;
@@ -101,6 +119,7 @@ async function loadClarityPageSignalsForTenantUncached(
           tenantId,
           error: error.message,
         });
+        complete = false;
         break;
       }
       const batch = (data ?? []) as unknown as Row[];
@@ -108,9 +127,9 @@ async function loadClarityPageSignalsForTenantUncached(
       if (batch.length < PAGE) break;
     }
   } catch {
-    return out;
+    return { map: out, complete: false };
   }
-  if (rows == null || rows.length === 0) return out;
+  if (rows == null || rows.length === 0) return { map: out, complete };
 
   // Sum each metric per URL across the window's daily rows.
   type Acc = {
@@ -174,5 +193,5 @@ async function loadClarityPageSignalsForTenantUncached(
       engagementSeconds: a.engageSessions > 0 ? a.engageW / a.engageSessions : null,
     });
   }
-  return out;
+  return { map: out, complete };
 }
