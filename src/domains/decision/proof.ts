@@ -1,15 +1,4 @@
-/** decision/proof - THE TWO ANSWERS A CUSTOMER NEEDS BEFORE PASTING ANYTHING, selected from typed fields and
- *  nothing else. The card argued "Backed by 3 checks", which is a count wearing an evidence label: on the live
- *  account five of seven finished cards said exactly that, and the one carrying real assistant evidence (three
- *  answers, eight rival sites cited, this page read and passed over) said "Page-only" and "Backed by 6 checks".
- *  A count cannot be read, argued with, or trusted, and it is the same sentence whether the evidence is a
- *  90-day search record or one look at the page.
- *
- *  THE TWO ANSWERS ARE DISTINCT AND MAY NEVER BE TRADED FOR EACH OTHER. "Why this opportunity" is about the
- *  SIZE AND CAUSE of a problem; "why these words" is about the WORDING. Search demand never proves a sentence
- *  is the right sentence, and a source proving a fact never proves the change will earn traffic. Every clause
- *  here is composed from a typed field, so a producer rewording its prose can never change what this says, and
- *  an absent field prints NOTHING rather than a zero, a placeholder or a guess. */
+/** decision/proof - THE TWO ANSWERS A CUSTOMER NEEDS BEFORE PASTING ANYTHING, selected from typed fields and  nothing else. The card argued "Backed by 3 checks", which is a count wearing an evidence label: on the live  account five of seven finished cards said exactly that, and the one carrying real assistant evidence (three  answers, eight rival sites cited, this page read and passed over) said "Page-only" and "Backed by 6 checks".  A count cannot be read, argued with, or trusted, and it is the same sentence whether the evidence is a  90-day search record or one look at the page.  THE TWO ANSWERS ARE DISTINCT AND MAY NEVER BE TRADED FOR EACH OTHER. "Why this opportunity" is about the  SIZE AND CAUSE of a problem; "why these words" is about the WORDING. Search demand never proves a sentence  is the right sentence, and a source proving a fact never proves the change will earn traffic. Every clause  here is composed from a typed field, so a producer rewording its prose can never change what this says, and  an absent field prints NOTHING rather than a zero, a placeholder or a guess. */
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
@@ -19,22 +8,16 @@ import type { CauseFinding } from "./diagnosis";
 export type ProofReceipt = {
   /** The collapsed card's one line: why this opportunity is ranked here. Null when no typed field supports one. */
   ranksHere: string | null;
-  /** What was measured, each already a sentence its producer wrote with its own numbers, dated where the
-   *  evidence carried a date. `seen` is formatted from the stored instant alone, never from the reader's clock:
-   *  a relative age rendered on the server and rehydrated in the browser disagrees with itself. */
+  /** What was measured, each already a sentence its producer wrote with its own numbers, dated where the  evidence carried a date. `seen` is formatted from the stored instant alone, never from the reader's clock:  a relative age rendered on the server and rehydrated in the browser disagrees with itself. */
   opportunity: { fact: string; seen: string | null }[];
-  /** WHY THIS TYPE OF ACTION treats the diagnosed cause: a bundle's own objective, or the treatment the
-   *  diagnosis itself named. Null when nothing diagnosed an action, which is honest and common: attention
-   *  evidence never explains why a title change beats a section, so nothing here may guess one. */
+  /** WHY THIS TYPE OF ACTION treats the diagnosed cause: a bundle's own objective, or the treatment the  diagnosis itself named. Null when nothing diagnosed an action, which is honest and common: attention  evidence never explains why a title change beats a section, so nothing here may guess one. */
   whyAction: string | null;
   /** What else was weighed and why it lost, in the record's own sentence. The competing cause's internal slug
    *  is never printed; only its written reason is. Null when no meaningful alternative was recorded. */
   alternative: string | null;
   /** What the copy asserts, and the exact evidence carrying THAT assertion and never another claim's. */
   wording: { claim: string; because: string[] }[];
-  /** THE HONEST BASIS OF THE WORDING for families where wordings compete (title, description, heading): when no
-   *  results-page pattern, winning-page reading or modeled shape backs these exact words, the receipt says so
-   *  and claims no superiority. Null when wording-class evidence exists or the family does not compete. */
+  /** THE HONEST BASIS OF THE WORDING for families where wordings compete (title, description, heading): when no  results-page pattern, winning-page reading or modeled shape backs these exact words, the receipt says so  and claims no superiority. Null when wording-class evidence exists or the family does not compete. */
   wordingBasis: string | null;
   /** The search this page already appears for, when the finished words actually use it. */
   queryEcho: string | null;
@@ -56,10 +39,7 @@ const seenOn = (iso: string | null): string | null => { const d = iso ? new Date
   return d && !Number.isNaN(d.getTime())
     ? d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : null; };
 
-/** WHAT THE ASSISTANTS ACTUALLY SHOWED, said at the exact strength the stage carries and no stronger. The
- *  stages are not interchangeable: being read and passed over, never being reached, and being named without a
- *  link are three different problems. `citations_unreported` is the one that must never become a citation gap,
- *  because those engines do not say who they cited, so nobody measured whether this page was. */
+/** WHAT THE ASSISTANTS ACTUALLY SHOWED, said at the exact strength the stage carries and no stronger. The  stages are not interchangeable: being read and passed over, never being reached, and being named without a  link are three different problems. `citations_unreported` is the one that must never become a citation gap,  because those engines do not say who they cited, so nobody measured whether this page was. */
 const AI_STAGE: Record<NonNullable<NonNullable<ChangeProposal["aiImpact"]>["stage"]>, (rivals: number) => string> = {
   owned_retrieved_not_cited: () => "assistants read this page and quoted somebody else",
   rivals_cited_own_not_retrieved: (r) => `assistants never reached this page and quoted ${num(r)} other ${r === 1 ? "site" : "sites"}`,
@@ -68,11 +48,7 @@ const AI_STAGE: Record<NonNullable<NonNullable<ChangeProposal["aiImpact"]>["stag
   citations_unreported: () => "those engines do not report which sources they used, so whether this page was cited is not known",
 };
 
-/** NOT EVERY `primaryQuery` IS A SEARCH. A factual-correction card is filed under a synthetic label built from
- *  its own address ("/persian-rugs/kerman-rug factual accuracy", producers/factual-defects.ts), and views are
- *  back-filled onto any row missing them, so quoting that label beside a real impression count would invent a
- *  search nobody ran. A real search never contains the address of the page it lands on, and both sides of that
- *  test are canonical fields, so no prose is read to decide it. */
+/** NOT EVERY `primaryQuery` IS A SEARCH. A factual-correction card is filed under a synthetic label built from  its own address ("/persian-rugs/kerman-rug factual accuracy", producers/factual-defects.ts), and views are  back-filled onto any row missing them, so quoting that label beside a real impression count would invent a  search nobody ran. A real search never contains the address of the page it lands on, and both sides of that  test are canonical fields, so no prose is read to decide it. */
 const searchable = (p: ChangeProposal): boolean =>
   p.primaryQuery.trim().length > 0 && !(p.pagePath && p.primaryQuery.includes(p.pagePath));
 const forSearch = (p: ChangeProposal): string => (searchable(p) ? ` for ${quoted(p.primaryQuery)}` : "");
@@ -171,19 +147,9 @@ export function proofOf(p: ChangeProposal): ProofReceipt {
     limits: [...(p.bundle?.receipt.missing ?? []), ...(p.limitations ?? []), ...certifiedScope(p)].map((l) => l.trim()).filter(Boolean) };
 }
 
-/** WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT, read structurally off the canonical before and
- *  after and never off prose: links and paths (function a reader loses outright), figures (facts with numbers
- *  in them), and multi-word capitalized phrases (names, and the "Try Lesson 1 Free" class of button copy the
- *  crawler fuses into a paragraph). Empty on an addition, because adding deletes nothing; empty when nothing
- *  is lost, and the CARD then says so instead of staying silent. Disclosure at this layer; the link case alone
- *  also refuses Ready in the banked re-read, because a lost link is unambiguous while a dropped phrase can be
- *  the very correction being made. */
+/** WHAT THE REPLACED WORDS CARRY THAT THE NEW WORDS DO NOT, read structurally off the canonical before and  after and never off prose: links and paths (function a reader loses outright), figures (facts with numbers  in them), and multi-word capitalized phrases (names, and the "Try Lesson 1 Free" class of button copy the  crawler fuses into a paragraph). Empty on an addition, because adding deletes nothing; empty when nothing  is lost, and the CARD then says so instead of staying silent. Disclosure at this layer; the link case alone  also refuses Ready in the banked re-read, because a lost link is unambiguous while a dropped phrase can be  the very correction being made. */
 
-/** WHICH LEVERS ADDRESS WHICH CAUSE, the truth table the ranking discounts on and the boundary refuses on.
- *  It lives HERE, in the client-safe half of the decision kernel, because the one servability verdict
- *  (completeness's openHold) now asks the proportional-evidence question below and a client bundle reaches it;
- *  authorization re-exports it so its callers stand unchanged. Keyed on the cause ladder's own union, TOTAL,
- *  type-only on the ladder so no server module rides into the browser. */
+/** WHICH LEVERS ADDRESS WHICH CAUSE, the truth table the ranking discounts on and the boundary refuses on.  It lives HERE, in the client-safe half of the decision kernel, because the one servability verdict  (completeness's openHold) now asks the proportional-evidence question below and a client bundle reaches it;  authorization re-exports it so its callers stand unchanged. Keyed on the cause ladder's own union, TOTAL,  type-only on the ladder so no server module rides into the browser. */
 export const CAUSE_LEVERS: Record<CauseFinding["cause"], ReadonlySet<BundleComponentKind>> = {
   cannibalization: new Set(["consolidation", "canonical", "redirect", "noindex", "internal_link_remove", "internal_links"]),
   ctr_snippet: new Set(["title", "meta", "h1", "anchor_text"]),
@@ -214,32 +180,32 @@ export const CAUSE_LEVERS: Record<CauseFinding["cause"], ReadonlySet<BundleCompo
   no_problem: new Set([]),
 };
 const MINTABLE: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "new_page"]);
-/** A CAUSE NO PRODUCER HERE CAN TREAT MAY NOT EMPTY THE QUEUE. Refusing every card on such a page leaves the
- *  operator holding a diagnosis and nothing to do about it, which is worse than an imperfect card: how a page
- *  is SERVED is the live example, and its fix is plumbing no card in this product writes. THE SPLIT IS THE
- *  EXCEPTION, and the exception is a card: the ownership family below is exactly what treats it. */
+/** A CAUSE NO PRODUCER HERE CAN TREAT MAY NOT EMPTY THE QUEUE. Refusing every card on such a page leaves the  operator holding a diagnosis and nothing to do about it, which is worse than an imperfect card: how a page  is SERVED is the live example, and its fix is plumbing no card in this product writes. THE SPLIT IS THE  EXCEPTION, and the exception is a card: the ownership family below is exactly what treats it. */
 export const treatable = (cause: CauseFinding["cause"]): boolean => cause === "cannibalization" || [...CAUSE_LEVERS[cause]].some((k) => MINTABLE.has(k));
 /** The field's word on a card, for the sentences below. */
 const FIELD_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading" };
 const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
 
-/** WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF BURDEN
- *  MATCHES THE PROMISE (operator, 2026-08-28): a rendering repair, a factual correction, a title hypothesis and an
- *  AEO answer make different promises and may not owe the same evidence. Refused here: replacing a title,
- *  description or heading that exists on demand figures alone (the live Onager title rode 8,112 impressions and one
- *  page claim into Ready with nothing naming a defect in the line it replaced); filling an empty field with
- *  statements no banked claim carries; body copy with no re-readable gain receipt; and a replacement that loses a
- *  unit of the passage it replaces without a checkable disposition for it. Read at the ONE servability verdict
- *  (completeness's openHold), so the queue, Today, the detail page, Mark done, the promotion door and the producer
- *  sweep refuse together. PURE, canonical fields only. */
+/** WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF BURDEN  MATCHES THE PROMISE (operator, 2026-08-28): a rendering repair, a factual correction, a title hypothesis and an  AEO answer make different promises and may not owe the same evidence. Refused here: replacing a title,  description or heading that exists on demand figures alone (the live Onager title rode 8,112 impressions and one  page claim into Ready with nothing naming a defect in the line it replaced); filling an empty field with  statements no banked claim carries; body copy with no re-readable gain receipt; and a replacement that loses a  unit of the passage it replaces without a checkable disposition for it. Read at the ONE servability verdict  (completeness's openHold), so the queue, Today, the detail page, Mark done, the promotion door and the producer  sweep refuse together. PURE, canonical fields only. */
 /** WHAT A RECEIPT IS AUTHORIZED FOR, written out EXACTLY and compared exactly. A receipt is about a draft, never a job: `copyIdentity` excludes the copy and `workKey` names the work, so preservation kept copy A while an incoming draft's receipts rode along. The first repair bound it with `componentIdOf`, a 32-bit fingerprint meant for naming a bundle piece in a browser, and two real drafts collided on it and transferred a receipt through the very merge this was written to stop (Codex, 2026-08-28). A HASH NAMES A BUCKET; THIS NAMES THE THING: tenant and page, so the same sentence elsewhere is another decision; field and locator, so the same sentence in another slot is another decision; the replaced and proposed words; every bundle piece in order; and the CONTENT of every banked fact, so a passage rewritten under its old id goes stale. */
 export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
   return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
-    (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
+    (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
+/** WHY BEACON'S OWN PAID REVIEWER HAS NOT AUTHORIZED THIS, or null. It already reads the claims and the evidence, and was answering ONE publish boolean whose claim-level reasoning was then discarded, so nothing ever recorded whether the cited facts SUPPORT the claim and "Noor means light" could stand on a passage reading "Tehran is the capital of Iran" (Codex, 2026-08-28). Asked only where a material claim is made: a mechanical repair, and copy citing only the page's own words, are not sent to a model to be told what they already prove. Fails closed on a missing, stale, short or mismatched ruling, because silence is never a pass. `REVIEW_CONTRACT` mirrors llm/prompt-registry's `draft.factual_review`, so a verdict from an older contract is re-read rather than trusted. */
+export const REVIEW_CONTRACT = 2;
+export function unreviewed(p: ChangeProposal): string | null {
+  const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
+  if (!(p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;
+  if (!r || r.of !== copyKey(p)) return "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together";
+  if (r.version !== REVIEW_CONTRACT) return "the reading on file was made under an older review contract, so it is read again before these words are offered";
+  if (r.claims.length !== claims.length) return "the reading did not rule on every claim this change makes, and silence about one of them is not a pass";
+  return claims.every((c, i) => { const v = r.claims.find((x) => x.i === i); return !!v && v.entailed && key(v.by) === key(c.supportedBy); }) ? null : "a claim here was not shown to follow from the exact sources it names";
+}
 
 export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUTHORIZATION VOCABULARY: a bundle's `plan.removes` and a component's `preserves.losses` are the customer-facing SUMMARY of a change and were pooled in as though they were the same verified record, so they are display only now; a ledger entry answers for ONE unit, because one entry quoting the whole passage claimed every unit had been considered while naming none (Codex, 2026-08-28)
   const c = p.recommendedChange;
   if (p.researchOnly === true) return null;
+  const unread = unreviewed(p); if (unread) return unread;
   if (c.kind !== "existing_edit") return p.informationGain ? null : "a whole new page is proposed and nothing on file says what any of it stands on, so it is held until its claims, sources and plan are authorized like every other change"; // A NEW PAGE IS THE LARGEST THING BEACON PROPOSES AND IT LEFT BY THE FIRST LINE, facing no evidence question at all (Codex, 2026-08-28). No producer emits a page's authorization yet, so it stays internal rather than the door widening to let it out.
   const before = c.before?.trim() ?? "";
   if (before && mechanicalRepair(before, c.after)) return null;
@@ -260,7 +226,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
   if ((c.field === "section" || c.field === "answer_block") && !linkWork && !correction) {
     const g = p.informationGain;
     if (!g) return "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain";
-    if (p.authorizedFor !== copyKey(p)) return "the reading on file was written for different words, a different page or different evidence than the ones it is attached to, so nothing here was actually judged";
+    if (p.semanticReview?.of !== copyKey(p)) return "the reading on file was written for different words, a different page or different evidence than the ones it is attached to, so nothing here was actually judged";
     if (!g.pageWhole) return "what it adds was judged against only part of this page, so whether the page already says it is not actually known, and it is held until the whole page is read against it";
     const cited = new Set((p.claims ?? []).flatMap((x) => [...x.supportedBy]));
     if (g.by.length > 0 && !g.by.every((id) => cited.has(id))) return "the evidence named for what it adds is not the evidence its claims stand on, so the gain on file belongs to a different reading";
@@ -277,7 +243,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
     const lands = (u: { text: string; to?: string }): boolean => !!u.to?.trim() && places.some((w) => w.includes(bareText(u.to!)) && w.includes(bareText(u.text)));
     const BASIS_PROVED: Record<string, ((u: { text: string; to?: string; by?: readonly string[] }) => boolean) | undefined> = { duplicate_of: lands, replaced_by: lands, moved: lands, obsolete: cites, unsupported: cites, owner_confirmed: () => !!p.confirmedVersion };
     const unverified = (u: { text: string; disposition: string; why?: string; to?: string; of?: string; basis?: string; by?: readonly string[] }): string | null =>
-      p.authorizedFor !== copyKey(p) ? "carries a reading written for different words, a different page or different evidence than the ones it is attached to"
+      p.semanticReview?.of !== copyKey(p) ? "carries a reading written for different words, a different page or different evidence than the ones it is attached to"
         : u.disposition === "kept" ? (carriesUnit(u.text, c.after) ? null : "says it keeps material the new copy no longer carries")
           : u.disposition === "corrected" ? (cites(u) ? null : "corrects material without naming the banked facts that carry that correction")
             : u.disposition === "moved" ? (lands(u) ? null : "moves material to a destination that does not carry it: a word appearing somewhere in the new copy is not a place")
@@ -309,11 +275,7 @@ export function mechanicalRepair(before: string, after: string): boolean {
   return render(before).length > 0 && render(before) === render(after);
 }
 
-/** WHAT THIS CHANGE CERTIFIES AND WHAT IT ONLY CARRIES, derived off the canonical before and after so every
- *  stored row says it without being redrafted. A mark repair certifies the marks, never the sentence around
- *  them; a factual correction that got SHORTER says why: only the source-carried meaning survives, and shorter
- *  was never the point (operator, 2026-08-28: accuracy and usefulness are separate gates, and a narrowed line
- *  must say it narrowed rather than pose as discovered traffic copy). */
+/** WHAT THIS CHANGE CERTIFIES AND WHAT IT ONLY CARRIES, derived off the canonical before and after so every  stored row says it without being redrafted. A mark repair certifies the marks, never the sentence around  them; a factual correction that got SHORTER says why: only the source-carried meaning survives, and shorter  was never the point (operator, 2026-08-28: accuracy and usefulness are separate gates, and a narrowed line  must say it narrowed rather than pose as discovered traffic copy). */
 function certifiedScope(p: ChangeProposal): string[] {
   const c = p.recommendedChange; if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
   if (mechanicalRepair(c.before, c.after)) return ["This repairs the marks named here and nothing else. The rest of the wording is carried over as it was, not certified as the best copy for this page."]; const material = (t: string): number => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3).length;

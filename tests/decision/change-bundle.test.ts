@@ -364,8 +364,8 @@ const bundleOf = (components: BundleComponent[], prompts: string[] = []): Change
   components, receipt: { items: [RECEIPT_ITEM], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [],
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
 /** A RECEIPT IS ABOUT EXACT WORDS: fixture receipts bind to the copy they ride, exactly as a producer stamps them. */
-import { copyKey } from "@/domains/decision/proof";
-const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, authorizedFor: copyKey(p) });
+import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
 const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
   pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
   changeFamily: "single", status: "ready", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },

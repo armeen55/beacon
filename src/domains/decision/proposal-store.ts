@@ -11,7 +11,7 @@ import { serializeChangeProposal, deserializeChangeProposal, type BundleComponen
 import { rankProposals } from "./rank-proposals";
 import { confirmedVersion, deliverableGaps, openHold } from "./completeness";
 import { actionableProposalFailures, validateProposal } from "./validate-proposal";
-import { unsettledCause } from "./authorization"; import { copyKey } from "./proof"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
+import { unsettledCause } from "./authorization"; import { unreviewed } from "./proof"; import { staleCopyReasons } from "./drafted-copy"; import { footprintCovers, footprintKey, footprintsOverlap } from "./mutation-footprint";
 /** The canonical table (migrations/2026-07-31_change_proposals.sql). Exported for the sibling that repairs the impossible state, so the name lives in ONE place. */
 export const PROPOSAL_TABLE = "change_proposals";
 const TABLE = PROPOSAL_TABLE;
@@ -148,7 +148,7 @@ const NO_HANDOVER = Symbol("no-handover");
 
 /** Persist one proposal as the CURRENT answer for its hypothesis, superseding whatever held that identity before. Writes nothing when the stored row already says exactly this. Never throws. */
 export async function saveChangeProposal(proposal: ChangeProposal, transition?: symbol): Promise<SaveResult> {
-  if ((proposal.informationGain || proposal.preservation) && proposal.authorizedFor !== copyKey(proposal)) return "refused"; // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE. Stamping the identity here signed whatever receipt the door was handed, which made the check at the door unconditionally true: a row could be minted with a receipt written for other words and the store would bless it on the way past (Codex, 2026-08-28). A producer that wrote a receipt for these exact words can compute this; one that mutated the copy afterwards cannot.
+  if (unreviewed(proposal) != null && proposal.status === "ready") proposal = { ...proposal, status: "needs_review" }; // THE STORE NEVER ISSUES AN AUTHORIZATION AND NO LONGER SIGNS ONE EITHER: it asks the one shared question and refuses to keep `ready` on a row whose sources have not been shown to support its claims
   if (!proposal.tenantId || !proposal.id) return "failed";
   if (proposal.status === "implemented_pending_verification" && transition !== IMPLEMENTED_TRANSITION) {
     const held = await loadChangeProposal(proposal.tenantId, proposal.id).catch(() => null);

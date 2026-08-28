@@ -28,7 +28,7 @@ import { reconcileResearchCases } from "@/domains/evidence/topic-investigation";
 const queued = async (tenantId: string, at = 0) => focusReads(await chooseInvestigation(tenantId, null), at, null).queries; const canon = <T extends object>(o: T) => ({ observationId: "obs_fx", promptVersion: 1, reportingDay: "2026-07-01", answerHash: "hx", retrievedResults: null, brandMentions: null, analysis: null, ...o });
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { ownedCandidatesFor } from "@/domains/decision/owned-coverage"; import { askIdentity } from "@/domains/evidence/page-intersection";
 import { buildTopicInvestigations } from "@/domains/evidence/topic-investigation";
-import { earnsOwnPage, readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals"; import { copyKey } from "@/domains/decision/proof";
+import { earnsOwnPage, readCoverage, rankInvestigations } from "@/domains/decision/coverage-pass"; import { loadProposalQueue, pagesUnderMeasurement } from "@/domains/decision/load-proposals"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { emptyResearchEvidence, type FunnelResearchEvidence, type ResearchPageComparison, type WinnerReadOutcome } from "@/domains/evidence/funnel/research-evidence";
 import { hashSnapshot } from "@/domains/evidence/snapshot"; import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { serializeChangeProposal, deserializeChangeProposal, type EvidenceInput, type ChangeProposal } from "@/domains/decision/contracts";
@@ -830,7 +830,7 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
   it("the replace-marked row stays ready while the add-shaped twin is demoted with a typed fault", async () => {
     reset(SEEN());
     const keep0 = row('Replaces the existing passage under "Popular Phrases"', "fixture-tenant::/funny::existing_edit::ai_answer_gap");
-    const keep = { ...keep0, authorizedFor: copyKey(keep0), informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true } } as ChangeProposal;
+    const keep = { ...keep0, semanticReview: { of: copyKey(keep0), version: REVIEW_CONTRACT, claims: (keep0.claims ?? []).map((x, n) => ({ i: n, by: [...x.supportedBy], entailed: true })) }, informationGain: { adds: "puts every phrase and its meaning in one liftable block", by: ["page-copy-1"], pageWhole: true } } as ChangeProposal;
     const demote = row('A new section headed "Meanings", placed after "the anchor heading"', "fixture-tenant::/funny2::existing_edit::engine_followup");
     env.store = new Map([[keep.id, keep], [demote.id, { ...demote, pagePath: "/funny2", pageUrl: "https://fixture-outdoors.example/funny2" }]]);
     await produceProposalsForTenant("fixture-tenant", { now: NOW, maxDrafts: 0, zeroSpend: true });

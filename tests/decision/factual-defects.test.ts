@@ -154,8 +154,17 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
   const cardsOf = async (n: number) => { checks.rows = many(n); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; };
   it("clears a correction to ready, holds another with its reason, and never charges the operator with the checking", async () => {
     const cards = await cardsOf(3);
-    const complete = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly and matches its source" },
-      { index: 1, publish: false, reason: "the replacement contradicts its own source" }, { index: 2, publish: true, reason: "reads cleanly and matches its source" }] } });
+    // PUBLISH IS DERIVED FROM THE CLAIM RULINGS, never taken from the model: a reviewer that says publish while
+    // ruling the claim unsupported is not a pass, and a ruling that never came is not silence in Beacon's favour.
+    const ok = (i: number) => ({ index: i, publish: true, reason: "reads cleanly and matches its source",
+      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries the corrected meaning" }] });
+    const complete = async () => ({ status: "drafted" as const, value: { rulings: [ok(0),
+      { index: 1, publish: false, reason: "the replacement contradicts its own source", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }, ok(2)] } });
+    // A REVIEWER ANSWERING THE OLD COARSE SHAPE AUTHORIZES NOTHING: publish is derived from claim rulings, so a
+    // verdict carrying none of them is silence about every claim rather than a yes to all of them.
+    const coarse = async () => ({ status: "drafted" as const, value: { rulings: [0, 1, 2].map((i) => ({ index: i, publish: true, reason: "reads cleanly" })) } });
+    const old = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: coarse });
+    expect(old.map((c) => c.status), "publish alone is not entailment").toEqual(old.map(() => "needs_review"));
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
@@ -187,7 +196,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     let user = "";
     const complete = async (i: { user: string }) => { user = i.user;
-      return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly" }] } }; };
+      return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } }; };
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     const by = new Map(out.map((c) => [c.id.split("fact-")[1], c]));
     expect(by.get("jasmine")!.status).toBe("needs_review");

@@ -1,15 +1,10 @@
 import "server-only";
 
-/** decision/producers/factual-defects - THE PAGE SAYS SOMETHING UNTRUE, minted from banked research and from nothing else. Written after 165 sourced corrections were injected straight into a stored proposal payload by hand,
- *  overwritten by the next producer pass, and reapplied by hand again (operator, 2026-08-17: the store is persistence, not an authoring interface). Everything here is DETERMINISTIC from evidence/pages/fact-checks: the same banked
- *  checks mint the same bundle on every pass, a check that moves moves the bundle, and a page whose checks all pass mints nothing, which is how the card retires itself once the operator has corrected the page and the next check run
- *  says so. ONLY CONFIRMED CORRECTIONS BECOME WORK. `likely` and `disputed` are real findings and stay in the research lane where they argue for themselves; `unsupported` names its missing source and proposes nothing. A correction
- *  with no scholarly, dictionary or encyclopedia source behind it never reaches a component, because a baby-name page is not authority to overwrite published words. IT IS NOT A RANKING STORY. This cause is `factual_error` and carries
- *  no click figure: whether the wrong meanings also cost the page positions is a separate finding with separate evidence, and merging them would let a correction inherit a loss nothing ties it to. */
+/** decision/producers/factual-defects - THE PAGE SAYS SOMETHING UNTRUE, minted from banked research and from nothing else. Written after 165 sourced corrections were injected straight into a stored proposal payload by hand,  overwritten by the next producer pass, and reapplied by hand again (operator, 2026-08-17: the store is persistence, not an authoring interface). Everything here is DETERMINISTIC from evidence/pages/fact-checks: the same banked  checks mint the same bundle on every pass, a check that moves moves the bundle, and a page whose checks all pass mints nothing, which is how the card retires itself once the operator has corrected the page and the next check run  says so. ONLY CONFIRMED CORRECTIONS BECOME WORK. `likely` and `disputed` are real findings and stay in the research lane where they argue for themselves; `unsupported` names its missing source and proposes nothing. A correction  with no scholarly, dictionary or encyclopedia source behind it never reaches a component, because a baby-name page is not authority to overwrite published words. IT IS NOT A RANKING STORY. This cause is `factual_error` and carries  no click figure: whether the wrong meanings also cost the page positions is a separate finding with separate evidence, and merging them would let a correction inherit a loss nothing ties it to. */
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { copyKey } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
@@ -24,22 +19,14 @@ const pathOf = (url: string): string => {
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 const n = (x: number): string => x.toLocaleString("en-US");
 
-/** THE SPAN THE CORRECTION ACTUALLY REWRITES. The extractor quotes exactly, and its exact quote sometimes opens
- *  with the name heading itself ("Alborz\nMeaning:..."): a replacement targeted at that whole quote would delete
- *  the name from the page. The heading is not what is wrong, so when the first line is the subject and nothing
- *  else, the replaced span is everything after it. Shape only: no other narrowing is ever guessed. */
+/** THE SPAN THE CORRECTION ACTUALLY REWRITES. The extractor quotes exactly, and its exact quote sometimes opens  with the name heading itself ("Alborz\nMeaning:..."): a replacement targeted at that whole quote would delete  the name from the page. The heading is not what is wrong, so when the first line is the subject and nothing  else, the replaced span is everything after it. Shape only: no other narrowing is ever guessed. */
 function replacedSpanOf(c: FactCheck): string {
   const lines = c.current.split("\n").map((l) => l.trim()).filter(Boolean);
   return lines.length > 1 && lines[0]!.toLowerCase() === c.subject.trim().toLowerCase()
     ? lines.slice(1).join("\n") : c.current.trim();
 }
 
-/** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. The verified meaning arrives as the source's own fragment
- *  ("light", "Night; dark"), and pasted verbatim over "Meaning:Bright, radiant, or glowing." it deletes the
- *  page's label and leaves a lowercase stub mid-line: every live correction card was held on exactly that.
- *  SHAPE ONLY, NO VOCABULARY: the label prefix is the page's own, capitalization and the closing stop mirror the
- *  words being replaced, and a semicolon list becomes the ", or " prose the page's sibling entries already use.
- *  Not one word is added that the passage did not carry. */
+/** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. The verified meaning arrives as the source's own fragment  ("light", "Night; dark"), and pasted verbatim over "Meaning:Bright, radiant, or glowing." it deletes the  page's label and leaves a lowercase stub mid-line: every live correction card was held on exactly that.  SHAPE ONLY, NO VOCABULARY: the label prefix is the page's own, capitalization and the closing stop mirror the  words being replaced, and a semicolon list becomes the ", or " prose the page's sibling entries already use.  Not one word is added that the passage did not carry. */
 function composedReplacement(before: string, proposed: string): string {
   const prefix = /^([\p{L}][\p{L} ]{1,23}:\s*)/u.exec(before)?.[1] ?? "";
   const gloss = proposed.trim().replace(/\s*;\s*/g, ", or ").replace(/^\p{Ll}/u, (ch) => ch.toUpperCase());
@@ -49,54 +36,43 @@ function composedReplacement(before: string, proposed: string): string {
 
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
-/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one
- *  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)
- *  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
+/** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
 const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component judge only: does the replacement read as grammatical natural English a person would publish in place of the current statement; is it consistent with the quoted source; does it contradict any OTHER component in this batch. Return ONLY {\"rulings\":[{\"index\",\"publish\",\"reason\"}]} with one ruling per component, reason one short sentence. When in doubt on a component, publish=false.";
 async function reviewComponents(tenantId: string, components: readonly BundleComponent[], now: Date,
-  wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<Map<number, string> | null> {
+  wiring: { attempts?: { left: number; record?: (r: unknown) => void }; complete?: unknown; bypassCache?: boolean }): Promise<{ held: Map<number, string>; passed: Set<number> } | null> {
   const { callStructuredLLM } = await import("../llm/structured-drafter");
-  const held = new Map<number, string>();
+  const held = new Map<number, string>(), passed = new Set<number>();
   for (let b = 0; b < components.length; b += BATCH) {
     const batch = components.slice(b, b + BATCH);
     if (wiring.attempts && (wiring.attempts.left -= 1) < 0) return null; // an unpaid batch reviews nothing
-    const user = batch.map((c, i) => `#${i}: on the page now: "${c.before ?? ""}"\nreplacement: "${c.after}"\nsource: ${(c.sourcePack?.sourceRequirements ?? []).join("; ")}\nwhere: ${c.where ?? ""}`).join("\n\n")
+    const user = batch.map((c, i) => `#${i}: claim 0 is the replacement itself, standing on the sources listed here; rule whether those sources ENTAIL it.\non the page now: "${c.before ?? ""}"\nreplacement: "${c.after}"\nsource: ${(c.sourcePack?.sourceRequirements ?? []).join("; ")}\nwhere: ${c.where ?? ""}`).join("\n\n")
       + `\n\nReturn one ruling per component, indexes 0 to ${batch.length - 1}.`;
     const r = await callStructuredLLM({ kind: "factual_review", tenantId, system: REVIEW_SYSTEM, user, grounded: user,
       projectedCostUsd: 0.01, maxTokens: 2500, timeoutMs: 95_000, now,
       ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
     wiring.attempts?.record?.(r); // BEFORE the status branch: a paid failure is still paid, and the receipt says so
     if (r?.status !== "drafted") return null;
-    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string }[] }).rulings;
+    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; claims?: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
     // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass.
-    const ruled = new Map(rulings.map((x) => [x.index, x]));
+    const ruled = new Map(rulings.map((x) => [x.index, x] as const));
     for (let i = 0; i < batch.length; i += 1) {
       const v = ruled.get(i);
+      const entailed = (v?.claims ?? []).length > 0 && (v?.claims ?? []).every((x) => x.entailed); // PUBLISH IS DERIVED, NEVER TAKEN: a model saying yes over a claim ruling that says no is not a yes
       if (!v) held.set(b + i, "the review returned no ruling for it");
-      else if (v.publish !== true) held.set(b + i, v.reason);
+      else if (!entailed) held.set(b + i, (v.claims ?? [])[0]?.why ?? "the sources it cites were not shown to support what it claims");
+      else if (v.publish !== true) held.set(b + i, v.reason); else passed.add(b + i);
     }
     if (wiring.attempts && (r as { cached?: true }).cached) wiring.attempts.left += 1; // a cache hit cost nothing
   }
-  return held;
+  return { held, passed };
 }
 
-/** BEACON REVIEWS ITS OWN CORRECTIONS, AS ONE RANKED PAID CANDIDATE. The minted card carries every authorized correction and waits at needs_review; this reads them in batches of ten against their own sources and returns the card the
- *  operator should see. Survivors stay and the card is promoted; a failed component is held WITH its reason on the receipt and never erases the valid ones; a review that holds EVERYTHING keeps every piece and promotes nothing (an
- *  empty bundle is a card the contract cannot read back); a review that could not run at all returns the card untouched, so the pass reports no promotion it did not earn. */
-/** BEACON REVIEWS ITS OWN CORRECTIONS, ONE PAGE AT A TIME, and hands the verdict back to cards that stay atomic.
- *  The cards are separate so nothing can retire them together; the REVIEW is batched so forty of them cost one
- *  page's worth of calls and not forty. A card whose correction the reviewer holds keeps its words and its
- *  reason and simply is not offered; a card the reviewer clears becomes ready. Unreadable or unaffordable
- *  promotes nothing and loses nothing. */
+/** BEACON REVIEWS ITS OWN CORRECTIONS, AS ONE RANKED PAID CANDIDATE. The minted card carries every authorized correction and waits at needs_review; this reads them in batches of ten against their own sources and returns the card the  operator should see. Survivors stay and the card is promoted; a failed component is held WITH its reason on the receipt and never erases the valid ones; a review that holds EVERYTHING keeps every piece and promotes nothing (an  empty bundle is a card the contract cannot read back); a review that could not run at all returns the card untouched, so the pass reports no promotion it did not earn. */
+/** BEACON REVIEWS ITS OWN CORRECTIONS, ONE PAGE AT A TIME, and hands the verdict back to cards that stay atomic.  The cards are separate so nothing can retire them together; the REVIEW is batched so forty of them cost one  page's worth of calls and not forty. A card whose correction the reviewer holds keeps its words and its  reason and simply is not offered; a card the reviewer clears becomes ready. Unreadable or unaffordable  promotes nothing and loses nothing. */
 /** The name a correction card is about, as it was minted: the row's own subject, not a re-parse of the copy. */
 const subjectOf = (c: ChangeProposal): string => /^The "(.+?)" entry/.exec(c.recommendedChange.kind === "existing_edit" ? (c.recommendedChange.where ?? "") : "")?.[1] ?? "";
 
-/** WHY THIS REPLACEMENT CANNOT STAND WHERE THE WORDS IT REPLACES STAND, or null when it can. A sourced meaning
- *  is not yet publishable copy: the source says darya derives from "possess or maintain; well, good", which is
- *  a true etymology and a dictionary fragment, and dropping it into "Meaning:_" leaves the page reading
- *  "Meaning:possess or maintain; well, good". Shape only, no vocabulary and no word list, so it says nothing
- *  about which language or subject a page is allowed to be about. Checked here, before anybody is paid to read
- *  it, because a deterministic gate does not have moods and does not cost anything to run. */
+/** WHY THIS REPLACEMENT CANNOT STAND WHERE THE WORDS IT REPLACES STAND, or null when it can. A sourced meaning  is not yet publishable copy: the source says darya derives from "possess or maintain; well, good", which is  a true etymology and a dictionary fragment, and dropping it into "Meaning:_" leaves the page reading  "Meaning:possess or maintain; well, good". Shape only, no vocabulary and no word list, so it says nothing  about which language or subject a page is allowed to be about. Checked here, before anybody is paid to read  it, because a deterministic gate does not have moods and does not cost anything to run. */
 function unfitToStandIn(before: string | null, after: string, subject: string): string | null {
   const a = after.trim(), b = (before ?? "").trim(), bare = (t: string): string => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
   // The name check reads the words INSIDE the page's own label: composed copy carries the "Meaning:" prefix the
@@ -129,15 +105,18 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
     const why = unfitToStandIn(p.before, p.after, cards[i]?.recommendedChange.kind === "existing_edit" ? subjectOf(cards[i]!) : "");
     if (why) unfit.set(i, why);
   }
-  const held = await reviewComponents(wiring.tenantId, parts.filter((_, i) => !unfit.has(i)), wiring.now, wiring).catch(() => null);
+  const review = await reviewComponents(wiring.tenantId, parts.filter((_, i) => !unfit.has(i)), wiring.now, wiring).catch(() => null), cleared = new Set<number>();
+  const held = review?.held ?? null;
   if (held == null && unfit.size === 0) return [...cards]; // unaffordable, refused or unreadable: nothing promoted and nothing lost
   // The reviewer only ever saw the fit ones, so its indexes are remapped onto the cards they came from.
   const offered = parts.map((_, i) => i).filter((i) => !unfit.has(i));
   for (const [j, why] of held ?? []) unfit.set(offered[j]!, why);
+  for (const j of review?.passed ?? []) cleared.add(offered[j]!);
   if (held == null) for (const [i] of parts.entries()) if (!unfit.has(i)) unfit.set(i, "Beacon's own sense review has not read this correction yet");
   return cards.map((c, i) => unfit.has(i)
     ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,
+      ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: (c.claims ?? []).map((x, n) => ({ i: n, by: [...x.supportedBy], entailed: true })) } } : {}),
       limitations: [...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not")),
         "Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] });
 }
@@ -210,8 +189,6 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           opportunityType: `Correct what ${path} says ${c.subject} means`,
           changeFamily: "factual_correction", status: "needs_review",
           recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
-          authorizedFor: copyKey({ tenantId, pagePath: path, changeFamily: "factual_correction", supportFacts: support,
-            recommendedChange: { kind: "existing_edit", field: "section", before, after, where } } as never),
           preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: `the source of record says ${c.subject} means ${c.proposed}` }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
           claims: [{ text: `${c.subject} means ${c.proposed}, not "${before}".`, supportedBy: support.map((s) => s.id) }],
           supportFacts: support,

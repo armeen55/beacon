@@ -54,13 +54,10 @@ describe("what Beacon can see on the live page, component by component", () => {
   it("looks for a section by its heading, and reads a removal the other way round", async () => {
     expect(await state("section_add", "What goes on the table\nEvery item stands for a wish.")).toBe("verified"); expect(await state("section", "Where to buy a haft seen set")).toBe("not_verified");
     expect(await state("section_remove", "Where to buy a haft seen set")).toBe("verified");
-    // A section I was asked to REMOVE that is still there is not a different change, it is no change.
     expect(await state("section_remove", "What goes on the table")).toBe("not_verified");});
   it("never lets a two-word heading stand in for the section that was actually asked for", async () => {
     const fragment = serve(PAGE.replace("<h2>What goes on the table</h2>", "<h2>The table</h2>"));
-    // "The table" is a fragment of the proposed heading, not a cover of it: two of eight words is not the section.
     expect(await state("section_add", "The table settings every family in Tehran uses at Nowruz", fragment)).toBe("not_verified");
-    // Half the words or more IS the section, however the operator reworded the rest of it.
     expect(await state("section_add", "What goes on the table at Nowruz and why", serve(PAGE))).toBe("verified");});
   it("compares an internal link as an address, and says unknown when it could not read the page's links", async () => {
     expect(await state("internal_link_add", "Link to https://own.com/haft-seen from the opening")).toBe("verified");
@@ -68,7 +65,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("internal_link_add", "Link to /chaharshanbe-suri")).toBe("not_verified");
     expect(await state("internal_link_add", "Add a link to the guide")).toBe("unverifiable"); // no address named
     const noLinks = serve("<html><head><title>t</title></head><body><main><p>words enough to count as a paragraph here</p></main></body></html>"); expect(await state("internal_link_add", "Link to /haft-seen", noLinks)).toBe("unverifiable");});
-  // A RENAMED LINK IS NOT VERIFIED BY THE LINK EXISTING. The swap renames a link that is already there, so checking for the address answered yes the moment the change was written: it read verified before the operator touched the page. The words on the live link are the only thing that can settle it.
   it("checks a renamed link on the words that are actually on it, both ways, and says unknown without them", async () => {
     const swap = async (anchorAfter: string | null) => (await check([{ kind: "anchor_text",
       after: 'I would change the words "read more" that already point at /haft-seen so they read "the haft seen explained".',
@@ -82,7 +78,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("schema", "Add HowTo structured data")).toBe("unverifiable"); // something is there, but not what was asked for
     const bare = serve(`<html><head><title>t</title></head><body><main><p>${"a real sentence about setting the table ".repeat(10)}</p></main></body></html>`);
     expect(await state("schema", "Add FAQPage structured data", bare)).toBe("not_verified");
-    // A page thin enough that its content may be built in the browser is never called missing.
     expect(await state("schema", "Add FAQPage structured data", serve("<html><head><title>t</title></head><body><div id=app></div></body></html>"))).toBe("unverifiable");});
   it("checks the preferred address, the forward and the search setting from what the page itself reports", async () => {
     expect(await state("canonical", "Point the canonical at https://own.com/nowruz")).toBe("verified"); expect(await state("canonical", "Point the canonical at https://own.com/nowruz-guide")).toBe("changed_differently");
@@ -91,29 +86,24 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: "https://own.com/haft-seen" }))).toBe("verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen", serve(PAGE, { finalUrl: URL_ }))).toBe("not_verified");
     expect(await state("redirect", "Forward it to https://own.com/haft-seen")).toBe("unverifiable"); // no final address reported
-    // MOVED IS NOT ARRIVED. A forward with no destination named could be landing on a login wall.
     const moved = await check([{ kind: "redirect", after: "Set up a forward" }], serve(PAGE, { finalUrl: "https://own.com/login" })); expect(moved.components[0]!.state).toBe("unverifiable");
     expect(moved.components[0]!.note).toContain("named no destination"); const noindex = serve(PAGE.replace("<head>", '<head><meta name="robots" content="noindex, follow"/>'));
     expect(await state("noindex", "Take it out of search", noindex)).toBe("verified");
     expect(await state("noindex", "Take it out of search")).toBe("unverifiable"); // a header I cannot see could carry it
   });
-  // PIN (B, F2a): the whole road, finding to reading. A shortened forward names /haft-seen, and the check has to read THAT address: taking the first address out of the sentence took the one being MOVED, so an operator who did exactly what I asked was told their forward went somewhere other than where I asked.
   it("verifies a forward against the destination the change named, never the address it moved", async () => {
     const chain = (url: string, to: string) => ({ url, discovered_via: "nav", crawl_state: "crawled", http_status: 200, redirects_to: to });
     const found = readTechnicalFindings({ inventory: [chain(URL_, "https://own.com/mid"), chain("https://own.com/mid", "https://own.com/haft-seen")] })
       .filter((f) => f.kind === "redirect_chain");
     const parts = technicalComponents(found, "nowruz table"); expect(parts.map((c) => [c.kind, c.redirectTo])).toEqual([["redirect", "https://own.com/haft-seen"]]);
     expect(parts[0]!.after).toContain("/nowruz"); // the address being moved is still the first one in the sentence
-    // exactly what "Mark implemented" records on the shipment, and exactly what the check is handed back
     const applied = parts.map((c) => ({ kind: c.kind, after: c.after, redirectTo: c.redirectTo ?? null }));
     const seen = await verifyShipment(T, { id: "s1", url: URL_, components: applied },
       { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/haft-seen" }) });
     expect([seen.status, seen.components[0]!.state]).toEqual(["verified", "verified"]);
-    // and a forward that landed somewhere else is still called out, on the same structured address
     const wrong = await verifyShipment(T, { id: "s1", url: URL_, components: applied },
       { ...base, fetchPage: serve(PAGE, { finalUrl: "https://own.com/login" }) });
     expect(wrong.components[0]!.state).toBe("changed_differently");});
-  // PIN (B, F2c): an edit to sitemap.xml can never put a link on the page, so looking for one graded every sitemap change as work the operator had not done. It is read in the sitemap, or it is not graded.
   it("reads a sitemap change in the sitemap itself, and refuses to grade one it could not read", async () => {
     const listing = (...locs: string[]) => `<urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
     const graded = async (xml: string | null) => (await check([{ kind: "navigation", after: "I would add /nowruz to the sitemap you already publish." }],
@@ -124,7 +114,6 @@ describe("what Beacon can see on the live page, component by component", () => {
     expect((await graded("<sitemapindex><sitemap><loc>https://own.com/s1.xml</loc></sitemap></sitemapindex>")).state).toBe("unverifiable");
     expect((await graded(listing())).state).toBe("unverifiable"); // a sitemap answering with no addresses grades nothing
   });
-  // PIN (F2d): a broken link is checked on the DEAD address, not the page carrying it. The regex took the first address in the sentence, the carrying page, and asked whether it links to itself: that answered verified whether or not the operator touched anything, and unearned work entered measurement.
   it("checks a broken link fix on the dead address it named, in both directions", async () => {
     const found = readTechnicalFindings({
       inventory: [{ url: "https://own.com/old-price", discovered_via: "nav", crawl_state: "crawled", http_status: 404 }],
@@ -150,9 +139,7 @@ describe("what Beacon says overall, and what it refuses to say", () => {
     const robots = await check([{ kind: "title", after: "How to set a nowruz table" }], refuse("robots_blocked")); expect([robots.status, robots.components[0]!.state]).toEqual(["blocked", "unverifiable"]);
     expect(robots.components[0]!.note).toContain("robots rules"); expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"))).status).toBe("blocked");
     expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found"); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
-    // A page I reached but nothing on it I can check is NOT a difference and never a pass: it is a check I could not complete.
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");});
-  // PIN (B): THE CLAIM STARTS THE CHECK AND NEVER FINISHES IT. No argument to verifyShipment suppresses the read, and no state it returns says verified unless the page itself said so. CHANGED DIFFERENTLY is its own answer: the spot moved, and it moved to something other than what I wrote.
   it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => {
     let fetched = 0;
     const claimed = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "Nowruz gifts" }] },
@@ -171,8 +158,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);});
   it("checks the one shipment just marked done, through the same path and nothing else", async () => {
-    // "DID MY PASTE LAND" WAITED FOR THE NEXT SWEEP. The verifier, the due read and the record all existed; only
-    // the trigger did not, so the targeted check narrows the SAME due read rather than opening a second route.
     for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" }));
     const read: string[] = [];
     const written = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
@@ -182,7 +167,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     ROWS.push(row({ id: "a" }));
     let reads = 0; const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
     expect([await pass(), WRITES[0]![2].status, reads]).toEqual([1, "blocked", 1]);
-    // The store now holds an answer for that shipment, so the next pass finds nothing due and reads nothing.
     ROWS[0]!.verification = WRITES[0]![2];
     expect([await pass(), reads]).toEqual([0, 1]);});
   it("keeps a shipment due when the answer could not be saved, so the check is not silently lost", async () => {
@@ -198,7 +182,6 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {
     const dead = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout")); expect([dead.status, dead.recheckAfter]).toEqual(["blocked", "2026-08-01"]);
     const robots = await check([{ kind: "title", after: "x" }], refuse("robots_blocked")); expect([robots.status, robots.recheckAfter ?? null]).toEqual(["blocked", null]);
-    // The retry's own answer is final, whatever it is: one retry is all there ever is.
     const again = await verifyShipment(T, { id: "s1", url: URL_, components: [{ kind: "title", after: "x" }], recheck: true },
       { ...base, fetchPage: refuse("fetch_failed", "timeout") });
     expect(again.recheckAfter ?? null).toBeNull();});
@@ -230,7 +213,6 @@ describe("a change the operator implemented busts that page's freshness", () => 
   it("busts the page that was changed and no other: a home page change does not throw away the whole site", async () => {
     ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z"); expect(await shipmentBustedAt(T, URL_)).toBeNull();
-    // Nor does a change to /guide bust /nowruz-guide, which merely ends with the same letters.
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull();
   });

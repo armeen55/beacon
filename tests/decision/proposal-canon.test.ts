@@ -32,7 +32,7 @@ const said = vi.hoisted(() => ({ errors: [] as string[] }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: (msg: string) => { said.errors.push(msg); } } }));
 import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerReviewedProposal, saveChangeProposal,
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
-import { confirmedVersion } from "@/domains/decision/completeness"; import { copyKey } from "@/domains/decision/proof";
+import { confirmedVersion } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake } from "../helpers/supabase-fake";
@@ -301,8 +301,10 @@ describe("promotion fails closed when it cannot check its own work", () => {
     // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever
     // receipt it was handed, so the door's own check became unconditionally true on the way past.
     const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } });
-    expect(await saveChangeProposal(withReceipt), "a receipt with no identity of its own").toBe("refused");
-    expect(await saveChangeProposal({ ...withReceipt, authorizedFor: copyKey(withReceipt) }), "one written for these exact words").toBe("saved");
+    // THE STORE VALIDATES A READING, IT NEVER ISSUES ONE, and it will not keep `ready` on a row whose sources
+    // were never shown to support its claims: the work is saved and kept, it is simply not offered.
+    await saveChangeProposal({ ...withReceipt, status: "ready" });
+    expect(current().find((r) => r.id === withReceipt.id)!.status, "no reading, no ready").toBe("needs_review");
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
   it("refuses a bundle component whose page this door does not hold", async () => {

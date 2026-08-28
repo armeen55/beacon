@@ -10,7 +10,7 @@ vi.mock("@/domains/measurement/proof-gsc/load-ledger", () => ({ loadProofLedgerC
 import { unsettledCause } from "@/domains/decision/authorization";
 import { openHold, preferFinished } from "@/domains/decision/completeness";
 import { loadProposalQueue } from "@/domains/decision/load-proposals";
-import { copyKey, evidenceShortfall, mechanicalRepair, proofOf } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey, evidenceShortfall, mechanicalRepair, proofOf } from "@/domains/decision/proof";
 import { unauthorizedReason } from "@/domains/evidence/pages/fact-checks";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 
@@ -26,7 +26,7 @@ const row = (id: string, over: Record<string, unknown>): ChangeProposal => ({
 const edit = (field: string, before: string | null, after: string, more: Record<string, unknown> = {}) =>
   ({ recommendedChange: { kind: "existing_edit", field, before, after }, ...more });
 /** A RECEIPT IS ABOUT EXACT WORDS: every fixture receipt is bound to the copy it rides, as a producer stamps it. */
-const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, authorizedFor: copyKey(p) });
+const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: (p.claims ?? []).map((x, i) => ({ i, by: [...x.supportedBy], entailed: true })) } });
 
 describe("the proof burden matches the promise, at the one door every surface reads", () => {
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
@@ -123,9 +123,9 @@ describe("the proof burden matches the promise, at the one door every surface re
     // reading written for one draft rode another's words and Beacon served "Light" under a receipt for "Radiant".
     const authorized = body(`${KEEP} ${CTA}`, KEEP, { workKey: "W", copyStamp: "S", preservation: [{ text: CTA, disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "the course closed" }] });
     const edited = { ...authorized, recommendedChange: { ...authorized.recommendedChange, after: `${KEEP} Extra.` } } as ChangeProposal;
-    expect(evidenceShortfall(edited), "one material word after authorization voids the receipt").toContain("written for different words");
-    expect(evidenceShortfall({ ...authorized, authorizedFor: `${authorized.authorizedFor}x` } as ChangeProposal), "a gain receipt for other words").toContain("written for different words");
-    expect(evidenceShortfall({ ...authorized, authorizedFor: "written for other words" } as ChangeProposal), "a ledger written for other words").toContain("written for different words");
+    expect(evidenceShortfall(edited), "one material word after authorization voids the reading").toContain("reviewer has read them together");
+    const elsewhere = (p: ChangeProposal) => ({ ...p, semanticReview: { ...p.semanticReview!, of: `${p.semanticReview!.of}x` } }) as ChangeProposal;
+    expect(evidenceShortfall(elsewhere(authorized)), "a reading written for other words").toContain("reviewer has read them together");
     expect(evidenceShortfall(aeo({ informationGain: { adds: "improves clarity", by: [], pageWhole: true } })), "an addition naming no evidence").toContain("naming no evidence");
     // THE IMPOSSIBLE RECORD: banked copy A, and a redraft of B whose receipts were written for B. Preservation
     // keeps A, so B's receipts may not ride it; identity cannot answer this because it excludes the copy.
@@ -144,7 +144,7 @@ describe("the proof burden matches the promise, at the one door every surface re
       claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is in Iran." }] });
     const A = draft("draft-4b7h-1t8gqzx"), B = draft("draft-54d6-1l5sdoa");
     expect(copyKey(A), "the supplied collision pair").not.toBe(copyKey(B));
-    expect(preferFinished({ ...B, authorizedFor: copyKey(B), preservation: [{ text: "before", disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "for B" }] } as ChangeProposal, A).preservation ?? null, "B's receipt may not ride A").toBeNull();
+    expect(preferFinished({ ...B, semanticReview: { of: copyKey(B), version: REVIEW_CONTRACT, claims: (B.claims ?? []).map((x, n) => ({ i: n, by: [...x.supportedBy], entailed: true })) }, preservation: [{ text: "before", disposition: "removed", basis: "obsolete", by: ["fact-1"], why: "for B" }] } as ChangeProposal, A).preservation ?? null, "B's receipt may not ride A").toBeNull();
     const move = (o: Record<string, unknown>) => copyKey({ ...A, ...o } as ChangeProposal);
     expect([move({ pagePath: "/other" }) === copyKey(A), move({ supportFacts: [{ id: "fact-1", fact: "changed" }] }) === copyKey(A),
       move({ recommendedChange: { ...A.recommendedChange, field: "meta" } }) === copyKey(A)],
@@ -160,6 +160,32 @@ describe("the proof burden matches the promise, at the one door every surface re
         { kind: "section_add", label: "A", page: "/p", where: "Footer", before: null, after: "Footer: nothing here", evidenceKeys: [], risk: "safe" },
         { kind: "section_add", label: "B", page: "/p", where: "Elsewhere", before: null, after: `Elsewhere: ${CTA}`, evidenceKeys: [], risk: "safe" }] } });
     expect(evidenceShortfall(split), "the destination piece must be the piece that carries it").toContain("does not carry it");
+    // 9e. AN UNRELATED FACT AUTHORIZES NOTHING. The identity is exact, so a receipt cannot ride other words; it
+    // said nothing about whether the cited passage SUPPORTS the claim, and the reviewer's claim-level reasoning
+    // was thrown away after every paid call. "Noor means light" could stand on "Tehran is the capital of Iran".
+    const claimed = (over: Record<string, unknown> = {}) => row("nr", { ...edit("section", "Meaning:Wisdom.", "Meaning:Light.", { where: 'Replaces the existing passage under "Meanings"' }), changeFamily: "factual_correction",
+      claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is the capital of Iran." }],
+      preservation: [{ text: "Meaning:Wisdom.", disposition: "corrected", by: ["fact-1"] }], ...over });
+    const reviewed = (p: ChangeProposal, rulings: { i: number; by: string[]; entailed: boolean }[]) =>
+      ({ ...p, semanticReview: { of: copyKey(p), version: REVIEW_CONTRACT, claims: rulings } }) as ChangeProposal;
+    expect(evidenceShortfall(claimed()), "no reading at all").toContain("actually support what it claims");
+    expect(evidenceShortfall(reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: false }])), "the reviewer said it does not follow").toContain("not shown to follow");
+    expect(evidenceShortfall(reviewed(claimed(), [])), "silence about a claim is not a pass").toContain("did not rule on every claim");
+    expect(evidenceShortfall(reviewed(claimed(), [{ i: 0, by: ["fact-9"], entailed: true }])), "ruled on other evidence than the claim names").toContain("not shown to follow");
+    expect(evidenceShortfall(reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: true }, { i: 1, by: ["fact-1"], entailed: true }])), "a ruling for a claim it never made").toContain("did not rule on every claim");
+    const stale = reviewed(claimed(), [{ i: 0, by: ["fact-1"], entailed: true }]);
+    expect(evidenceShortfall(stale), "a whole, matching reading passes").toBeNull();
+    expect(evidenceShortfall({ ...stale, semanticReview: { ...stale.semanticReview!, version: REVIEW_CONTRACT - 1 } } as ChangeProposal), "an older review contract").toContain("older review contract");
+    for (const [what, mutated] of [["the fact's own words", { supportFacts: [{ id: "fact-1", fact: "Tehran is a city." }] }],
+      ["the claim's text", { claims: [{ text: "Noor means brightness", supportedBy: ["fact-1"] }] }],
+      ["which fact the claim names", { claims: [{ text: "Noor means light", supportedBy: ["fact-2"] }] }]] as const)
+      expect(evidenceShortfall({ ...stale, ...mutated } as ChangeProposal), `changing ${what} voids the reading`).toContain("actually support what it claims");
+    // A substantive claim answers the same way: perfect identity and a gain receipt are not support.
+    const substantive = row("kp", { ...edit("section", KEEP, `${KEEP} Kerman rugs use 300 KPSI.`, { where: 'Replaces the existing passage under "Rugs"' }),
+      informationGain: { adds: "names the knot density the page never states", by: ["fact-1"], pageWhole: true },
+      claims: [{ text: "Kerman rugs use 300 KPSI", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "Tehran is the capital of Iran." }] });
+    expect(evidenceShortfall(substantive), "a substantive claim owes the same reading").toContain("actually support what it claims");
+    expect(evidenceShortfall(reviewed(substantive, [{ i: 0, by: ["fact-1"], entailed: false }])), "and an unrelated fact fails it there too").toContain("not shown to follow");
     // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
     const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); };
     for (const held of [creative, aeo({}), body(`${KEEP} ${CTA}`, KEEP)])

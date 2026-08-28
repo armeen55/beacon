@@ -186,7 +186,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
       read: reader({ claims: claim, judge: judged(daria, true, "Persian", "دریا") }) });
     expect((db.rows[0] as FactCheck).confidence === "confirmed").toBe(false);
-    // The SAME encyclopedia, about the SAME word, in its own script, does confirm.
     db.rows = [];
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: darya }),
@@ -195,7 +194,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
 
   it("the site being corrected is never its own source, and a wording no source carries is not confirmed", async () => {
-    // BOTH LIVE. The Nazanin correction cited iranopedia.com/persian-female-first-names, which is the page it
     const fetched: string[] = [];
     const both = { organic: [{ domain: "www.iranopedia.com", url: "https://www.iranopedia.com/persian-female-first-names", title: "Persian names" },
       { domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Maryam" }] };
