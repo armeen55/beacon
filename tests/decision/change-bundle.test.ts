@@ -363,6 +363,9 @@ const bundleOf = (components: BundleComponent[], prompts: string[] = []): Change
   objective: "Close the gap on the one search this page is losing.", metric: "Clicks over 28 days.", scope: { queries: ["rain barrel sizing"], prompts },
   components, receipt: { items: [RECEIPT_ITEM], missing: [], freshestObservedAt: null }, alternatives: [], risks: [], confidenceReasons: [],
   measurementPlan: "I will read clicks, views and average position at 7, 14 and 28 days." });
+/** A RECEIPT IS ABOUT EXACT WORDS: fixture receipts bind to the copy they ride, exactly as a producer stamps them. */
+import { copyKey } from "@/domains/decision/proof";
+const bindReceipts = (p: ChangeProposal): ChangeProposal => ({ ...p, ...(p.informationGain ? { informationGain: { ...p.informationGain, of: copyKey(p) } } : {}), ...(p.preservation ? { preservation: p.preservation.map((u) => ({ ...u, of: u.of ?? copyKey(p) })) } : {}) });
 const prop = (over: Partial<ChangeProposal>): ChangeProposal => ({ id: "p", tenantId: TENANT, kind: "existing_edit", pagePath: "/rain-barrels",
   pageUrl: "https://fixture-content.example/rain-barrels", pageLabel: "Rain Barrels", primaryQuery: "rain barrel sizing", opportunityType: "Capture clicks",
   changeFamily: "single", status: "ready", recommendedChange: { kind: "existing_edit", field: "title", before: "Rain Barrels", after: TITLE_AFTER },
@@ -1086,8 +1089,8 @@ describe("a change earns ready on its own evidence, its whole version, and words
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
     const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: BODY, where: 'A new section headed "Sizing", placed after "The studio cuts every barrel."' };
-    const placed = prop({ status: "ready", informationGain: { adds: "gives the gallons a 1,200 square foot roof sheds, which the page never states", by: ["card-1"], pageWhole: true }, claims: [{ text: "The studio cuts every barrel", supportedBy: ["card-1"] }],
-      supportFacts: [{ id: "card-1", fact: "The studio cuts every barrel." }], recommendedChange: body });
+    const placed = bindReceipts(prop({ status: "ready", informationGain: { adds: "gives the gallons a 1,200 square foot roof sheds, which the page never states", by: ["card-1"], pageWhole: true }, claims: [{ text: "The studio cuts every barrel", supportedBy: ["card-1"] }],
+      supportFacts: [{ id: "card-1", fact: "The studio cuts every barrel." }], recommendedChange: body }));
     const lost = { ...placed, supportFacts: [{ id: "card-1", fact: "A reading that no longer quotes that sentence." }] } as ChangeProposal;
     const brief = prop({ researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters." } }); const lanes = [openHold(placed), openHold(lost), openHold(brief)];
     expect([lanes.map((h) => h.lane), lanes.map((h) => h.blocking == null), lanes[1]!.why[0]!.startsWith("Where this copy goes can no longer be checked"),
@@ -1112,9 +1115,9 @@ describe("the AI side ranks on recurrence and stage, never on raw answer totals 
 /** A TREATMENT CHANGE IS A DELIVERABLE IDENTITY BOUNDARY (Codex, 2026-08-23). Live, /cities was re-diagnosed technical_reachability ("copy is premature until reachability work is done") while its old finished section draft sat beside that verdict as actionable review work. The swap must retire the copy WITH a receipt, keep the opportunity and its evidence, and land on ordinary days too: the funding filter that keeps non-writing treatments away from the editor was also the only path that persisted them outside quiet days. */
 describe("a changed treatment retires the copy it makes premature, on any kind of day", () => {
   const CITIES = `${TENANT}::/cities::existing_edit::ai_answer_gap`;
-  const heldRow = (over: Partial<ChangeProposal> = {}) => prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
+  const heldRow = (over: Partial<ChangeProposal> = {}) => bindReceipts(prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
     pageLabel: "Cities", primaryQuery: "cities of iran", changeFamily: "section", status: "ready", researchOnly: false, basis: "basis_test",
-    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The finished cities section, drafted when this was still writing work." }, ...over });
+    recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The finished cities section, drafted when this was still writing work." }, ...over }));
   const incoming = (over: Partial<ChangeProposal> = {}) => prop({ id: CITIES, pagePath: "/cities", pageUrl: "https://fixture-content.example/cities",
     pageLabel: "Cities", primaryQuery: "cities of iran", changeFamily: "section", status: "needs_review", researchOnly: true,
     treatment: "technical_reachability", opportunityType: "Win an AI answer",

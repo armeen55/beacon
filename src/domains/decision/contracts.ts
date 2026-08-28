@@ -327,12 +327,10 @@ export type ChangeProposal = {
   redraftRequested?: string;
   /** THE RETIREMENT RECEIPT for finished copy a later pass genuinely replaced (operator, 2026-08-22): the exact words that were retired and the material fact that retired them, so a replacement is inspectable and never the silent loss of the only record of the finished version. Stamped only when finished copy is really discarded for a material change; a pass that merely reworded its own prose preserves the copy and stamps nothing. */
   previousCopy?: { after: string; retiredBecause: string; at: string };
-  /** WHAT A READER GAINS, in the evaluator's own sentence, banked so a stored body edit can be RE-READ for gain
-   *  rather than guessed at from whether some id is foreign (decision/proof's evidenceShortfall says why). */
-  informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean };
-  /** WHAT THIS REPLACEMENT DOES WITH EVERY MEANINGFUL UNIT OF THE PASSAGE IT REPLACES, stamped where the copy is
-   *  written, so preservation stops being a lexical guess (decision/proof's evidenceShortfall says why). */
-  preservation?: readonly { text: string; disposition: "kept" | "corrected" | "removed" | "moved"; why?: string; to?: string }[];
+  /** WHAT A READER GAINS, and WHAT THIS REPLACEMENT DOES WITH EVERY UNIT OF THE PASSAGE IT REPLACES. `of` is decision/proof's `copyKey`, THE EXACT WORDS THE RECEIPT WAS WRITTEN FOR: without it a receipt is about a job rather than a draft, and preservation handed copy A the receipt computed for copy B. `basis` is the typed reason a unit may go and `by` the facts carrying a correction, because a non-empty sentence is an explanation and never a proof; `to` must resolve to somewhere this same change writes. */
+  informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean; of?: string };
+  preservation?: readonly { text: string; disposition: "kept" | "corrected" | "removed" | "moved"; why?: string; to?: string; of?: string;
+    basis?: "duplicate_of" | "replaced_by" | "unsupported" | "obsolete" | "owner_confirmed"; by?: readonly string[] }[];
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
   publish: "manual";
   createdAt: string;
@@ -449,8 +447,9 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   approval: z.object({ by: z.string().min(1), at: z.string().min(1) }).optional(),
   redraftRequested: z.string().min(1).optional(),
   previousCopy: z.object({ after: z.string().min(1), retiredBecause: z.string().min(1), at: z.string().min(1) }).optional(),
-  informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional(),
-  preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), why: z.string().optional(), to: z.string().optional() })).optional(),
+  informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean(), of: z.string().optional() }).optional(),
+  preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), why: z.string().optional(), to: z.string().optional(), of: z.string().optional(),
+    basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).optional(),
   publish: z.literal("manual"),
   createdAt: z.string(),
 }) as z.ZodType<ChangeProposal>;

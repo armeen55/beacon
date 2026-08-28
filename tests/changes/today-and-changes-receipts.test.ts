@@ -28,7 +28,6 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   id: ID, kind: "existing_edit", pagePath: "/nowruz-guide", pageUrl: "https://site.example/nowruz-guide", pageLabel: "Nowruz guide",
   primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "needs_review",
   recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
-  // A bundle carrying a piece that moves or hides the page IS a high-risk change and can never sit in ready.
   whyItMatters: "This page lost 163 clicks last month.", estimatedEffortMinutes: 6, riskLevel: "high", confidence: "high",
   limitations: [], evidence: { query: "nowruz traditions", hints: ["1,200 impressions and 9 clicks for that search."], evidenceRefCount: 2 },
   impactScore: 163, upsidePerMonth: 210, tenantId: "t", basis: "basis_now::d4", publish: "manual", createdAt: "2026-07-31T00:00:00.000Z",
@@ -51,7 +50,6 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
   ...over,
 } as ChangeProposal);
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
-// SERVABLE BY THE ONE VERDICT: a ready-lane fixture must pass unsettledCause too, exactly as the release lanes it. A cannibalization finding on a title edit is an UNSETTLED split (a wording change settles nothing about which page owns the search), so the atomic ready card carries a cause its own lever treats.
 const atomic = (): ChangeProposal => proposal({ status: "ready", riskLevel: "low",
   causeFinding: { ...FINDING, cause: "ctr_snippet", action: "title", explanation: "The line Google shows misses the words people search for.", competingExplanations: [{ cause: "cannibalization", reason: "only one page of yours comes up for this search" }] }, diagnosisCause: "ctr_snippet",
   bundle: { ...proposal().bundle!, components: [proposal().bundle!.components[0]!] } });
@@ -87,7 +85,6 @@ describe("a card says why this opportunity and why these words, and never trades
     const ai = (stage: NonNullable<ChangeProposal["aiImpact"]>["stage"]) => proofOf(P({ primaryQuery: "basic Persian phrases", rankingReceipt: rank(true),
       aiImpact: { answers: 3, mentionRate: 0, citedRivals: 8, audienceWeight: 1011, days: 3, engines: 1, stage } })).ranksHere!;
     expect(ai("owned_retrieved_not_cited")).toBe('Assistants answered "basic Persian phrases" 3 times on 3 separate days, and assistants read this page and quoted somebody else.');
-    // NEVER REACHED is not READ AND PASSED OVER, and an engine that does not report its sources measured nothing.
     expect(ai("rivals_cited_own_not_retrieved")).toContain("never reached this page and quoted 8 other sites");
     const unreported = ai("citations_unreported");
     expect(unreported).toContain("do not report which sources they used");
@@ -98,15 +95,12 @@ describe("a card says why this opportunity and why these words, and never trades
       supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: adopted 1980." }, { id: "owned-page-1", fact: "/iran-flags: standardised under the Pahlavi era." }] }));
     expect(r.wording).toEqual([{ claim: "The flag changed in July 1980.", because: ["Wikipedia, Flag of Iran: adopted 1980."] },
       { claim: "The Lion and Sun is older.", because: ["/iran-flags: standardised under the Pahlavi era."] }]);
-    // A SOURCE PROVES ITS FACT, NEVER THE TRAFFIC: the demand figure never appears beside the words it did not write.
     expect(JSON.stringify(r.wording)).not.toContain("30,423");
-    // A named id nothing carries is dropped, never printed as a bare symbol.
     expect(proofOf(P({ claims: [{ text: "x", supportedBy: ["page-copy-9"] }], supportFacts: [] })).wording).toEqual([]); });
 
   it("page-only repair: explains the defect, invents no demand, and apologises for nothing", () => {
     const r = proofOf(P({ demandImpressions90d: null, impactScore: 4, primaryQuery: "/persian-rugs/kerman-rug factual accuracy",
       pagePath: "/persian-rugs/kerman-rug", causeFinding: undefined, rankingReceipt: rank(true) }));
-    // The synthetic label a correction is filed under is NOT a search, so it is never quoted as one.
     expect(r.ranksHere).toBe("About 4 clicks over 28 days are missing here. No cause is named for it yet, so this is the order to work in, not a promise about size.");
     expect(r.ranksHere!).not.toContain("factual accuracy"); });
 
@@ -114,7 +108,6 @@ describe("a card says why this opportunity and why these words, and never trades
     const r = proofOf(P({ demandImpressions90d: null, impactScore: null, aiImpact: undefined, causeFinding: undefined, rankingReceipt: undefined, evidence: undefined }));
     expect(r.ranksHere).toBeNull(); expect(r.wording).toEqual([]); expect(r.opportunity).toEqual([]);
     expect(r.limits).toEqual([]); expect(r.shape).toBeNull();
-    // A row with NO evidence at all can still honestly say where its words came from: the copy really does
     expect(r.queryEcho).toBe('"nowruz traditions" is the search already bringing people to this page, and the new wording uses it.');
     expect(proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Nothing relevant." } })).queryEcho).toBeNull(); });
 
@@ -133,7 +126,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(staleCopyReasons(P("Anzali sits beside the Caspian Sea and is Iran's busiest northern port." + long), new Map(), []).join(" ")).not.toContain("points at the page"); });
 
   it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
-    // The crawler fuses copy and controls into one chunk, so a span-sized rewrite can silently delete a
     const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
       claims: [{ text: "Persian statements.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],
       recommendedChange: { kind: "existing_edit", field: "section", before, after } } as ChangeProposal);
@@ -147,7 +139,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(staleCopyReasons(P("See https://x.example/a.", "Still see https://x.example/a."), new Map(), []).join(" ")).not.toContain("removes the link"); });
 
   it("Ready is one sequence, 1..N with no hidden-lane gaps, and Show more pages finished work only", async () => {
-    // The live queue numbered its finished cards 1, 5, 6, 7, 11, 14, 19: the stored global rank leaked through
     const mk = (n: number, lane: "ready" | "todo") => ({ ...atomic(), id: `t::/p${n}::existing_edit::title`, pagePath: `/p${n}`,
       ...(lane === "todo" ? { status: "needs_review" as const } : {}) } as ChangeProposal);
     const rows = [mk(1, "ready"), mk(2, "todo"), mk(3, "ready"), mk(4, "todo"), mk(5, "ready")];
@@ -159,7 +150,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(seq, "finished cards count themselves").toEqual(["1", "2", "3"]);
     expect(html).toContain("Show 25 more finished changes");
     expect(html, "internal work never shares the finished lane's pagination").not.toMatch(/Show \d+ more of/);
-    // At five hundred finished rows the sequence stays stable and complete.
     const many = Array.from({ length: 500 }, (_, i) => mk(i + 1, "ready"));
     const big = await renderList({ ...viewOf(many), summary: { todo: 0, ready: 500, research: 0, implemented: 0, measuring: 0, results: 0 } });
     const bigSeq = [...big.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => Number(m[1]));
@@ -168,23 +158,18 @@ describe("a card says why this opportunity and why these words, and never trades
 
   it("attention, treatment and wording are three separately earned answers, never one leap", async () => {
     const P = (over: Partial<ChangeProposal>) => ({ ...proposal(), status: "ready", bundle: undefined, claims: undefined, supportFacts: undefined, causeFinding: undefined, ...over } as ChangeProposal);
-    // Onager title: 8,112 impressions justify ATTENTION; with no results-page or winning-page reading, the
     const title = proofOf(P({ demandImpressions90d: 8112, impactScore: 74, primaryQuery: "onager" }));
     expect(title.whyAction).toBeNull(); expect(title.wordingBasis).toContain("not as proven better");
     expect(JSON.stringify(title)).not.toMatch(/proven best|better CTR|beats the/i);
-    // Iran flag meta: with a real results-page reading on file, the honesty line is not needed.
     const withSerp = proofOf(P({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "New description." },
       bundle: { ...proposal().bundle!, receipt: { items: [{ key: "k1", kind: "serp", fact: "The results page for this search leads with 1979.", observedAt: null }], missing: [], freshestObservedAt: null } } }));
     expect(withSerp.wordingBasis).toBeNull();
-    // Kerman typo: a factual correction's words stand on quotes, not on wording competition.
     expect(proofOf(P({ changeFamily: "factual_correction", recommendedChange: { kind: "existing_edit", field: "meta", before: "x ,", after: "x," } })).wordingBasis).toBeNull();
-    // A diagnosed cause names its treatment and its rejected alternative IN ITS OWN SENTENCE, slug never shown.
     const diagnosed = proofOf(P({ causeFinding: { ...FINDING, cause: "retrieved_not_cited", action: "section",
       explanation: "Assistants read this page and quote somebody else.", competingExplanations: [{ cause: "ctr_snippet", reason: "the line a searcher reads cannot fix an answer assistants never lift" }] } }));
     expect(diagnosed.whyAction).toBe("The diagnosis that named this cause also named the treatment: a section change.");
     expect(diagnosed.alternative).toContain("the line a searcher reads cannot fix");
     expect(diagnosed.alternative).not.toContain("ctr_snippet");
-    // A bundle's wording provenance is PER COMPONENT and never pooled across its receipt.
     const b = proofOf(P({ bundle: { ...proposal().bundle!, alternatives: [{ option: "Rewrite the title", reason: "it cannot fix two of your pages competing" }],
       components: [{ kind: "title", label: "Page title", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"], objective: "Say what this page answers." },
         { kind: "h1", label: "Heading", risk: "safe", before: "c", after: "d", evidenceKeys: ["k2"], objective: "Match the heading to it." }],
@@ -206,46 +191,34 @@ describe("a ranked card explains itself without being opened", () => {
   beforeEach(() => vi.clearAllMocks());
   it("shows the shape of the change, the exact action, effort, risk, evidence, and why it outranks the next one", async () => {
     const ready = await renderList(viewOf([atomic()])); // one component is one edit, never a bundle
-    // THE CHIP AND THE BUTTON NAME THE REAL OBJECT (operator contract, 2026-08-27): "One edit" and "Copy new
     for (const s of ["Replace title", "Copy title", "Mark done", "Skip"]) expect(ready, s).toContain(s);
-    // NEEDS_REVIEW NEVER WEARS READY'S CONTROLS. The lanes were merged into one flat list and the card offered Copy and Mark done on every row, so a change waiting on a human look presented as a paste-ready deliverable. It says everything it always said, in its own labelled area, with nothing to press.
     const held = await renderList(viewOf([proposal()]));
-    // A dangerous consolidation is complete work awaiting the operator's own authority: the ONE lane that is
     for (const s of ["2 edits together", "Settle which page owns that search", "High risk", "it wins back more of what you are losing", "Needs your decision", "What you are deciding", "moves or hides a page", "Page title", "Nowruz Traditions and the Haft-Seen Table", "Canonical tag", "Point /haft-seen at this page."]) expect(held, s).toContain(s);
     for (const s of ["Copy title", "Mark done", "Needs your review", "Why it is held", "A draft, not finished work"]) expect(held, s).not.toContain(s);
-    // "PROVEN" IS A CLAIM ABOUT EVIDENCE, NEVER ABOUT BEING FINISHED, and neither is a provenance GUESS: the chip that replaced `proven` read bundle receipt kinds alone, so on the live account five rows standing on a 90-day Google record and one standing on three assistant answers all said "Page-only" beside a sentence citing those very figures. The proof line names the evidence this row has, so no card wears a tier its own sentence contradicts.
     for (const s of ["Proven", "Page-only", "Source-backed", "Search-results-backed"]) expect(ready, s).not.toContain(s);
     expect(ready, "the row says what backs it").toContain("Why this ranks here:");
-    // AND A DRAFT BEACON'S OWN GATES ALREADY REFUSED IS BEACON'S PROBLEM, never the operator's: it renders only
     const bad = await renderList(viewOf([{ ...proposal(), limitations: ["it repeats what stays on the page below it, so a reader gets the same thing twice"] }]));
     expect(bad, "no card").not.toContain('data-change-card="true"');
     expect(bad, "background").toContain("Beacon is working on 1 more opportunity");
     for (const never of ["Beacon must improve", "it repeats what stays on the page below it", "Needs your decision"]) expect(bad, never).not.toContain(never);});
   it("every Ready card is impossible to misunderstand: action, target, current, new, location, untouched, named button", async () => {
-    // THE ZERO-INTERPRETATION CONTRACT (operator, 2026-08-27): at ten to thirty applied changes a day, "does
     const shape = (over: Partial<ChangeProposal>) => ({ ...atomic(), bundle: undefined, ...over } as ChangeProposal);
-    // 1. A title REPLACEMENT: old words shown struck through, new words beside a button naming the object.
     const title = await renderList(viewOf([shape({})]));
     for (const said of ["Replace title", "Copy title", "Nowruz", "Nowruz Traditions and the Haft-Seen Table", "Only the title tag changes. The heading and page text stay as they are."]) expect(title, said).toContain(said);
-    // 2. An ADDED section: no false absence claim, and the untouched line says nothing is deleted.
     const section = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The ranking is top heavy. Tehran holds 8,693,700 people.", where: "As the final paragraph of the lead, directly above the H2." } })]));
     for (const said of ["Add section", "Copy section", "Where it goes: As the final paragraph of the lead", "This adds new copy. Nothing on the page is deleted."]) expect(section, said).toContain(said);
     expect(section).not.toContain("There is no");
-    // 3. A description replacement names ITS object, never "section".
     const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
     for (const said of ["Replace description", "Copy description", "Only the description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
-    // 4. A multi-piece bundle is named by its size, never by one piece's family word: the live queue held a
     const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
     two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,
       { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };
     const bundled = await renderList(viewOf([two]));
     expect(bundled).toContain("2 edits together");
-    // A single edit's chip is verb plus object even when its id carries a family slug: "AI answer gap" told
     const fam = await renderList(viewOf([{ ...atomic(), id: "t::/basic-persian::existing_edit::ai_answer_gap",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A finished forty word answer block for this fixture, complete and pasteable, standing in for real copy that satisfies the section band by carrying enough words to pass every length check applied to it.", where: "After the intro." } } as ChangeProposal]));
     expect(fam).toContain("Add section"); expect(fam).not.toContain("AI answer gap");
-    // 5. A replaced passage: the untouched line bounds the blast radius.
     const passage = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "section", before: "Tehran is by far the biggest city.", after: "Cities like Yazd and Kerman are globally known.", where: "The paragraph immediately below the table." } })]));
     for (const said of ["Replace section", "Only this passage changes. Everything around it stays."]) expect(passage, said).toContain(said); });
 

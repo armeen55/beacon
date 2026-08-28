@@ -12,7 +12,6 @@ import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gat
 import { canonicalUrlKey, jobComparison, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 import type { ChangeProposal } from "./contracts";
-import { materialTokens, negated } from "./proof";
 import type { DraftResolution, EvidenceRequirement } from "./producers/contract";
 
 const GAIN_LINES = new Set<string>();
@@ -48,9 +47,9 @@ const subjectsOf = (text: string, headings: readonly string[]): Array<{ subject:
  *  tokens, or any number or date at all. */
 const claimsOf = (section: string): string[] => section.split(/(?<=[.!?])\s+|\n+/).map((t) => t.trim())
   .filter((t) => materialTokens(t).length >= 2 || /\d/.test(t));
-/** `materialTokens` and `negated` live in decision/proof now: the client-bundled Ready door judges preservation
- *  with the same two definitions this drafter does, and two copies of "did the meaning survive" would only wait
- *  to disagree. Imported rather than restated. */
+/** Content words AND every number whole, because a dropped "42" is how a figure stops being material; and whether a sentence says yes or no, because "X is safe" and "X is not safe" share every content token. They lived in decision/proof while the Ready door judged preservation lexically; that door may now only REFUSE on words and never authorize with them, so these are the drafter's own again. */
+const materialTokens = (t: string): string[] => [...new Set([...topicTokens(t), ...(t.toLowerCase().match(/\d[\d.,%°:-]*/g) ?? [])])];
+const negated = (t: string): boolean => /\b(?:not|never|no|none|cannot|isn't|aren't|won't|don't|doesn't|without)\b/i.test(t);
 /** WHAT A REPLACEMENT WOULD HAND THE READER TWICE, AND WHETHER IT COULD TAKE THOSE SECTIONS WITH IT.
  *  `repeats` is the subjects the PAGE declares that still stand below this copy and that this copy names again, asked of
  *  the subject and never of the wording, because a subject does not paraphrase and punctuation is not structure.
