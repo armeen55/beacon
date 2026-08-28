@@ -219,8 +219,7 @@ describe("a change the operator implemented busts that page's freshness", () => 
     ROWS.push({ id: "home", page: "https://own.com/", path: "/", implementedAt: "2026-07-30T09:00:00Z" });
     expect(await shipmentBustedAt(T, "https://own.com/")).toBe("2026-07-30T09:00:00Z"); expect(await shipmentBustedAt(T, URL_)).toBeNull();
     ROWS.push({ id: "guide", page: "https://own.com/guide", path: "/guide", implementedAt: "2026-07-30T09:00:00Z" });
-    expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull();
-  });
+    expect(await shipmentBustedAt(T, "https://own.com/nowruz-guide")).toBeNull(); });
   it("forces a re-read of a body that is still inside its freshness window but older than the change", async () => {
     const bodyReadAt = new Date(NOW - DAY).toISOString(), busted = new Date(NOW - DAY / 2).toISOString();
     expect(isCurrent("owned_page", bodyReadAt, NOW)).toBe(true); // a day old, well inside the weekly window

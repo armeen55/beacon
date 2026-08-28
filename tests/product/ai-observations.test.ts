@@ -249,8 +249,7 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url))
       .toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url)) // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
-      .toEqual(["https://acme.com/guide", "https://rival.example/a"]);
-  });
+      .toEqual(["https://acme.com/guide", "https://rival.example/a"]); });
   it("decodes a row stored before this rule as the raw list it always was, subtracted once and never twice", async () => {
     const pair = { promptId: "q1", engine: "chatgpt", cacheKey: null, status: "done",
       citations: [at(MINE)], retrievedResults: [at(MINE), at("https://rival.example/a")] } as FunnelPair;

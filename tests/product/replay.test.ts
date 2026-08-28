@@ -231,5 +231,4 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const seeded = await drive(evidence, 1, [], prior.store);
     expect([seeded.res.paid.readyShortfall, seeded.landed.length]).toEqual([0, 2]); // one confirmed, one NEW landing, and the shortfall was filled by the new work
     expect(seeded.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the confirm did not close the day; the pass walked on and bought the owed page
-  });
-});
+  }); });

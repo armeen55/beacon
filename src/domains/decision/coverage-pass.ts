@@ -1,16 +1,6 @@
 import "server-only";
 
-/**
- * decision/coverage-pass: ONE ranked walk over every subject this account has a stake in, and the ONLY reading
- * of it any step gets. coverage-adjudication answers "does this account already have the right page?" for ONE
- * topic; this file decides WHICH topics get asked, in what order, with which evidence, and hands back both
- * halves of the answer: the highest-ranked topic that reached a real verdict, and what the rest is stuck on.
- *
- * ONE INTERPRETATION, TWO CONSUMERS. Runtime buys evidence off this pass and proposal production acts off the
- * same pass, so a run can never pay for one topic's comparison while a different topic is judged. A comparison
- * is matched to the topic that OWNS it and to the exact ask that bought it, under the account's current basis.
- *
- * $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. The owed page is NAMED as plain data, and its stored body, or the stored reason it is unread, is READ. Nothing else. */
+/** decision/coverage-pass: ONE ranked walk over every subject this account has a stake in, and the ONLY reading of it any step gets. coverage-adjudication answers "does this account already have the right page?" for ONE topic; this file decides WHICH topics get asked, in what order, with which evidence, and hands back both halves of the answer: the highest-ranked topic that reached a real verdict, and what the rest is stuck on. ONE INTERPRETATION, TWO CONSUMERS. Runtime buys evidence off this pass and proposal production acts off the same pass, so a run can never pay for one topic's comparison while a different topic is judged. A comparison is matched to the topic that OWNS it and to the exact ask that bought it, under the account's current basis. $0 AND $0 OF THE WEB: no model runs, no provider is paid and NO WEBSITE IS FETCHED. The owed page is NAMED as plain data, and its stored body, or the stored reason it is unread, is READ. Nothing else. */
 
 import type { BusinessProfile } from "@/domains/account";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -45,12 +35,7 @@ const MAX_NEEDS = 200;
 /** Passes a search has to survive, or answers that have to credit somebody else, before it earns the walk. */
 const MIN_PASSES = 2, MIN_CITING_ANSWERS = 3;
 
-/**
- * PURE: has this banked search earned a page of its own being CONSIDERED? Never a page: it earns entry to the
- * ranked walk, where the ordinary ladder decides. Recurrence is the claim (the same search coming back across
- * passes, or several stored answers handing it to somebody else), and a refusal is the proof that no page of
- * this account fits: the producers record one only when pages DID share the words and every one was refused.
- */
+/** PURE: has this banked search earned a page of its own being CONSIDERED? Never a page: it earns entry to the ranked walk, where the ordinary ladder decides. Recurrence is the claim (the same search coming back across passes, or several stored answers handing it to somebody else), and a refusal is the proof that no page of this account fits: the producers record one only when pages DID share the words and every one was refused. */
 export function earnsOwnPage(need: Pick<CoverageNeed, "passes" | "refusedPages">, citingAnswers: number): boolean {
   return (need.passes >= MIN_PASSES || citingAnswers >= MIN_CITING_ANSWERS) && need.refusedPages.length > 0;
 }
@@ -111,12 +96,7 @@ async function promotedNeeds(tenantId: string, snapshot: EvidenceSnapshot): Prom
  *  queued behind work that has barely started. Two read pages is the bar the page brief itself is written at. */
 const settled = (i: TopicInvestigation): number => (i.currentReadableWinners >= 2 ? 1 : 0);
 
-/** THE order every step reads. A subject one purchase from a verdict comes first, and then WHAT A PAGE OF
- *  YOURS STANDS TO WIN BACK: a search one of your own pages is already losing clicks on outranks a phrase with
- *  300,000 searches you own no page for, whatever the volume says, because volume nobody of yours competes for
- *  is somebody else's business. Then fewest missing pieces, then demand, then the stable key, so the same
- *  evidence always advances the SAME topic whether it is being bought for, compared or judged. Research, never
- *  work. */
+/** THE order every step reads. A subject one purchase from a verdict comes first, and then WHAT A PAGE OF YOURS STANDS TO WIN BACK: a search one of your own pages is already losing clicks on outranks a phrase with 300,000 searches you own no page for, whatever the volume says, because volume nobody of yours competes for is somebody else's business. Then fewest missing pieces, then demand, then the stable key, so the same evidence always advances the SAME topic whether it is being bought for, compared or judged. Research, never work. */
 export function rankInvestigations(investigations: readonly TopicInvestigation[],
   worth: (inv: TopicInvestigation) => number = () => 0): TopicInvestigation[] {
   return [...investigations].sort((a, b) => settled(b) - settled(a) || worth(b) - worth(a)
@@ -156,12 +136,7 @@ const BARE = { aliasKeys: [], demandBasis: "search" as const, groupedBy: [], key
   pageTypeVotes: [], serpCoherence: "unknown" as const, winners: [], distinctWinners: 0, currentReadableWinners: 0, diminishing: false,
   demand: { monthlySearchVolume: null, queriesWithVolume: 0, gscImpressions: null, difficulty: null, intent: null, trackedPrompts: 0, fanOuts: 0, engines: [] } };
 
-/** EVERY SUBJECT THIS PASS MAY WALK: what the evidence proves I investigated, PLUS one subject per page of the
- *  account's own that is measurably losing clicks on a search no case covers yet. A page of yours falling IS a
- *  subject, whether or not I have ever bought a results page for it, and without this it could never enter a
- *  plan at all: that is how 22 declining pages sat in Watching for ever while unowned volume held every slot.
- *  Nothing is invented. The query, the views and the position are the account's own rows, and every piece I do
- *  not hold is named as missing rather than filled in. */
+/** EVERY SUBJECT THIS PASS MAY WALK: what the evidence proves I investigated, PLUS one subject per page of the account's own that is measurably losing clicks on a search no case covers yet. A page of yours falling IS a subject, whether or not I have ever bought a results page for it, and without this it could never enter a plan at all: that is how 22 declining pages sat in Watching for ever while unowned volume held every slot. Nothing is invented. The query, the views and the position are the account's own rows, and every piece I do not hold is named as missing rather than filled in. */
 function topicsFor(snapshot: EvidenceSnapshot, promoted: readonly string[] = []): TopicInvestigation[] {
   const built = buildTopicInvestigations(snapshot);
   const covered = new Set(built.flatMap((i) => i.queries.map((q) => canonicalQueryKey(q))));
@@ -259,12 +234,7 @@ function storedComparisonFor(snapshot: EvidenceSnapshot, inv: TopicInvestigation
   return held?.comparison ?? (held?.unavailable ? { unavailable: held.unavailable } : null);
 }
 
-/**
- * ONE RANKED PASS over every subject this account has a stake in, and the ONLY reading of it any step gets. It
- * adjudicates every topic in the same order, gives each one the comparison IT owns, and returns both halves of
- * the answer: the highest-ranked topic that reached a real verdict, and what the rest is still stuck on. The
- * topic that OWNS a comparison is the topic judged with it, and a comparison whose basis, topic or exact ask has drifted is refused. $0: no model runs and no provider is paid.
- */
+/** ONE RANKED PASS over every subject this account has a stake in, and the ONLY reading of it any step gets. It adjudicates every topic in the same order, gives each one the comparison IT owns, and returns both halves of the answer: the highest-ranked topic that reached a real verdict, and what the rest is still stuck on. The topic that OWNS a comparison is the topic judged with it, and a comparison whose basis, topic or exact ask has drifted is refused. $0: no model runs and no provider is paid. */
 /** The verdicts that can still become work an operator does. `do_nothing` is a finished
  *  answer, not one of them. */
 const ACTS = new Set<CoverageVerdict>(["create_new", "improve_existing", "consolidate_or_choose"]);
@@ -334,12 +304,7 @@ export async function readCoverage(snapshot: EvidenceSnapshot, tenantId: string,
     const retryAfter = decision.hold ?? null;
     if (retryAfter && (waitingUntil == null || retryAfter < waitingUntil)) waitingUntil = retryAfter;
     const owedBody = decision.missing[0] === "owned_content";
-    // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING: a body I owe and a page I am waiting on cost no
-    // search, but they still enter the run's frozen plan, which is what the paid comparison's drift guard reads.
-    // NOTHING LEFT TO BUY RELEASES THE SLOT, and A SEARCH IS SOMETHING LEFT TO BUY. `diminishing` is computed
-    // against the WINNER window, so between days 8 and 30 after a look a fully researched topic asks for a fresh
-    // results page and still reads as diminishing; releasing it there dropped the exact class that ranks first.
-    // The release is for a topic NO purchase can move: no search, no comparison, no page of my own owed, no date I promised. That is the mixed-meaning shape it was written for and nothing else.
+    // EVERY QUEUED NEED COUNTS AGAINST THE SAME CEILING: a body I owe and a page I am waiting on cost no search, but they still enter the run's frozen plan, which is what the paid comparison's drift guard reads. NOTHING LEFT TO BUY RELEASES THE SLOT, and A SEARCH IS SOMETHING LEFT TO BUY. `diminishing` is computed against the WINNER window, so between days 8 and 30 after a look a fully researched topic asks for a fresh results page and still reads as diminishing; releasing it there dropped the exact class that ranks first. The release is for a topic NO purchase can move: no search, no comparison, no page of my own owed, no date I promised. That is the mixed-meaning shape it was written for and nothing else.
     if (inv.diminishing && !query && !comparison && !owedBody && !retryAfter) continue;
     if (query ? queries >= max || seen.has(query.toLowerCase()) : (!comparison && !retryAfter && !owedBody) || queries >= max) continue;
     seen.add(query.toLowerCase()); queries += 1;

@@ -72,52 +72,68 @@ describe("every material search the assistants ran terminates somewhere a person
     const other = resolveFanoutCase(rowOf(recurring({ fanOutQueries: ["haft seen set prices"] })));
     expect(a.caseKey).toBe(b.caseKey); // a capital letter and a question mark are the SAME search
     expect(a.caseKey).not.toBe(other.caseKey);});});
-/** THE CARD SAYS WHAT HAPPENED; ONLY THE DIAGNOSIS SAYS WHAT THE PAGE LACKS (operator, 2026-08-28). caseCopy derives stage-honest headlines and steps; gateOf turns a banked or freshly ruled diagnosis into the one treatment it supports, and an unruled case keeps its card without hiring the writer. diagnoseGap validates the reader hard: only supplied ids, absence only against a complete page, scatter only across separate passages, reachability never without technical evidence. */
+/** THE CARD SAYS WHAT HAPPENED; ONLY THE DIAGNOSIS SAYS WHAT THE PAGE LACKS (operator, 2026-08-28). caseCopy derives stage-honest headlines; gateOf turns a diagnosis into the one treatment it supports and names NO treatment without one; diagnoseGap binds the exact packet, funds every uncached attempt from the pass's own purse, and refuses a claim the packet cannot carry. */
 describe("stage copy is honest and the diagnosis owns the treatment", () => {
   const { caseCopy, intentOf, readableSubject, gateOf } = AI_CASE_COPY;
   const standing = (over: Partial<Parameters<typeof caseCopy>[0]> = {}): Parameters<typeof caseCopy>[0] => ({ quoted: '"What animals live in Iran?"', path: "/iran-animals", intent: intentOf("What animals live in Iran?"), stage: "owned_retrieved_not_cited", domain: "rival.example", ...over });
   it("no case card carries a content strategy, a reading overclaim, or a raw fan-out as the thing to answer", () => {
     const rugs = caseCopy(standing({ quoted: '"What are Persian rugs known for?"', path: "/persian-rugs" }));
-    for (const c of [caseCopy(standing()), rugs]) expect(`${c.headline} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every|liftable/i);
-    expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples"); // the shape rides the drafter seam by intent, never a topic recipe
+    for (const c of [caseCopy(standing()), rugs]) expect(`${c.headline} ${c.steps.join(" ")}`).not.toMatch(/English meaning|more formal|every expression|pair every|liftable|lift whole/i);
+    expect(intentOf("What are basic Persian phrases for beginners?")).toBe("examples");
     expect(readableSubject("funny Persian idioms phrases examples")).toBe("funny Persian idioms phrases");
-    expect(caseCopy(standing({ stage: "own_not_in_reported_sources" })).headline).not.toMatch(/\bread\b|passed over|opened/i); }); // no reading claim where reading is not reported
-  const dx = (over: Record<string, unknown> = {}) => ({ kind: "already_answered", treatment: null, explanation: "The page lists every item with its meaning.", ownedIds: ["own-1"], evidenceIds: [], contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z", ...over }) as never;
-  it("a refusing diagnosis mints no card, an authorizing one names the treatment, and an unruled case never hires", () => {
-    const answered = gateOf(dx(), "rewrite_existing_section", false);
-    expect([answered.emit, (answered as { state: string }).state, (answered as { reason: string }).reason]).toEqual([false, "monitoring", expect.stringContaining("already answers this question")]);
-    expect(gateOf(dx({ kind: "unknown" }), "add_answer_section", false)).toMatchObject({ emit: false, reason: expect.stringContaining("no content change is authorized yet") });
-    expect(gateOf(dx({ kind: "authority_or_source_gap", evidenceIds: ["ans-1"] }), "add_answer_section", false)).toMatchObject({ emit: false, reason: expect.stringContaining("no generic copy is ordered") }); // same information, stronger rival: never an answer block
-    const scattered = gateOf(dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-1", "own-4"] }), "add_answer_section", false);
+    expect(caseCopy(standing({ stage: "own_not_in_reported_sources" })).headline).not.toMatch(/\bread\b|passed over|opened/i); });
+  const dx = (over: Record<string, unknown> = {}) => ({ kind: "already_answered", treatment: null, explanation: "The page lists every item with its meaning.", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z", ...over }) as never;
+  it("a refusing diagnosis mints no card, scatter hires on its own passages, missing information never hires, and an unruled case names no treatment at all", () => {
+    expect(gateOf(dx())).toMatchObject({ emit: false, state: "monitoring", reason: expect.stringContaining("already answers this question") });
+    expect(gateOf(dx({ kind: "unknown" }))).toMatchObject({ emit: false, reason: expect.stringContaining("no content change is authorized yet") });
+    expect(gateOf(dx({ kind: "authority_or_source_gap", evidenceIds: ["ans-1"] }))).toMatchObject({ emit: false, reason: expect.stringContaining("no generic copy is ordered") });
+    const scattered = gateOf(dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-1", "own-4"] }));
     expect(scattered).toMatchObject({ emit: true, hire: true, treatment: "rewrite_existing_section", work: expect.stringContaining("structural synthesis of the page's own material") });
-    expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the work brief
-    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the festival's date rule" }), "add_answer_section", false)).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") }); // rival text stays briefing; acquisition first
-    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }), "add_answer_section", true)).toMatchObject({ emit: true, hire: true });
-    expect(gateOf(null, "rewrite_existing_section", false)).toMatchObject({ emit: true, hire: false, work: expect.stringContaining("no copy is ordered") }); }); }); // unruled: the card stays, the writer is never hired
-/** THE READER IS VALIDATED HARD AFTER IT ANSWERS, and an unruled reader moves nothing. */
-describe("the gap reader's answer is checked, never trusted", () => {
-  const { diagnoseGap } = AI_CASE_COPY;
+    expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the brief
+    // MISSING INFORMATION NEVER HIRES: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it.
+    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
+    expect(gateOf(null)).toMatchObject({ emit: true, hire: false, treatment: null, work: expect.stringContaining("no copy is ordered") }); }); });
+/** THE READER'S ANSWER IS CHECKED, ITS PACKET IS THE IDENTITY, AND EVERY UNCACHED ATTEMPT IS FUNDED. */
+describe("the gap reader is exact, fail-closed and metered", () => {
+  const { diagnoseGap, aeoMeter } = AI_CASE_COPY;
   const NOW = new Date("2026-08-28T00:00:00.000Z");
-  const page = (over: Record<string, unknown> = {}) => ({ passages: ["The seven items and their meanings, listed."], faqs: [{ question: "What is it?", answer: "The table." }], completeness: "complete", contentHash: "h1", ...over });
-  const ask = (banked?: unknown) => diagnoseGap({ tenantId: "t", query: "what is on the table", stage: "owned_retrieved_not_cited", pageUrl: "https://own.example/haft-seen", observationIds: ["o1"], passages: ["rival passage"], banked: banked as never, persist: true, now: NOW });
+  const page = (over: Record<string, unknown> = {}) => ({ passages: ["The seven items and their meanings, listed.", "A second passage about the table."], faqs: [{ question: "What is it?", answer: "The table." }], completeness: "complete", contentHash: "h1", ...over });
+  const ask = (over: Record<string, unknown> = {}) => diagnoseGap({ tenantId: "t", caseKey: "prompt:p1", query: "what is on the table", stage: "owned_retrieved_not_cited", pageUrl: "https://own.example/haft-seen", observationIds: ["o1"], passages: ["rival passage"], meter: aeoMeter(9), persist: true, now: NOW, ...over } as never);
   const drafted = (v: Record<string, unknown>) => ({ status: "drafted", value: { ownedIds: [], evidenceIds: [], missing: "", explanation: "e", ...v } });
-  it("only supplied ids rule, absence needs a complete page, scatter needs separate passages, and reachability needs technical evidence", async () => {
-    net.body = page();
-    net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] });
+  it("refuses ids nobody supplied, thin scatter, and every claim the packet cannot carry", async () => {
+    net.body = page(); net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] });
     expect(await ask(), "an id nobody supplied rules nothing").toBeNull();
     net.answer = drafted({ kind: "scattered_answer", ownedIds: ["own-1"] });
     expect(await ask(), "one passage is not scatter").toBeNull();
-    net.body = page({ completeness: "sample_only" });
-    net.answer = drafted({ kind: "missing_information", evidenceIds: ["ans-1"], missing: "the date rule" });
-    expect((await ask())!, "absence against a sample degrades to unknown with the recrawl owed").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("incomplete") });
-    net.body = page();
-    net.answer = drafted({ kind: "reachability_gap" });
+    net.body = page({ completeness: "sample_only" }); net.answer = drafted({ kind: "missing_information", evidenceIds: ["ans-1"], missing: "the 1979 rule" });
+    expect((await ask())!, "absence against a sample degrades to unknown").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("incomplete") });
+    net.body = page(); net.answer = drafted({ kind: "reachability_gap" });
     expect((await ask())!, "no technical evidence, no reachability diagnosis").toMatchObject({ kind: "unknown", treatment: null });
+    net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the rival is newer" });
+    expect((await ask())!, "freshness needs a dated conflict, not a sentence").toMatchObject({ kind: "unknown", limitation: expect.stringContaining("dated conflict") });
+    for (const kind of ["missing_information", "authority_or_source_gap", "freshness_gap"]) { // a fan-out packet carries no credited passage, so nothing outside the page is in evidence
+      net.answer = drafted({ kind, evidenceIds: [], missing: "the 1979 rule" });
+      expect((await ask({ passages: [] }))!, `${kind} without a credited passage`).toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("no credited passage") }); }
     net.answer = { status: "refused" };
     expect(await ask(), "an unruled reader moves nothing").toBeNull(); });
-  it("a fresh banked reading is served without a call, and a stale one is re-earned", async () => {
-    net.body = page(); net.calls = 0;
-    const banked = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], contentHash: "h1", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-27T00:00:00.000Z" };
-    expect([(await ask(banked))!.kind, net.calls], "fresh: served, nothing bought").toEqual(["already_answered", 0]);
-    net.answer = drafted({ kind: "already_answered", ownedIds: ["own-1"] });
-    expect([(await ask({ ...banked, contentHash: "OLD" }))!.decidedAt, net.calls], "the page moved: re-earned through the reader").toEqual([NOW.toISOString(), 1]); }); });
+  it("binds the exact packet, funds every uncached attempt, and buys nothing unfunded", async () => {
+    net.body = page(); net.answer = drafted({ kind: "already_answered", ownedIds: ["own-1"] }); net.calls = 0;
+    const first = (await ask())!; expect(net.calls).toBe(1);
+    expect([(await ask({ banked: first }))!.decidedAt, net.calls], "the same packet is served from the bank and buys nothing").toEqual([first.decidedAt, 1]);
+    for (const [what, over] of [["an observation removed", { observationIds: [] }], ["an observation added", { observationIds: ["o1", "o2"] }], ["a changed credited passage", { passages: ["a different rival passage"] }], ["a different question", { query: "something else" }]] as const) {
+      net.calls = 0;
+      expect((await ask({ banked: first, ...over }))!.packet, what).not.toBe(first.packet);
+      expect(net.calls, `${what} was re-earned`).toBe(1); }
+    net.calls = 0;
+    expect((await ask({ banked: { ...first, contentHash: "OLD", packet: "OLD" } }))!.decidedAt, "a moved page body is re-earned").toBe(NOW.toISOString());
+    const meter = aeoMeter(5); net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] }); // every one refuses
+    for (let i = 0; i < 5; i += 1) expect(await ask({ meter, query: `q${i}` })).toBeNull();
+    net.calls = 0;
+    expect(await ask({ meter, query: "the sixth" }), "unfunded: not bought").toBeNull();
+    expect([net.calls, meter.spent()], "no sixth call however many refused, and the receipt says what the pass spent").toEqual([0, { funded: 5, attempted: 5, cached: 0, left: 0 }]);
+    const cachedMeter = aeoMeter(2); net.calls = 0;
+    net.answer = { status: "drafted", cached: true, value: { kind: "already_answered", ownedIds: ["own-1"], evidenceIds: [], missing: "", explanation: "e" } };
+    await ask({ meter: cachedMeter, query: "cached one" });
+    expect(cachedMeter.spent(), "a cache hit reached no provider, so it costs no unit").toMatchObject({ attempted: 0, cached: 1, left: 2 });
+    net.calls = 0; net.answer = drafted({ kind: "already_answered", ownedIds: ["own-1"] });
+    expect([await ask({ meter: aeoMeter(0), query: "unfunded" }), net.calls], "zero funded is zero bought").toEqual([null, 0]); }); });

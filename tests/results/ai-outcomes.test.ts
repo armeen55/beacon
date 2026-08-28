@@ -449,8 +449,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.after.checked).toBe(0);              // and the days before it were NOT quietly promoted to a baseline
     expect(outcome?.terminal).toBe(true); // Not measurable is terminal, never "reading" forever
     expect(outcome?.line).toBe("Not measurable: where the AI answers stood when this was marked done was not on file, so what happened since cannot be read as a direction, and a starting point is never rebuilt after the fact. The change itself is recorded.");
-  });
-});
+  }); });
 /** BEING READ AND PASSED OVER IS A BAD RATE (reviewer, 2026-08-19): every rising rate read as an improvement, so a page read MORE often and credited elsewhere MORE often came back flat on the one objective raised to stop exactly that. The whole table is here, because a sign error hides in the combination nobody wrote. */
 describe("a conversion objective is graded on both halves, each on its own polarity", () => {
   const NOW = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z", RIVAL = "rival.example"; // The mature clock: a verdict lands at day 28 and not before (Codex, 2026-08-21).
@@ -491,8 +490,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     ["neither half reported by any answer is unreadable, never a verdict", before(1, 1), [SILENT, SILENT, SILENT, SILENT], "unclear"],
   ];
   it.each(CASES)("%s", async (_label, held, shapes, direction) => {
-    expect((await judged(held, shapes))?.direction).toBe(direction);
-  });
+    expect((await judged(held, shapes))?.direction).toBe(direction); });
   it("says out loud that being passed over rose, on the numbers, instead of reporting no change", async () => {
     const outcome = await judged(before(1, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE]);
     expect([outcome?.citations.before.rate, outcome?.citations.after.rate]).toEqual([0.25, 0.25]); // Credited on exactly the share it started at, and passed over on two thirds of the answers that read the page, up from a quarter.
@@ -506,9 +504,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: started,
       aiScope: { promptIds: ["p1"], engines: [], fanouts: [], stage: "rivals_cited_own_not_retrieved" } },
     { readObservations: reader(since([CREDITED, CREDITED, PASSED_OVER, PASSED_OVER])), now: NOW });
-    expect([outcome?.objective, outcome?.retrieval.after.rate, outcome?.direction]).toEqual(["ai_retrieval", 1, "improved"]);
-  });
-});
+    expect([outcome?.objective, outcome?.retrieval.after.rate, outcome?.direction]).toEqual(["ai_retrieval", 1, "improved"]); }); });
 /** THE CONTROLS ARE THE ACCOUNT'S OWN UNAFFECTED QUESTIONS (Codex, 2026-08-21), never bought: their drift comes off the verdict, and two assistants that disagree come back split, never averaged. */
 describe("controls and per-assistant verdicts", () => {
   const NOW28 = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
@@ -530,22 +526,18 @@ describe("controls and per-assistant verdicts", () => {
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
     expect([outcome?.controls?.questions, outcome?.controls?.mentionDrift]).toEqual([2, 0.75]);
     expect(outcome?.direction).toBe("no_clear_movement"); // the drift ate the whole rise
-    expect(outcome?.line).toContain("their movement is subtracted before anything is called");
-  });
+    expect(outcome?.line).toContain("their movement is subtracted before anything is called"); });
   it("calls the same rise a win when the unaffected questions held still", async () => {
     const outcome = await judge([
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0)]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, i === 0)])]);
-    expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]);
-  });
+    expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]); });
   it("reports a split when two assistants genuinely disagree, never an average", async () => {
     const outcome = await judge([ // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both adequately sampled, and the one honest overall answer is that they split.
       ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
       ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);
     expect(outcome?.direction).toBe("mixed"); expect(new Set(outcome?.perEngine.map((e) => e.direction))).toEqual(new Set(["improved", "worsened"]));
-    expect(outcome?.line).toContain("The assistants disagree");
-  });
-});
+    expect(outcome?.line).toContain("The assistants disagree"); }); });
 /** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on. Membership is what it must cover; write order is not membership. */
 describe("the identity of the scope a baseline was frozen over", () => {
   const DAY = "2026-07-20";
@@ -565,6 +557,4 @@ describe("the identity of the scope a baseline was frozen over", () => {
   });
   it("never changes when a list is merely written in another order", async () => {
     expect(await print({ promptIds: ["p2", "p1"], promptVersions: [2, 1], engines: ["gemini", "chatgpt"], models: ["gpt-5.5", "gpt-5"],
-      modes: ["consumer_search", "api"], fanouts: ["beta search", "alpha search"], observationIds: ["obs-b", "obs-a"] })).toBe(await print());
-  });
-});
+      modes: ["consumer_search", "api"], fanouts: ["beta search", "alpha search"], observationIds: ["obs-b", "obs-a"] })).toBe(await print()); }); });

@@ -55,8 +55,7 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     // The durable store comes back with newer rows: the stale copy is replaced.
     age(31_000); durable.fail = false; durable.rows = B;
     expect(await readStore(STORE, [], { tenantId: "t-one" }), "a successful refresh replaces the stale rows").toEqual(B);
-    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(B);
-  });
+    expect(await readStore(STORE, [], { tenantId: "t-one" })).toEqual(B); });
 
   it("never hands one tenant another tenant's rows, and a cold missing store still gets its fallback", async () => {
     durable.rows = [{ release: "A" }];
@@ -69,6 +68,4 @@ describe("a mirrored store refreshes, and a failed refresh keeps the last known 
     // COLD AND UNAVAILABLE stays fail-closed: the fallback, never fabricated rows; and the module exports no test clock, the fake timers above being the seam.
     durable.fail = "PGRST205";
     expect(await readStore(STORE, [{ release: "cold" }], { tenantId: "t-five" }), "a cold error falls back").toEqual([{ release: "cold" }]);
-    expect((await import("@/lib/persistence/json-store") as Record<string, unknown>).__setStoreClock, "no public clock seam").toBeUndefined();
-  });
-});
+    expect((await import("@/lib/persistence/json-store") as Record<string, unknown>).__setStoreClock, "no public clock seam").toBeUndefined(); }); });

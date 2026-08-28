@@ -39,13 +39,10 @@ describe("Update data is a true $0 refresh", () => {
     expect([CALLS.extraSample, CALLS.warm >= 2, first.results.length > 0, second.results.length > 0]).toEqual([0, true, true, true]);
     const line = first.results.find((r) => r.provider === "beacon_research");
     expect(line?.detail, "the press says what it did: stored truth at no cost").toContain("no cost");
-    expect(line?.detail).not.toContain("reading");
-  });
+    expect(line?.detail).not.toContain("reading"); });
   it("still repaints from stored evidence when nothing is connected, and reports connector truth when one is", async () => {
     CALLS.connected = true;
     const res = await refreshAllConnectedDataNow();
     expect(CALLS.synced, "connected sources sync").toBeGreaterThan(0);
     expect(CALLS.extraSample, "and connected changes nothing about spend").toBe(0);
-    expect(res.results.some((r) => r.provider === "beacon_research"), "no native line when real connectors answered").toBe(false);
-  });
-});
+    expect(res.results.some((r) => r.provider === "beacon_research"), "no native line when real connectors answered").toBe(false); }); });

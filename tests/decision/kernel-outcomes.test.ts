@@ -847,5 +847,4 @@ describe("the unruled review pass", () => {
     reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards;
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
     expect(env.store.get(mint().id)?.status).toBe("needs_review");
-    fenv.cards = null; fenv.review = null; });
-});
+    fenv.cards = null; fenv.review = null; }); });

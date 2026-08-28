@@ -1,23 +1,4 @@
-/**
- * decision/validate-proposal (CORE 100K decision kernel): the ONE validator every ChangeProposal passes through before it can be shown as
- * actionable. It composes the existing, battle-tested safety gates into a single verdict, so there is exactly one place that decides "is this draft safe to put in front of a paying operator":
- *
- *   - draft-quality.ts (evaluateTitleMetaQuality)
- *     covers generic/thin/off-topic/relevance/missing-source/source-authority.
- *   - factual-entailment.ts (checkFactualEntailment): an invented number or
- *     entity with no grounding is a VIOLATION and rejects the draft; a dated,
- *     sourced contradiction of the page is an allowed CORRECTION (surfaced, not
- *     blocked).
- *   - placeholder-detection.ts (looksLikePlaceholder): "[insert X]" / lorem.
- *   - copy-sanitize.ts (containsUuid, plus the SHARED host, autopublish and written-out
- *     proportion nets this file used to keep a smaller private copy of: it knew thirteen public
- *     suffixes where the drafter knew thirty-three, so an invented .wiki address passed both).
- *   - dash ban: no em or en dash ever reaches operator-facing copy.
- *   - destructive-change guard: an "edit" that guts the current value (empties
- *     it or truncates it to a fraction) is never presented as a safe rewrite.
- *
- * The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O.
- */
+/** decision/validate-proposal (CORE 100K decision kernel): the ONE validator every ChangeProposal passes through before it can be shown as actionable. It composes the existing, battle-tested safety gates into a single verdict, so there is exactly one place that decides "is this draft safe to put in front of a paying operator": - draft-quality.ts (evaluateTitleMetaQuality) covers generic/thin/off-topic/relevance/missing-source/source-authority. - factual-entailment.ts (checkFactualEntailment): an invented number or entity with no grounding is a VIOLATION and rejects the draft; a dated, sourced contradiction of the page is an allowed CORRECTION (surfaced, not blocked). - placeholder-detection.ts (looksLikePlaceholder): "[insert X]" / lorem. - copy-sanitize.ts (containsUuid, plus the SHARED host, autopublish and written-out proportion nets this file used to keep a smaller private copy of: it knew thirteen public suffixes where the drafter knew thirty-three, so an invented .wiki address passed both). - dash ban: no em or en dash ever reaches operator-facing copy. - destructive-change guard: an "edit" that guts the current value (empties it or truncates it to a fraction) is never presented as a safe rewrite. The verdict is the ONE answer: `ready` and `needs_review` are the stages a draft may earn, and `rejected` earns none at all, so that draft is withdrawn rather than staged. PURE, no I/O. */
 
 import { CURRENT_CLAIM } from "@/lib/constants";
 import {
@@ -134,14 +115,7 @@ const newestReading = (items: readonly { observedAt: string | null }[]): number 
   return read.length > 0 ? Math.max(...read) : null;
 };
 
-/**
- * IS THIS CHANGE STANDING ON COLD READINGS? PER COMPONENT, because a receipt is mixed by design and the whole
- * receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A
- * component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is only as fresh as its coldest component, because the operator applies all of them together.
- *
- * A proposal with NO BUNDLE has no receipt to read, so it ages on ITS OWN CLOCK: it was drafted from evidence
- * that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at all, which left an atomic change Ready forever on a profile nobody had edited.
- */
+/** IS THIS CHANGE STANDING ON COLD READINGS? PER COMPONENT, because a receipt is mixed by design and the whole receipt's freshest date is not any one component's evidence: ONE AI answer taken this morning kept a body rewrite alive on a page nobody had read in two months and a results page nobody had checked since. A component is fresh only if the items ITS OWN evidenceKeys cite are inside the window, and the change is only as fresh as its coldest component, because the operator applies all of them together. A proposal with NO BUNDLE has no receipt to read, so it ages on ITS OWN CLOCK: it was drafted from evidence that day and nothing has re-derived it since. It used to be seeded with `now` and could never expire at all, which left an atomic change Ready forever on a profile nobody had edited. */
 function staleReadings(p: ChangeProposal, now: Date): boolean {
   const floor = now.getTime() - EVIDENCE_VALID_DAYS * 86_400_000;
   const receipt = p.bundle?.receipt;
@@ -238,17 +212,7 @@ function evaluateNewPageBrief(
   return { status: "ready", reasons: [], copyAllowed: true, canRegenerate: true, confidence: "medium" };
 }
 
-/**
- * THE COMPONENT GATE (Phase 4). The seven original kinds are grandfathered exactly as they stand, so every persisted bundle still validates. Every kind the complete change
- * universe added has to answer for itself before it can be shown as work:
- *   - it cites at least one receipt item (a component with no evidence is never emitted);
- *   - it says WHERE on the page it lands, WHAT it achieves, WHY that lever moves the
- *     diagnosed cause, and WHAT I will measure afterwards;
- *   - a change to factual content carries a source pack, because a corrected fact with
- *     nothing behind it is worse than the stale one it replaced;
- *   - a dangerous kind is marked dangerous, so it cannot slip through as a safe paste.
- * Returns operator-facing reasons, never validator vocabulary. PURE.
- */
+/** THE COMPONENT GATE (Phase 4). The seven original kinds are grandfathered exactly as they stand, so every persisted bundle still validates. Every kind the complete change universe added has to answer for itself before it can be shown as work: - it cites at least one receipt item (a component with no evidence is never emitted); - it says WHERE on the page it lands, WHAT it achieves, WHY that lever moves the diagnosed cause, and WHAT I will measure afterwards; - a change to factual content carries a source pack, because a corrected fact with nothing behind it is worse than the stale one it replaced; - a dangerous kind is marked dangerous, so it cannot slip through as a safe paste. Returns operator-facing reasons, never validator vocabulary. PURE. */
 const LEGACY_KINDS: ReadonlySet<BundleComponentKind> =
   new Set<BundleComponentKind>(["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack"]);
 

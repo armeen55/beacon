@@ -1,11 +1,4 @@
-/**
- * DETERMINISTIC REPLAY - provider ENVELOPES, shaped exactly as the frozen DataForSEO registry parsers in
- * src/domains/evidence/dataforseo/capabilities.ts read them (resultBlock -> tasks[0].result[0] + items).
- * Every field a parser touches is named here. A few fields NO parser touches (search_results,
- * brand_mentions) are present on purpose, so a test can prove a retrieved result never becomes a citation.
- * All data is invented: a fictional site on reserved example domains, never a customer's private metrics.
- * Builders, never blobs: each takes overridable fields so one shape serves many cases.
- */
+/** DETERMINISTIC REPLAY - provider ENVELOPES, shaped exactly as the frozen DataForSEO registry parsers in src/domains/evidence/dataforseo/capabilities.ts read them (resultBlock -> tasks[0].result[0] + items). Every field a parser touches is named here. A few fields NO parser touches (search_results, brand_mentions) are present on purpose, so a test can prove a retrieved result never becomes a citation. All data is invented: a fictional site on reserved example domains, never a customer's private metrics. Builders, never blobs: each takes overridable fields so one shape serves many cases. */
 import type { ProviderEnvelope } from "@/domains/evidence/dataforseo/funnel-boundary";
 export const SITE = "atlaspedia.example";
 export const GAP_QUERY = "kite festival traditions";
@@ -18,10 +11,7 @@ export const OBSERVED_AT = "2026-07-20T09:00:00.000Z";
 const envelope = (result: unknown[], id = "fx-task"): ProviderEnvelope =>
   ({ status_code: 20000, status_message: "Ok.", cost: 0, tasks: [{ id, status_code: 20000, status_message: "Ok.", cost: 0, result }] });
 // ── the ChatGPT consumer look (llm_scraper task_get/advanced) ────────────────
-/** Field names anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/task_get/advanced
- *  on 2026-07-31: the result carries `sources` (CITED), `search_results` (RETRIEVED, type
- *  "chatgpt_search_result"), `brand_entities` (type "chat_gpt_brand_entity"), `fan_out_queries`, `markdown`,
- *  `model`, `check_url` and `se_results_count`. There is NO web_search field on this endpoint. */
+/** Field names anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper/task_get/advanced on 2026-07-31: the result carries `sources` (CITED), `search_results` (RETRIEVED, type "chatgpt_search_result"), `brand_entities` (type "chat_gpt_brand_entity"), `fan_out_queries`, `markdown`, `model`, `check_url` and `se_results_count`. There is NO web_search field on this endpoint. */
 export type ScraperOver = {
   keyword?: string; model?: string; markdown?: string; fanOut?: string[];
   /** CITED sources: the only thing parseScraper may turn into citations. */
@@ -56,11 +46,7 @@ export function scraperAnswer(over: ScraperOver = {}): ProviderEnvelope {
 }
 // ── the standardized ask (llm_responses task_get / live) ─────────────────────
 export type LlmOver = { model?: string; webSearch?: boolean | null; text?: string; fanOut?: string[] | null; annotations?: { title: string; url: string }[] };
-/** ONE shape for chatgpt, claude, gemini and perplexity: they differ in the REQUEST, never the response.
- *  Anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live on 2026-07-31:
- *  result[0] carries model_name, input_tokens, output_tokens, reasoning_tokens, web_search, money_spent,
- *  datetime, items and fan_out_queries; an item is type "message" OR type "reasoning", and a section is
- *  type "text" or "summary_text". This endpoint documents NO retrieval list and NO brand list. */
+/** ONE shape for chatgpt, claude, gemini and perplexity: they differ in the REQUEST, never the response. Anchored to docs.dataforseo.com/v3/ai_optimization/chat_gpt/llm_responses/live on 2026-07-31: result[0] carries model_name, input_tokens, output_tokens, reasoning_tokens, web_search, money_spent, datetime, items and fan_out_queries; an item is type "message" OR type "reasoning", and a section is type "text" or "summary_text". This endpoint documents NO retrieval list and NO brand list. */
 export function llmAnswer(over: LlmOver = {}): ProviderEnvelope {
   const result: Record<string, unknown> = {
     model_name: over.model ?? "gpt-4o-2024-08-06", input_tokens: 14, output_tokens: 96, reasoning_tokens: 32, money_spent: 0.03,

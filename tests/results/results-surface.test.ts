@@ -130,8 +130,7 @@ describe("what the screen calls the work, and what it will not promise", () => {
       view.header.appearances.value, view.header.appearances.note ?? "", view.header.reading.sub, view.header.window]);
     for (const [why, bad] of [["dash", /[–—]/], ["raw date stamp", /\d{4}-\d{2}-\d{2}/], ["slug", /[a-z]+_[a-z]+/], ["first person", /\b(I|me|my|we|our)\b/],
       ["lab word", /\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i]] as const)
-      for (const s of strings) expect(s, `${why} in: ${s}`).not.toMatch(bad);
-  });
+      for (const s of strings) expect(s, `${why} in: ${s}`).not.toMatch(bad); });
   it("every sentence the headline switch can print speaks subjectless: the whole branch space, not a sample", () => {
     // Third time this class shipped: a branch got rewritten and its sibling did not, and a fixture pin sampled around it. So walk the space.
     const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const; const M = ["clicks", "ctr", "position", "unclassified"] as const;
@@ -176,8 +175,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.taught).toBe("This page read as the line searchers saw not matching what they typed, it was answered with a content change, it was credited in AI answers more often than before. That carries into what gets recommended next on pages like this one. Backed by 6 checks.");
     expect(row.nextStep).toBe("Do this again on the next page AI answers name without crediting.");
     expect([row.readLabel, row.pipCaption, row.timeline[2]]).toEqual(["28 day read done", "Read over 28 days", { label: "28 day read done", done: true }]); // The read this row is judged over is its own 28 days from the stamp, not the Google windows beside it.
-    for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
-  });
+    for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS); });
   it("keeps a Google decline on the row under its own heading, and never as the answer", () => {
     const row = first({ read: declined, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar! > 0, row.impressionsLabel]).toEqual(["worked", "Worked", "Credited more often", true, null]);
     expect([row.happened, row.nextStep]).toEqual(["Ran 28 days. Credited in AI answers more often than before.",
@@ -191,8 +189,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.happened).toBe("Ran 28 days. Credited in AI answers with no clear movement yet."); expect(row.taught).toContain("it was credited in AI answers with no clear movement yet");
     expect(row.nextStep).toBe("Being credited has not moved. Put the fact those answers credit elsewhere on this page, in your own words, then measure again.");
     expect(row.googleAside!.line).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
-    for (const s of fields(row)) expect(s, `reads as a win: ${s}`).not.toMatch(/\bworked\b|ahead|\bwin\b|more often/i);
-  });
+    for (const s of fields(row)) expect(s, `reads as a win: ${s}`).not.toMatch(/\bworked\b|ahead|\bwin\b|more often/i); });
   // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
   it("speaks the same way on every objective: no slug, no first person, no dash, no lab word, and always a next step", () => {
     for (const m of ["ai_citation", "ai_citation_conversion", "ai_retrieval", "ai_mentions"] as const)

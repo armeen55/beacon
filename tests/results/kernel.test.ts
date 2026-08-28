@@ -211,8 +211,7 @@ describe("the conditional day-56 read", () => {
     const agrees = readLedger([ledgerRow({ implementedAt: STAMP, windows: [
       { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
       { day: 56, ran: true, adjustedLift: 200, controlsUsed: 3, treatedPostImpressions: 5000 }] })], AFTER_56, FINAL)[0];
-    expect(agrees.headline).not.toContain("The 28 day read looked like");});
-});
+    expect(agrees.headline).not.toContain("The 28 day read looked like");}); });
 describe("no causal overclaim on any read", () => {
   const readFor = (windows: LedgerRecordLike["windows"]) => readLedger([ledgerRow({ windows })], LATE, "2026-07-01")[0];
   it("never says a change caused anything, and never sells a loss as a win", () => {
@@ -222,8 +221,7 @@ describe("no causal overclaim on any read", () => {
       expect(read.headline.toLowerCase()).not.toMatch(/caused|thanks to|because of the change|proof that/); expect([read.headline, ...read.caveats].join(" ")).not.toMatch(/[—–]/);
     }
     const early = readFor([{ day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }]); expect([bandOf(early), learningVerdictOf(early)]).toEqual(["promising", "measuring"]);
-    expect(early.headline).toContain("This firms up when the 28-day window closes");
-  });
+    expect(early.headline).toContain("This firms up when the 28-day window closes"); });
   it("says WHAT confounded a read, never just that it is confounded", () => {
     const [first] = readLedger([
       ledgerRow({ id: "first", implementedAt: "2026-05-01T00:00:00.000Z" }),
@@ -231,9 +229,7 @@ describe("no causal overclaim on any read", () => {
     ], LATE, "2026-07-01");
     expect(first.verdict).toBe("confounded"); expect(first.headline).toMatch(/page changed again on [A-Z][a-z]{2} \d{1,2}\b/);
     expect(first.headline).not.toMatch(/\d{4}-\d{2}-\d{2}/); // never a raw date stamp in operator copy
-    expect(learningVerdictOf(first)).toBe("measuring");
-  });
-});
+    expect(learningVerdictOf(first)).toBe("measuring"); }); });
 /** THE TWO VOCABULARIES. A row's action word is a KIND from the older producers ("title") or the FAMILY the bundle producer stamps off changeFamily ("title-family"). Only the kinds were in the table, so every family spelling  fell through to CLICKS and a title rewrite was graded on the number it moves last. */
 describe("metric selection and vocabulary", () => {
   it("answers for every canonical KIND and FAMILY spelling, and fails closed on one it does not hold", () => {
@@ -249,15 +245,13 @@ describe("metric selection and vocabulary", () => {
   it("reads the live stored row spelled 'title-family' on click rate, with no history rewritten", () => {
     const read = readLedger([ledgerRow({ actionType: "title-family",
       windows: [{ day: 28, ran: true, adjustedLift: -40, adjustedCtrLift: 0.02, controlsUsed: 3, treatedPostImpressions: 5000 }] })], LATE, "2026-07-01")[0];
-    expect([read.metric, read.lift, read.verdict]).toEqual(["ctr", 0.02, "stronger_improvement"]);
-  });
+    expect([read.metric, read.lift, read.verdict]).toEqual(["ctr", 0.02, "stronger_improvement"]); });
   it("exposes a phrase for every verdict with no dashes", () => {
     for (const v of ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const) {
       const phrase = verdictPhrase(v); expect(phrase.length).toBeGreaterThan(0);
       expect(phrase).not.toMatch(/[—–]/);
     }
-  });
-});
+  }); });
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
   const STAMP = "2026-04-01T00:00:00.000Z";
@@ -283,24 +277,20 @@ describe("a settled reading is held still", () => {
   it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {
     const r = record(); const read = readLedger([r], AFTER, FINAL)[0]!;
     const pin = pinFor(r, read, FINAL, AFTER); expect(pin).not.toBeNull();
-    expect([pin!.basisDay, pin!.lift, pin!.controlsUsed, pin!.verdict]).toEqual([28, 1040, 4, read.verdict]);
-  });
+    expect([pin!.basisDay, pin!.lift, pin!.controlsUsed, pin!.verdict]).toEqual([28, 1040, 4, read.verdict]); });
   it("freezes nothing while the window is still open, so later checkpoints still land", () => {
     const r = record({ windows: [pinWin(7, 300)] }); const read = readLedger([r], new Date("2026-04-12T00:00:00Z"), "2026-04-10")[0]!;
-    expect(pinFor(r, read, "2026-04-10", new Date("2026-04-12T00:00:00Z"))).toBeNull();
-  });
+    expect(pinFor(r, read, "2026-04-10", new Date("2026-04-12T00:00:00Z"))).toBeNull(); });
   it("serves the frozen number and the sentence that matches it, whatever the re-measure now says", () => {
     const drifted = record({ windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1428)] }); const live = readLedger([drifted], AFTER, FINAL)[0]!;
     const pin = pinFor(record(), readLedger([record()], AFTER, FINAL)[0]!, FINAL, AFTER)!; const served = applyPinnedRead(live, pin);
     expect(served.lift).toBe(1040); expect(served.headline).toContain("1040 clicks");
-    expect(served.headline).not.toContain("1428");
-  });
+    expect(served.headline).not.toContain("1428"); });
   it("still lets a later change on the same page take shared credit, with the numbers untouched", () => {
     const first = record(), second = record({ id: "shp_2", implementedAt: "2026-04-05T00:00:00.000Z", shippedAt: "2026-04-05T00:00:00.000Z" }); const live = readLedger([first, second], AFTER, FINAL)[0]!;
     const pin = pinFor(first, readLedger([first], AFTER, FINAL)[0]!, FINAL, AFTER)!; const served = applyPinnedRead(live, pin);
     expect([live.verdict, served.verdict, served.lift, served.rankingSignal]).toEqual(["confounded", "confounded", 1040, 0]); expect(served.confidenceReasons.join(" ")).toMatch(/changed again afterwards/);
-  });
-});
+  }); });
 /** PHASE 2: ONE COMPARISON POLICY. Exclusion is scoped to the window being read, so a page that was changed months ago is comparable again instead of being lost forever; the receipt lists only facts  anybody can check; too few fair comparisons is a VERDICT rather than a weak number; and the frozen reading the operator was shown is the same one ranking learns from. */
 describe("one comparison policy, one durable result", () => {
   const NOW_C = new Date("2026-06-01T00:00:00Z");
@@ -320,8 +310,7 @@ describe("one comparison policy, one durable result", () => {
     });
     expect(controls).toEqual(["https://s.test/peer", "https://s.test/huge", "https://s.test/thin"]);
     expect(receipts[0]).toEqual({ path: "/peer", reasons: ["same page type: city", "traffic within 2x",
-      "search data across the whole baseline window", "no open or measuring changes"] });
-  });
+      "search data across the whole baseline window", "no open or measuring changes"] }); });
   it("calls too few fair comparisons a verdict, shows the page's own numbers unadjusted, and teaches nothing", () => {
     const read = evaluateChange(baseInput({ actionType: "content",
       windows: [win(28, { adjustedClicksLift: 40, controlsUsed: 1, treatedDelta: 58 })] }), CLOSED_WINDOWS, []);
@@ -332,6 +321,4 @@ describe("one comparison policy, one durable result", () => {
     const pin = { verdict: "directional_improvement", metric: "clicks", lift: 1040, impressionsLift: 0, basisDay: 28,
       confidence: "high", controlsUsed: 4, pinnedAt: "2026-06-01T00:00:00.000Z", finalizedThrough: "2026-05-20" } as const;
     const learned = readRecordsForLearning([{ ...ledgerRow(), pinnedRead: pin }], LATE)[0]; expect([learned.lift, learned.confidence, learningVerdictOf(learned)]).toEqual([1040, "high", "won"]);
-    const corrected = withCorrection(pin, { ...learned, lift: 1428 }, LATE)!; expect([corrected.lift, corrected.corrections?.length]).toEqual([1040, 1]);
-  });
-});
+    const corrected = withCorrection(pin, { ...learned, lift: 1428 }, LATE)!; expect([corrected.lift, corrected.corrections?.length]).toEqual([1040, 1]); }); });

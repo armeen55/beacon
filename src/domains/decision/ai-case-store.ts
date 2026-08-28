@@ -19,13 +19,35 @@ export type AeoGapDiagnosis = {
   /** The exact owned passage ids the reading stood on, and the exact credited or observation evidence ids. */
   ownedIds: readonly string[]; evidenceIds: readonly string[];
   /** The specifically missing proposition or the named structural defect, when one exists. */ missing?: string; /** The stated limit when causation stays unknown. */ limitation?: string; /** THE BINDING: the owned content version and completeness the reading was made against, and every observation id it weighed. A page change or a new observation makes this stale, never silently reused. */
+  /** THE BINDING, EXACT: one canonical identity over everything the reading was made from (tenant, case, question, stage, page, content hash, completeness, the sorted observation set and the credited passages). Equality is the whole test, so adding OR removing an observation, editing a credited passage, moving the page body or bumping the contract all make it stale. */
+  packet: string;
   contentHash: string; completeness: string; observationIds: readonly string[];
   version: number; decidedAt: string;
 };
-/** Is this banked reading still about the page and evidence as they stand NOW? */
-export function freshDiagnosis(d: AeoGapDiagnosis | undefined, contentHash: string | null, obsIds: readonly string[]): boolean {
-  return !!d && d.version === DIAGNOSIS_CONTRACT && !!contentHash && d.contentHash === contentHash
-    && obsIds.every((id) => d.observationIds.includes(id));
+const KINDS = new Set(["already_answered", "scattered_answer", "missing_information", "extraction_or_structure_gap", "authority_or_source_gap", "freshness_gap", "reachability_gap", "unknown"]);
+const TREATMENTS = new Set(["rewrite_existing_section", "add_answer_section"]);
+/** PERSISTED JSON IS UNTRUSTED. A row written by an older contract, half-written, or carrying a shape nobody recognises decodes to null: no usable diagnosis, which authorizes nothing and crashes nothing. Never repaired into something valid-looking, because a repaired verdict is a verdict nobody made. */
+export function decodeDiagnosis(raw: unknown): AeoGapDiagnosis | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const d = raw as Record<string, unknown>;
+  const ids = (v: unknown): string[] | null => Array.isArray(v) && v.every((x) => typeof x === "string" && x.length > 0) ? (new Set(v as string[]).size === v.length ? v as string[] : null) : null;
+  const owned = ids(d.ownedIds), evidence = ids(d.evidenceIds), obs = ids(d.observationIds);
+  const treatment = d.treatment === null ? null : typeof d.treatment === "string" && TREATMENTS.has(d.treatment) ? d.treatment : undefined;
+  if (typeof d.kind !== "string" || !KINDS.has(d.kind) || treatment === undefined) return null;
+  if (owned == null || evidence == null || obs == null) return null;
+  if (typeof d.explanation !== "string" || !d.explanation.trim()) return null;
+  if (typeof d.packet !== "string" || !d.packet || typeof d.contentHash !== "string") return null;
+  if (typeof d.completeness !== "string" || typeof d.decidedAt !== "string") return null;
+  if (d.version !== DIAGNOSIS_CONTRACT) return null; // an older contract is re-earned, never served on
+  return { kind: d.kind as AeoGapKind, treatment: treatment as AeoGapDiagnosis["treatment"], explanation: d.explanation,
+    ownedIds: owned, evidenceIds: evidence, ...(typeof d.missing === "string" && d.missing ? { missing: d.missing } : {}),
+    ...(typeof d.limitation === "string" && d.limitation ? { limitation: d.limitation } : {}),
+    packet: d.packet, contentHash: d.contentHash, completeness: d.completeness, observationIds: obs, version: DIAGNOSIS_CONTRACT, decidedAt: d.decidedAt };
+}
+/** Is this banked reading about EXACTLY the packet in hand? One equality, no subset: a reading made from more
+ *  observations than the current packet holds is as stale as one made from fewer. */
+export function freshDiagnosis(d: AeoGapDiagnosis | undefined, packet: string): boolean {
+  return !!d && d.version === DIAGNOSIS_CONTRACT && !!d.packet && d.packet === packet;
 }
 
 /** Eight ways a search ends. `monitoring` belongs to noise and single-dimension repetition; `held` means the landing page has never been read; `covered` means a tracked question or a change this pass already owns it, a decision and never "not judged yet". */
@@ -77,7 +99,7 @@ export async function readAiCaseDispositions(tenantId: string): Promise<AiCaseFi
       ...(r.proposal_id ? { proposalId: String(r.proposal_id) } : {}), reason: String(r.reason),
       days: Number(r.days) || 0, engines: Number(r.engines) || 0, parents: Number(r.parents) || 0,
       executions: Number(r.executions) || 0, decidedAt: String(r.decided_at),
-      ...(r.diagnosis && typeof r.diagnosis === "object" ? { diagnosis: r.diagnosis as AeoGapDiagnosis } : {}),
+      ...((): { diagnosis?: AeoGapDiagnosis } => { const d = decodeDiagnosis(r.diagnosis); return d ? { diagnosis: d } : {}; })(),
     }));
     // Sorted here TOO, so the promise ("same account state, same rows, same order") holds whatever the
     // transport did, and holds in every test that fakes it.

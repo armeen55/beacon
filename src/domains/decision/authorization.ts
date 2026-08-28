@@ -1,16 +1,4 @@
-/**
- * decision/authorization: THE ONE PLACE THAT ASKS WHETHER A CHANGE IS ALLOWED TO BE OFFERED AT ALL.
- *
- * A producer mints on its own evidence and the ranking picks the biggest number, so a page whose own evidence
- * says two of your pages are splitting one search could still lead the queue with "add more copy to one of
- * them", which is the one thing that makes the split worse. THE LEVER MUST TREAT THE WINNING DIAGNOSIS FOR THE
- * PAGE. Where it cannot, the card is withheld with its reason on the run receipt, and the work the diagnosis
- * DID prescribe is minted instead.
- *
- * `CAUSE_LEVERS` is the truth table, and it lives here rather than inside the ranking because two places now
- * read it: the ranking discounts a mismatch, and this boundary refuses one. PURE, no I/O, no clock beyond the
- * one a caller hands in.
- */
+/** decision/authorization: THE ONE PLACE THAT ASKS WHETHER A CHANGE IS ALLOWED TO BE OFFERED AT ALL. A producer mints on its own evidence and the ranking picks the biggest number, so a page whose own evidence says two of your pages are splitting one search could still lead the queue with "add more copy to one of them", which is the one thing that makes the split worse. THE LEVER MUST TREAT THE WINNING DIAGNOSIS FOR THE PAGE. Where it cannot, the card is withheld with its reason on the run receipt, and the work the diagnosis DID prescribe is minted instead. `CAUSE_LEVERS` is the truth table, and it lives here rather than inside the ranking because two places now read it: the ranking discounts a mismatch, and this boundary refuses one. PURE, no I/O, no clock beyond the one a caller hands in. */
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import { causeLabel, type CauseFinding } from "./diagnosis";
@@ -19,16 +7,7 @@ import { CAUSE_LEVERS, treatable } from "./proof";
 /** The cause ladder's own vocabulary. Read from there, never re-declared here. */
 type Cause = CauseFinding["cause"];
 
-/**
- * WHICH LEVERS ADDRESS WHICH CAUSE. Keyed on the cause ladder's OWN union and deliberately TOTAL: adding a cause over there breaks the build here until somebody says what fixes it,
- * which is the only way this table can never quietly fall behind the diagnosis.
- *
- * An EMPTY set is a real answer, not an omission: nothing you can write on the page fixes a search fewer people run, or a change that is already being measured. A cause with no lever
- * matches nothing, discounts nothing and refuses nothing, so those proposals rank on their other factors.
- *
- * THE OLDER SEVEN KINDS BELONG IN THESE SETS TOO. `section`, `internal_links` and `source_pack` are the undifferentiated components persisted rows still carry, and leaving them out of every set meant a stored
- * change was discounted the full 25 for the age of its vocabulary rather than for what it does.
- */
+/** WHICH LEVERS ADDRESS WHICH CAUSE. Keyed on the cause ladder's OWN union and deliberately TOTAL: adding a cause over there breaks the build here until somebody says what fixes it, which is the only way this table can never quietly fall behind the diagnosis. An EMPTY set is a real answer, not an omission: nothing you can write on the page fixes a search fewer people run, or a change that is already being measured. A cause with no lever matches nothing, discounts nothing and refuses nothing, so those proposals rank on their other factors. THE OLDER SEVEN KINDS BELONG IN THESE SETS TOO. `section`, `internal_links` and `source_pack` are the undifferentiated components persisted rows still carry, and leaving them out of every set meant a stored change was discounted the full 25 for the age of its vocabulary rather than for what it does. */
 export { CAUSE_LEVERS } from "./proof";
 
 /** THE FAMILY CARD'S OWN FAMILY. A split is settled by telling the competing pages apart, which is a wording
@@ -92,19 +71,7 @@ export function withholdReason(p: ChangeProposal, cause: Cause | null | undefine
 }
 
 
-/**
- * WHY THIS CHANGE MAY NOT BE CALLED READY, or null when it may. The table above DISCOUNTS a mismatched lever in
- * the ranking and REFUSES an unauthorized card at the boundary, and between the two sat the case that shipped: a
- * card whose own ranking receipt reads "this change does not touch two of your own pages splitting one search",
- * ranked down 25 points for it, stamped `ready`, and handed over with a Copy button. A RANKING PENALTY IS AN
- * ORDER, NEVER A PERMISSION. This is the permission, and it is asked wherever `ready` is minted or served.
- *
- * A SPLIT IS SETTLED ON EVERY PAGE IT NAMES OR IT IS NOT SETTLED. Telling competing pages apart is the one
- * wording change a split authorizes, and it authorizes it on ALL of them: a sharper title on one of two pages
- * fighting over a search, with the other left exactly as it was, makes the fight worse. So a split is judged on
- * COVERAGE of the addresses its own finding named, and a `keep_as_is` verdict is an address that got no words,
- * whatever reason was recorded beside it. Everything else is judged on the lever table. PURE.
- */
+/** WHY THIS CHANGE MAY NOT BE CALLED READY, or null when it may. The table above DISCOUNTS a mismatched lever in the ranking and REFUSES an unauthorized card at the boundary, and between the two sat the case that shipped: a card whose own ranking receipt reads "this change does not touch two of your own pages splitting one search", ranked down 25 points for it, stamped `ready`, and handed over with a Copy button. A RANKING PENALTY IS AN ORDER, NEVER A PERMISSION. This is the permission, and it is asked wherever `ready` is minted or served. A SPLIT IS SETTLED ON EVERY PAGE IT NAMES OR IT IS NOT SETTLED. Telling competing pages apart is the one wording change a split authorizes, and it authorizes it on ALL of them: a sharper title on one of two pages fighting over a search, with the other left exactly as it was, makes the fight worse. So a split is judged on COVERAGE of the addresses its own finding named, and a `keep_as_is` verdict is an address that got no words, whatever reason was recorded beside it. Everything else is judged on the lever table. PURE. */
 export function unsettledCause(p: ChangeProposal): string | null {
   const cause = p.causeFinding?.cause ?? p.diagnosisCause;
   if (!cause) return null;
@@ -165,16 +132,7 @@ const pageFor = (w: Wiring, url: string): Page | undefined => {
 /** How many splits one pass may hand over at once. A queue of merges is nobody's morning. */
 const MAX_OWNERSHIP = 3;
 
-/**
- * ONE CARD PER SPLIT, MINTED OFF THE DIAGNOSED SPLITS THEMSELVES rather than off whichever page a deep read
- * happened to refuse. The boundary refuses every content card on every page a split names, so if the card that
- * settles the split only existed for the one page a door reached, four other pages were told to settle
- * something nothing here settles. `covered` is every page key a minted card speaks for, and it is EXACTLY the
- * set the caller may refuse cards on: no card, no refusal.
- *
- * Strongest split first, bounded, deterministic. No address moves, so the risk is low and the whole change is
- * wording that says which search each page answers.
- */
+/** ONE CARD PER SPLIT, MINTED OFF THE DIAGNOSED SPLITS THEMSELVES rather than off whichever page a deep read happened to refuse. The boundary refuses every content card on every page a split names, so if the card that settles the split only existed for the one page a door reached, four other pages were told to settle something nothing here settles. `covered` is every page key a minted card speaks for, and it is EXACTLY the set the caller may refuse cards on: no card, no refusal. Strongest split first, bounded, deterministic. No address moves, so the risk is low and the whole change is wording that says which search each page answers. */
 export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKeyOf: (q: string) => string }): { cards: ChangeProposal[]; covered: Set<string>; assignable: Set<string> } {
   const groups = new Map<string, { c: Judged; paths: readonly string[]; survivor: string | null; unproven: string[] }>();
   for (const c of w.judged) {
@@ -202,17 +160,7 @@ export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKey
   return { cards, covered, assignable };
 }
 
-/**
- * ONE DECISION, ONE PRESCRIPTION, ZERO CONTRADICTIONS. This card used to assign the search to the page it was
- * filed under while the finding's own payload named a different survivor, and to promise "nothing here moves an
- * address" while the finding's action was `consolidate`. It reads the finding now and never argues with it.
- *
- * AND IT NEVER HANDS THE STRATEGY BACK. Telling an operator to "give the other pages wording that names what
- * each answers" is the whole job, restated as homework. Settling a split takes the owner of the head search,
- * the distinct search every other page is for, and the exact title and opening line for each, and none of that
- * is drafted here yet. So this card asks for nothing: it states what the evidence settled, names what is still
- * owed, and carries the loss it is ranked on. It is RESEARCH until every one of those exists.
- */
+/** ONE DECISION, ONE PRESCRIPTION, ZERO CONTRADICTIONS. This card used to assign the search to the page it was filed under while the finding's own payload named a different survivor, and to promise "nothing here moves an address" while the finding's action was `consolidate`. It reads the finding now and never argues with it. AND IT NEVER HANDS THE STRATEGY BACK. Telling an operator to "give the other pages wording that names what each answers" is the whole job, restated as homework. Settling a split takes the owner of the head search, the distinct search every other page is for, and the exact title and opening line for each, and none of that is drafted here yet. So this card asks for nothing: it states what the evidence settled, names what is still owed, and carries the loss it is ranked on. It is RESEARCH until every one of those exists. */
 function ownershipCard(b: CardBase & { competingPaths: readonly string[]; survivor: string | null; unproven: readonly string[]; impactScore: number | null }): ChangeProposal {
   const mine = pathOf(b.pageUrl);
   // THIS PAGE FIRST, then the rest in a fixed order, and ALL of them: the ladder's count and this list are one
@@ -252,14 +200,7 @@ const MIN_RESEARCHING_CLICKS = 16, MAX_RESEARCHING = 3;
  *  weighed on the way there. A blocked page has been reasoned about, so its card says so instead of guessing. */
 type ResearchBlocker = { reason: string; considered?: readonly { option: string; reason: string }[] };
 
-/**
- * EVERY PROVEN FALL THIS PASS COULD NOT DRAFT FOR, whatever stopped it. A page that lost real clicks and got no
- * card reaches the operator as an unseen day rather than a quiet one, so the gate is EXACTLY that: no card, and
- * no re-emission means it is minted again. It was once gated on "no results page for that search is on file",
- * which meant the card VANISHED the moment the results page landed and the producer still had nothing to hand
- * over, taking the biggest loss on the site off the queue for arriving evidence. `blocked` carries the
- * producer's own words for the page it refused. Strongest fall first, bounded, deterministic.
- */
+/** EVERY PROVEN FALL THIS PASS COULD NOT DRAFT FOR, whatever stopped it. A page that lost real clicks and got no card reaches the operator as an unseen day rather than a quiet one, so the gate is EXACTLY that: no card, and no re-emission means it is minted again. It was once gated on "no results page for that search is on file", which meant the card VANISHED the moment the results page landed and the producer still had nothing to hand over, taking the biggest loss on the site off the queue for arriving evidence. `blocked` carries the producer's own words for the page it refused. Strongest fall first, bounded, deterministic. */
 export function researchingCards(w: Wiring & { judged: readonly Judged[]; serpQueryKeys: ReadonlySet<string>;
   queryKeyOf: (q: string) => string; skip: ReadonlySet<string>; blocked?: ReadonlyMap<string, ResearchBlocker> }): ChangeProposal[] {
   const blockerFor = (url: string): ResearchBlocker | undefined => keysOf(url).map((k) => w.blocked?.get(k)).find(Boolean);
@@ -275,16 +216,7 @@ export function researchingCards(w: Wiring & { judged: readonly Judged[]; serpQu
       blocker: blockerFor(c.pageUrl!) ?? null, serpRead: w.serpQueryKeys.has(w.queryKeyOf(c.query!)) }));
 }
 
-/**
- * A PROVEN PROBLEM WITH NO DRAFTING EVIDENCE BEHIND IT YET. A page that lost real clicks is the most valuable
- * thing on a site, and until the results page for its search is read there is nothing exact to hand over. It
- * ranks on what is recoverable, and it names the one read that turns it into exact work.
- *
- * THE FALL IS THE LADDER'S SENTENCE TO WRITE, NEVER THIS ONE'S. `recoverable` is the LARGER of the curve gap
- * and the window over window fall, so a card that said "earned N fewer clicks than the four weeks before" was
- * asserting a fall of a size nobody measured whenever the curve gap was the bigger of the two. The finding
- * already states the true fall in its own words, so this says the number is what is recoverable and no more.
- */
+/** A PROVEN PROBLEM WITH NO DRAFTING EVIDENCE BEHIND IT YET. A page that lost real clicks is the most valuable thing on a site, and until the results page for its search is read there is nothing exact to hand over. It ranks on what is recoverable, and it names the one read that turns it into exact work. THE FALL IS THE LADDER'S SENTENCE TO WRITE, NEVER THIS ONE'S. `recoverable` is the LARGER of the curve gap and the window over window fall, so a card that said "earned N fewer clicks than the four weeks before" was asserting a fall of a size nobody measured whenever the curve gap was the bigger of the two. The finding already states the true fall in its own words, so this says the number is what is recoverable and no more. */
 function researchingCard(b: CardBase & { recoverable: number; blocker: ResearchBlocker | null; serpRead: boolean }): ChangeProposal {
   const path = pathOf(b.pageUrl);
   // THE ONE THING STILL MISSING, IN THE WORDS OF WHOEVER LOOKED. A producer that read this case and refused says

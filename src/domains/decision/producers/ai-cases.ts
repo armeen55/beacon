@@ -1,5 +1,6 @@
 import "server-only";
 /** decision/producers/ai-cases - THE ONE AEO DECISION PATH. Two sources of case (a tracked question the operator approved; a search the assistants ran themselves), one ladder, one family. Both stage the AI position BEFORE a page is chosen. THE STAGE IS WHAT HAPPENED, NEVER WHAT IS WRONG WITH THE PAGE: what a page lacks, if anything, is decided by the diagnosis reader against the complete stored copy, and only that verdict may order body work. CLASSIFICATION IS NEVER BOUNDED, only paid drafting is: every material search terminates somewhere a person can see, and same-page clusters collapse into ONE card carrying all of them, aggregation with a receipt and never a drop (operator, 2026-08-19). */
+import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import type { ChangeProposal } from "../contracts";
 import { dayLabel, engineLabel, engineList } from "@/lib/presenter";
@@ -9,8 +10,6 @@ import { buildFanoutEvidence, FANOUT_LINKAGE_CAVEAT, instrumentFacts, type Fanou
 import { canonicalUrlKey, type EvidenceSnapshot, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { CanonicalPairObservation } from "@/domains/evidence/funnel/research-evidence";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
-import { readFactChecks } from "@/domains/evidence/pages/fact-checks";
-import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 import { sectionFit } from "./page-job";
 import { DIAGNOSIS_CONTRACT, freshDiagnosis, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
@@ -50,8 +49,7 @@ const OBS: Record<string, string> = {
   rivals_cited_own_not_retrieved: "No stored answer reports reading this page while rivals are credited.",
   own_not_in_reported_sources: "These instruments report the sources they relied on, not everything they read, so whether this page was read is unknown; the credit goes elsewhere.",
 };
-const OWED_WORK = "Whether this page already answers it has not been read against its complete stored copy, so no copy is ordered: that reading comes first.";
-const OWED_NEXT = "The next funded pass reads the complete stored page against this search and banks what, if anything, it lacks. No writer runs before that verdict.";
+const OWED_WORK = "Whether this page already answers it has not been read against its complete stored copy, so no copy is ordered: that reading comes first.", OWED_NEXT = "The next funded pass reads the complete stored page against this search and banks what, if anything, it lacks. No writer runs before that verdict.";
 /** The case as one object, and the card texts as pure derivations of it. */
 type Standing = { quoted: string; path: string; intent: Intent; stage: FanoutStage | "owned_mentioned_not_cited"; domain: string | null };
 function caseCopy(s: Standing): { headline: string; steps: string[] } {
@@ -93,52 +91,73 @@ export function resolveFanoutCase(row: FanoutRow, landing?: { pageUrl: string | 
         ? `${row.materialBecause} ${dimension}, and no assistant reports reading a page of this account for it.`
         : `${row.materialBecause} ${dimension}, and this site is not among the sources the assistants relied on for it. Whether any page here was read is not something these instruments report.` };
 }
+/** THE PASS'S OWN DIAGNOSIS PURSE, decided at the orchestration boundary and shared by tracked questions and fan-outs alike. The account cap and the pause live at the gateway; this is the per-pass funding decision the gateway cannot make, and without it a pass whose diagnoses all REFUSE keeps buying, because a refusal emits no card and the five-card output bound never notices. Unfunded cases stay owed for the next pass. */
+export type AeoMeter = { draw(): boolean; refund(): void; spent(): { funded: number; attempted: number; cached: number; left: number } };
+export function aeoMeter(funded: number): AeoMeter {
+  let left = Math.max(0, funded), attempted = 0, cached = 0;
+  return { draw: () => (left <= 0 ? false : (left -= 1, attempted += 1, true)),
+    refund: () => { left += 1; attempted -= 1; cached += 1; },
+    spent: () => ({ funded: Math.max(0, funded), attempted, cached, left }) };
+}
 /** THE PRE-WRITING DIAGNOSIS: what, if anything, this page LACKS for this search, read from the complete stored page and the credited passages, never inferred from the stage. Ruled by the aeo_gap reader through the one gateway (spend scope, daily and monthly budget, call cache), validated hard afterward: only ids the packet supplied, absence claims only against a complete page, scatter only across separate passages, and reachability never from a packet that carries no technical evidence. Null = the reader did not rule (unpaid pass, refused budget, unusable answer): NOTHING moves on null, the banked reading stays, no writer is hired. */
 const GAP_SYSTEM = "You are Beacon's AEO gap reader. Decide what, if anything, the owned page LACKS for the given search, strictly from the numbered material supplied; never use outside knowledge. kinds: already_answered (the page already answers it clearly; cite the owned ids where), scattered_answer (every needed fact is present but spread across separate passages; cite them all), missing_information (a material proposition the credited answers carry is absent from the COMPLETE page; name it in missing and cite the evidence ids carrying it), extraction_or_structure_gap (the page answers it but the answer is buried or fragmented; name the defect in missing and cite the owned ids), authority_or_source_gap (same information, stronger sourcing or standing behind the credited page; cite the evidence ids), freshness_gap (the credited material is dated newer and conflicts; name the dated conflict in missing), reachability_gap (only with technical evidence, which this packet does not carry), unknown (the material does not show why). ownedIds and evidenceIds repeat ids exactly as given. explanation is one plain sentence for a site owner. Restating the page is never a gap: a question the page answers plainly is already_answered.";
 const GAP_TREATMENT: Record<AeoGapDiagnosis["kind"], AeoGapDiagnosis["treatment"]> = {
   already_answered: null, unknown: null, authority_or_source_gap: null, freshness_gap: null, reachability_gap: null,
   scattered_answer: "rewrite_existing_section", extraction_or_structure_gap: "rewrite_existing_section", missing_information: "add_answer_section" };
-async function diagnoseGap(c: { tenantId: string; query: string; stage: string; pageUrl: string; observationIds: readonly string[];
-  passages: readonly string[]; banked?: AeoGapDiagnosis; persist: boolean; now: Date }): Promise<AeoGapDiagnosis | null> {
+async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string; stage: string; pageUrl: string; observationIds: readonly string[];
+  passages: readonly string[]; banked?: AeoGapDiagnosis; meter: AeoMeter; persist: boolean; now: Date }): Promise<AeoGapDiagnosis | null> {
   const body = (await loadOwnedPageBodies(c.tenantId, [c.pageUrl]).catch(() => new Map())).get(canonicalUrlKey(c.pageUrl)) ?? null;
-  const obsIds = [...c.observationIds].slice(0, 40);
-  if (c.banked && freshDiagnosis(c.banked, body?.contentHash ?? null, obsIds)) return c.banked;
-  if (!c.persist || body == null) return null;
-  const owned: [string, string][] = [
+  const obsIds = [...c.observationIds].slice(0, 40).sort();
+  const owned: [string, string][] = body == null ? [] : [
     ...body.passages.slice(0, 40).map((t: string, i: number) => [`own-${i + 1}`, t.slice(0, 700)] as [string, string]),
     ...body.faqs.slice(0, 12).map((f: { question: string; answer: string }, i: number) => [`faq-${i + 1}`, `${f.question} ${f.answer}`.slice(0, 500)] as [string, string])];
-  if (owned.length === 0) return null;
   const ev: [string, string][] = c.passages.slice(0, 4).map((t, i) => [`ans-${i + 1}`, t.slice(0, 700)] as [string, string]);
+  // THE PACKET IS THE IDENTITY. Everything the reading is made from, canonicalized in one string: change any of
+  // it and the banked verdict is stale by construction rather than by a subset test that only notices additions.
+  const packet = createHash("sha256").update(JSON.stringify([c.tenantId, c.caseKey, c.query, c.stage, canonicalUrlKey(c.pageUrl),
+    body?.contentHash ?? "", body?.completeness ?? "", obsIds, ev.map(([, t]) => t), DIAGNOSIS_CONTRACT])).digest("hex").slice(0, 32);
+  if (freshDiagnosis(c.banked, packet)) return c.banked!;
+  if (!c.persist || body == null || owned.length === 0) return null;
+  // THE PASS FUNDS THE ATTEMPT BEFORE IT IS MADE. A refusal costs a unit exactly as a verdict does, because both
+  // bought a reading; only a cache hit is given back, because it reached no provider.
+  if (!c.meter.draw()) return null;
   const completeness = body.completeness;
   const user = [`Search or question: "${c.query}"`, `What the assistants did (the stage): ${c.stage}`,
     `The owned page, ${completeness === "complete" ? "complete" : `INCOMPLETE (${completeness}): what is not shown is UNKNOWN, never absent`}. Its stored passages and FAQ entries, by id:`,
     ...owned.map(([id, t]) => `${id}: ${t}`),
-    ev.length > 0 ? "What credited answers drew on, by id:" : "No credited passage is on file for this search.",
+    ev.length > 0 ? "What credited answers drew on, by id:" : "NO credited passage is on file for this search, so nothing outside this page is in evidence here.",
     ...ev.map(([id, t]) => `${id}: ${t}`), "Return the JSON now."].join("\n");
   const r = await callStructuredLLM({ kind: "aeo_gap", tenantId: c.tenantId, system: GAP_SYSTEM, user, grounded: user,
     projectedCostUsd: 0.005, maxTokens: 900, timeoutMs: 95_000, now: c.now }).catch(() => null);
+  if (r && (r as { cached?: true }).cached) c.meter.refund(); // a cache hit reached no provider, so it cost no unit
   if (r?.status !== "drafted") return null;
   const v = r.value as { kind: AeoGapDiagnosis["kind"]; ownedIds: string[]; evidenceIds: string[]; missing: string; explanation: string };
   const known = new Set([...owned, ...ev].map(([id]) => id));
   if ([...v.ownedIds, ...v.evidenceIds].some((id) => !known.has(id))) return null; // an id nobody supplied rules nothing
   let kind = v.kind; const limits: string[] = [];
+  const hasCredited = ev.length > 0, dated = /\b(19|20)\d{2}\b|\b\d{1,2}\/\d{1,2}\b/.test(v.missing);
   if (kind === "already_answered" && v.ownedIds.length === 0) return null;
   if (kind === "scattered_answer" && new Set(v.ownedIds).size < 2) return null;
   if (kind === "extraction_or_structure_gap" && (v.ownedIds.length === 0 || !v.missing.trim())) return null;
+  // NOTHING OUTSIDE THIS PAGE IS IN EVIDENCE WITHOUT A CREDITED PASSAGE. A fan-out packet carries none, so it may
+  // read the page's own shape and nothing about what a rival has, is sourced better on, or is fresher about.
+  if (!hasCredited && (kind === "missing_information" || kind === "authority_or_source_gap" || kind === "freshness_gap")) {
+    kind = "unknown"; limits.push("no credited passage is on file for this search, so nothing outside this page is in evidence"); }
   if (kind === "missing_information" && (v.evidenceIds.length === 0 || !v.missing.trim())) return null;
   if (kind === "missing_information" && completeness !== "complete") { kind = "unknown"; limits.push("the stored copy of this page is incomplete, so absence cannot be claimed; a full page read comes first"); }
   if (kind === "authority_or_source_gap" && v.evidenceIds.length === 0) kind = "unknown";
-  if (kind === "freshness_gap" && (v.evidenceIds.length === 0 || !v.missing.trim())) { kind = "unknown"; limits.push("no dated conflict is on file"); }
+  if (kind === "freshness_gap" && (v.evidenceIds.length === 0 || !dated)) { kind = "unknown"; limits.push("no dated conflict is named in the supplied evidence"); }
   if (kind === "reachability_gap") { kind = "unknown"; limits.push("this packet carries no technical reachability evidence, so reachability is not diagnosable here"); }
   return { kind, treatment: GAP_TREATMENT[kind], explanation: v.explanation, ownedIds: v.ownedIds, evidenceIds: v.evidenceIds,
     ...(v.missing.trim() ? { missing: v.missing.trim() } : {}), ...(limits.length > 0 ? { limitation: limits.join("; ") } : {}),
-    contentHash: body.contentHash ?? "", completeness, observationIds: obsIds, version: DIAGNOSIS_CONTRACT, decidedAt: c.now.toISOString() };
+    packet, contentHash: body.contentHash ?? "", completeness, observationIds: obsIds, version: DIAGNOSIS_CONTRACT, decidedAt: c.now.toISOString() };
 }
 /** WHAT THE DIAGNOSIS AUTHORIZES, closed. `emit: false` files the verdict and mints no card at all; `hire: false` keeps the card visible while refusing the writer a call. Treatment derives from the diagnosis and never from the stage; an unruled case keeps the stage treatment only as the card's working identity. */
 type GapGate = { emit: false; state: AiCaseState; reason: string; diagnosis: AeoGapDiagnosis }
-  | { emit: true; hire: boolean; treatment: "rewrite_existing_section" | "add_answer_section"; work: string; next?: string; diagnosis?: AeoGapDiagnosis };
-function gateOf(d: AeoGapDiagnosis | null, stageTreatment: "rewrite_existing_section" | "add_answer_section", hasFact: boolean): GapGate {
-  if (!d) return { emit: true, hire: false, treatment: stageTreatment, work: OWED_WORK, next: OWED_NEXT };
+  | { emit: true; hire: boolean; treatment: "rewrite_existing_section" | "add_answer_section" | null; work: string; next?: string; diagnosis?: AeoGapDiagnosis };
+/** WHAT THE DIAGNOSIS AUTHORIZES, closed. `emit: false` files the verdict and mints no card; `hire: false` keeps the card visible while refusing the writer a call; a null treatment names no work at all, which is what an unruled case honestly is. MISSING INFORMATION NEVER HIRES (operator, 2026-08-28): the writer would have to STATE the missing proposition, and nothing on file binds that exact proposition to the facts that support it. A confirmed fact elsewhere on the same page is a page match, not claim support, and treating it as support is how "Tehran is in Iran" comes to authorize a claim about knot density. It stays acquisition-first, always. */
+function gateOf(d: AeoGapDiagnosis | null): GapGate {
+  if (!d) return { emit: true, hire: false, treatment: null, work: OWED_WORK, next: OWED_NEXT };
   if (d.treatment == null) {
     const why = d.kind === "already_answered" ? `The page already answers this question, so no duplicate copy is recommended. ${d.explanation}`
       : d.kind === "authority_or_source_gap" ? `${d.explanation} The information matches; the difference is the credited source's standing, so no generic copy is ordered.`
@@ -146,20 +165,21 @@ function gateOf(d: AeoGapDiagnosis | null, stageTreatment: "rewrite_existing_sec
           : `The evidence does not show why the assistants chose another source, so no content change is authorized yet.${d.limitation ? ` ${d.limitation}` : ""}`;
     return { emit: false, state: "monitoring", reason: why, diagnosis: d };
   }
-  if (d.kind === "missing_information" && !hasFact) return { emit: true, hire: false, treatment: d.treatment,
-    work: `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. An authoritative source for it is acquired first; the credited page's wording stays briefing and never becomes published copy.`,
-    next: "The fact pass acquires an authoritative source for the missing proposition; the section is written only after that evidence is on file.", diagnosis: d };
+  if (d.kind === "missing_information") return { emit: true, hire: false, treatment: d.treatment,
+    work: `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. An authoritative source for it is acquired and checked against that exact statement first; the credited page's wording stays briefing and never becomes published copy.`,
+    next: "The fact pass acquires an authoritative source for the missing proposition and checks it against that exact statement; the section is written only after that evidence is on file.", diagnosis: d };
+  // SCATTER AND STRUCTURE HIRE ON THE PAGE'S OWN WORDS, with the exact passages the reading named: no claim from
+  // outside the page is involved, so no external factual authorization is owed.
   const work = d.kind === "scattered_answer"
     ? `The facts are on this page in ${count(new Set(d.ownedIds).size, "separate passage")} and no single passage answers the question, so the work is one structural synthesis of the page's own material, keeping every fact, link and call to action. ${d.explanation}`
-    : d.kind === "extraction_or_structure_gap" ? `The page answers this and the answer is buried: ${d.missing ?? d.explanation} The work is a structural rewrite of the named material, adding no new claims.`
-      : `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. A verified source is on file, so the section states it with that source named. ${d.explanation}`;
+    : `The page answers this and the answer is buried: ${d.missing ?? d.explanation} The work is a structural rewrite of the named material, adding no new claims.`;
   return { emit: true, hire: true, treatment: d.treatment, work, diagnosis: d };
 }
 /** 1. THE ANSWERS THAT CREDIT SOMEBODY ELSE, staged before a page is ever chosen. WHERE THIS SITE STOOD across the stored answers is the case, and the case decides the work: a page an engine read and passed over needs an answer it can lift; a brand named in prose and never credited needs a passage that earns the citation; a page no engine reports reading needs to be reachable before any wording matters; and a question whose answers never report sources is a reporting gap no page edit can close, so it stays visible and mints nothing. RECURRENCE IS COUNTED IN DISTINCT DAYS AND ASSISTANTS over the stored window through the same projection Visibility renders, never in raw rows, so a card and the screen can never disagree. */
 export async function aiCaseCards(bank: { query: string; refusedPages?: string[] }[], snapshot: EvidenceSnapshot, pages: OwnedPageEvidence[], weak: ReadonlySet<string>,
   earned: ReadonlyMap<string, Set<string>>, children: ReadonlyMap<string, number>, u: Understanding, tenantId: string,
   units: readonly CanonicalDemandUnit[], windowObs: readonly CanonicalPairObservation[] | null, now: Date,
-  persist: boolean, googleKeys?: ReadonlySet<string> | null): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
+  persist: boolean, meter: AeoMeter, googleKeys?: ReadonlySet<string> | null): Promise<{ drafts: Draft[]; filed: boolean; hold: ReadonlySet<string> }> {
   const site = (snapshot.scope.site ?? "").replace(/^www\./, "").toLowerCase();
   if (!site) return { drafts: [], filed: true, hold: new Set<string>() }; // nothing to conclude is not a filing that failed
   // THE STORED WINDOW, through the one shared projection: distinct days, assistants and the material follow-up searches behind every tracked question. The snapshot alone is the newest answer per question and engine, which cannot count days, and reading row totals as recurrence is the defect this replaced.
@@ -177,7 +197,6 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     windows.set(canonicalQueryKey(o.promptText), w);
   }
   // THE VERIFIED FACTS ON FILE, so a passage brief names the source it stands on instead of assigning the operator source homework. Only a current-rules, source-read, confirmed check qualifies; anything less is exactly the invented backing this producer exists to refuse.
-  const facts = (await readFactChecks(tenantId).catch(() => [])).filter((f) => f.state === "checked" && f.sourceReadAt != null && f.confidence === "confirmed" && f.rulesVersion === VERIFICATION_RULES_VERSION);
   // "NEVER YOU" IS A CLAIM ABOUT EVERY ANSWER, SO IT IS COUNTED OVER EVERY ANSWER. Answers that DID credit this site were dropped on the way in, and the sentence then said "across 47 stored answers and never name this site" using a total built only from the answers that had already failed the test. Every answer that reported its sources is counted here, the ones crediting this site are counted SEPARATELY through the one canonical predicate every reading of this fact uses, and one of those retires the whole claim. An answer that reported nothing rides the row count and never the "never you" denominator.
   type Group = { key: string; prompt: string; promptId: string; answers: number; credited: number; rows: number; mentioned: number; engines: Set<string>; domains: Map<string, { n: number; url: string; title: string; engine: string }> };
   const byPrompt = new Map<string, Group>();
@@ -269,31 +288,26 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     // THE ASSISTANTS' OWN FOLLOW-UP SEARCHES behind this question, recurring ones only, off the same projection Visibility renders: the cluster travels with the card into shipment scope, so Results can remeasure it.
     const cluster = (fanouts?.rows ?? []).filter((f) => f.material && f.parents.some((pr) => pr.promptId === g.promptId)).slice(0, 5);
     const clusterLine = cluster.length > 0 ? `While answering it, assistants ran their own searches on repeat: ${cluster.map((f) => `"${f.query}" (${count(f.days, "day")}, ${count(f.engines.length, "assistant")})`).join("; ")}.` : "";
-    const fact = facts.find((f) => f.page.toLowerCase() === path.toLowerCase()) ?? null;
     const engines = engineList([...g.engines].sort()), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
     const copy = caseCopy({ quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage, domain });
     const obsIds = (windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationId).slice(0, 40);
-    // THE STAGE NEVER ORDERS BODY COPY. A decision treatment stays a decision; everything else must earn its
-    // assignment from the banked or freshly ruled diagnosis, and an unruled case keeps its card without a writer.
-    const decisionTr = unreach ? { treatment: "technical_reachability" as const, work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves this intent." }
-      : match.hits.length === 0 ? { treatment: "consolidate_or_differentiate" as const, work: "This page's own coverage serves a different intent than the question asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block." } : null;
-    const gate = decisionTr ? null : gateOf(await diagnoseGap({ tenantId, query: g.prompt, stage, pageUrl: match.page.url, observationIds: obsIds,
-      passages: journeys.filter((j) => j.citedPassage != null).slice(0, 3).map((j) => j.citedPassage!), banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, persist, now }),
-      passedOver ? "rewrite_existing_section" : "add_answer_section", !!fact);
+    // NO TREATMENT WITHOUT A DIAGNOSIS, INCLUDING THE DECISION ONES. "No stored answer reported retrieval" is missing instrumentation, never proof of an indexing defect, and zero title tokens is not proof that a consolidation is the right call: both are stage facts, so they ask for the evidence they lack instead.
+    const gate = gateOf(await diagnoseGap({ tenantId, caseKey: `prompt:${g.promptId}`, query: g.prompt, stage, pageUrl: match.page.url,
+      observationIds: obsIds, passages: journeys.filter((j) => j.citedPassage != null).slice(0, 3).map((j) => j.citedPassage!),
+      banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, meter, persist, now }));
     if (gate && !gate.emit) { notePrompt(g, gate.state, gate.reason, { pageUrl: match.page.url, stage, diagnosis: gate.diagnosis }); continue; }
     out.push({
       page: match.page, slug: "ai_answer_gap", field: "section", query: g.prompt, asked: g.prompt,
-      treatment: decisionTr?.treatment ?? gate!.treatment,
-      ...(decisionTr ? { next: decisionTr.work } : gate!.next ? { next: gate!.next } : {}),
-      headline: copy.headline, before: null, after: `${OBS[stage]} ${decisionTr ? decisionTr.work : gate!.work}`,
-      why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${gate?.diagnosis ? gate.diagnosis.explanation : decisionTr ? decisionTr.work : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
+      ...(gate.treatment ? { treatment: gate.treatment } : {}),
+      ...(gate.next ? { next: gate.next } : {}),
+      headline: copy.headline, before: null, after: `${OBS[stage]} ${gate.work}`,
+      why: `AI answers for "${g.prompt}" credit ${domain} on ${count(cite.n, "answer")}, and the newest answer from each of ${engines} credits other sites. The page they credit is ${cite.url}. ${standLine} ${recurLine} ${gate.diagnosis ? gate.diagnosis.explanation : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
       steps: copy.steps,
       hints: [`${engineLabel(cite.engine)} cited ${cite.url} ("${cite.title}") when answering "${g.prompt}"`,
         ...passages, ...linkOnly, ...(standLine ? [standLine] : []), ...(recurLine ? [recurLine] : []), ...(clusterLine ? [clusterLine] : []),
         ...(passedOver ? [`${stand.retrievedNotCitedEngines.length > 0 ? engineList(stand.retrievedNotCitedEngines) : "The stored window"} shows this page retrieved while answering and credited on none of those answers, so the page is reachable; why the credit went elsewhere is what the whole-page reading decides`] : []),
         ...(mentioned ? [`Assistants say the name in prose on ${count(g.mentioned, "stored answer")} without crediting any page of this site`] : []),
-        ...(fact ? [`Verified fact on file for this page: ${fact.subject}, checked against ${fact.sources[0]?.url ?? "its source"}`] : []),
-        ...(gate?.diagnosis ? [`Beacon's own reading of the complete stored page: ${gate.diagnosis.explanation}`] : []),
+        ...(gate.diagnosis ? [`Beacon's own reading of the complete stored page: ${gate.diagnosis.explanation}`] : []),
         `The newest answer from each of ${engines} credited other sites and none credited this one`,
         `Cited domains on this question: ${[...g.domains.keys()].slice(0, 5).join(", ")}`],
       // THE AI SIDE RIDES IN ITS OWN UNITS: the reporting answers behind the claim, recurrence in distinct days and assistants off the stored window, how often the site was read and passed over, the rivals credited instead, the stage by name, and the landing page's own Google audience as the weight. The ranker reads these beside clicks; nothing here pretends to be a click, and a raw row total is never an audience.
@@ -308,8 +322,8 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       // THE CAUSE CARRIES ITS OWN RECEIPT, WEIGHED ALTERNATIVES AND KNOWN BLIND SPOTS (operator, 2026-08-17: empty arrays do not constitute causal evidence); every entry is computed from what this producer holds.
       cause: { cause: passedOver ? "retrieved_not_cited" : "ai_citation_gap", action: "section",
         evidenceKeys: ["ai-citations", `answers:${g.promptId}`, `cited:${cite.url}`, "copy-current", ...(passedOver ? ["retrieval:own-page"] : []), ...(mentioned ? ["brand-mentions"] : [])],
-        explanation: passedOver ? `The stored record shows ${path} retrieved while answering "${g.prompt}" and credited nowhere (${domain} credited on ${count(cite.n, "answer")} instead). ${standLine} ${recurLine} The page is reachable and is being read: what it does not carry is an answer an engine can lift whole, and that is the cause by name.`
-          : mentioned ? `Assistants name this brand in prose on ${count(g.mentioned, "stored answer")} while answering "${g.prompt}" and credit ${domain} instead (${count(cite.n, "answer")}). ${standLine} ${recurLine} A mention with no citable passage earns no credit, and no stored answer reports retrieving ${path}: the passage an engine could credit does not exist there yet.`
+        explanation: passedOver ? `The stored record shows ${path} retrieved while answering "${g.prompt}" and credited nowhere (${domain} credited on ${count(cite.n, "answer")} instead). ${standLine} ${recurLine} The page is reachable and is being read; why the credit went elsewhere is what the whole-page reading decides, and nothing here claims it.`
+          : mentioned ? `Assistants name this brand in prose on ${count(g.mentioned, "stored answer")} while answering "${g.prompt}" and credit ${domain} instead (${count(cite.n, "answer")}). ${standLine} ${recurLine} The name reaches the answer while the credit does not, and no stored answer reports retrieving ${path}; what the page lacks, if anything, is what the whole-page reading decides.`
             : unreach ? `The newest stored answer from each of ${engines} on "${g.prompt}" credits other sites (${domain} on ${count(cite.n, "answer")}) and none credits this one, and no stored answer reports retrieving this page: before wording matters, the page has to be one the assistants reach at all.`
               : `The newest stored answer from each of ${engines} on "${g.prompt}" relies on other sites (${domain} on ${count(cite.n, "answer")}) and never this one. These instruments report the sources they relied on and not what they read, so absence from the reading is not shown; absence from the credit is.`,
         competingExplanations: [...(inst.length > 0 ? [{ cause: "competitor_content_gap" as const, reason: `the cited rivals include institutional sources (${inst.join(", ")}), so assistants may be preferring that authority, and a better section narrows the gap without guaranteeing the citation flips` }] : []),
@@ -324,9 +338,9 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       minutes: 30, confidence: g.answers >= 3 && (w == null || w.days.size >= 3) ? "medium" : "low", refs: g.answers,
       limitation: "This is read off the answers already stored for this question, not off a fresh answer bought today, and no rewrite guarantees a citation.",
     });
-    if (gate && !gate.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
+    if (!gate.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
     notePrompt(g, "actionable", `Rivals are credited on this question and this site is not. A change is open for it on ${path}.`,
-      { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gate?.diagnosis ? { diagnosis: gate.diagnosis } : {}) });
+      { pageUrl: match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gate.diagnosis ? { diagnosis: gate.diagnosis } : {}) });
     if (out.length >= MAX_PER_PRODUCER) break;
   }
 
@@ -416,33 +430,32 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       path, intent: intentOf(subject), stage, domain: rival ? rival.url.replace(/^https?:\/\//, "").split("/")[0] ?? null : null });
     const decisionF = unreachF ? { treatment: "technical_reachability" as const, work: "No stored answer reports reading this page while rivals are credited, so the work is reachability first: indexing, internal links to it, and whether this page truly serves this intent." }
       : fit.match.hits.length === 0 ? { treatment: "consolidate_or_differentiate" as const, work: "This page's own coverage serves a different intent than the search asks, so the decision is a dedicated page or deliberate repositioning, never a bolted-on block." } : null;
-    const gateF = decisionF ? null : gateOf(await diagnoseGap({ tenantId, query: subject, stage, pageUrl: fit.match.page.url,
-      observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, persist, now }),
-      readOver ? "rewrite_existing_section" : "add_answer_section", false);
-    if (gateF && !gateF.emit) {
+    const gateF = gateOf(await diagnoseGap({ tenantId, caseKey: `fanout:${row.key}`, query: subject, stage, pageUrl: fit.match.page.url,
+      observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, meter, persist, now }));
+    if (!gateF.emit) {
       states.diagnosed = (states.diagnosed ?? 0) + 1;
       noteCase(row, gateF.state, gateF.reason, { pageUrl: fit.match.page.url, stage, diagnosis: gateF.diagnosis });
       continue;
     }
     out.push({
       page: fit.match.page, slug: "ai_answer_gap", field: "section", query: subject, asked: subject,
-      treatment: decisionF?.treatment ?? gateF!.treatment,
-      ...(decisionF ? { next: decisionF.work } : gateF!.next ? { next: gateF!.next } : {}),
+      ...(gateF.treatment ? { treatment: gateF.treatment } : {}),
+      ...(gateF.next ? { next: gateF.next } : {}),
       headline: readOver
         ? `Assistants search "${row.query}" and read ${path} without crediting it`
         : unreachF
           ? `Assistants search "${row.query}" and none reports reading ${path}; make it the page they reach`
           : `Assistants search "${row.query}" and rely on other sites; ${path} is not among the sources they report`,
       before: null,
-      after: `${OBS[stage]} ${decisionF ? decisionF.work : gateF!.work}`,
-      why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${rival.answers} of those answers.` : "No page is credited on it often enough to name a leader."} ${gateF?.diagnosis ? gateF.diagnosis.explanation : decisionF ? decisionF.work : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
+      after: `${OBS[stage]} ${gateF.work}`,
+      why: `${count(row.executions, "stored answer")} ran the search "${row.query}" while answering ${count(row.parents.length, "tracked question")}: it ${row.materialBecause}. ${rival ? `${rival.url} is credited on ${rival.answers} of those answers.` : "No page is credited on it often enough to name a leader."} ${gateF.diagnosis ? gateF.diagnosis.explanation : "Whether this page already answers it is read from its complete stored copy before any change is ordered."}`,
       steps: copyF.steps,
       hints: [`Assistants ran this search themselves: ${row.materialBecause}`,
         ...(row.variants.length > 1 ? [`Wordings collapsed onto one search: ${variants.slice(0, 4).map((v) => `"${v}"`).join(", ")}`] : []),
         `Behind ${row.parents.slice(0, 2).map((pr) => `"${plain(pr.promptText)}"`).join(" and ")}${row.parents.length > 2 ? ` and ${count(row.parents.length - 2, "more question")}` : ""}`,
         ...(rival ? [`${rival.url} is credited on ${count(rival.answers, "answer")} that ran it`] : []),
         ...(readOver ? [`A page here was read for it and passed over ${count(row.retrievedNotCitedAnswers, "time")}`] : []),
-        ...(gateF?.diagnosis ? [`Beacon's own reading of the complete stored page: ${gateF.diagnosis.explanation}`] : []),
+        ...(gateF.diagnosis ? [`Beacon's own reading of the complete stored page: ${gateF.diagnosis.explanation}`] : []),
         `Assistants that ran it: ${engineList(row.engines)}`],
       aiImpact: { answers: row.reportingAnswers, mentionRate: 0, citedRivals: row.rivalPagesTotal,
         audienceWeight: fit.match.page.search?.impressions90d ?? null, days: row.days, engines: row.engines.length,
@@ -464,11 +477,11 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
       minutes: 30, confidence: row.days >= 3 && row.engines.length >= 2 ? "medium" : "low", refs: row.executions,
       limitation: FANOUT_LINKAGE_CAVEAT,
     });
-    if (gateF && !gateF.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
+    if (!gateF.hire) holdIds.add(`${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`);
     byPage.set(path, out.length - 1);
     claimed.add(row.key);
     noteCase(row, "actionable", `${row.materialBecause}. A change is open for it on ${path}.`,
-      { pageUrl: fit.match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gateF?.diagnosis ? { diagnosis: gateF.diagnosis } : {}) });
+      { pageUrl: fit.match.page.url, stage, proposalId: `${tenantId}::${path.toLowerCase()}::existing_edit::ai_answer_gap`, ...(gateF.diagnosis ? { diagnosis: gateF.diagnosis } : {}) });
   }
   // FILED ONCE, AT THE END, so a surface reads what this pass concluded instead of guessing it again. A pass that persists nothing files nothing: a dry run must never leave a verdict on disk for a screen to read. A CONCLUSION THAT IS NOT ON RECORD IS NOT A CONCLUSION. When the file could not be written, this pass may not be treated as having rewritten its family in full: the sweep behind it would then retire cards on the strength of a pass whose verdicts nothing can read back. AND A PASS THAT NEVER SAW THE WINDOW DECIDED NOTHING WORTH KEEPING. With the 28 day read failed or empty, every verdict above was reached blind: recurrence at zero, every fan-out invisible. Filing those rows would overwrite real verdicts with blindness, and reporting filed:true would authorize the sweep to retire cards on the strength of a read that never happened. So the pass keeps its drafts, files nothing, leaves an unavailable receipt in the log, and the family is held exactly as an unwritable store holds it.
   if (windowObs == null) {
@@ -483,4 +496,4 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
   return { drafts: out, filed: write.filed, hold: holdIds };
 }
 /** ONE test surface for the copy layer: every derivation pinned through one export. */
-export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, gateOf, diagnoseGap } as const;
+export const AI_CASE_COPY = { caseCopy, intentOf, readableSubject, gateOf, diagnoseGap, aeoMeter } as const;

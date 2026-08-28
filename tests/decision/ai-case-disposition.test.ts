@@ -128,3 +128,12 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
     const s = await coldInstance(); expect(await s.recordAiCaseDispositions("t", [])).toEqual({ filed: true, landed: 0 });
     expect(db.rpcCalls).toBe(0); // deciding nothing is not a write
   });});
+
+/** PERSISTED JSON IS UNTRUSTED (operator, 2026-08-28): a malformed or older-contract diagnosis is NO usable diagnosis. It never throws the queue, never authorizes work, and is never repaired into something valid-looking, because a repaired verdict is a verdict nobody made. */
+describe("a persisted diagnosis is decoded, never trusted", () => {
+  const ok = { kind: "scattered_answer", treatment: "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z" };
+  it("keeps a whole record and fails closed on every broken one", async () => {
+    const { decodeDiagnosis, freshDiagnosis } = await import("@/domains/decision/ai-case-store");
+    expect(decodeDiagnosis(ok)).toMatchObject({ kind: "scattered_answer", packet: "pk" });
+    for (const [what, bad] of [["not an object", "nope"], ["null", null], ["an array", [ok]], ["an unknown kind", { ...ok, kind: "vibes" }], ["an unknown treatment", { ...ok, treatment: "rewrite_everything" }], ["a missing packet", { ...ok, packet: "" }], ["an older contract", { ...ok, version: 0 }], ["duplicate ids", { ...ok, ownedIds: ["own-1", "own-1"] }], ["a non-string id", { ...ok, evidenceIds: [7] }], ["no explanation", { ...ok, explanation: "  " }], ["a half-written row", { kind: "already_answered" }]] as const) expect(decodeDiagnosis(bad), what).toBeNull();
+    expect([freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "pk"), freshDiagnosis(decodeDiagnosis(ok) ?? undefined, "OTHER")], "the exact packet is current; any other is stale").toEqual([true, false]); }); });

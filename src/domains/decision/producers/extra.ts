@@ -46,10 +46,10 @@ const earnedWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<strin
 /** ONE PAGE, WHATEVER SPELLING ASKED FOR IT: the address the read landed on, else the address the page names as its own, else the address asked for. Three retired slugs forwarding to one product are ONE page. */
 const identityOf = (p: OwnedPageEvidence): string =>
   canonicalUrlKey(p.content?.finalUrl || p.content?.canonicalUrl || p.url);
-import { aiCaseCards } from "./ai-cases";
+import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
 
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
-type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; needsOwnPage: { query: string; refusedPages?: string[] }[] };
+type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; cached: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
 import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
@@ -236,6 +236,8 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
 }
 /** Every extra card this account's stored evidence already supports, at `needs_review`, deduplicated against the queue it holds. Never throws: a source that will not read narrows the answer instead of failing the pass. */
 export async function extraQueueCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
+  /** THE PASS'S AEO DIAGNOSIS PURSE. Absent means an UNFUNDED caller, so nothing is bought and every case stays owed. */
+  aeoDiagnoses?: number;
   /** THE BAR THIS ACCOUNT'S OWN SEARCHES ARE HELD TO, threaded from the pass that fitted it. Absent falls back to the industry table, a far more generous bar, so a caller that can fit one should. */
   curve?: Pick<TenantCtrCurve, "expectedCtrAt">;
   /** THE PASS'S PAGE-READING BUDGET, the second of the two named budgets a production pass owns. Handed in so the one paid read this file makes is counted where every other paid call is counted. */
@@ -253,6 +255,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // NOTHING TO READ IS NOT A FINISHED PASS. These producers rewrite their families in full and the sweep behind them retires only what a FINISHED producer no longer stands behind, so a pass that read nothing says so.
   if (pages.length === 0) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const weak = weakAnchorsOf(snapshot.ownedPages, snapshot.research);
+  const meter: AeoMeter = aeoMeter(input.aeoDiagnoses ?? 0);
   // The words each page has actually earned the right to be asked about, off the already-clean outline.
   const earned = new Map(pages.map((p) => [p.url, earnedWords(p, weak)]));
   // How much of this site hangs UNDER each page: what makes one address a hub and another a leaf.
@@ -276,7 +279,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // THE COMPLETE GOOGLE UNIVERSE, not the top-40 grain. Null = unknown, never no.
   const universe = await import("@/domains/evidence/readers/gsc-query-universe")
     .then((m) => m.loadGscQueryUniverse(tenantId, now)).catch(() => null);
-  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, universe?.keys ?? null);
+  const cases = await aiCaseCards(bank, snapshot, pages, weak, earned, children, u, tenantId, input.units ?? [], windowObs, now, input.persist !== false, meter, universe?.keys ?? null);
   const drafts = [...cases.drafts,
     ...links.drafts, ...technicalCards(pages, snapshot, expectedCtrAt)];
   const out: ChangeProposal[] = [];
@@ -298,14 +301,15 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   // rewritten this family in full, whatever it minted, so the sweep leaves the cards on file exactly alone.
   const families = [...(answersRead && cases.filed ? ["ai_answer_gap", "engine_followup"] : []), ...(links.complete ? ["internal_link"] : []), ...DEFECTS];
   if (families.length < DEFECTS.length + 3) log.warn("[extra] a source did not answer, so its families are held out of the sweep", { tenantId, families });
-  return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank, aeoHold: cases.hold };
+  log.info("[extra] the pass's AEO diagnosis purse", { tenantId, ...meter.spent(), refused: cases.hold.size });
+  return { cards: out, complete: families.length === DEFECTS.length + 3, families, held: u.held, needsOwnPage: bank, aeoHold: cases.hold, aeoSpend: meter.spent() };
 }
 
 /** THE ONE ENTRANCE FOR A PASS: loads the demand units once (both producers join the SAME audiences) and
  *  runs the $0 queue. The paid funnel's early return used to skip this producer entirely, so a paused quiet
  *  account never judged a single AI case (first canonical $0 acceptance run, 2026-08-21). */
 export async function extraQueuePass(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date;
-  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean }): Promise<{
+  curve?: Parameters<typeof extraQueueCards>[0]["curve"]; reads?: { left: number }; persist?: boolean; aeoDiagnoses?: number }): Promise<{
   run: ExtraQueueRun; unitLoad: Awaited<ReturnType<typeof import("@/domains/evidence/demand-unit-loader")["loadCanonicalDemandUnits"]>> | null }> {
   const unitLoad = await import("@/domains/evidence/demand-unit-loader")
     .then((m) => m.loadCanonicalDemandUnits(input.tenantId, input.snapshot, input.curve, input.now)).catch(() => null);

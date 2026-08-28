@@ -547,8 +547,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       .toEqual([(banked.recommendedChange as { after: string }).after, "Goodbye: goodbye. Please: please."]); });
   it("drops a CTA last line from list-shaped copy and never amputates a phrase-meaning item", () => {
     const LIST = "Persian greetings people actually use every day, from the first hello to the goodbye at the door:\nSalam - hello, the everyday greeting you can use with anyone at any time of day.\nKhodahafez - goodbye, literally may God protect you, said when parting.\nMerci - thank you, borrowed from French and completely common in Iran.";
-    expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST); expect(withoutCta(LIST, "section")).toBe(LIST);
-  });
+    expect(withoutCta(`${LIST}\nSee the page for more phrases.`, "section")).toBe(LIST); expect(withoutCta(LIST, "section")).toBe(LIST); });
   it("takes the call to action off the end of a description, or sends it back for one redraft", () => {
     const A = "Achaemenid Empire Flag (550-330 BCE): its symbolism, origins, role and changes in Persian flags history. Read this page for the focused summary.", B = "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion. Browse unique pieces.";
     const FACT = "Persian Accessories: hats, phone cases and designs inspired by Iranian culture, made for everyday wear and shipped from the shop.";
@@ -915,9 +914,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         ["only part of the evidence the claim names", (d: { claims: readonly { supportedBy: readonly string[] }[] }) => rulesOn(d).map((r) => ({ ...r, by: r.by.slice(0, Math.max(0, r.by.length - 1)) }))],
         ["the editor's own no", (d: { claims: readonly unknown[] }) => rulesOn(d as never).map((r) => ({ ...r, entailed: false }))],
         ["a coarse approval with no rulings at all", () => []]] as const)
-        expect(await judged(claims as never), `${what} earns nothing`).toBeFalsy();
-    });
-  });
+        expect(await judged(claims as never), `${what} earns nothing`).toBeFalsy(); }); });
   it("the cards that reached a customer are refused before a model is asked", () => { const pk = (bodyText: string, bannedTerms: string[] = []) => ({ targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText, headings: [], evidence: { "page-copy-1": bodyText }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms, demand: { preserve: [], vocabulary: [] } });
     const d = (o: Record<string, unknown>) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "answer_block", naturalHeading: "A human heading", beforeText: null, evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 30, measurementTarget: "citations", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], ...o } as never, (o.P as never) ?? pk(""));
     const chrome = "top of pagePopular Persian(Farsi) Insults, Funny Phrases, and SlangPersian is a lively language full of humorous expressions.";
@@ -1480,7 +1477,13 @@ describe("a day holding writable AI work is not a quiet day", () => {
 /** AN AEO CARD WITHOUT AN AUTHORIZING DIAGNOSIS NEVER HIRES THE WRITER (operator, 2026-08-28): the assignment is proven before the writer is paid, or the card waits as research. The hold rides extra's own return. */
 describe("the writer-hire gate on undiagnosed AEO cards", () => {
   const aeoCard = (id: string, hold: boolean) => prop({ id, pagePath: `/${id}`, pageUrl: `https://fixture-content.example/${id}`, pageLabel: id, primaryQuery: `about ${id}`, changeFamily: "section", status: "needs_review", researchOnly: true, treatment: hold ? "rewrite_existing_section" : "add_answer_section", opportunityType: "Win an AI answer", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "The stage line and the work brief." }, evidence: { query: `about ${id}`, hints: [], evidenceRefCount: 1 } });
-  it("a held card is never drafted, an authorized sibling still is", async () => {
+  it("no undiagnosed card is drafted, no missing-information diagnosis hires, and an authorized sibling still is", async () => {
+    const { AI_CASE_COPY } = await import("@/domains/decision/producers/ai-cases");
+    const dx = (kind: string) => ({ kind, treatment: kind === "missing_information" ? "add_answer_section" : "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: ["ans-1"], missing: "the 1979 rule", packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 1, decidedAt: "2026-08-28T00:00:00.000Z" }) as never;
+    // A CONFIRMED FACT ELSEWHERE ON THE PAGE IS A PAGE MATCH, NEVER SUPPORT FOR THIS PROPOSITION: the gate takes no fact argument at all any more, so no arrangement of the page's fact bank can hire the writer for a claim nothing binds to its evidence.
+    expect(AI_CASE_COPY.gateOf.length, "the gate reads the diagnosis and nothing else").toBe(1);
+    expect(AI_CASE_COPY.gateOf(dx("missing_information"))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
+    expect(AI_CASE_COPY.gateOf(dx("scattered_answer")), "scatter still hires on the page's own passages").toMatchObject({ emit: true, hire: true });
     vi.resetModules(); sent.length = 0; kinds.length = 0;
     const held = aeoCard("held-case", true), cleared = aeoCard("cleared-case", false);
     vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [held, cleared], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"], aeoHold: new Set([held.id]) }, unitLoad: null }) }));

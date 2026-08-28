@@ -1,6 +1,4 @@
-/** Outcome tests for the EvidenceSnapshot kernel: the CONTRACT downstream Decisions consume, never the implementation. All six mandatory sources
- *  normalize in with an honest freshness slot, owned-page and competitor evidence are both present, the AI lane is DERIVED from the canonical answers
- *  riding on the research payload (no second AI input is left to disagree with it), and the evidenceHash tracks MATERIAL evidence only. */
+/** Outcome tests for the EvidenceSnapshot kernel: the CONTRACT downstream Decisions consume, never the implementation. All six mandatory sources normalize in with an honest freshness slot, owned-page and competitor evidence are both present, the AI lane is DERIVED from the canonical answers riding on the research payload (no second AI input is left to disagree with it), and the evidenceHash tracks MATERIAL evidence only. */
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
 import { buildTopicInvestigations, reconcileResearchCases } from "./topic-investigation";
@@ -10,8 +8,7 @@ const SCOPE = { tenantId: "t_iran", site: "fixture-content.example", builtAt: "2
 const OWNED = "https://fixture-content.example/flag", KEBAB = "https://persianfood.example/kebab", EMBLEM = "what does the emblem on the iran flag mean";
 const cite = (url: string) => ({ url, domain: new URL(url).hostname, title: null });
 const at = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: "2026-07-21T00:00:00.000Z", payload });
-/** ONE canonical answer exactly as the loader hands it over: the identity, the journey, and a reading ONLY where one
- *  settled against that answer. Everything the snapshot says about AI is derived from these rows and nothing else. */
+/** ONE canonical answer exactly as the loader hands it over: the identity, the journey, and a reading ONLY where one settled against that answer. Everything the snapshot says about AI is derived from these rows and nothing else. */
 const answer = (promptId: string, engine: string, over: Partial<CanonicalPairObservation> = {}): CanonicalPairObservation => ({
   observationId: `obs_${promptId}_${engine}`, promptId, promptVersion: 2, promptText: `ask ${promptId}`, engine, modelRequested: "gpt-4o", modelServed: "gpt-4o-2026",
   observationMode: "consumer_search", reportingDay: "2026-07-21", observedAt: "2026-07-22T00:00:00.000Z", answerHash: "h", webSearchReported: true, citationsObserved: true,
@@ -47,25 +44,20 @@ describe("buildEvidenceSnapshot - six-source normalization", () => {
     expect(snap.contentGaps.every((g) => g.kind === "unanswered_question")).toBe(true); // a cited competitor stays evidence and never becomes a page topic of its own
     const cannib = snap.cannibalization.find((c) => c.query === "iran flag meaning")!;
     expect(cannib.competingUrls).toEqual(["fixture-content.example/flag", "fixture-content.example/flag-history"]);
-    expect(snap.intentClusters.find((c) => c.queries.some((qq) => qq.includes("buy")))?.intent).toBe("commercial");
-  });
+    expect(snap.intentClusters.find((c) => c.queries.some((qq) => qq.includes("buy")))?.intent).toBe("commercial"); });
   it("gives one answer one vote, and ranks rivals by how many QUESTIONS credit them rather than how many answers do", () => {
     const LOUD = "https://loud.example/x", STEADY = "https://steady.example/x", PAIRED = "https://paired.example/x", many = Array.from({ length: 11 }, () => cite(LOUD));
     const rows = [answer("p1", "chatgpt", { citations: [...many, cite(STEADY), cite(OWNED), cite(OWNED)] }), answer("p1", "gemini", { citations: [cite(LOUD)] }), answer("p1", "claude", { citations: [cite(LOUD)] }),
       answer("p2", "chatgpt", { citations: [cite(STEADY), cite(PAIRED)] }), answer("p3", "perplexity", { citations: [cite(STEADY), cite(PAIRED)] })];
     const snap = buildEvidenceSnapshot({ ...fullInput(), research: at({ ...emptyResearchEvidence(), aiObservations: rows }) });
-    // Eleven repeats inside one answer are one answer's opinion. And ONE question answered three times (loud) must
-    // rank BELOW two questions answered once each (paired), which only ranking on distinct questions can do.
+    // Eleven repeats inside one answer are one answer's opinion. And ONE question answered three times (loud) must rank BELOW two questions answered once each (paired), which only ranking on distinct questions can do.
     expect([snap.ownedPages.find((p) => p.url === "fixture-content.example/flag")!.aiCitations.count, snap.competitors.map((c) => [c.domain, c.citationCount, c.distinctPrompts])])
-      .toEqual([1, [["steady.example", 3, 3], ["paired.example", 2, 2], ["loud.example", 3, 1]]]);
-  });
+      .toEqual([1, [["steady.example", 3, 3], ["paired.example", 2, 2], ["loud.example", 3, 1]]]); });
   it("is deterministic and hashes on material evidence, not the clock", () => {
     const base = fullInput(); const a = buildEvidenceSnapshot(base); expect(buildEvidenceSnapshot(fullInput())).toEqual(a);
     expect(buildEvidenceSnapshot({ ...base, gsc: { ...base.gsc, lastSyncedAt: "2099-01-01T00:00:00.000Z" } }).evidenceHash).toBe(a.evidenceHash);
     const changed = { ...base, gsc: { ...base.gsc, payload: base.gsc.payload.map((p, i) => (i === 0 ? { ...p, clicks90d: 9999 } : p)) } };
-    expect(buildEvidenceSnapshot(changed).evidenceHash).not.toBe(a.evidenceHash);
-  });
-});
+    expect(buildEvidenceSnapshot(changed).evidenceHash).not.toBe(a.evidenceHash); }); });
 describe("buildEvidenceSnapshot - honest source states", () => {
   const empty = <T,>(payload: T) => ({ status: "empty" as const, lastSyncedAt: null, payload });
   it("keeps all six slots when every source is empty, and tells a FAILED source apart from an empty one", () => {
@@ -73,12 +65,10 @@ describe("buildEvidenceSnapshot - honest source states", () => {
       research: empty(emptyResearchEvidence()), aiAnswersUnread: false, ga4: { status: "failed", lastSyncedAt: null, note: "GA4 read errored this run.", payload: [] } });
     const byKind = new Map<EvidenceSourceKind, string>(snap.sources.map((s) => [s.source, s.status]));
     expect([snap.sources.length, snap.ownedPages.length, byKind.get("gsc"), byKind.get("native_ai")]).toEqual([6, 0, "empty", "dormant"]); // no answer on file is DORMANT, a different claim from a clean empty read
-    const ga4 = snap.sources.find((s) => s.source === "ga4")!; expect([ga4.status, ga4.note]).toEqual(["failed", "GA4 read errored this run."]);
-  });
+    const ga4 = snap.sources.find((s) => s.source === "ga4")!; expect([ga4.status, ga4.note]).toEqual(["failed", "GA4 read errored this run."]); });
   it("assembles owned evidence with no AI answer at all, and claims no competitor and no question without one", () => {
     const snap = buildEvidenceSnapshot({ ...fullInput(), research: { status: "dormant", lastSyncedAt: null, payload: emptyResearchEvidence() } });
-    expect([snap.ownedPages.length, snap.competitors.length, snap.questionDemand.length, snap.aiCitations.ownedCited]).toEqual([2, 0, 0, 0]); });
-});
+    expect([snap.ownedPages.length, snap.competitors.length, snap.questionDemand.length, snap.aiCitations.ownedCited]).toEqual([2, 0, 0, 0]); }); });
 describe("evidenceHash - research material truth, not the clock", () => {
   const researchFixture = (): FunnelResearchEvidence => ({ ...aiEvidence(),
       retainedKeywords: [{ query: "koobideh recipe", searchVolume: 1200, competition: 0.3, competitionLevel: "low", difficulty: null, intent: "informational" }],
@@ -90,8 +80,7 @@ describe("evidenceHash - research material truth, not the clock", () => {
     const base = hashOf(researchFixture()); const clockOnly = researchFixture(); clockOnly.aiObservations[0].observedAt = "2099-01-01T00:00:00.000Z";
     clockOnly.winningPages[0].appearances = [{ kind: "ai_answer", query: null, promptId: "p1", promptText: "x", engine: "chatgpt", rank: null, citedUrl: KEBAB, observedAt: "2099-01-01T00:00:00.000Z", modelServed: "gpt-4o-2026" }];
     clockOnly.receipt = { researched: 999, retained: 999, stale: 9, missing: 9, cached: 999, spentUsd: 9.99, freshestObservationAt: "2099-01-01T00:00:00.000Z" };
-    expect(hashOf(clockOnly)).toBe(base);
-  });
+    expect(hashOf(clockOnly)).toBe(base); });
   it("changes for a settled reading, a citation URL, observation mode, served model, fan-out list, keyword volume/intent, or extract structure", () => {
     const base = hashOf(researchFixture());
     const mut = (f: (r: FunnelResearchEvidence) => void) => { const r = researchFixture(); f(r); return hashOf(r); };
@@ -100,10 +89,8 @@ describe("evidenceHash - research material truth, not the clock", () => {
     expect(mut((r) => (r.aiObservations[0].fanOutQueries = ["totally", "different"]))).not.toBe(base); expect(mut((r) => (r.winningPages[0].extract!.wordCount = 12345))).not.toBe(base);
     expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base); expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
     expect(mut((r) => (r.aiObservations[0].analysisHash = "settled"))).not.toBe(base); // a reading that landed is new evidence even when the answer credited the very same pages
-  });
-});
-/** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives
- *  this account 12 phrases, so "harbor" is its ubiquitous word and can never be the reason two topics merge. */
+  }); });
+/** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives this account 12 phrases, so "harbor" is its ubiquitous word and can never be the reason two topics merge. */
 describe("buildTopicInvestigations - the research packet", () => {
   const NOW = "2026-07-27T00:00:00.000Z"; const OLD = "2026-01-01T00:00:00.000Z"; const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
   const kwRow = (query: string) => ({ query, searchVolume: null, competition: null, competitionLevel: null, difficulty: null, intent: null, discoveredVia: "ranked" as const, seed: null }); const CORPUS = ["harbor tide chart", "harbor whale tour", "harbor ferry time", "harbor parking rate", "harbor seafood market", "harbor fishing permit", "harbor bike hire", "harbor dog beach", "harbor live music", "harbor farmer market", "harbor kayak paddle", "harbor tote bag"].map(kwRow);
@@ -134,8 +121,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     const shapes = byLabel("tote"); const onager = byLabel("onager"); expect(shapes.pageTypeVotes).toEqual([{ pageType: "informational_guide", domains: 3 }, { pageType: "product", domains: 1 }]); // 4 shop URLs are ONE vote, and a shop is not a guide
     expect(shapes.pageType).toBe("unknown"); expect(shapes.serpFreshness).toBe("undated"); expect(onager.serpCoherence).toBe("mixed"); // no page type is supported without a current exact look
     expect(onager.pageType).toBe("mixed"); // two meanings are never one page-shaped topic
-    expect(onager.winners.map((w) => w.extractState).sort()).toEqual(["missing", "stale", "unreadable"]); expect(onager.currentReadableWinners).toBe(0);
-  });
+    expect(onager.winners.map((w) => w.extractState).sort()).toEqual(["missing", "stale", "unreadable"]); expect(onager.currentReadableWinners).toBe(0); });
   it("owes three ranked ADDRESSES before it can compare and three read BODIES before anything is written, and never emits an action", () => {
     const paddle = byLabel("kayak paddle"); expect(paddle.pageType).toBe("informational_guide"); // three read and three named: nothing about the winners is owed
     expect(paddle.currentReadableWinners).toBe(3); expect(paddle.missingEvidence.every((m) => m.includes("AI engine"))).toBe(true);
@@ -145,8 +131,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(only({ winningPages: ["a", "b", "c"].map((h, i) => win(`https://${h}.example/g`, "harbor kayak paddle", body(i === 0 ? NOW : OLD))) }))
       .toEqual(["I have read 1 of the 3 winning pages I would need before writing a page of your own."]); // three addresses, one body: only the WRITING is blocked
     const keys = (v: unknown): string[] => Array.isArray(v) ? v.flatMap(keys) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...keys(x)]) : [];
-    expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]);
-  });
+    expect(keys(ALL).filter((k) => /action|proposal|draft|recommend|status|queue|publish|outline|meta/i.test(k))).toEqual([]); });
   it("never welds unrelated subjects: one owner per anchor, so a stale row and a shared-anchor chain both stay bounded", () => {
     // A dormant row claiming one anchor from each of two live cases used to union them into ONE case in a single pass.
     const weld = foldCases([["flag", "flag meaning"], ["visa", "visa rules"]], [{ id: "inv_flag", anchors: ["flag", "flag meaning"] }, { id: "inv_visa", anchors: ["visa", "visa rules"] }, { id: "inv_old", anchors: ["flag", "visa"] }]);
@@ -156,8 +141,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     const chain = [["c1", ["x1", "x2"]], ["c2", ["x2", "x3"]], ["c3", ["x3", "x4"]], ["c4", ["x4", "x5"]], ["c5", ["x5", "x6"]]] as const;
     const out = foldCases([["x1"], ["x2"], ["x3"], ["x4"], ["x5"], ["x6"]], chain.map(([id, anchors]) => ({ id: `inv_${id}`, anchors: [...anchors] })));
     const alive = out.filter((f) => f.anchors.length > 0), owned = alive.flatMap((f) => f.anchors);
-    // Pairwise resolution absorbs a neighbor that loses its every contested anchor; it never accumulates:
-    // ownership stays disjoint, no case grows past its own two anchors, and the ten never land in one case.
+    // Pairwise resolution absorbs a neighbor that loses its every contested anchor; it never accumulates: ownership stays disjoint, no case grows past its own two anchors, and the ten never land in one case.
     expect([new Set(owned).size === owned.length, Math.max(...alive.map((f) => f.anchors.length)) <= 2, alive.length >= 3]).toEqual([true, true, true]); });
   it("keeps ONE frozen case id through enrichment, merges two on file into one canonical id plus an alias, and splits without minting a third", () => {
     const cases = reconcileResearchCases(world()); const anchorsOf = (part: string) => cases.find((c) => c.id === byLabel(part).key)!.anchors;
@@ -175,8 +159,7 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(build({ cases: saved }).find((i) => i.label.includes("kayak paddle"))!.aliasKeys).toEqual(["inv_alpha"]); expect([...reconcileResearchCases(world({ cases: saved }))].sort((a, b) => a.id.localeCompare(b.id))).toEqual([...saved].sort((a, b) => a.id.localeCompare(b.id))); // and a fixpoint, never a growing pile (row ORDER is not the promise; the rows are)
     expect(reconcileResearchCases(world({ cases: [...two, { id: "inv_gamma", anchors: [], aliasOf: "inv_alpha" }] })).filter((c) => c.aliasOf).map((c) => `${c.id} ${c.aliasOf}`).sort()).toEqual(["inv_alpha inv_beta", "inv_gamma inv_beta"]); // alpha absorbed gamma and beta absorbed alpha: ONE canonical id, written back flat
     expect(reconcileResearchCases(world({ cases: [...two, ...Array.from({ length: 70 }, (_, i) => ({ id: `inv_old${i}`, anchors: [`old${i}`] }))] })).filter((c) => c.aliasOf === "inv_beta").map((c) => c.id)).toEqual(["inv_alpha"]); // the cap spends itself on dormant rows, never on an alias of a case it keeps
-    // THE REGISTRY OUTRANKS THE GROUPING RULES: one row holding the anchors of two rule-made groups is ONE case, united BEFORE any id is assigned. The rules
-    // never agreed those searches were one subject, so re-partitioning them awarded the id to one half and minted a THIRD for the other, on every pass.
+    // THE REGISTRY OUTRANKS THE GROUPING RULES: one row holding the anchors of two rule-made groups is ONE case, united BEFORE any id is assigned. The rules never agreed those searches were one subject, so re-partitioning them awarded the id to one half and minted a THIRD for the other, on every pass.
     const both = [...anchorsOf("kayak paddle"), ...anchorsOf("tote")];
     const united = build({ cases: [{ id: "inv_split", anchors: both }] }).filter((i) => i.key === "inv_split");
     expect([united.length, united[0]!.queries.some((q) => q.includes("tote")), united[0]!.queries.some((q) => q.includes("paddle"))]).toEqual([1, true, true]);
@@ -199,5 +182,4 @@ describe("buildTopicInvestigations - the research packet", () => {
     expect(look.organicRows.map((r) => `${r.rank} ${r.domain}`)).toEqual(["1 w.example", "2 w.example", "3 x.example"]); expect(look.organicRows).toHaveLength(look.organicResults); // rank order, two subdomains of one publisher are one publisher, and every page counted is named
     expect(tour.winners[0].appearances.map((a) => a.kind)).toEqual(["serp_organic", "ai_overview"]); expect(tour.winners[0].domain).toBe("w.example"); // ranks AND is cited: both kept
     expect(tour.winners[1].appearances.map((a) => `${a.kind} ${a.rank}`)).toEqual(["ai_overview null"]); expect(tour.winners[1].appearances[0].viaUrl).toBe("https://wrap.example/r"); // cited only: never a rank
-  });
-});
+  }); });

@@ -1,10 +1,4 @@
-/**
- * DETERMINISTIC REPLAY - the WORLD around the envelopes: first-party Search Console shapes, owned-page
- * bodies at two ages, competitor winners readable and not, a confirmed business profile, and an in-memory
- * basis-scoped funnel store. Everything is invented and every builder takes overridable fields, so the
- * replay harness composes cases instead of carrying blobs. Re-exports the envelope builders as the ONE
- * import for a replay test.
- */
+/** DETERMINISTIC REPLAY - the WORLD around the envelopes: first-party Search Console shapes, owned-page bodies at two ages, competitor winners readable and not, a confirmed business profile, and an in-memory basis-scoped funnel store. Everything is invented and every builder takes overridable fields, so the replay harness composes cases instead of carrying blobs. Re-exports the envelope builders as the ONE import for a replay test. */
 import type { BusinessProfile, ProfileSection } from "@/domains/account";
 import { emptyBusinessProfile } from "@/domains/account";
 import type { GscDecaySignal } from "@/domains/evidence/readers/gsc-page-signals";

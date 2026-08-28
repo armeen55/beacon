@@ -180,6 +180,4 @@ describe("the proof burden matches the promise, at the one door every surface re
     store.rows = new Map([[creative.id, creative], [fill.id, fill]]);
     const q = await loadProposalQueue(T, { currentBasis: "b", now: new Date("2026-08-02T00:00:00.000Z") });
     expect(q.ready.map((p) => p.id)).toEqual([fill.id]);
-    expect(q.toDo.map((p) => p.id)).toContain(creative.id);
-  });
-});
+    expect(q.toDo.map((p) => p.id)).toContain(creative.id); }); });
