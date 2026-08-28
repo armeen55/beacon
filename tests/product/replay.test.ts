@@ -143,7 +143,22 @@ const EDIT = { field: "title", before: "Kite Festival", after: "Kite Festival Tr
   rationale: "The stored title is two words and misses the traditions searchers ask about.", risks: ["keep the title readable"],
   evidenceRefs: [{ source: "gsc", detail: "many views for kite festival traditions with a low click rate" }],
   operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks", "position"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" } };
-const drafter = (): { complete: CompleteFn; calls: () => number } => { let n = 0; return { complete: async () => { n += 1; return { value: EDIT as never }; }, calls: () => n }; };
+const META_EDIT = { ...EDIT, field: "meta", before: null, placementAnchor: "Kite Festival",
+  claims: [{ text: "The page tells what happens on the day and what families bring", supportedBy: ["page-heading-1", "page-heading-2"] }],
+  after: "A plain guide to what happens on the day at a kite festival and what families bring, so first time visitors know what to expect." };
+const META2 = { ...META_EDIT, placementAnchor: "Lantern Release",
+  claims: [{ text: "The page tells when the lanterns go up and how the release works", supportedBy: ["page-heading-1", "page-heading-2"] }],
+  after: "A plain guide to when the lanterns go up and how the release works, so first time visitors know what to expect on the night." };
+/** The writer AND its final editor, both deterministic and both answering the EXACT ask: the field the prompt names, and a
+ *  ruling per claim parsed off the judgement's own prompt. Every gate between the ask and the store is the production gate. */
+const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => string[] } => { let n = 0; const asked: string[] = [];
+  const complete: CompleteFn = async (a) => { n += 1; asked.push(`${a.kind}: ${a.user.slice(0, 240)}`);
+    if (a.kind === "editor_judgement") return { value: { pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true,
+      improvesPage: true, wouldHandToCustomer: true, notes: "It says what the page covers in one plain line.", resolution: "none",
+      claims: [...a.user.matchAll(/^- "(?:[^"]+)" <- (.+)$/gm)].map((m, i) => ({ i, by: m[1]!.split(", ").filter(Boolean), entailed: true })) } as never };
+    if (a.kind === "atomic_edit" && a.user.includes("Field to edit: meta")) return { value: (a.user.includes("Page: Lantern Release") ? META2 : META_EDIT) as never };
+    return { value: EDIT as never }; };
+  return { complete, calls: () => n, asked: () => asked }; };
 describe("the replayed evidence reaches the REAL decision kernel", () => {
   it("assembles one snapshot, names the pages that compete with each other, and dates every body it holds", async () => {
     const { evidence } = await replayFunnel();
@@ -167,64 +182,61 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect([gap.action, gap.query, gap.gap, gap.recoverableClicks]).toEqual(["act_existing_page", GAP_QUERY, "ctr_deficit", 93]);
     expect(gap.readiness).toEqual({ gsc: true, ownedCopy: true, serp: true, winners: 1, body: false }); // the replayed results page and the ONE readable winner are what make this judgeable
     expect(res.candidates.find((c) => c.pageUrl === `https://${WINNER_URL}`)?.action).toBe("watch"); // a page already beating the clicks its positions earn is watched, never worked
-    expect([res.outcome, seam.calls(), res.proposals.every((p) => p.status === "needs_review"), res.noDraft]).toEqual(["proposals_persisted", 4, true, 1]); // FOUR drafting calls, where this pass used to buy five. Every one of them was planned and priced before the pass spent anything: the whole-page rewrite refused without drafting, its one-field fallback drew on the SAME allowance, and the description card holds an allowance of its own because the page still had no row. A deliverable's allowance covers a draft, its judge and the retries the editor is built to make, which the live receipt of 2026-08-23 proved it needs; past it the card is banked and the plan moves on. A draft the gates refuse is WITHDRAWN, and every queue row sits at needs_review
+    const landed = res.proposals.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
+    expect([res.outcome, seam.calls(), landed.status, res.noDraft]).toEqual(["proposals_persisted", 3, "ready", 1]); // title draft, description draft, ONE evaluator reading; the refused title is the noDraft
+    expect(res.proposals.filter((p) => p !== landed).every((p) => p.status === "needs_review")).toBe(true); // and nothing else claims Ready
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
-  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven through the REAL producer, the REAL store boundary and the ONE shared manifest rather than against the editor alone. Counting GENERATED copy let a pass close on work that never reached the queue: a Ready row the store refuses, holds or loses puts nothing in front of an operator, and a drive that stops for it has spent money and added no change. */
-  it("counts only Ready work the store took, walks past a failed save, and stops every family once the shortfall is filled", async () => {
+  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven END TO END on the real chain: the producer funds the page,
+   *  drafted-copy writes the owed description and its evaluator reads it, the store takes the row, and the ONE settlement
+   *  (`persistAndFile` -> `budget.land`) is the only thing that moves the shared Ready shortfall. A second fundable page
+   *  sits on the same manifest so the stop is observable: filled means the later candidate is never bought. */
+  const SECOND_URL = `${SITE}/lantern-release-guide`, SECOND_QUERY = "lantern release walkthrough";
+  const twoGapWorld = (evidence: FunnelResearchEvidence): ReturnType<typeof fx.replaySnapshot> => {
+    const s2 = parsed("serp_organic", fx.serpOrganic({ keyword: SECOND_QUERY, ownedUrl: SECOND_URL, ownedTitle: "Lantern Release" }));
+    return fx.replaySnapshot({
+      gsc: [fx.gscCtrGap(), fx.gscPage(SECOND_URL, { impressions: 5000, clicks: 130, position: 4.2 }, [{ query: SECOND_QUERY, impressions: 4800, clicks: 120, position: 4.2 }]), fx.gscStableWinner()],
+      wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(SECOND_URL, "Lantern Release", { outline: ["When the lanterns go up", "How the release works"] })],
+      research: { ...evidence, serpEvidence: [...evidence.serpEvidence,
+        { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })), aiOverview: [], aiMode: [], paa: [], related: [] }] } });
+  };
+  const drive = async (evidence: FunnelResearchEvidence, readyTarget: number | undefined, refuse: string[], seedFrom?: Map<string, ChangeProposal>) => {
+    env.snap = twoGapWorld(evidence); env.saved = []; env.store = new Map(seedFrom ?? []); env.refuseSave = new Set(refuse);
+    const seam = drafter();
+    const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, ...(readyTarget != null ? { readyTarget } : {}) });
+    return { res, calls: seam.calls(), asked: seam.asked(), store: env.store,
+      landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
+  it("lands one real Ready change through the store, the settled shortfall stops every later purchase, and a failed save stops nothing", async () => {
     const { evidence } = await replayFunnel();
-    const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
-    const drive = async (readyTarget: number | undefined, refuse: string[]) => {
-      env.snap = snapshot; env.saved = []; env.store = new Map(); env.refuseSave = new Set(refuse);
-      const seam = drafter();
-      const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, ...(readyTarget != null ? { readyTarget } : {}) });
-      return { res, calls: seam.calls(), landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
-    // NOTHING OWED, NOTHING BOUGHT: the shortfall gates the ONE manifest every paid family draws from, so a pass with its stock already full makes no provider call at all, whichever family would have gone first.
-    const full = await drive(0, []);
-    expect(full.calls).toBe(0);
-    expect(full.res.proposals.every((p) => p.status !== "ready")).toBe(true);
-    // A STORE THAT SAYS NO IS NOT A CHANGE: every save refused leaves the shortfall unmet, and the pass keeps working rather than closing on copy nobody can act on.
-    const lost = await drive(1, [TENANT]);
-    expect(lost.landed).toEqual([]);
-    expect(lost.calls).toBeGreaterThan(0); // it did the work
-    expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true); // and said so honestly
-    // A TARGET THAT NOTHING SATISFIES MAY NOT SHORTEN THE PASS. Counting anything the pass merely WROTE would close it on the first card; counting only what the store took leaves the shortfall standing, so this drive does exactly as much work as a drive with no target at all.
-    const uncapped = await drive(undefined, []);
-    expect(lost.calls).toBe(uncapped.calls);
-    // AND WHAT THE STORE TOOK IS WHAT COUNTS. Every row the queue can serve came back from the store, never from the drafter's own say-so.
-    const ok = await drive(1, []);
-    expect(ok.res.paid.receipts.every((r) => r.outcome !== "produced" || env.store.has(String(r.key)) || ok.landed.length > 0)).toBe(true);
-    expect(ok.calls).toBeGreaterThan(0);
-    // ONE LANDING PER DURABLY KEPT ROW, at the settlement and nowhere else. A second land on the same row (the editor
-    const two = await drive(2, []);
-    expect(two.res.paid.readyShortfall).toBe(2 - two.landed.length); // the receipt owns up to exactly what the store took, at a deficit the old double landing lied about
-    expect(two.calls).toBeGreaterThanOrEqual(ok.calls); // and a bigger deficit never does less work
+    // NOTHING OWED, NOTHING BOUGHT: a pass with its stock already full makes no drafting call at all.
+    const full = await drive(evidence, 0, []);
+    expect([full.calls, full.res.proposals.every((p) => p.status !== "ready")]).toEqual([0, true]);
+    // THE LANDING, on the real chain: the store answered saved, the row on file is customer-actionable Ready, and the
+    // ONE settlement moved the shared shortfall to zero. The receipt carries the store's own word, never the drafter's.
+    const ok = await drive(evidence, 1, []);
+    const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
+    expect([ok.res.paid.readyShortfall, ok.landed.length, row.status, row.researchOnly ?? false]).toEqual([0, 1, "ready", false]);
+    expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide")).toMatchObject({ outcome: "produced", persistence: "saved" });
+    // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
+    expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()]));
+    // FILLED MEANS CLOSED FOR EVERY FAMILY: the second fundable page is told the queue is full and no drafting call names it.
+    expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.why).toEqual("the queue's shortfall was already filled, so this work waits for the next short day");
+    expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(false);
+    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING. The shortfall stands, no receipt claims
+    // produced, and the pass keeps walking to the second page rather than closing on copy nobody can act on.
+    const lost = await drive(evidence, 1, [TENANT]);
+    expect([lost.landed, lost.res.paid.readyShortfall, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], 1, false]);
+    expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true);
+    expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the failed save shortened nothing
+    expect(lost.calls).toBeGreaterThan(ok.calls); // the landing is what stopped the spend, nothing else did
   });
-  /** EVERY PAID FAMILY SHARES THE ONE DURABLE READY TARGET, proven across families through the real producer and store: an EARLY family's durably kept Ready row fills the shortfall, and the generic editor then makes ZERO paid calls; the same row failing to save fills nothing, and the pass keeps working. The landing hole this closes was live: budget.land() ran only through the generic editor, so new-page, factual, deep-bundle and field work saved Ready without reducing the deficit and later families kept spending past a full queue. */
-  it("an early family's durable Ready row stops every later family, and its failed save stops nothing", async () => {
+  it("Ready stock on file confirms and never lands, so the pass still buys the new work it owes", async () => {
     const { evidence } = await replayFunnel();
-    const snapshot = fx.replaySnapshot({ gsc: [fx.gscCtrGap(), fx.gscStableWinner()], research: evidence, wix: [fx.ownedBody(GAP_URL, "Kite Festival")] });
-    // First, learn the ids and basis the real pass mints, off one uncounted run.
-    env.snap = snapshot; env.saved = []; env.store = new Map(); env.refuseSave = new Set();
-    const probe = await produceProposalsForTenant(TENANT, { complete: drafter().complete, now: NOW, bypassCache: true });
-    const minted = probe.proposals.find((p) => p.id.includes("::existing_edit::"))!;
-    // A finished FIELD-family Ready row, durably on file from an earlier day, under the id the field loop itself would mint for this page: a deterministic title edit carries no claims by construction, and it keeps every earning word of the stored title.
-    const seeded: ChangeProposal = { ...minted, id: `${TENANT}::${GAP_URL.slice(GAP_URL.indexOf("/"))}::existing_edit::title`, changeFamily: "title", status: "ready", researchOnly: false,
-      pagePath: GAP_URL.slice(GAP_URL.indexOf("/")), pageUrl: `https://${GAP_URL}`,
-      recommendedChange: { kind: "existing_edit", field: "title", before: "Kite Festival", after: "Kite Festival Traditions: What Happens From Dawn to Lanterns" },
-      limitations: [], claims: [], supportFacts: [], causeFinding: undefined, diagnosisCause: "ctr_snippet" };
-    const run = async (refuse: string[]) => { env.snap = snapshot; env.saved = []; env.store = new Map([[seeded.id, seeded]]); env.refuseSave = new Set(refuse);
-      const seam = drafter();
-      const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, readyTarget: 1 });
-      return { res, calls: seam.calls(), kept: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true).length }; };
-    // PRE-EXISTING STOCK CONFIRMS AND NEVER LANDS: the caller's deficit already subtracted the rows Ready on file, so
-    const early = await run([]);
-    expect(early.kept >= 1).toBe(true);
-    expect(early.res.paid.receipts.some((r) => r.outcome === "produced")).toBe(true);
-    expect(early.res.paid.readyShortfall).toBe(1); // confirmed stock filled nothing: the shortfall is NEW work owed (this fixture has no further fundable candidate, so the pass honestly ends short rather than closing on old stock)
-    // The SAME row whose save the store refuses counts for nothing: nothing durable exists, no receipt claims produced, and the shortfall stands (walking on to further candidates under a standing shortfall is pinned by the three-candidate editor contract in change-bundle).
-    const failed = await run([TENANT]);
-    expect(failed.res.paid.receipts.every((r) => r.outcome !== "produced")).toBe(true);
-    expect(failed.res.paid.receipts.some((r) => r.outcome === "retryable_blocked")).toBe(true); // the store's failure is on the receipt, never laundered into produced
-    expect(failed.res.paid.readyShortfall).toBe(1); // and the shortfall still stands: a failed save landed nothing
-  });});
+    // Seed the exact Ready row a prior pass landed. The caller's deficit already subtracted rows Ready on file, so this
+    // row may only CONFIRM: if the pass landed it again, owed would hit zero here and the second page would never be bought.
+    const prior = await drive(evidence, 1, []);
+    const seeded = await drive(evidence, 1, [], prior.store);
+    expect([seeded.res.paid.readyShortfall, seeded.landed.length]).toEqual([0, 2]); // one confirmed, one NEW landing, and the shortfall was filled by the new work
+    expect(seeded.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the confirm did not close the day; the pass walked on and bought the owed page
+  });
+});
