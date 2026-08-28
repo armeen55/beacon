@@ -178,7 +178,7 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   return kept;
 }
 /** THE FIELDS THAT BELONG TO THE BANKED COPY and must survive with it. `redraftRequested` is deliberately ABSENT: a person who asked for better words outranks preservation, and that path returns before this list is read. The day someone adds a copy-owned field to the contract and forgets it here, the typed faults lesson repeats; keep this list beside the contract change in the same commit. */
-const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "confirmedVersion", "approval", "faults", "modeledOn"] as const satisfies readonly (keyof ChangeProposal)[];
+const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "confirmedVersion", "approval", "faults", "modeledOn", "informationGain", "preservation"] as const satisfies readonly (keyof ChangeProposal)[];
 
 /** THE EXACT VERSION OF A CHANGE AN OPERATOR CAN SAY YES TO, and the ONE definition of it: the screen folds this and the server recomputes it byte for byte off the row it re-reads, so no second reading of "the same version" can exist. A confirmation is worthless unless it names WHAT was confirmed, and this used to name a third of it: the copy it replaces, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reasons pages were left alone, every claim, the words behind every claim, the readings on the receipt and the days they were taken all moved without moving the version. It is now EVERYTHING MATERIAL THE OPERATOR READ. Any edit to any of it mints a different string, the stored stamp stops matching, and the stale confirmation refuses. UNORDERED SETS ARE SORTED, so re-listing the same caveats, support ids, readings or verdicts is not a rewrite; the ranking, the timestamps and the measurement figures are excluded because none of them is the change. SHORT and PURE: it folds through the same tiny fingerprint a bundle's pieces are already named by, so a server component can hand it to a browser. */
 export function confirmedVersion(p: ChangeProposal): string {
@@ -189,7 +189,7 @@ export function confirmedVersion(p: ChangeProposal): string {
   // account truth and one exact screen, so those stay part of THIS stamp explicitly.
   const material = [p.basis ?? null, p.riskLevel, copyIdentity(p), p.diagnosisCause ?? null, sorted(p.limitations), p.operatorSteps ?? [],
     c.kind === "existing_edit" ? [c.field, c.before, c.after, c.where ?? null] : [c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline, c.faqQuestions, c.schemaTypes],
-    (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact])),
+    (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), sorted((p.supportFacts ?? []).map((x) => [x.id, x.fact])), p.informationGain ?? null, p.preservation ?? null,
     f ? [f.cause, f.explanation, f.falsifier, sorted(f.competingExplanations.map((x) => [x.cause, x.reason])), sorted(f.notConsidered.map((x) => [x.cause, x.missing]))] : null,
     b ? [b.objective, b.metric, b.measurementPlan, sorted(b.risks), sorted(b.receipt.missing), sorted(b.confidenceReasons), sorted(b.alternatives.map((x) => [x.option, x.reason])),
       b.components.map((x, i) => [componentIdOf(x, i), x.page ?? null, x.where ?? null, x.before, x.risk, x.redirectTo ?? null, x.objective ?? null, x.mechanism ?? null, x.anchorAfter ?? null, x.preserves ?? null, x.sourcePack ?? null, sorted(x.evidenceKeys)]),

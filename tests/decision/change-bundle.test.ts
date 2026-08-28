@@ -635,7 +635,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const BODY = { url: "https://www.iranopedia.com/funny-farsi-phrases", title: "Funny Farsi Phrases" as string | null, h1: "Funny Farsi Phrases" as string | null, metaDescription: null, vocabulary: "", headings: ["Playful Persian expressions"], passages: ["Playful Persian expressions", P1, P2, P3] }; // a real crawl streams the heading INTO the body, which is what makes a section cuttable
     const GOOD = { field: "answer_block", before: null, rationale: "grounded", ...TAIL, after: `${P1}\n${P2}\n${P3}`, naturalHeading: "Playful expressions and their meanings",
       claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] }; // ids aimed at the chunks that CARRY each claim: page-copy-1 is the heading passage, and citing it for P1 is the exact mis-aim the draft-time drift gate now refuses
-    const OKJ = { pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true };
+    const OKJ = { pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" };
     const drive = (value: Record<string, unknown>, body = BODY) => draftFieldForPage({ field: "answer_block" as const, body: body as never, query: "funny persian phrases meanings",
       brief: "Add a section that answers the question. Place it directly under the heading and answer directly.", evidenceHints: [], ownedPaths: ["/funny-farsi-phrases"], minutes: 5 },
       { tenantId: TENANT, now: NOW, complete: async () => ({ value }), judge: async () => OKJ as never });
@@ -1086,7 +1086,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
     const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: BODY, where: 'A new section headed "Sizing", placed after "The studio cuts every barrel."' };
-    const placed = prop({ status: "ready", claims: [{ text: "The studio cuts every barrel", supportedBy: ["card-1"] }],
+    const placed = prop({ status: "ready", informationGain: { adds: "gives the gallons a 1,200 square foot roof sheds, which the page never states", by: ["card-1"], pageWhole: true }, claims: [{ text: "The studio cuts every barrel", supportedBy: ["card-1"] }],
       supportFacts: [{ id: "card-1", fact: "The studio cuts every barrel." }], recommendedChange: body });
     const lost = { ...placed, supportFacts: [{ id: "card-1", fact: "A reading that no longer quotes that sentence." }] } as ChangeProposal;
     const brief = prop({ researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters." } }); const lanes = [openHold(placed), openHold(lost), openHold(brief)];
@@ -1155,7 +1155,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const finished = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
     store.rows.set(CITIES, heldRow());
     store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/untouched", pageUrl: "https://fixture-content.example/untouched",
-      pageLabel: "Untouched", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap",
+      pageLabel: "Untouched", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: [], pageWhole: true }, 
       limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
         "it tells a reader this page offers \"habitats\", and no claim on this card carries it"],
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Untouched", placed after "Untouched heading"' },
@@ -1201,7 +1201,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const JUDGED = "fixture-tenant::/judged::existing_edit::ai_answer_gap";
     const words = "The judged page's section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, under a heading a reader would look for.";
     const row = (lim: string[]) => heldRow({ id: JUDGED, pagePath: "/judged", pageUrl: "https://fixture-content.example/judged",
-      pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", limitations: lim,
+      pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: [], pageWhole: true }, limitations: lim,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: words, where: 'A new section headed "Judged", placed after "Judged heading"' },
       claims: [{ text: words, supportedBy: ["page-copy-1"] }],
       supportFacts: [{ id: "page-copy-1", fact: words }, { id: "page-copy-2", fact: "The page's Judged heading introduces the list." }] });
@@ -1391,7 +1391,7 @@ describe("typed refusal contract", () => {
     const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name confidently from the first try.";
     const seen: string[] = [];
     const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
         after: NEW_COPY, naturalHeading: "How to pronounce them", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
@@ -1431,7 +1431,7 @@ describe("typed refusal contract", () => {
     const L3 = "Kashan rugs use a central medallion, and Kerman rugs use open ground with a wide decorated border.";
     const why = new Map<string, string>();
     const run = async () => applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
         after: `${L1}\n${L2}\n${L3}`, naturalHeading: "How the main types differ",
@@ -1440,7 +1440,7 @@ describe("typed refusal contract", () => {
     expect({ s: landed[0]!.status, w: [...why.values()] }).toEqual({ s: "ready", w: [] });
     const why2 = new Map<string, string>();
     const thin = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: why2,
-      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true }) as never,
+      judge: async () => ({ pageFit: true, claimsEntailed: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" }) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-rugs", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async () => ({ value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Rugs",
         after: L1, naturalHeading: "How the main types differ", claims: [{ text: L1, supportedBy: ["page-copy-1"] }] } }) } as never);

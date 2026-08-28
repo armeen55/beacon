@@ -256,29 +256,54 @@ export function evidenceShortfall(p: ChangeProposal): string | null {
     }
     return null;
   }
-  if (p.aiImpact && p.aiImpact.answers > 0
-    && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => !id.startsWith("page-"))))
-    return "it answers a question assistants keep answering, but every statement stands on this page's own words: recurrence authorizes investigation, never copy, so it is held until something beyond this page carries what it adds";
+  // BODY COPY OWES A RE-READABLE GAIN RECEIPT. A link change carries its gain in the link and a factual
+  // correction in its quote, so neither is asked; every other body edit is AEO work and answers here.
+  const linkWork = (p.bundle?.components ?? []).some((x) => x.kind === "internal_link_add" || x.kind === "anchor_text" || x.kind === "internal_links");
+  if ((c.field === "section" || c.field === "answer_block") && !linkWork) {
+    const g = p.informationGain;
+    if (!g) return "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain";
+    if (!g.pageWhole) return "what it adds was judged against only part of this page, so whether the page already says it is not actually known, and it is held until the whole page is read against it";
+    const cited = new Set((p.claims ?? []).flatMap((x) => [...x.supportedBy]));
+    if (g.by.length > 0 && !g.by.every((id) => cited.has(id))) return "the evidence named for what it adds is not the evidence its claims stand on, so the gain on file belongs to a different reading";
+    if (g.by.length === 0 && (p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("rival-")))) return "what it adds stands on a competing page's briefing, which says what rivals cover and never what is true, so it is held until a source carries the claim";
+  }
   if (before) {
-    const named = [...(p.bundle?.plan?.removes ?? []), ...(p.bundle?.components ?? []).flatMap((x) => x.preserves?.losses ?? [])].map((r) => bareText(r.what));
-    const loss = materialLosses(p).find((l) => {
-      const core = bareText(l.replace(/^the (?:link|figure) /, ""));
-      return core.length > 0 && !named.some((n) => n.includes(core) || core.includes(n)); });
+    const named = [...(p.preservation ?? []).map((u) => ({ what: u.text })), ...(p.bundle?.plan?.removes ?? []),
+      ...(p.bundle?.components ?? []).flatMap((x) => x.preserves?.losses ?? [])]
+      .map((r) => bareText(r.what)).filter((n) => n.length > 0 && bareText(before).includes(n)); // A LEDGER IS CHECKED AGAINST THE PASSAGE: an entry naming text the page never carried accounts for nothing
+    const accounts = (t: string): boolean => { const k = bareText(t); return k.length > 0 && named.some((n) => n.includes(k) || k.includes(n)); };
+    // EVERY MEANINGFUL UNIT OF THE REPLACED PASSAGE, as a reader meets them, either survives into the new copy
+    // or is named. The lexical detector below stays as a backstop and is no longer the definition.
+    if (c.field === "section" || c.field === "answer_block") {
+      const lost = unitsOf(before).find((u) => !survivesIn(u, c.after) && !accounts(u));
+      if (lost) return `it replaces a passage carrying "${lost.slice(0, 60)}" and neither keeps that nor says where it went: every unit of a replaced passage is kept, corrected, moved with its destination, or removed with its reason before the change is offered`;
+      if ((c.where ?? "").includes("absorbs the duplicated entries") && named.length === 0)
+        return "it says it absorbs the entries below it without naming one of them, so what the operator is being asked to delete is not stated";
+    }
+    const loss = materialLosses(p).find((l) => !accounts(l.replace(/^the (?:link|figure) /, "")));
     if (loss) return `it replaces a passage that carries ${loss} and drops it, and nothing typed says that removal is intended: what a replacement removes is preserved, moved, or named with its reason before the change is offered`;
   }
   return null;
 }
 
-/** A REPAIR THAT CHANGES ONLY MARKS OR LETTER ORDER IS ITS OWN EVIDENCE: the diff is the defect and the fix in
- *  one reading, so it owes no diagnosis and no results page. Token for token, same order: each pair is equal
- *  once case, punctuation and spacing fold away, or is a reordering of the same letters (a transposition typo).
- *  A DIGIT MAY NOT MOVE: "1979" to "1980" is a factual change wearing a typo's size, so any digit disqualifies
- *  the pair. Word reorders fail on position, wording changes fail on letters, and both are wording work. */
+/** THE MEANINGFUL UNITS OF A PASSAGE, as a reader meets them: sentences and list members. */
+const unitsOf = (t: string): string[] => t.split(/(?<=[.!?:])\s+|\s*[\n\u2022|]\s*|\s+[-\u2013\u2014]\s+/u).map((u) => u.trim()).filter((u) => u.length >= 10);
+/** Does this unit's substance survive into the new copy? Content words, most of them, in any wording. */
+const survivesIn = (unit: string, after: string): boolean => {
+  const words = (t: string): string[] => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4);
+  const said = new Set(words(after)), w = words(unit);
+  return w.length === 0 || w.filter((x) => said.has(x)).length / w.length >= 0.6;
+};
+
+/** A REPAIR THAT LEAVES THE LETTERS THEMSELVES UNTOUCHED IS ITS OWN EVIDENCE: marks, capitals, spacing and an
+ *  apostrophe carry no claim, so the diff IS the defect and the fix in one reading and it owes no diagnosis and
+ *  no results page. THE LETTER SEQUENCE MAY NOT MOVE. This accepted any same-letter anagram as a transposition
+ *  typo, which made "form" to "from", "trial" to "trail" and "there" to "three" self-authorizing: a meaning
+ *  change wearing a typo's size, bypassing evidence entirely (Codex, 2026-08-28). A genuine letter repair
+ *  ("teh" to "the") is not inferred from matching letters; it owes whatever its treatment owes. */
 export function mechanicalRepair(before: string, after: string): boolean {
-  const fold = (t: string): string[] => t.toLowerCase().normalize("NFKD").replace(/['\u2019]/gu, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const b = fold(before), a = fold(after);
-  const anagram = (x: string, y: string): boolean => !/\d/.test(x + y) && [...x].sort().join("") === [...y].sort().join("");
-  return b.length > 0 && b.length === a.length && b.every((w, i) => w === a[i] || anagram(w, a[i]!));
+  const letters = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+  return letters(before).length > 0 && letters(before) === letters(after);
 }
 
 /** WHAT THIS CHANGE CERTIFIES AND WHAT IT ONLY CARRIES, derived off the canonical before and after so every
