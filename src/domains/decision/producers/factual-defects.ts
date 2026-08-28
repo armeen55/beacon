@@ -9,7 +9,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { authorizedCorrections, correctionSeverity, readFactChecks, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
@@ -243,13 +243,21 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // on the site at once, which is how three consecutive passes once destroyed the operator's finished work.
     const judged = new Set([...pageHashes.keys()].map((k) => pathOf(owned.get(k)!.url).toLowerCase()));
     const emitted = new Set(cards.map((c) => c.id));
+    // THE WITHDRAWAL SAYS THE REAL REASON when the row itself can name one: "evidence no longer current" told
+    // the operator nothing about a quote that never carried the published words.
+    const why = new Map<string, string>();
+    for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
+      for (const r of rows) { const reason = unauthorizedReason(r); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::");
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
       // page hash, so without one every correction on the site reads as unauthorized at once.
       if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "")) continue;
-      await withdrawChangeProposal(p, "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => false);
+      const said = why.get(`${id[1] ?? ""}::${id[3] ?? ""}`);
+      await withdrawChangeProposal(p, said
+        ? `Withdrawn: ${said}. The claim stays a finding until a source quote genuinely carries it.`
+        : "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => false);
       log.info("[factual-defects] a correction lost its evidence and was withdrawn", { tenantId, id: p.id });
     }
     log.info("[factual-defects] banked checks turned into work", { tenantId, cards: cards.length, checks: checks.length });

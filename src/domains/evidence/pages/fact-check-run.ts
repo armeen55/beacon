@@ -14,7 +14,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  VERIFICATION_RULES_VERSION, citationOfQuote, glossCarriedBy, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
   confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null,
@@ -224,7 +224,9 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // A VERDICT FROM OBSOLETE RULES IS NOT CURRENT EVIDENCE (Codex, 2026-08-18): the one live checked row was
   // researched by a query built from the subject alone, and reading it as current would have made the engine
   // skip for ever the exact claim it was repaired to research. Its evidence is archived and the claim re-opens.
-  const obsolete = inventory.filter((h) => h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION);
+  // AND A CONFIRMED VERDICT THE QUOTE-BOUND CONTRACT NOW REFUSES IS A CLAIM STILL OWED, not a settled finding: withdrawing the card without reopening the claim would strand the exact live defects this contract was written about (Alborz, Jasmine) as permanent dead findings, because a checked row is never re-inventoried. TARGETED, never a blanket version bump: only the rows the new authorization refuses reopen, so the four sound live corrections keep their verdicts and cards. Loop-safe: generation now binds to quotes too, so a re-researched claim either banks a carried gloss or holds below confirmed, where unauthorizedReason is null.
+  const obsolete = inventory.filter((h) => (h.state === "checked" && h.rulesVersion !== VERIFICATION_RULES_VERSION)
+    || (h.state === "checked" && h.confidence === "confirmed" && unauthorizedReason(h) != null));
   if (obsolete.length > 0 && await reopenObsoleteChecks(tenantId, page.path, obsolete).catch(() => 0) > 0) {
     inventory = inventory.map((h) => (obsolete.includes(h) ? { ...h, state: "owed" as const, rulesVersion: VERIFICATION_RULES_VERSION } : h));}
   // THE SEEDED PROPOSITION IS RESEARCHED FIRST. A row whose locator is `missing` exists only because an acquisition
@@ -235,7 +237,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   let owed = seededFirst(inventory.filter((h) => h.state === "owed"));
   if (cov.coveredChars < cov.totalChars) {
     // EXTRACT THE NEXT SECTION, WHATEVER IS ALREADY OWED. Waiting for the owed queue to empty is a deadlock: a
-    // unit settles at most ONE claim, so a page owing more claims than the run has paid units never reads
     // another character. Live: rules v4 re-opened 21 claims, the queue stood at 33, and eighteen passes left
     // coverage at 0 of 11,589 while ~160 entries were neither owed nor checked. Extraction is what gives an
     // entry a disposition at all and costs about two cents a section, so it no longer queues behind research.
@@ -269,7 +270,6 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const wrote = claims.length === 0 ? 0 : await recordOwedClaims(tenantId, page.path, claims, hash, d.basis).catch(() => -1);
     if (wrote < 0) return fail("inventory_write_failed", null, "the page's claim inventory could not be stored, so nothing was researched");
     // A CAPPED EXTRACTION HAS NOT READ ITS CHUNK, IT HAS FILLED UP: one oversized chunk once swallowed a
-    // 194-entry page, banked forty and marked it COVERED, so "check the page" meant "sample a fifth of it". The
     // cursor now advances only to the end of the last statement read, found by its own wording, and nothing is
     // re-banked because both filters above dedupe. MEASURED ON WHAT CAME BACK, never on what survived that
     // dedupe: a chunk returning exactly the cap and then losing rows read as "not capped".
@@ -417,13 +417,14 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // authorizes replacing published words on its own (Codex, 2026-08-19).
   const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
     || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
-  // AND A REPLACEMENT HAS TO BE FOUND IN THE SOURCE, NOT MERELY NEAR IT: live, Maryam proposed "beloved" over a
-  // quote deriving the name from Hebrew for "rebellious", Ariana proposed "most holy" over one reading "noble,
-  // of good family", and Mina proposed a meaning with no quote at all. Partial support authorizes only the part
-  // supported, so an uncarried proposal is held below confirmed rather than thrown away.
-  const read = supporters.map((p) => norm(p.text)).join(" ");
+  // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the verified quotes authorize. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
+  const read = norm(supporters.map((p) => verified.get(p.url) ?? "").join(" "));
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
-  const carried = words.length === 0 || words.filter((w) => read.includes(w)).length / words.length >= SUPPORTED_SHARE;
+  const share = words.length === 0 ? 1 : words.filter((w) => read.includes(w)).length / words.length;
+  const isCorrection = claim.current.trim() !== "";
+  const quotes = supporters.map((p) => verified.get(p.url) ?? "");
+  const cites = isCorrection && citationOfQuote(v.proposed ?? "", quotes, claim.current);
+  const carried = (isCorrection ? glossCarriedBy(v.proposed ?? "", quotes) : share >= SUPPORTED_SHARE) && !cites;
   const confidence: FactCheck["confidence"] = v.confidence === "confirmed" && confirmable && carried ? "confirmed"
     : v.confidence === "unsupported" ? "unsupported" : v.confidence === "disputed" ? "disputed" : "likely";
   return bank({ ...base,
@@ -432,7 +433,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : " The wording proposed here is not carried by any passage that was read, so it is held below confirmed until a source says it."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : cites ? " The proposal restates the source's own sentence instead of stating the page's line, so it is held below confirmed." : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
 }
 
 type FactCheckPassDeps = {

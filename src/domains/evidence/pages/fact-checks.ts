@@ -270,6 +270,63 @@ const definesOtherName = (says: string, subject: string): boolean => {
   return [...says.matchAll(/\bname\s+(\p{Lu}[\p{L}]+)/gu)].some((m) => editDistanceOver1(bare(m[1]!), who));
 };
 
+/** THE WORDS OF A SHORT FACTUAL CORRECTION MUST COME FROM THE QUOTE ITS RECEIPT WILL SHOW. Live, "Mountain
+ *  Rampart" was confirmed because those words appear in the fetched page one sentence PAST the banked quote
+ *  ("derived from Hara Barazaiti..."), so the customer receipt could not support the published claim; and the
+ *  model's `literal` field held the page's own wrong line on both defective rows, so nothing model-produced
+ *  may vouch for itself. THIS IS A PROVENANCE TEST, NOT ENTAILMENT: it proves the gloss's words were taken
+ *  from the quote, never that the quote asserts the proposition (words from inside a quote can still be
+ *  reassembled into a wrong meaning, which the paid reviewer remains the residual defense against, by
+ *  explicit decision). Matching is whole-token with digit de-grouping and plain inflection stems; nothing
+ *  guesses synonyms, translation or semantic equivalence, and these rules apply ONLY to the correction shape
+ *  (a row correcting current wording), never to any other proposal family. */
+const foldText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/(\d),(?=\d)/g, "$1");
+const GLOSS_STOP = new Set(["that", "this", "with", "from", "have", "which", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about", "means", "meaning", "name"]);
+const allTokens = (t: string): string[] => foldText(t).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+const contentTokens = (t: string): string[] => allTokens(t).filter((w) => w.length >= 4 && !GLOSS_STOP.has(w));
+/** One word's plain stems: -ies to -y, then one -ing/-es/-ed/-s/-d strip. Never shorter than three letters. */
+const stems = (w: string): string[] => { const a = w.replace(/ies$/u, "y"), b = w.replace(/(?:ing|es|ed|s|d)$/u, "");
+  return [w, ...(a !== w && a.length >= 3 ? [a] : []), ...(b !== w && b.length >= 3 ? [b] : [])]; };
+/** Every content word of the short gloss appears AS A WORD in the quotes (raw substring authorized "Light"
+ *  off "delight" and "Seas" off "search"); a gloss with no content-sized word (the real Darya gloss "Sea", a
+ *  bare figure) must appear whole rather than passing vacuously. */
+export function glossCarriedBy(proposed: string, quotes: readonly string[]): boolean {
+  const said = new Set(allTokens(quotes.join(" ")).flatMap(stems));
+  const hit = (w: string): boolean => stems(w).some((v) => said.has(v));
+  const tokens = contentTokens(proposed);
+  if (tokens.length > 0) return tokens.every(hit);
+  const small = allTokens(proposed).filter((w) => !GLOSS_STOP.has(w));
+  return small.length > 0 && small.every(hit);
+}
+/** A PROPOSAL THAT IS THE QUOTE IS A CITATION, NOT A GLOSS: the Jasmine card offered Wikipedia's own
+ *  derivation sentence as the page's "Meaning:" line, narration standing where every sibling entry holds a
+ *  compact phrase. A compact gloss is SUPPOSED to appear inside its quote; a long lift of the quote means no
+ *  meaning was ever extracted. The live quote inserts "romanized" mid-lift, so the test is an ORDERED token
+ *  subsequence rather than a contiguous run, and forty bare characters is where a carried phrase ends and a
+ *  copied sentence begins. */
+const bareAll = (t: string): string => foldText(t).replace(/[^\p{L}\p{N}]+/gu, "");
+const tokensOf = (t: string): string[] => foldText(t).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+export function citationOfQuote(proposed: string, quotes: readonly string[], current = ""): boolean {
+  // The register is set by the slot: a statement-sized correction may legitimately match its quote (the Ahvaz
+  // heat record replaces one full statement with another), so the refusal also requires the proposal to
+  // OUTGROW the wording it replaces. Narration standing in a compact line fails both ways at once.
+  const p = bareAll(proposed);
+  if (p.length < 40 || p.length <= 1.5 * bareAll(current).length) return false;
+  const pt = tokensOf(proposed);
+  return quotes.some((q) => { const qt = tokensOf(q); let i = 0;
+    for (const w of qt) if (w === pt[i]) { i += 1; if (i === pt.length) return true; }
+    return false; });
+}
+/** WHY a checked, confirmed row still may not become customer work, in one typed sentence, or null. Read by
+ *  the producer so a withdrawal can say the real reason instead of a generic one. */
+export function unauthorizedReason(c: FactCheck): string | null {
+  if (c.current.trim() === "" || !c.proposed?.trim()) return null;
+  const quotes = c.sources.map((s) => s.says);
+  if (!glossCarriedBy(c.proposed, quotes)) return "the banked quote does not carry the proposed wording, so the receipt cannot support publishing it";
+  if (citationOfQuote(c.proposed, quotes, c.current)) return "the proposal restates the source's own sentence instead of giving the page's line a meaning";
+  return null;
+}
+
 export function authorizedCorrections(checks: readonly FactCheck[],
   current?: { pageContentHash: string | null; evidenceBasis?: string | null }): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
@@ -286,6 +343,10 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     // subject rather than a different name it derives from. Kind alone let a hypothesis and a homograph through.
     && c.sources.some((s) => (s.kind === "scholarly" || s.kind === "dictionary" || s.kind === "encyclopedia")
       && s.says.trim() !== "" && !HEDGED.test(s.says) && !definesOtherName(s.says, c.subject))
+    // THE QUOTE-BOUND CONTRACT for the correction shape: the receipt's own quotes carry the gloss, and the
+    // gloss is a gloss rather than the quote itself. A missing-information row (no current wording) is the
+    // writer's evidence shape and is not gated here.
+    && (c.current.trim() === "" || (glossCarriedBy(c.proposed!, c.sources.map((s) => s.says)) && !citationOfQuote(c.proposed!, c.sources.map((s) => s.says), c.current)))
     && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
 }

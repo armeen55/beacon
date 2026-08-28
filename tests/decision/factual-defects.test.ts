@@ -26,13 +26,14 @@ const check = (over: Record<string, unknown> = {}) => ({
   pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
   sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
-  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend" },
+  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend, myth or fable in Persian" },
     { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
   agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
   checkedAt: "2026-08-17T00:00:00.000Z", ...over });
 import { mutationFootprint, footprintsOverlap } from "@/domains/decision/mutation-footprint";
 const many = (n: number) => Array.from({ length: n }, (_, i) =>
-  check({ subject: `Name${i}`, current: `Wrong meaning ${i}.`, proposed: `Right meaning ${i}.` }));
+  check({ subject: `Name${i}`, current: `Wrong meaning ${i}.`, proposed: `Right gloss ${i}.`,
+    sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `it means right gloss ${i}` }] }));
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
@@ -64,19 +65,48 @@ describe("a page's own statements against their sources", () => {
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry');
     expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]);
-    expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend"');
+    expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
     // Maryam's quote hedges ("may have... possibly"); Ariana's derives from "the Ancient Greek name Ariadne". Both shipped as flat corrections past the model reviewer.
     const src = (says: string) => [{ url: "https://en.wikipedia.org/x", kind: "encyclopedia", says }];
-    checks.rows = [check({ subject: "Maryam", sources: src('The name may have originated from the root mr "love; beloved"') }),
-      check({ subject: "Ariana", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
-      check({ subject: "Aryana", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
-      check({ subject: "Leila", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
+    checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
+      check({ subject: "Ariana", proposed: "Most holy", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
+      check({ subject: "Aryana", proposed: "silver", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
+      check({ subject: "Leila", proposed: "Night", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     // "Used as a Welsh name" is another use of the spelling; a word etymology (Arabic layl) is this name's own story; distance one is a transliteration (Laila/Leila), never a different name.
     expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
+  it("the banked quote is the only text that may authorize a short gloss, and a citation is not a gloss", async () => {
+    const q = (says: string) => [{ url: "https://en.wikipedia.org/z", kind: "encyclopedia", says }];
+    const ALBORZ_QUOTE = "The name Alborz is derived from Hara Barazaiti, a legendary mountain in the Avesta.";
+    const JQ = "The name comes from Old French jessemin, from Persian یاسمن, romanized: yāsamin";
+    checks.rows = [
+      // A. LIVE Alborz: "Mountain Rampart" sits elsewhere on the fetched page; the banked quote never carries it.
+      check({ subject: "Alborz", proposed: "Mountain Rampart", literal: "Mountain Rampart", sources: q(ALBORZ_QUOTE) }),
+      // B+E. Supported control with normalization noise: diacritics, hyphen, capitals never false-refuse.
+      check({ subject: "Yas", current: "Meaning:Old words.", proposed: "The jasmine flower", sources: q('yās means the jasmíne-flower') }),
+      // Jasmine class: the proposal IS the quote, a citation standing where a meaning phrase stands.
+      check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: JQ, sources: q(JQ) })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    // D rides A: the literal repeats the gloss and may not vouch for itself.
+    expect(cards.map((c) => c.id.split("fact-")[1]), "only the quote-carried gloss mints").toEqual(["yas"]);
+    const { unauthorizedReason } = await import("@/domains/evidence/pages/fact-checks");
+    expect(unauthorizedReason(checks.rows[0] as never)).toContain("the banked quote does not carry the proposed wording");
+    expect(unauthorizedReason(checks.rows[2] as never)).toContain("restates the source's own sentence");
+    expect(unauthorizedReason(checks.rows[1] as never)).toBeNull();
+    // Reviewer-driven boundaries: a word inside another word is not that word; digits match across grouping;
+    // plain inflection folds both ways; a gloss too short for content tokens must still appear whole.
+    const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
+    expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false);
+    expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
+    expect(glossCarriedBy("founded 1979", ["established in 1,979 by decree", "founded by decree"])).toBe(true);
+    expect(glossCarriedBy("Studies", ["the study of names"])).toBe(true);
+    expect(glossCarriedBy("Shining", ["the name shines brightly"])).toBe(true);
+    expect(glossCarriedBy("Sea", ["totally unrelated quote"]), "no vacuous pass on a short gloss").toBe(false);
+    expect(glossCarriedBy("Sea", ['darya means "sea"'])).toBe(true); });
+
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
     for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) {
       checks.rows = [check(bad)];
@@ -106,9 +136,10 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
     expect(out[1]!.recommendedChange, "a held correction keeps its exact words").toEqual(cards[1]!.recommendedChange); });
   it("a sourced gloss is shaped into the line it replaces, and only its shape", async () => {
-    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light" }),
-      check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark" }),
-      check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart" })];
+    const q1 = (says: string) => [{ url: "https://en.wikipedia.org/y", kind: "encyclopedia", says }];
+    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light", sources: q1('The name Noor means "light"') }),
+      check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark", sources: [...q1('layl means "night", or "dark"'), { url: "https://x.example/l", kind: "publisher", says: 'night; dark' }] }),
+      check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart", sources: q1('from Hara Barazaiti, meaning "Mountain Rampart"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
@@ -120,15 +151,14 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
     expect(staleCopyReasons({ ...by.get("noor")!, changeFamily: "answer_gap" }, new Map(), []).join(" ")).toContain("its copy is");
     const { openHold } = await import("@/domains/decision/completeness");
-    expect(openHold(by.get("noor")!).need).toBeUndefined();
-    checks.rows = [check({ subject: "Noor", current: "Meaning:Bright, radiant, or glowing.", proposed: "light",
-      sources: [{ url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia", says: "The name Noor means \"light\"" }] })];
-    const one = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
-    expect(one.supportFacts).toHaveLength(1); expect(openHold(one).need?.reasonCode).toBe("single_source"); });
+    expect(openHold(by.get("leila")!).need, "two quoted sources honestly clear the second-source ask").toBeUndefined();
+    expect(openHold(by.get("noor")!).need?.reasonCode).toBe("single_source"); });
 
   it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
-    checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine" }),
-      check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly." })];
+    checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine",
+        sources: [{ url: "https://en.wikipedia.org/j", kind: "encyclopedia", says: "the name Jasmine" }] }),
+      check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly.",
+        sources: [{ url: "https://en.wikipedia.org/a", kind: "encyclopedia", says: 'Atossa means "bestowing very richly"' }] })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     let user = "";
     const complete = async (i: { user: string }) => { user = i.user;
@@ -138,7 +168,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(by.get("jasmine")!.status).toBe("needs_review");
     expect(by.get("jasmine")!.limitations[0]).toContain("the name itself as the name's meaning");
     expect(by.get("atossa")!.status).toBe("ready");
-    expect(user, "the reviewer was shown the banked passage, not a bare url").toContain('says: "legend"');
+    expect(user, "the reviewer was shown the banked passage, not a bare url").toContain('says: "Atossa means');
     expect(user.includes("Jasmine"), "the unfit correction never reached the paid call").toBe(false); });
 
   it("promotes nothing when the review cannot be read, and loses nothing", async () => {

@@ -23,10 +23,10 @@ const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input:
   return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] };
 const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
-  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }],
+  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable, legend, myth" }],
   subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry defines the Persian word" }] };
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] };
-const PASSAGE = "Persian افسانه: tale, story, fable, legend.";
+const PASSAGE = "Persian افسانه: tale, story, fable, legend, myth.";
 const coverage = () => ({ readCoverage: async () => db.cov as InventoryCoverage | null,
   writeCoverage: async (c: InventoryCoverage) => { db.cov = c as unknown as Record<string, unknown>; return true; } });
 const unit = (over: Record<string, unknown>) => runFactCheckUnit({ tenantId: "t", now: NOW, basis: "b1", deadlineAt: Date.now() + 600_000,
@@ -223,7 +223,27 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     const r = db.rows[0] as FactCheck;
     // The passage IS about the right subject, so the claim survives. The WORDING is not in it, so it may not
     expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
-    expect(r.note).toContain("not carried by any passage that was read"); });
+    expect(r.note).toContain("not carried by the verified quote"); });
+
+  it("a confirmed verdict the quote-bound contract refuses reopens as owed, and a carried one does not", async () => {
+    const banked = (subject: string, proposed: string, says: string) => row({ statementKey: subject.toLowerCase(), subject,
+      current: "Meaning:Something old.", proposed, confidence: "confirmed", verdict: "page_wrong", state: "checked",
+      sources: [{ url: "https://en.wikipedia.org/r", kind: "encyclopedia", says }], sourceReadAt: NOW.toISOString() });
+    const held = [banked("Alborz", "Mountain Rampart", "derived from Hara Barazaiti, a legendary mountain"),
+      banked("Noor", "light", 'The name Noor means "light"')];
+    await unit({ held, read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
+    expect(db.reopened, "only the stranded claim re-enters research").toEqual(["alborz"]); });
+
+  it("words found on the fetched page but past the verified quote authorize nothing", async () => {
+    // LIVE Alborz: the page's NEXT sentence says the meaning; the model quoted the sentence before it. The
+    const page = "The name Alborz is derived from Hara Barazaiti, a legendary mountain. البرز Hara Brzati means Mountain Rampart.";
+    await unit({ held: [row({ statementKey: "k1" })], fetchSource: async () => ({ text: page }),
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Mountain Rampart",
+        supporting: [{ url: "https://en.wiktionary.org/x", quote: "The name Alborz is derived from Hara Barazaiti, a legendary mountain." }],
+        subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "البرز", why: "about this name" }] } }) });
+    const r = db.rows[0] as FactCheck;
+    expect([r.confidence, r.verdict]).toEqual(["likely", "page_wrong"]);
+    expect(r.note).toContain("not carried by the verified quote"); });
 
   it("reads the next section even while claims are owed, and a chunk that filled up does not advance past what it read", async () => {
     // THE DEADLOCK, LIVE. Bumping the verification rules re-opened 21 settled claims on the names page, the owed
@@ -321,7 +341,7 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect([fetched.length, fetched.some((u) => u.includes("youtube"))]).toEqual([2, false]); // video excluded
     expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
   it("two independent publishers, each quoting its own words, may carry a confirmation", async () => {
-    await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => LIVE, fetchSource: split,
+    await unit({ held: [row({ statementKey: "k1", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "confirmed"]);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); }); }); // each credited with ITS OWN sentence
