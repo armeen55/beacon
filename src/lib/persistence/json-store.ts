@@ -127,6 +127,9 @@ function ensureDataDir(dir: string): void {
  * cache slots — no cross-tenant pollution possible.
  */
 const cache = new Map<string, unknown[]>();
+/** WHEN EACH WARM SLOT WAS FILLED, and how long a MIRRORED one may stand. The slot had no expiry and no invalidation, so once a lambda was warm it served its own copy of the durable blob for the life of the process even after another instance published a newer one, and the operator could be shown yesterday's queue after today's publish (Codex, 2026-08-28). Only Supabase-mirrored keys expire; a local or test store has no second writer and keeps the behaviour it always had. */
+const filledAt = new Map<string, number>(); const MIRROR_TTL_MS = 30_000;
+const warm = (name: string, key: string): boolean => cache.has(key) && (!SUPABASE_MIRRORED_STORES.has(name) || Date.now() - (filledAt.get(key) ?? 0) < MIRROR_TTL_MS);
 
 /**
  * Per-cacheKey write serialization. Two tenants writing to different
@@ -220,16 +223,14 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
     );
   }
 
-  if (cache.has(resolved.cacheKey)) {
-    return cache.get(resolved.cacheKey) as T[];
-  }
+  if (warm(name, resolved.cacheKey)) return cache.get(resolved.cacheKey) as T[];
 
   // Mirrored stores: the durable Supabase blob wins when present (this is what makes
   // the research caches exist on hosted prod). Missing row/table/env -> file as before.
   if (SUPABASE_MIRRORED_STORES.has(name)) {
     const blob = await readMirroredBlob(resolved.cacheKey);
     if (blob != null) {
-      cache.set(resolved.cacheKey, blob);
+      cache.set(resolved.cacheKey, blob); filledAt.set(resolved.cacheKey, Date.now());
       return blob as T[];
     }
   }
@@ -240,7 +241,7 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
     try {
       const raw = readFileSync(resolved.routedPath, "utf-8");
       const data = JSON.parse(raw) as T[];
-      cache.set(resolved.cacheKey, data);
+      cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
       return data;
     } catch {
       // Corrupted routed file — fall through to defaults.
@@ -249,7 +250,7 @@ export async function readStore<T>(name: string, fallback?: T[], opts: { tenantI
 
   // Routed file missing or corrupted — return caller's fallback (or []).
   const initial = fallback ? [...fallback] : [];
-  cache.set(resolved.cacheKey, initial);
+  cache.set(resolved.cacheKey, initial); filledAt.set(resolved.cacheKey, Date.now());
   return initial as T[];
 }
 
@@ -299,7 +300,7 @@ async function atomicWrite<T>(
   // aren't yet dual-written no-op on hosted (matches the "expected
   // broken" guardrail).
   if (process.env.VERCEL === "1") {
-    cache.set(resolved.cacheKey, data);
+    cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
     return;
   }
 
@@ -323,7 +324,7 @@ async function atomicWrite<T>(
       if (Array.isArray(existing) && existing.length > 0) {
         // Don't overwrite — cache the existing data instead so subsequent
         // reads see the durable rows, not the [].
-        cache.set(resolved.cacheKey, existing);
+        cache.set(resolved.cacheKey, existing); filledAt.set(resolved.cacheKey, Date.now());
         return;
       }
     } catch {
@@ -337,5 +338,5 @@ async function atomicWrite<T>(
   const json = JSON.stringify(data, null, 2);
   writeFileSync(tmp, json, "utf-8");
   renameSync(tmp, resolved.routedPath);
-  cache.set(resolved.cacheKey, data);
+  cache.set(resolved.cacheKey, data); filledAt.set(resolved.cacheKey, Date.now());
 }

@@ -439,7 +439,6 @@ describe("research-run conflict-free research closure", () => {
       funnelUnit: async (phase) => (order.push(phase), (unit += 1) === 1 ? { status: "advanced", cursor: { n: 1 }, progress: {} } : { status: "done", cursor: null, progress: {} }) });
     expect(order).toEqual(["read", "serp_analysis", "serp_analysis", "winning_pages"]); // three passes through a long step, exactly one reading slice
     expect(rows[0]!.progress.funnel?.answersAnalyzed).toBe(5); // and one slice's worth of readings on the row, never three
-    // AND NO SLICE IS STARTED WITH NO TIME TO STORE IT. Sixty seconds left is under the floor, so the turn goes straight to its phase and the reading is owed to the next one rather than bought and stranded.
     const late: string[] = []; withRun({ current_phase: "serp_analysis", progress: { plan: { units: ["analyze_answers", "plan_cases"] } } }); // a fresh row for the short turn
     await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers", "plan_cases"] }), analyzeAnswers: reading(late), funnelUnit: async (phase) => (late.push(phase), { status: "done", cursor: null, progress: {} }) }, 60_000);
     expect(late).toEqual(["serp_analysis"]); });
@@ -463,7 +462,6 @@ describe("research-run conflict-free research closure", () => {
       await run({ ...steps, dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }), funnelUnit: async (phase) => (later.push(phase), { status: "done", cursor: null, progress: {} }),
         analyzeAnswers: async () => ({ attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) });
       expect([later.includes("prompt_observations"), rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([false, 40]); }); // it reads what was owed and re-buys not one observation to do it
-    // WHAT THIS PINS IS THE LIVE-LEASE GUARD, not a lease that expired under a reading: the second invocation meets a lease that is still good. Nothing settling twice AFTER a lease genuinely lapses rests on two other things, each pinned where it lives: the readback's own budget keeps a call from outliving the lease (daily-observations, the deadline test), and settleOne is keyed on the answer hash, so a reclaimed run re-reading a settled row makes no call and spends nothing (daily-observations, "analyses only what is new"). This one proves only that a live lease refuses the second door.
     it("refuses a second invocation while the lease is live: it claims nothing, opens no pass and reads nothing, so one pass does the reading", async () => {
       const rows = withRun({ current_phase: "prompt_observations" }); let reads = 0;
       await Promise.all([1, 2].map(() => run({ dayStanding: async () => FULL_DAY,
@@ -558,7 +556,6 @@ describe("what a stored observation says it cost", () => {
       saveState: async (_t, _b, s, expected) => { if (expected !== held.v) return null; held.s = structuredClone(s); held.v += 1; return held.v; },
       callProvider: async () => (posts += 1, { state: "waiting", cacheKey: "ck-1", costUsd: postCost, modelRequested: null } as CachedCallResult),
       collectTask: async () => ({ state: "ok", envelope: answer as never, costUsd: 0, cacheKey: "ck-1", modelServed: null } as CachedCallResult) };
-    // Exactly the shape of the identities already in flight when the pair-carried cost shipped: posted, live at the provider, with no cost of their own.
     const forget = () => { held.s.prompts.pairs = held.s.prompts.pairs.map((x) => ({ ...x, postCostUsd: undefined })); }; return { deps, wrote, forget, posts: () => posts, reads: () => reads }; };
   it("keeps the placement cost on the final answer, asks the provider exactly once, upserts ONE identity, and never re-reads a cost it already carries", async () => {
     const w = world(0.0075); const first = await promptObservationUnit(w.deps, DUE)(T, CURSOR, 5_000); // the ask is PLACED: the money moves here
@@ -598,7 +595,6 @@ describe("the due-work runtime: a day is not a unit of work", () => {
   const completedToday = (): RR.ResearchRun[] => { const rows = freshRepo(); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done" })); return rows; };
   /** PHASE 5D. ONE canonical answer to "is anything owed", so a day whose AI answers are all collected is not therefore finished: the website may still be two hundred pages unread, and answers already bought may have no verdict on them yet. Both used to be invisible to the recovery opener. */
   it("does not buy evidence for a claim while the provider that has to judge it is out of credit", async () => {
-    // Checking one claim buys a search and a page fetch from one provider and then asks a SECOND to read them.
     const owing = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 140, total: 140, answers: 140, due: 0 }),
       run: async () => ({ progress: { decided: { basis: "b1", rowVersion: 1 }, replenish: { day: reportingDay(NOW), fingerprint: "b1::v1::settled", attempted: [], closed: "candidates_exhausted" as const } }, open: false }), basis: async () => "b1", evidenceVersion: async () => 1,
       surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
@@ -735,7 +731,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
   it("says 503 rather than a quiet day when the recovery probe itself could not read the fleet", async () => {
     freshRepo(); PAUSED.add(T); PAUSED.add(U); DB.fleetError = { message: "connect ECONNREFUSED" }; // nothing to claim, so the probe is the whole dispatch
     await expect(runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, strandedToday: defaultSteps.strandedToday, ...NO_PHASE } })).rejects.toThrow();
-    // AND THE WORK ALREADY LANDED SURVIVES THE THROW: one account really was claimed and driven before the probe broke, so the receipt rides on the error rather than a 503 erasing it. `rejects.toMatchObject` reads the thrown value's own fields.
     PAUSED.clear(); const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); // one claimable account, so one drive lands before the probe runs
     await expect(runDueAccounts({ now: () => new Date(NOW), steps: { ...BENIGN, strandedToday: defaultSteps.strandedToday } }))
       .rejects.toMatchObject({ receipt: R({ claimed: 1, attempted: 1, succeeded: 1 }) });
@@ -786,7 +781,6 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]);
     expect(await spend(60_000, 20_000)).toEqual(R({ claimed: 1, paused: 1, remaining: 1 }));  // 60 seconds of budget against a clock that moves 20 per reading: the claim lands, the slice does not.
     expect([rows[0]!.status, rows[0]!.lease_owner]).toEqual(["paused", null]); }); // handed back, never left leased
-  // THE PUBLISH IS RESERVED, NEVER LEFTOVERS. A drive used to be handed every millisecond that was left, so a tick that worked its whole window reached the republish with nothing to spend and skipped it: the store moved and the customer's Today and Changes kept serving an older release.
   it("keeps back enough of the dispatch for the customer's release, so research can never eat the publish", async () => {
     freshRepo(); setAccountStatus(U, "pending_onboarding"); const given: number[] = [];
     const watch: Partial<ResearchCycleSteps> = { dueWork: async () => ({ ...SOMETHING_DUE, due: ["analyze_answers"] }),
@@ -829,7 +823,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   const parked = (ms: number) => ({ basis: "b1", topics: [{ topicKey: "t1", query: "haft seen", requirement: "exact_serp", retryAfter: new Date(ms).toISOString() }] });
   const base = { staleSources: async () => 0, checks: async () => ({ ...NO_CHECKS, done: 4, total: 4, answers: 4, due: 0 }), basis: async () => "b1", evidenceVersion: async () => 7, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1", consumedAnalyses: async () => "fp1",
     surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, factDebt: async () => ({ owed: 0, everChecked: true }), readyStock: async () => 5, creditHeld: async () => false,
-    // A SETTLED DAY IS ONE WHOSE MANIFEST IS EXHAUSTED, never one that merely reached a count, so the quiet-day fixture carries the closure that actually holds a day shut.
     run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY),
       replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::settled", attempted: [], closed: "candidates_exhausted" as const } } }) };
   it("owes nothing when the sources are fresh, today's round has landed, the notes have not moved past the last decision, and the rest is waiting on a date I promised", async () => {
@@ -860,10 +853,8 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   /** A COUNT IS NOT A REASON TO STOP WORKING. Replenish was due only while the stock sat BELOW five, so an account holding fourteen finished changes was never asked and Update Data answered "nothing due" with real evidenced work standing unwritten. What ends a day is a SETTLED MANIFEST, never a quantity. */
   it("keeps asking for work above the stock floor, and stops only on a proven exhaustion", async () => {
     const closed = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a", attempted: [], closed: "candidates_exhausted" as const } } }) }); expect([(await dueWork(T, new Date(NOW), closed(5))).due, (await dueWork(T, new Date(NOW), closed(4))).due]).toEqual([[], []]); // a SETTLED manifest holds the day shut at any count
-    // AND WITH NOTHING SETTLED, WORK IS OWED WHATEVER THE COUNT SAYS: four, five, or the fourteen this account really holds.
     const open = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) });
     expect([(await dueWork(T, new Date(NOW), open(4))).due, (await dueWork(T, new Date(NOW), open(5))).due, (await dueWork(T, new Date(NOW), open(14))).due]).toEqual([["replenish_ready"], ["replenish_ready"], ["replenish_ready"]]); });
-  // A CLOSED DAY REOPENS WHEN THE QUESTION CHANGES (Codex, 2026-08-22): the memory is stamped with the basis AND the evidence version it was answered under, so fresh evidence for the very same pages makes the stock owed again TODAY.
   it("reopens an exhausted day the moment the evidence behind it moves, without waiting for tomorrow", async () => {
     const shut = { ...base, readyStock: async () => 0, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a|/b", attempted: ["/a", "/b"], closed: "candidates_exhausted" as const } } }) };
     expect((await dueWork(T, new Date(NOW), shut)).due).toEqual([]); // exhausted under version 7, and it stays shut while that is the question
@@ -872,7 +863,6 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     const blind = await dueWork(T, new Date(NOW), { ...base, run: async () => { throw new Error("db down"); } }); expect([blind.readable, blind.due]).toEqual([false, []]);
     const noPlan = await dueWork(T, new Date(NOW), { ...base, checks: async () => null }); expect(noPlan.readable).toBe(false);
     const down = async () => { throw new Error("down"); }; // EVERY signal, not just the two: a swallowed read answered 200 with an empty due list over a day it could not judge. An individually EMPTY signal is untouched by that, which is what `base` is
-    // `factDebt` is here because it was READ, JUDGED and then left out of this line, so an unreadable fact-check store answered a readable day with check_page_facts quietly missing from it (Codex, 2026-08-22). The stock and the credit stop join it for the same reason.
     for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze", "analysisFingerprint", "consumedAnalyses", "factDebt", "readyStock", "creditHeld"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
     expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true);
     expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
@@ -888,9 +878,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
     const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0); expect(firstBuy).toBeGreaterThan(replenishAt);
     expect(order.filter((x) => x === "replenish")).toHaveLength(1);});
-  // ONCE PER DAY, DURABLY, AND ONLY ON PROVEN SUCCESS (operator, 2026-08-22): the marker rides run progress, so a resumed run never pays twice for a day that really was topped up. ONLY A PROVEN EXHAUSTION HOLDS A DAY SHUT. A day that closed because it REACHED the target says nothing an hour later, once the operator implements one of the five: the LIVE count is the authority, and a drive over a stock still at target costs nothing anyway (Codex, 2026-08-22).
   it("buys no evidence on a drive with no room to check a SHORT stock, and leaves the phase for the next one", async () => {
-    // LIVE, 2026-08-22 21:30Z, the first funded cycle: four free phases ate the 210-second drive, the stock check never got its runway, and the SAME drive went on to spend $0.12 buying keywords with the finished-change queue still on zero. Inventory before acquisition has to survive a short turn, or it is only a rule for turns that happen to be long enough.
     const walked: string[] = [], rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready", "plan_cases"] } } });
     await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "plan_cases"] }), replenishReady: async () => (walked.push("replenish"), null),
       funnelUnit: async (phase) => (walked.push(phase), { status: "done" as const, cursor: null, progress: {} }) }, 40_000); // under the floor the check needs, so it cannot even be attempted
@@ -903,9 +891,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     void withRun({ current_phase: "keyword_discovery", progress: { replenish: { day, fingerprint: "b1::v1::x", attempted: [] } } });
     await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
     expect(calls).toBe(1); });
-  // THE DEFECT THIS REPAIR EXISTS FOR: the marker used to be stamped BEFORE the pass, so a credit-exhausted, budget-refused, boxed or empty-handed attempt recorded itself as today's completed replenishment and the account stayed blocked all day.
   it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
-    // GROWTH THAT STOPS SHORT IS NOT A REPLENISHED DAY EITHER (Codex, 2026-08-22): a drive that added two of the five owed used to stamp the day and lock the other three out until tomorrow. AND A BOUNDED BATCH THAT CAME UP EMPTY IS NOT AN EXHAUSTED ONE (Codex, 2026-08-22): two candidates failing proves nothing about the third, so `retryable_blocked` leaves the day open exactly like a quota failure does.
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
       const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
