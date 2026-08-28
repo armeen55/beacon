@@ -13,6 +13,7 @@
 
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
 
 /** What the card may say about a change, already selected and ordered. Every part is optional because honest
  *  absence is the normal case: a page-only repair has no demand figure and must not pretend to one. */
@@ -237,18 +238,18 @@ const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replac
  * Read at the ONE servability verdict (completeness's openHold), so the queue, Today, the detail page, Mark
  * done, the promotion door and the producer sweep all refuse together. PURE, canonical fields only.
  */
-export function evidenceShortfall(p: ChangeProposal): string | null {
+export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUTHORIZATION VOCABULARY: a bundle's `plan.removes` and a component's `preserves.losses` are the customer-facing SUMMARY of a change and were pooled in as though they were the same verified record, so they are display only now; a ledger entry answers for ONE unit, because one entry quoting the whole passage claimed every unit had been considered while naming none (Codex, 2026-08-28)
   const c = p.recommendedChange;
   if (p.researchOnly === true || c.kind !== "existing_edit") return null;
   const before = c.before?.trim() ?? "";
   if (before && mechanicalRepair(before, c.after)) return null;
-  if (p.changeFamily === "factual_correction") return null;
+  // A CORRECTION PROVES ITS WORDS THROUGH THE QUOTE-BOUND CHAIN so it owes no gain receipt, and it is NOT a licence to discard the page around the mistake: it left the boundary entirely, so one could replace "Meaning: Bright, radiant, or glowing. Start your free lesson today." with "Meaning: Light." and delete the call to action in silence (Codex, 2026-08-28). It answers for preservation like every other replacement.
+  const correction = p.changeFamily === "factual_correction";
   if (c.field === "title" || c.field === "meta" || c.field === "h1") {
-    if (p.bundle) return null;
+    // A BUNDLE'S DEMAND RECEIPT PROVES THE PAGE MATTERS, NEVER THAT ITS EXACT WORDS ARE BETTER, and every bundle exited here unconditionally. The one a split genuinely authorizes is the differentiation itself, which writes on every competing page and is the diagnosis's own prescription; a single-page bundle answers the same wording question as any other card.
+    if (p.bundle && new Set((p.bundle.components ?? []).map((x) => x.page).filter(Boolean)).size > 1) return null;
     if (before) {
-      // A DIAGNOSIS THE FIELD DOES NOT TREAT IS ALREADY REFUSED, by unsettledCause with the sharper sentence,
-      // so this rule speaks only where nothing else does: no cause at all, or one whose lever set is empty.
-      const cause = p.causeFinding?.cause ?? p.diagnosisCause;
+      const cause = p.causeFinding?.cause ?? p.diagnosisCause; // a diagnosis the field does not treat is already refused by unsettledCause with the sharper sentence, so this speaks only where nothing else does: no cause at all, or one whose lever set is empty
       if (!(cause && CAUSE_LEVERS[cause]?.has(c.field)) && !(cause && treatable(cause)) && !p.modeledOn)
         return `it replaces the ${FIELD_WORD[c.field]} this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current ${FIELD_WORD[c.field]} or a stored results page backs this shape`;
     } else if ((p.claims ?? []).length === 0) {
@@ -256,54 +257,54 @@ export function evidenceShortfall(p: ChangeProposal): string | null {
     }
     return null;
   }
-  // BODY COPY OWES A RE-READABLE GAIN RECEIPT. A link change carries its gain in the link and a factual
-  // correction in its quote, so neither is asked; every other body edit is AEO work and answers here.
+  // BODY COPY OWES A RE-READABLE GAIN RECEIPT. A link carries its gain in the link and a correction in its quote, so neither is asked; every other body edit is AEO work and answers here.
   const linkWork = (p.bundle?.components ?? []).some((x) => x.kind === "internal_link_add" || x.kind === "anchor_text" || x.kind === "internal_links");
-  if ((c.field === "section" || c.field === "answer_block") && !linkWork) {
+  if ((c.field === "section" || c.field === "answer_block") && !linkWork && !correction) {
     const g = p.informationGain;
     if (!g) return "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain";
     if (!g.pageWhole) return "what it adds was judged against only part of this page, so whether the page already says it is not actually known, and it is held until the whole page is read against it";
     const cited = new Set((p.claims ?? []).flatMap((x) => [...x.supportedBy]));
     if (g.by.length > 0 && !g.by.every((id) => cited.has(id))) return "the evidence named for what it adds is not the evidence its claims stand on, so the gain on file belongs to a different reading";
     if (g.by.length === 0 && (p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("rival-")))) return "what it adds stands on a competing page's briefing, which says what rivals cover and never what is true, so it is held until a source carries the claim";
+    // AN EMPTY EVIDENCE LIST IS THE STRUCTURAL CASE AND ONLY THAT: a replacement may earn its gain in FORM by assembling what the page scatters, while an ADDITION naming nothing that carries what it adds is "improves clarity" wearing a receipt.
+    if (g.by.length === 0 && !before) return "it says it adds something while naming no evidence that carries it, and an addition earns its place on what it brings, not on how it reads";
   }
   if (before) {
-    const named = [...(p.preservation ?? []).map((u) => ({ what: u.text })), ...(p.bundle?.plan?.removes ?? []),
-      ...(p.bundle?.components ?? []).flatMap((x) => x.preserves?.losses ?? [])]
-      .map((r) => bareText(r.what)).filter((n) => n.length > 0 && bareText(before).includes(n)); // A LEDGER IS CHECKED AGAINST THE PASSAGE: an entry naming text the page never carried accounts for nothing
-    const accounts = (t: string): boolean => { const k = bareText(t); return k.length > 0 && named.some((n) => n.includes(k) || k.includes(n)); };
-    // EVERY MEANINGFUL UNIT OF THE REPLACED PASSAGE, as a reader meets them, either survives into the new copy
-    // or is named. The lexical detector below stays as a backstop and is no longer the definition.
+    const units = unitsOf(before), ledger = (p.preservation ?? []).filter((u) => bareText(u.text).length > 0 && bareText(before).includes(bareText(u.text)));
+    const entryFor = (t: string): (typeof ledger)[number] | undefined => ledger.find((u) => units.filter((x) => bareText(u.text).includes(bareText(x))).length <= 1 && (bareText(u.text).includes(bareText(t)) || bareText(t).includes(bareText(u.text))));
+    // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: `why` and `to` were optional and nothing read the disposition at all, so "removed" with no reason, "moved" with no destination and "kept" over text the copy does not carry all passed on an overlapping string.
+    const unverified = (u: { text: string; disposition: string; why?: string; to?: string }): string | null =>
+      u.disposition === "kept" ? (carriesUnit(u.text, c.after) ? null : "says it keeps material the new copy no longer carries")
+        : u.disposition === "corrected" ? ((p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-"))) ? null : "corrects material without naming a checked source for the correction")
+          : u.disposition === "moved" ? (u.to?.trim() ? null : "moves material without naming where it goes") : (u.why?.trim() ? null : "removes material without saying why it may go");
+    const unaccounted = (t: string): string | null => { const e = entryFor(t), bad = e ? unverified(e) : null; return e == null ? "neither says it nor accounts for it: every unit of a replaced passage is kept, corrected, moved with its destination, or removed with its reason before the change is offered" : bad ? `${bad}: "${e.text.slice(0, 60)}"` : null; };
     if (c.field === "section" || c.field === "answer_block") {
-      const lost = unitsOf(before).find((u) => !survivesIn(u, c.after) && !accounts(u));
-      if (lost) return `it replaces a passage carrying "${lost.slice(0, 60)}" and neither keeps that nor says where it went: every unit of a replaced passage is kept, corrected, moved with its destination, or removed with its reason before the change is offered`;
-      if ((c.where ?? "").includes("absorbs the duplicated entries") && named.length === 0)
+      const lost = units.filter((u) => !carriesUnit(u, c.after)).map((u) => ({ u, why: unaccounted(u) })).find((x) => x.why != null);
+      if (lost) return `it replaces a passage saying "${lost.u.slice(0, 60)}" and ${lost.why}`;
+      if ((c.where ?? "").includes("absorbs the duplicated entries") && ledger.length === 0)
         return "it says it absorbs the entries below it without naming one of them, so what the operator is being asked to delete is not stated";
     }
-    const loss = materialLosses(p).find((l) => !accounts(l.replace(/^the (?:link|figure) /, "")));
-    if (loss) return `it replaces a passage that carries ${loss} and drops it, and nothing typed says that removal is intended: what a replacement removes is preserved, moved, or named with its reason before the change is offered`;
+    const loss = materialLosses(p).map((l) => ({ l, why: unaccounted(l.replace(/^the (?:link|figure) /, "")) })).find((x) => x.why != null);
+    if (loss) return `it replaces a passage that carries ${loss.l} and ${loss.why}`;
   }
   return null;
 }
 
-/** THE MEANINGFUL UNITS OF A PASSAGE, as a reader meets them: sentences and list members. */
 const unitsOf = (t: string): string[] => t.split(/(?<=[.!?:])\s+|\s*[\n\u2022|]\s*|\s+[-\u2013\u2014]\s+/u).map((u) => u.trim()).filter((u) => u.length >= 10);
-/** Does this unit's substance survive into the new copy? Content words, most of them, in any wording. */
-const survivesIn = (unit: string, after: string): boolean => {
-  const words = (t: string): string[] => t.toLowerCase().normalize("NFKD").split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4);
-  const said = new Set(words(after)), w = words(unit);
-  return w.length === 0 || w.filter((x) => said.has(x)).length / w.length >= 0.6;
-};
+/** Content words AND every number whole (a dropped "42" is how a figure stops being material); shared with the drafter, whose own preservation read uses the same two definitions. */
+export const materialTokens = (t: string): string[] => [...new Set([...topicTokens(t), ...(t.toLowerCase().match(/\d[\d.,%°:-]*/gu) ?? [])])];
+export const negated = (t: string): boolean => /\b(?:not|never|no|none|cannot|isn't|aren't|won't|don't|doesn't|without)\b/iu.test(t);
+/** DOES THE NEW COPY STILL SAY THIS UNIT? EVERY material token, and the same yes or no. A 60 percent bag of words called "safe" preserved by "unsafe", "causes" by "prevents" and "increases" by "decreases", because one token IS the claim and four neighbours outvoted it (Codex, 2026-08-28). A faithful paraphrase carries every material token in some form and passes; dropping one changes what the passage says and owes a typed disposition. */
+const carriesUnit = (unit: string, after: string): boolean => {
+  const stem = (w: string): string => w.replace(/(?:ies|es|ed|ing|ly|s)$/u, "");
+  const said = new Set(materialTokens(after).map(stem)), mine = materialTokens(unit);
+  return mine.length === 0 || (mine.every((w) => said.has(stem(w))) && negated(unit) === negated(after)); };
 
-/** A REPAIR THAT LEAVES THE LETTERS THEMSELVES UNTOUCHED IS ITS OWN EVIDENCE: marks, capitals, spacing and an
- *  apostrophe carry no claim, so the diff IS the defect and the fix in one reading and it owes no diagnosis and
- *  no results page. THE LETTER SEQUENCE MAY NOT MOVE. This accepted any same-letter anagram as a transposition
- *  typo, which made "form" to "from", "trial" to "trail" and "there" to "three" self-authorizing: a meaning
- *  change wearing a typo's size, bypassing evidence entirely (Codex, 2026-08-28). A genuine letter repair
- *  ("teh" to "the") is not inferred from matching letters; it owes whatever its treatment owes. */
+/** ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF: collapsed repeat whitespace, a stray space before an unchanged mark, trimmed ends, equivalent quote and dash glyphs, case. Stripping every space and mark before comparing was "meaning is a function of letters alone", which is false in both directions: "nowhere" to "now here", "resign" to "re-sign", "well" to "we'll" and "therapist" to "the rapist" all self-authorized (Codex, 2026-08-28). WORD BOUNDARIES AND MARKS ARE MEANING, so an inserted or removed apostrophe, hyphen or comma, a moved boundary and any letter change owe whatever their treatment owes. */
 export function mechanicalRepair(before: string, after: string): boolean {
-  const letters = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
-  return letters(before).length > 0 && letters(before) === letters(after);
+  const render = (t: string): string => t.normalize("NFKC").toLowerCase().replace(/[\u2018\u2019\u02bc]/gu, "'")
+    .replace(/[\u201c\u201d]/gu, '"').replace(/[\u2010-\u2015]/gu, "-").replace(/\s+/gu, " ").replace(/ +([,.;:!?])/gu, "$1").trim();
+  return render(before).length > 0 && render(before) === render(after);
 }
 
 /** WHAT THIS CHANGE CERTIFIES AND WHAT IT ONLY CARRIES, derived off the canonical before and after so every

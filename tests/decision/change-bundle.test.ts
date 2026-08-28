@@ -1155,7 +1155,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const finished = "The untouched page's finished section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, written off the page's own stored words and nothing else.";
     store.rows.set(CITIES, heldRow());
     store.rows.set(OTHER, heldRow({ id: OTHER, pagePath: "/untouched", pageUrl: "https://fixture-content.example/untouched",
-      pageLabel: "Untouched", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: [], pageWhole: true }, 
+      pageLabel: "Untouched", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: ["page-copy-1"], pageWhole: true }, 
       limitations: ["Read off the last stored copy of this page, so anything added since is not counted here.",
         "it tells a reader this page offers \"habitats\", and no claim on this card carries it"],
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: finished, where: 'A new section headed "Untouched", placed after "Untouched heading"' },
@@ -1201,7 +1201,7 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
     const JUDGED = "fixture-tenant::/judged::existing_edit::ai_answer_gap";
     const words = "The judged page's section answers the question in one sentence and then lists what the page already carries, one item per line, each with the single fact a reader needs about it, under a heading a reader would look for.";
     const row = (lim: string[]) => heldRow({ id: JUDGED, pagePath: "/judged", pageUrl: "https://fixture-content.example/judged",
-      pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: [], pageWhole: true }, limitations: lim,
+      pageLabel: "Judged", status: "needs_review", researchOnly: false, copyStamp: "T|H|D|O", diagnosisCause: "ai_citation_gap", informationGain: { adds: "assembles in one block what the page scatters across sections", by: ["page-copy-1"], pageWhole: true }, limitations: lim,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: words, where: 'A new section headed "Judged", placed after "Judged heading"' },
       claims: [{ text: words, supportedBy: ["page-copy-1"] }],
       supportFacts: [{ id: "page-copy-1", fact: words }, { id: "page-copy-2", fact: "The page's Judged heading introduces the list." }] });

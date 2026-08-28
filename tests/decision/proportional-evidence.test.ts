@@ -30,20 +30,21 @@ describe("the proof burden matches the promise, at the one door every surface re
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
     // 1. A MARK-ONLY REPAIR IS ITS OWN EVIDENCE: no diagnosis, no results page, and the receipt certifies the
     // marks alone, never the sentence around them.
-    const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where its from.", "Learn all about the Kerman Rug, where it's from."));
+    const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where it's from.", "Learn all about the Kerman Rug, where it's from."));
     expect(evidenceShortfall(typo)).toBeNull();
     expect(openHold(typo).blocking).toBeNull();
     expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
-    // THE LETTER SEQUENCE MAY NOT MOVE. Any same-letter anagram used to self-authorize, so a meaning change
-    // wearing a typo's size bypassed evidence entirely; a real letter repair owes what its treatment owes.
-    for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"]])
+    // ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF. Same-letter anagrams self-authorized, and then so did
+    // anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
+    for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"],
+      ["nowhere", "now here"], ["resign", "re-sign"], ["well", "we'll"], ["therapist", "the rapist"], ["learn more", "learnmore"], ["lets eat grandma", "let's eat, Grandma"], ["its history", "it's history"]])
       expect(mechanicalRepair(b!, a!), `${b} to ${a} is not a self-proving repair`).toBe(false);
-    for (const [b, a] of [["Rug , where its from", "Rug, where it's from"], ["a  b", "a b"], ["Hello World", "hello world"]])
-      expect(mechanicalRepair(b!, a!), `${b} to ${a} changes no letter`).toBe(true);
+    for (const [b, a] of [["Rug , where", "Rug, where"], ["a  b", "a b"], [" hi ", "hi"], ['say \u201chi\u201d', 'say "hi"'], ["a \u2013 b", "a - b"], ["Hello World", "hello world"]])
+      expect(mechanicalRepair(b!, a!), `${b} to ${a} is rendering only`).toBe(true);
     // 2. A FACTUAL CORRECTION MAY NARROW, AND SAYS SO: shorter survives when only the source-carried meaning
     // does, and the receipt discloses the narrowing instead of posing as traffic copy.
     const noor = row("fact", { ...edit("section", "Meaning:Bright, radiant, or glowing.", "Meaning:Light."), changeFamily: "factual_correction",
-      claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: 'encyclopedia says: "The name Noor means light"' }] });
+      preservation: [{ text: "Meaning:Bright, radiant, or glowing.", disposition: "corrected", why: "the source of record says Noor means light" }], claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: 'encyclopedia says: "The name Noor means light"' }] });
     expect(evidenceShortfall(noor)).toBeNull();
     expect(proofOf(noor).limits.join(" ")).toContain("the unsupported wording was narrowed");
     // 3. RICHER FACTUAL CONTEXT WITHOUT EVIDENCE STAYS REFUSED, by the quote-bound authority chain itself.
@@ -76,9 +77,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, pageWhole: false } })), "judged against part of the page").toContain("only part of this page");
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, by: ["fact-9"] } })), "an id no claim cites").toContain("belongs to a different reading");
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, by: [] }, claims: [{ text: "what rivals cover", supportedBy: ["rival-2"] }] })), "briefing is not a source").toContain("competing page's briefing");
-    // 8. A REPLACEMENT ACCOUNTS FOR EVERY UNIT OF THE PASSAGE IT REPLACES, not only the links, figures and
-    // Capitalized Phrases a lexical detector happens to see: a lowercase call to action, a qualifier, one list
-    // member and a dropped example all used to vanish in silence.
+    // 8. A REPLACEMENT ACCOUNTS FOR EVERY UNIT OF THE PASSAGE IT REPLACES, not only the links, figures and Capitalized Phrases a lexical detector sees: a lowercase call to action, a qualifier, one list member and a dropped example all vanished in silence.
     const body = (before: string, after: string, over: Record<string, unknown> = {}) => row("sec", { recommendedChange: { kind: "existing_edit", field: "section", before, after, where: 'Replaces the existing passage under "Greetings"' },
       informationGain: { adds: "gives the literal meaning of salam, which the page never states", by: ["fact-1"], pageWhole: true },
       claims: [{ text: "salam means peace", supportedBy: ["fact-1"] }], ...over });
@@ -86,26 +85,35 @@ describe("the proof burden matches the promise, at the one door every surface re
     for (const [label, lost] of [["a lowercase call to action", "start your free lesson today with no sign up"],
       ["a qualifier", "it is among the oldest greetings still in daily use"], ["one list member", "khodahafez means goodbye in everyday speech"],
       ["a worked example", "for example a shopkeeper greets a customer with salam first"]] as const)
-      expect(evidenceShortfall(body(`${KEEP} ${lost}`, KEEP)), `${label} may not vanish in silence`).toContain("neither keeps that nor says where it went");
+      expect(evidenceShortfall(body(`${KEEP} ${lost}`, KEEP)), `${label} may not vanish in silence`).toContain("neither says it nor accounts for it");
+    // A REVERSAL IS NOT A PRESERVATION: one token IS the claim, and four neighbours outvoted it at 60 percent.
+    for (const [b, a] of [["This treatment is safe for children.", "This treatment is unsafe for children."], ["Smoking causes lung damage in adults.", "Smoking prevents lung damage in adults."],
+      ["The rule is permitted for all residents.", "The rule is prohibited for all residents."], ["This method increases the yield reliably.", "This method decreases the yield reliably."], ["Topoli means chubby in playful speech.", "Topoli means skinny in playful speech."]])
+      expect(evidenceShortfall(body(b!, a!)), `${a} does not preserve ${b}`).toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(body("This treatment is safe for children.", "Children can safely take this treatment.")), "a faithful paraphrase still carries every material token").toBeNull();
     const CTA = "start your free lesson today with no sign up";
+    // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: nothing read the disposition at all, so these three passed.
+    for (const [u, why] of [[{ text: CTA, disposition: "removed" }, "without saying why"], [{ text: CTA, disposition: "moved" }, "without naming where it goes"], [{ text: CTA, disposition: "kept" }, "keeps material the new copy no longer carries"]] as const)
+      expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [u] })), `${u.disposition} ${why}`).toContain(why);
     expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "moved", to: "the page footer, directly under the last section", why: "kept as one call to action per page" }] })), "a move that records its destination").toBeNull();
-    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: "a sentence this passage never carried", disposition: "removed", why: "invented" }] })), "a ledger is checked against the passage").toContain("neither keeps that nor says where it went");
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: "a sentence this passage never carried", disposition: "removed", why: "invented" }] })), "a ledger is checked against the passage").toContain("neither says it nor accounts for it");
     expect(evidenceShortfall(body(`${KEEP} See https://x.example/lessons for the course.`, KEEP,
       { preservation: [{ text: "See https://x.example/lessons for the course.", disposition: "removed", why: "the course moved" }] })), "a named link removal, reasoned").toBeNull();
-    // The same contract for a bundle, through its own plan, and a consolidation that names nothing it absorbs.
-    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { bundle: { plan: { keeps: [], removes: [{ what: CTA, why: "moved to the footer" }], entries: [] }, components: [], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a bundle answers on its plan").toBeNull();
+    // ONE AUTHORIZATION VOCABULARY: a bundle's plan and a component's preserves are the customer-facing SUMMARY of a change, so prose there authorizes nothing.
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { bundle: { plan: { keeps: [], removes: [{ what: CTA, why: "moved to the footer" }], entries: [] },
+      components: [{ kind: "section_rewrite", label: "s", before: CTA, after: KEEP, evidenceKeys: [], risk: "safe", preserves: { keeps: [], losses: [{ what: CTA, why: "moved" }] } }], receipt: { items: [], missing: [], freshestObservedAt: null } } })), "a summary is not a verdict").toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(body(`${KEEP} ${CTA}`, KEEP, { preservation: [{ text: CTA, disposition: "removed", why: "duplicated by the footer button" }] })), "the one ledger answers for a bundle too").toBeNull();
     expect(evidenceShortfall(body(KEEP, `${KEEP} It is also the usual telephone greeting.`, { recommendedChange: { kind: "existing_edit", field: "section", before: KEEP, after: `${KEEP} It is also the usual telephone greeting.`, where: 'Replaces the existing passage under "Greetings" and absorbs the duplicated entries below it' } })), "an absorption names what it absorbs").toContain("without naming one of them");
     // 9. A FACTUAL CORRECTION MAY DROP THE WORDS IT IS CORRECTING: the removal IS the change, and the narrowing
     // disclosure above already says so, so the unit rule never fires on one.
-    expect(evidenceShortfall(row("f2", { ...edit("section", "Meaning:Bright, radiant, or glowing.", "Meaning:Light."), changeFamily: "factual_correction" }))).toBeNull();
+    // AND "FACTUAL CORRECTION" IS NOT A LICENCE TO DELETE THE PAGE AROUND THE MISTAKE: it accounts for the line it corrects, and a call to action beside that line is still a loss to answer for.
+    expect(evidenceShortfall(row("f2", { ...edit("section", "Meaning:Bright, radiant, or glowing. Start your free lesson today.", "Meaning:Light."), changeFamily: "factual_correction",
+      preservation: [{ text: "Meaning:Bright, radiant, or glowing.", disposition: "corrected", why: "the source says light" }],
+      claims: [{ text: "c", supportedBy: ["fact-1"] }] }))).toContain("Start your free lesson");
     const gained = aeo({ informationGain: GAIN });
     // 10. ONE CANONICAL DECISION: the queue lanes by the very same verdict, so the held title reaches the
     // operator as a draft to review and never as Ready, while the diagnosed fill stays Ready.
-    // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict on its own: the list, the
-    // release builder Today reads, the detail page, Mark done and the promotion door each compose it with
-    // unsettledCause, and the producer sweep persists that same pair as a typed fault. The evidence check
-    // rides INSIDE openHold, so every one of those compositions refuses together and none can out-offer
-    // another. This asserts the composed expression they share, on both a held and a passing row.
+    // 10. ONE VERDICT, EVERY CONSUMER. openHold is NOT the whole Ready verdict: the list, the release builder Today reads, the detail page, Mark done and the promotion door each compose it with unsettledCause, and the sweep persists that pair as a typed fault. The evidence check rides INSIDE openHold, so all of them refuse together.
     const served = (x: ChangeProposal): string | null => { const h = openHold(x); return (h.safetyHold ? null : h.blocking) ?? unsettledCause(x); };
     for (const held of [creative, aeo({}), body(`${KEEP} ${CTA}`, KEEP)])
       expect(served(held), "every consumer of the shared verdict refuses it").toBe(evidenceShortfall(held));

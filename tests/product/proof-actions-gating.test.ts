@@ -57,7 +57,7 @@ const proposal = (over: Record<string, unknown> = {}) => ({
   pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
   // THE SHIPMENT PATH IS EXERCISED ON A CHANGE THE READY LANE REALLY HANDS OVER, because `ready` is now the only lane any door will record: a card still in review is refused by the action itself (pinned below). The canon already refuses a dangerous piece in the ready lane, so the pieces here are graded safe and the dangerous shape is exercised where it truly lives, at needs_review. Its readings are dated relative to now.
   opportunityType: "Capture clicks", changeFamily: "title", status: "ready", riskLevel: "low", basis: BASIS, publish: "manual", limitations: [],
-  recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" },
+  recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions and the Haft-Seen Table" }, modeledOn: "the stored results page for this search, whose top titles share this shape",
   whyItMatters: "The line Google shows misses the words people search for.",
   bundle: { objective: "Say what the searcher asked for in the line Google shows.",
     scope: { queries: ["nowruz traditions"], prompts: [] },

@@ -292,7 +292,7 @@ function packetFor(card: ChangeProposal, page: OwnedPageEvidence, body: OwnedPag
   const body_edit = card.recommendedChange.kind !== "existing_edit" || card.recommendedChange.field === "section" || card.recommendedChange.field === "answer_block";
   let truncated = false;
   if (body_edit) { let room = PAGE_COPY_BUDGET, n = 0;
-    for (const x of scored) { if (room <= 0) { truncated = true; break; } evidence[`page-copy-${++n}`] = x.t; room -= x.t.length; } }
+    for (const x of scored) { if (room < x.t.length) { truncated = true; break; } evidence[`page-copy-${++n}`] = x.t; room -= x.t.length; } if ((body?.passages ?? []).join(" ").length > BODY_TO_JUDGE) truncated = true; } // TRUNCATED MEANS THE EVALUATOR DID NOT SEE THE PAGE, not that another iteration happened to begin: asked only at the TOP of the loop, one oversized passage exhausted the budget on the last pass and still reported a whole page read (Codex, 2026-08-28); what the judge is handed is capped too, so a body past that cap is not a whole page either
   else scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score || a.i - b.i).slice(0, 6)
     .sort((a, b) => a.i - b.i).forEach((x, i) => { evidence[`page-copy-${i + 1}`] = x.t; });
   // WHAT THIS PAGE DOES NOT SAY, FROM PAGES THE SAME ACCOUNT ALREADY OWNS. Every id above is the target page's own words, so a drafter holding only those can write nothing but that page reworded: /iran-flags/iran-islamic-republic-flag-history ranks first for "iran flag before 1979" on 129 words that never name the flag it replaced, and this account's own /iran-flags/pahlavi-iran-flag says exactly what that was. Sibling copy is evidence the reader can check, it costs nothing to read, and citing it is how an internal link earns its place.

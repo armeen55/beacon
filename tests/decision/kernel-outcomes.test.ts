@@ -6,13 +6,11 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...((await orig()) as object), // Keyed the way the producer reads it (canonical, so a stored row and a full address are one page), or the page's own words are silently dropped.
   loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.filter((u) => !u.includes("unreadable"))
     .flatMap((u) => [u, u.replace(/^https?:\/\//, "").replace(/\/+$/, "")].map((k) => [k, { url: u, title: "T", metaDescription: null, openingSample: "A haft seen table is the spread a household sets out for the new year.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-25T00:00:00.000Z" }] as const))) }));
-// The REAL fingerprint is under test; only the two I/O calls are seams. The deep bundle has its own suite, so here it only reports WHICH page it was aimed at.
 vi.mock("@/domains/decision/proposal-store", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store");
   return { ...actual, loadChangeProposals: async () => env.store, withdrawnProposalIds: async () => env.withdrawnIds, // The canonical store's OWN rule, emulated: a proposal identical to the stored row writes nothing at all.
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); env.store.delete(p.id); return true; }, saveChangeProposal: async (p: ChangeProposal) => {
     const prior = env.store.get(p.id); if (prior && actual.proposalFingerprint(prior) === actual.proposalFingerprint(p)) return "unchanged";
     if (env.refuseIds.has(p.id)) return "refused"; env.saved.push(p); if (env.failWrites || env.failIds.has(p.id)) return "failed"; env.store.set(p.id, p); return "saved"; } }; });
-// A PASSTHROUGH, NOT A STAND-IN: it records which page and which DOOR the pass aimed at, then replays a pinned answer or runs the REAL producer.
 vi.mock("@/domains/decision/produce-bundle", async () => { const actual = await vi.importActual<typeof import("@/domains/decision/produce-bundle")>("@/domains/decision/produce-bundle");
   return { ...actual, produceBundleForSnapshot: async (s: never, o: { onlyPageUrl?: string | null; door?: never }) => {
     env.bundleTarget = o?.onlyPageUrl ?? null; env.door = (o?.door ?? null) as typeof env.door;
@@ -55,7 +53,6 @@ function baseProposal(over: Partial<ChangeProposal> = {}): ChangeProposal { retu
     pageLabel: "X", primaryQuery: "nowruz traditions", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", evidence: { query: "nowruz traditions", hints: ["gsc demand"], evidenceRefCount: 1 },
     recommendedChange: { kind: "existing_edit", field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen" },
     whyItMatters: "The title misses the customs searchers ask about.", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "high", limitations: [],
-    // DRAFTED FIVE DAYS AGO ON WHATEVER CLOCK IS RUNNING: a pinned absolute date armed itself as a date bomb against EVIDENCE_VALID_DAYS and the suite went red with no change anywhere (2026-08-21).
     impactScore: 50, upsidePerMonth: 20, publish: "manual", createdAt: new Date(Date.now() - 5 * 86_400_000).toISOString(), ...over };
 } /** The exact-edit rewrite under test, with one field swapped. */
 const edited = (field: "title" | "meta", before: string | null, after: string): ChangeProposal => baseProposal({ recommendedChange: { kind: "existing_edit", field, before, after } });
@@ -133,21 +130,17 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(d.explanation).not.toMatch(/result \d/); }); // rank_absolute counts ads and packs, so it is never printed as a search position
   it("ranks a small page with a real gap above a huge page with none, and ranks every row on worth alone", () => {
     expect(snapshotToEvidenceInputs(snap([WINNER, GAP], looked([["nowruz traditions", GAP_URL]]))).map((i) => i.page.path)).toEqual(["/nowruz-guide"]);
-    // WHETHER A ROW MAY BE SHOWN IS NOT A SCORE. A row waiting on a look used to be sunk 250 points here, more than every other factor put together, so nothing riding on a change could outweigh it and a description on a page shown three times ranked beside a page bleeding 152 clicks. Settled where it belongs instead: the queue admits only finished work and the surface keeps the two apart.
     const waiting = baseProposal({ id: "waiting", status: "needs_review", impactScore: 9999 });
     expect(rankProposals([baseProposal({ id: "huge-no-gap", impactScore: 0 }), waiting, baseProposal({ id: "small-real-gap", impactScore: 300 })]).map((p) => p.id)).toEqual(["waiting", "small-real-gap", "huge-no-gap"]); expect(proposalValueScore(baseProposal({ impactScore: 300 }))).toBeGreaterThan(proposalValueScore(baseProposal({ impactScore: 0 }))); });
   it("ranks a 539-click title rewrite above a 3-minute answer block on a page shown 300 times, because the KIND of change never decides", () => {
-    // A `treatment` factor paid +45 to "substantive" families and -45 to metadata ones, a NINETY point swing read off four losses and one win, worth 2,250 clicks of visibility at `clicks / 25`. Category outranked traffic ninefold, so the biggest recovery on the site sat under a three-minute errand. What a family has done belongs in confidence, never in size (operator, 2026-08-26).
     const bigTitle = baseProposal({ id: "title-539", changeFamily: "title", impactScore: 539, demandImpressions90d: 30_000, estimatedEffortMinutes: 1 });
     const smallSection = baseProposal({ id: "section-tiny", changeFamily: "section", impactScore: 0, demandImpressions90d: 300, estimatedEffortMinutes: 3,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "A short new answer." } });
     expect(rankProposals([smallSection, bigTitle]).map((p) => p.id)).toEqual(["title-539", "section-tiny"]);
     expect(proposalValueScore(bigTitle)).toBeGreaterThan(proposalValueScore(smallSection));
-    // AND A TRACK RECORD MAY SHADE AN ORDER, NEVER INVERT ONE: three finished readings against this family pull a quarter of a twelve point factor, which cannot cross the traffic gap above.
     const history = new Map([[actionFamilyOf("title"), { readings: 3, netLift: -40 }]]);
     expect(rankProposals([smallSection, bigTitle], { familyHistory: history }).map((p) => p.id)).toEqual(["title-539", "section-tiny"]); });
   it("never renders an uncalibrated prior as a measured figure, and says which half is assumed", () => {
-    // 0.5 and 0.2 are POLICY, not measurements (operator, 2026-08-27). A prior multiplied by a real number is a
     const card = baseProposal({ impactScore: 400, diagnosisCause: undefined });
     const shown = rankProposals([card])[0]!.rankingReceipt!;
     const vis = shown.factors.find((f) => f.name === "visibility")!.input;
@@ -155,7 +148,6 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(vis, "and the assumed half is named as policy").toContain("this product's policy and not a figure measured here");
     expect(vis).not.toContain("expected");
     expect(shown.basis, "an undiagnosed card says outright it is an order and not a size").toContain("not a promise about size");
-    // AND IT NEVER DENIES A FIGURE IT IS SHOWING. The one sentence used to read "No click figure backs this
     expect(shown.basis).not.toContain("No click figure backs this one");
     expect(shown.basis).toContain("nothing has named the cause yet");
     // And where a cause IS diagnosed, the summary still refuses to read as a forecast.
@@ -836,7 +828,7 @@ describe("canonical bundle status", () => {
     components: [{ kind: "title" as const, label: "Title", before: "Iran Flag", after: "The national flag of Iran, explained", where: null, page: "/flags", risk: "safe" as const, evidenceKeys: [] }],
     dispositions: [], receipt: { items: [{ key: "k1", kind: "serp" as const, fact: "Observed on the results page for iran flag.", observedAt: "2026-07-20T00:00:00.000Z" }], missing: [], freshestObservedAt: "2026-07-20T00:00:00.000Z" } };
   const bundleRow = (over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({ id: "fixture-tenant::/flags::existing_edit::title-family", pagePath: "/flags", pageUrl: "https://fixture-outdoors.example/flags",
-    basis: "basis_test::d8", changeFamily: "title-family", status: "ready", bundle: BUNDLE as never,
+    basis: "basis_test::d8", changeFamily: "title-family", status: "ready", bundle: BUNDLE as never, modeledOn: "the stored results page for this search, whose top titles share this shape",
     recommendedChange: { kind: "existing_edit", field: "title", before: "Iran Flag", after: "The national flag of Iran, explained" }, ...over });
   it("a claim rule cannot fire vacuously on a bundle that carries no claims by construction, and the lane agrees with the store", async () => {
     reset(SEEN()); const row = bundleRow(); env.store = new Map([[row.id, row]]);
