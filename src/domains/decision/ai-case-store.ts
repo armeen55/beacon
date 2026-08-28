@@ -7,7 +7,7 @@ import { log } from "@/lib/logger";
 
 /** THE PRE-WRITING DIAGNOSIS CONTRACT. Bump whenever the reader's question, packet shape or validation changes:
  *  a verdict taken under the old contract is then re-earned, never served on. */
-export const DIAGNOSIS_CONTRACT = 2; // v2 (2026-08-28): the packet now binds the exact owned passages and their ids, and freshness and authority validate differently, so a v1 reading answers a question this contract no longer asks. Independent of the prompt-cache version in llm/prompt-registry: this one governs what a PERSISTED verdict means, that one governs which model answer may be reused.
+export const DIAGNOSIS_CONTRACT = 3; // v3 (2026-08-28): freshness no longer claims a conflict from differing dates, because two dated statements can be about nothing in common, so v2 verdicts answered a looser question. Deliberately NOT matched to the prompt version: the reader's text is unchanged, only what a persisted verdict is allowed to mean.
 /** What the evidence proves about the PAGE, decided before any writer is hired. Deliberately separate from the observation stage: "retrieved and not cited" is what the assistant DID; these name what the page LACKS, if anything. `unknown` is a real verdict (the reader ran and the material does not say why) and authorizes no body treatment; a reader that never ran leaves no diagnosis at all. */
 export type AeoGapKind = "already_answered" | "scattered_answer" | "missing_information" | "extraction_or_structure_gap"
   | "authority_or_source_gap" | "freshness_gap" | "reachability_gap" | "unknown";

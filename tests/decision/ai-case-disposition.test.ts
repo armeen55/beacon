@@ -131,7 +131,7 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
 
 /** PERSISTED JSON IS UNTRUSTED (operator, 2026-08-28): a malformed or older-contract diagnosis is NO usable diagnosis. It never throws the queue, never authorizes work, and is never repaired into something valid-looking, because a repaired verdict is a verdict nobody made. */
 describe("a persisted diagnosis is decoded, never trusted", () => {
-  const CONTRACT = 2; // the CURRENT contract, stated literally: a fixture that tracked the constant would pass under any bump and prove nothing about the version rule
+  const CONTRACT = 3; // the CURRENT contract, stated literally: a fixture that tracked the constant would pass under any bump and prove nothing about the version rule
   const ok = { kind: "scattered_answer", treatment: "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: CONTRACT, decidedAt: "2026-08-28T00:00:00.000Z" };
   it("keeps a whole record and fails closed on every broken one", async () => {
     const { decodeDiagnosis, freshDiagnosis } = await import("@/domains/decision/ai-case-store");

@@ -281,7 +281,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect([run.cards.filter((c) => c.treatment === "technical_reachability" || c.treatment === "consolidate_or_differentiate"), run.families.includes("ai_answer_gap")], "no treatment from a stage fact alone, and the family still answers for its own record").toEqual([[], true]); });
   it("a banked diagnosis survives a pass that did not rule, exactly as the migration's coalesce writes it", async () => {
     const { recordAiCaseDispositions, readAiCaseDispositions } = await import("@/domains/decision/ai-case-store");
-    const dx = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 2, decidedAt: "2026-08-20T08:00:00.000Z" } as never;
+    const dx = { kind: "already_answered", treatment: null, explanation: "e", ownedIds: ["own-1"], evidenceIds: [], packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 3, decidedAt: "2026-08-20T08:00:00.000Z" } as never;
     const row = { caseKey: "prompt:pDx", state: "monitoring" as const, query: "q", reason: "r", days: 1, engines: 1, parents: 1, executions: 1 };
     await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T08:00:00.000Z", diagnosis: dx }]);
     await recordAiCaseDispositions(TENANT, [{ ...row, decidedAt: "2026-08-20T09:00:00.000Z" }]); // newer, unruled

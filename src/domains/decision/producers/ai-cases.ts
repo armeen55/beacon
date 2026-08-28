@@ -130,16 +130,13 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   if ([...v.ownedIds, ...v.evidenceIds].some((id) => !known.has(id))) return null; // an id nobody supplied rules nothing
   let kind = v.kind; const limits: string[] = [];
   // A DATE THE MODEL TYPED IS NOT A DATED CONFLICT. Every date the diagnosis names must appear VERBATIM in a passage this packet supplied, and the packet must carry both sides, or there is nothing to compare.
-  // A DATED CONFLICT IS TWO SIDES DISAGREEING, NOT TWO DATES COEXISTING. Joining every passage into one string and
-  // asking whether the model's dates appear somewhere in it proved nothing: the dates could both sit in the rival's
-  // text, or in unrelated passages about different subjects. Proving a proposition-level conflict needs semantics
-  // this packet does not carry, so the honest rule is the narrow one: the reading must NAME an owned passage and a
-  // credited passage, each must itself carry a date, and those dates must differ. Anything less is `unknown`.
-  const hasCredited = ev.length > 0, DATE = /\b(19|20)\d{2}\b|\b\d{1,2}\/\d{1,2}\b/g;
-  const datesIn = (ids: readonly string[], from: readonly [string, string][]): string[] =>
-    [...new Set(from.filter(([id]) => ids.includes(id)).flatMap(([, t]) => t.match(DATE) ?? []))];
-  const ownDates = datesIn(v.ownedIds, owned), rivalDates = datesIn(v.evidenceIds, ev);
-  const dated = ownDates.length > 0 && rivalDates.length > 0 && rivalDates.some((d) => !ownDates.includes(d));
+  // FRESHNESS IS NOT DIAGNOSABLE FROM THIS PACKET, AND SAYING SO IS THE HONEST RULE. Two approximations died here:
+  // dates appearing anywhere in the joined text (satisfied by two dates inside the rival's own sentence), then
+  // dates differing between a named owned and credited passage, which "The museum opened in 2019" against "The
+  // rule changed in 2024" satisfies while the two statements are about nothing in common. A dated CONFLICT needs
+  // both sides to be about the same proposition, which is semantics this packet does not carry, so the state stays
+  // in the vocabulary for a future evidence shape and authorizes nothing today (operator, 2026-08-28).
+  const hasCredited = ev.length > 0;
   if (kind === "already_answered" && v.ownedIds.length === 0) return null;
   if (kind === "scattered_answer" && new Set(v.ownedIds).size < 2) return null;
   if (kind === "extraction_or_structure_gap" && (v.ownedIds.length === 0 || !v.missing.trim())) return null;
@@ -150,7 +147,7 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
   if (kind === "missing_information" && completeness !== "complete") { kind = "unknown"; limits.push("the stored copy of this page is incomplete, so absence cannot be claimed; a full page read comes first"); }
   // AUTHORITY IS A FACT ABOUT A PUBLISHER, AND THIS PACKET CARRIES PASSAGE TEXT ONLY. Nothing here types who published a passage or what standing they have, so no arrangement of prose may earn the diagnosis; it waits for a source-authority basis rather than being inferred from words that sound institutional.
   if (kind === "authority_or_source_gap") { kind = "unknown"; limits.push("no typed source authority is on file for the credited passages, so a standing difference is not diagnosable here"); }
-  if (kind === "freshness_gap" && (v.evidenceIds.length === 0 || !dated)) { kind = "unknown"; limits.push("no dated conflict is named in the supplied evidence"); }
+  if (kind === "freshness_gap") { kind = "unknown"; limits.push("no proposition-level dated conflict is proven: dates on each side may be about different statements, which this evidence cannot separate"); }
   if (kind === "reachability_gap") { kind = "unknown"; limits.push("this packet carries no technical reachability evidence, so reachability is not diagnosable here"); }
   return { kind, treatment: TREATMENT_FOR_KIND[kind], explanation: v.explanation, ownedIds: v.ownedIds, evidenceIds: v.evidenceIds,
     ...(v.missing.trim() ? { missing: v.missing.trim() } : {}), ...(limits.length > 0 ? { limitation: limits.join("; ") } : {}),
