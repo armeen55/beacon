@@ -11,7 +11,7 @@ import { actionableProposalFailures, answerReviewedProposal, componentIdOf, conf
   loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
-import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, type MeasurementState } from "@/domains/measurement";
+import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
 import { invalidateCoreSurfaces } from "../surface-release";
 import { readChangesPage, type ChangesPage } from "../changes-data";
 
@@ -237,6 +237,7 @@ export async function markProposalImplementedAction(args: {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
     if (!args.deferSurfaces) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
+    void verifyShipmentNow(tenantId, shipment.shipmentId).catch(() => 0); // ANSWERED IN MINUTES, NOT ON THE NEXT SWEEP; a failure leaves the shipment due exactly as before
     log.info("Action completed", { action, durationMs: Date.now() - t0, params: { proposalId: args.proposalId } });
     // A PRESS WITH NOTHING NEW IN IT IS NOT A SILENT SUCCESS: say plainly that it is already being measured.
     if (n === 0 && ids.length > 0) return { success: true, note: "Every piece of this change is already on file and being measured. There is nothing left for you to record here." };

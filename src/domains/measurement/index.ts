@@ -68,6 +68,7 @@ export {
 } from "./shipment-ai-outcome";
 
 // Scoreboard + money line
+export { verifyShipmentNow } from "./verify-shipment";
 export { buildScoreboard, buildMoneyLine, type Scoreboard } from "./scoreboard/scoreboard";
 
 // Revenue-by-day

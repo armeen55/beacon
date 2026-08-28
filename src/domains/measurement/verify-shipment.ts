@@ -339,13 +339,12 @@ export async function shipmentsAwaitingVerification(tenantId: string, limit = MA
  * ONE bounded verification pass: up to three live pages read, each one written back exactly once. Nothing
  * here pauses a run, and nothing here spends a cent. Returns how many verifications actually landed.
  */
-export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}): Promise<number> {
-  const due = await shipmentsAwaitingVerification(tenantId, MAX_VERIFICATIONS_PER_PASS, deps);
-  let written = 0;
-  /** BOUNDED IN-RUN SKIP, carried on the pass and nowhere else. An answer that could not be SAVED means the
-   *  shipment is still due, so a second shipment at the SAME address would send me back to the customer's
-   *  website inside one pass for a result I already know I cannot store. One read per address, per pass. */
-  const unsavable = new Set<string>();
+/** ONE SHIPMENT, CHECKED NOW: "did my paste land" waited for the next sweep, which is the wrong answer at ten to thirty applies a day, and the verifier, the due read and the record all existed already (Codex, 2026-08-28). Same path, so this is no second verification route; a shipment no longer due is simply absent and this returns 0. */
+export const verifyShipmentNow = (tenantId: string, shipmentId: string, deps: VerifyDeps = {}): Promise<number> => verifyDueShipments(tenantId, deps, (s) => s.id === shipmentId);
+
+export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}, only?: (s: { id: string }) => boolean): Promise<number> { // `only` narrows the SAME due read to one shipment
+  const due = (await shipmentsAwaitingVerification(tenantId, MAX_VERIFICATIONS_PER_PASS, deps)).filter((s) => !only || only(s)); let written = 0;
+  const unsavable = new Set<string>(); // BOUNDED IN-RUN SKIP, carried on the pass and nowhere else: an answer that could not be SAVED means the shipment is still due, so a second shipment at the SAME address would send me back to the customer's website inside one pass for a result I already know I cannot store
   for (const shipment of due) {
     const address = canonicalUrlKey(shipment.url);
     if (unsavable.has(address)) continue;
@@ -354,8 +353,7 @@ export async function verifyDueShipments(tenantId: string, deps: VerifyDeps = {}
     // A verification that could not be SAVED is not a verification: the shipment stays due and I check it
     // again on the next visit, which is the ONE case where the same page is read twice.
     const saved = await (deps.record ?? recordVerification)(tenantId, shipment.id, verification).catch(() => false);
-    if (saved) written += 1;
-    else unsavable.add(address);
+    if (saved) written += 1; else unsavable.add(address);
     log.info("[verify-shipment] checked what you marked as done", { tenantId, shipment: shipment.id, status: verification.status, saved });
   }
   return written;

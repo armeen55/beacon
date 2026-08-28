@@ -1,7 +1,6 @@
 /** PLATFORM - tenant isolation + write durability: repo facade scoping, dual-write validation before I/O, the fail-closed write contract, and the canonical Account/BusinessProfile + lifecycle promises. Structural pushdown lives in the foundation guard, not source scans. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("server-only", () => ({}));
-// ONE in-memory repository seam for every write in this file: `mem.upsert` is null by default, so an unexpected write hits a client it cannot reach and fails loud.
 const mem = vi.hoisted(() => ({ upsert: null as null | ((table: string, rows: unknown[]) => { data: unknown[] | null; error: { message: string } | null }) }));
 vi.mock("@/lib/persistence/supabase", () => ({
   getSupabaseAdmin: () => {
@@ -60,14 +59,12 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
     await expect(dualWriteUpsertScoped("tenants", [{ tenant_id: TENANT, id: "x" }], "id", TENANT)).rejects.toThrow(/is a global table/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: OTHER, id: "r1" }], "id", TENANT)).rejects.toThrow(/tenant mismatch/);
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", "")).rejects.toThrow(/tenantId must be a non-empty string/);
-    // Valid input with an unreachable client FAILS CLOSED - never a silent no-op success.
     await expect(dualWriteUpsertScoped("results", [{ tenant_id: TENANT, id: "r1" }], "id", TENANT)).rejects.toThrow(/no section may reach the supabase client/);});
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
     expect(GLOBAL_TABLES.has("tenants")).toBe(true); expect(GLOBAL_TABLES.has("business_config")).toBe(true);
     for (const t of ["results", "page_snapshots", "recommended_edits", "observation_runs", "pages"]) {
       expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);
     }
-    // Night-shift 2026-06-11: the two index tables LEFT the global set.
     expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);});
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
     const original = { id: "r1", tenant_id: "" }; const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");
@@ -78,16 +75,12 @@ describe("a canonical write that did not land never reads as done", () => {
   it("only rows Postgres hands back count as written: an error throws, zero rows throws, an empty batch never reaches the client", async () => {
     const seen: string[] = [];
     try {
-      // Schema-shaped error: throws on the first attempt, no retry sleep.
       mem.upsert = () => ({ data: null, error: { message: 'column "id" does not exist' } });
       await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/does not exist/);
-      // No error, no rows back: the same lie as a swallowed failure.
       mem.upsert = () => ({ data: [], error: null });
       await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).rejects.toThrow(/1 row\(s\) sent, 0 written/);
-      // Rows confirmed back is the ONE success shape.
       mem.upsert = (table, rows) => { seen.push(table); return { data: rows.map(() => ({ id: "r1" })), error: null }; };
       await expect(dualWriteUpsertScoped("results", ROW, "id", TENANT)).resolves.toBeUndefined();
-      // Nothing asked for is nothing owed: no client call at all.
       await expect(dualWriteUpsertScoped("results", [], "id", TENANT)).resolves.toBeUndefined();
     } finally { mem.upsert = null; }
     expect(seen).toEqual(["results"]); });
@@ -102,9 +95,7 @@ describe("a canonical write that did not land never reads as done", () => {
     const out = await runCrawlBatch({ tenantId: TENANT, deps: { fetchImpl, sleep: async () => {},
       loadState: async () => ({ ...state }), saveState: async (s) => { saved.push(s); },
       syncPagesImpl: async () => {}, syncPageSnapshotsImpl: async () => { throw new Error("the snapshot rows were rejected"); } } });
-    // The cursor never advanced: no saved state, nothing counted as crawled.
     expect([out.status, out.crawled, out.complete, saved.length]).toEqual(["in_progress", 0, false, 0]); expect(out.detail).toMatch(/^snapshot_write_failed:/); });});
-// ONE READING OF DATA_SOURCE, EVERYWHERE. Three modules asked `=== "supabase"` on their own, so an unset variable sent the repository to Supabase and those three to disk: one process, two truths, and the disk one wins silently in production. Supabase unless the operator asks for files out loud.
 describe("an unset DATA_SOURCE means Supabase, in every module that asks", () => {
   it("answers Supabase when nothing is set, and files only on an explicit ask", async () => {
     const { usesSupabase } = await import("@/lib/persistence/repositories"); const held = process.env.DATA_SOURCE;

@@ -14,7 +14,7 @@ vi.mock("@/domains/evidence", () => {
     winningPagesUnit: (_d: unknown, _q: unknown, _a: unknown, _u: unknown, busted: string | null) => {
       passedBustedAt = busted; return async () => ({ status: "done", cursor: null, progress: {} });},};});
 import { isCurrent } from "@/domains/evidence/freshness";
-import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment } from "@/domains/measurement/verify-shipment";
+import { shipmentBustedAt, shipmentsAwaitingVerification, verifyDueShipments, verifyShipment, verifyShipmentNow } from "@/domains/measurement/verify-shipment";
 import { readTechnicalFindings, technicalComponents } from "@/domains/decision/technical-findings";
 const T = "tenant-1", URL_ = "https://own.com/nowruz", NOW = Date.parse("2026-07-31T12:00:00Z"), DAY = 86_400_000;
 const PAGE = `<html><head><title>How to set a nowruz table</title>
@@ -170,6 +170,14 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
     expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);});
+  it("checks the one shipment just marked done, through the same path and nothing else", async () => {
+    // "DID MY PASTE LAND" WAITED FOR THE NEXT SWEEP. The verifier, the due read and the record all existed; only
+    // the trigger did not, so the targeted check narrows the SAME due read rather than opening a second route.
+    for (const id of ["a", "b", "c"]) ROWS.push(row({ id, implementedAt: "2026-07-30T09:00:00Z" }));
+    const read: string[] = [];
+    const written = await verifyShipmentNow(T, "b", { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
+    expect([written, read.length, WRITES.map((w) => w[1])], "one shipment, one read, one record").toEqual([1, 1, ["b"]]);
+    expect(await verifyShipmentNow(T, "nope", { ...base, fetchPage: serve(PAGE) }), "a shipment that is not due reads nothing").toBe(0); });
   it("records a page it was refused rather than retrying it forever: the answer lands, so the change stops being due", async () => {
     ROWS.push(row({ id: "a" }));
     let reads = 0; const pass = () => verifyDueShipments(T, { ...base, fetchPage: (async () => { reads += 1; return { ok: false as const, reason: "robots_blocked" as const }; }) });
