@@ -293,8 +293,8 @@ async function queryTenantLedger(
   }
   return sortNewest((data as LedgerRow[]).map(rowToRecord));
 }
-/** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. Best-effort both ways. */
-async function invalidateResultsSurfaceSafe(): Promise<void> {
+/** Every ledger mutation invalidates the /results SWR snapshot + core surfaces. Best-effort both ways. EXPORTED FOR THE LOOPS: a measure pass persists up to fifteen records, and invalidating per record rewrote the whole release blob fifteen times to stamp the same epoch zero; a loop invalidates ONCE, after it. */
+export async function invalidateResultsSurfaceSafe(): Promise<void> {
   try { await (await import("@/app/(shell)/results/results-surface-store")).invalidateResultsSurface(); } catch { /* best-effort */ }
   try { await (await import("@/app/(shell)/surface-release")).invalidateCoreSurfaces(); } catch { /* best-effort */ }
 }
@@ -323,13 +323,14 @@ async function heldImmutables(admin: ReturnType<typeof getSupabaseAdmin>, tid: s
   }
 }
 /** Upsert one record (by id). Durable + file mirror. The tenant is the ambient one unless a  background or repair caller, where ambient is wrong or absent, names it explicitly. */
-export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?: string): Promise<void> {
+export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?: string, opts: { invalidate?: boolean } = {}): Promise<void> {
+  const tell = opts.invalidate !== false;
   let admin;
   try {
     admin = getSupabaseAdmin();
   } catch {
     await upsertFile(record);
-    await invalidateResultsSurfaceSafe();
+    if (tell) await invalidateResultsSurfaceSafe();
     return;
   }
   const tid = tenantId ?? await currentTenantId();
@@ -346,20 +347,18 @@ export async function upsertShippedChange(record: ShippedChangeRecord, tenantId?
   if (up.error != null) {
     if (isUndefinedTableError(up.error)) {
       // A SHIPMENT IS DURABLE OR IT DOES NOT EXIST. The table is here and the Shipment columns are not, so this write would reach only the
-      // file while every production read goes to the table: degrading silently let a proposal flip to applied over a Shipment nobody could
-      // read back. Fail closed. A pre-Shipment record (no stamp) keeps the file fallback; nothing downstream reads it from the table.
       if (record.implementedAt != null && isMissingColumnError(up.error)) {
         throw new Error(`shipped-change-store: ${TABLE} has no Shipment columns yet, so nothing durable landed (apply the pending migration)`);
       }
       console.warn(`[shipped-change-store] DURABLE upsert fell back to file (apply the pending migration): ${(up.error as { code?: string }).code ?? "?"} ${(up.error as { message?: string }).message ?? String(up.error)}`);
       await upsertFile(record);
-      await invalidateResultsSurfaceSafe();
+      if (tell) await invalidateResultsSurfaceSafe();
       return;
     }
     throw new Error(`shipped-change-store: upsert failed for ${tid}: ${up.error.message ?? String(up.error)}`);
   }
   await mirrorFile(record);
-  await invalidateResultsSurfaceSafe();
+  if (tell) await invalidateResultsSurfaceSafe();
 }
 
 async function upsertFile(record: ShippedChangeRecord): Promise<void> {

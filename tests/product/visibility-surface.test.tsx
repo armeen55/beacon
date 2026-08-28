@@ -167,7 +167,6 @@ describe("Visibility is a workspace, and every number on it names what it was co
       "ChatGPT does not report the pages it read but did not credit on this path.", "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
     for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
     // A RECEIPT I CANNOT PROVE IS NOT ZERO DOLLARS, and a real charge under a cent is the same lie in miniature.
-    // COST OF GOODS LEFT THE CUSTOMER SURFACE (terminal contract, 2026-08-25): the receipt proves provenance and reuse, and the price of the observation is internal metering the reader never needed. Present or absent, the line reads the same.
     expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("collected once and reused from storage"); expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).not.toContain("cost");
     expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");
   });

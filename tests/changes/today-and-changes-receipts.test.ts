@@ -124,7 +124,6 @@ describe("a card says why this opportunity and why these words, and never trades
     expect(JSON.stringify(r)).not.toContain("agree"); });
 
   it("an answer that narrates page furniture is refused: the reader wanted the answer, not a tour", async () => {
-    // LIVE: Ready copy said "with simple pronunciations shown beside each" while the pronunciations sat right
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
     const P = (after: string) => ({ ...proposal(), status: "ready", bundle: undefined,
       claims: [{ text: "x.", supportedBy: ["f1"] }], supportFacts: [{ id: "f1", fact: "banked." }],

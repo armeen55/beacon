@@ -16,7 +16,7 @@ import "server-only";
 import { measureRecord, openChangePaths } from "./measure-pass";
 import { contaminatedPaths, contaminationFor } from "./contamination";
 import { readLastFinalizedDate } from "./gsc-window";
-import { loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
+import { invalidateResultsSurfaceSafe, loadShippedChangesForTenant, upsertShippedChange, type ShippedChangeRecord } from "./shipped-change-store";
 import { isDueForMeasure, outcomeStateOf, type OutcomeState } from "./measure-lifecycle";
 import { log } from "@/lib/logger";
 
@@ -143,7 +143,7 @@ export async function autoMeasureDuePass(
     lastFinal,
     excludeControls: (record) => contaminatedPaths(contaminationFor(records, open, now, record)),
     persist: async (next) => {
-      await upsertShippedChange(next);
+      await upsertShippedChange(next, undefined, { invalidate: false }); // the loop invalidates once, below
       return { ok: true };
     },
     onMeasured: (record, next) => {
@@ -170,5 +170,6 @@ export async function autoMeasureDuePass(
   });
   result.measured = measured;
   result.failed = failed;
+  if (measured > 0) await invalidateResultsSurfaceSafe(); // once for the whole pass, never once per record
   return result;
 }

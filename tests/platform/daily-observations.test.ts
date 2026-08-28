@@ -123,8 +123,6 @@ describe("extra readings", () => {
 
   it("buys no new answer while answers already paid for sit unread, and says how many", async () => {
     // Live, 891 answers carrying $7.75 of paid text had never been analysed, every one dated 2026-08-16 or
-    // later, and the button that buys more still said yes. Buying more of what nobody reads is the one spend
-    // this product can never justify (operator, 2026-08-27).
     const world = { readPrompts: async () => PROMPTS, readObservations: async () => fullDay(),
       readMarkers: async () => ({}), writeMarkers: async () => true };
     const behind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => 891 });

@@ -104,9 +104,6 @@ describe("the canonical outline arrives without site furniture", () => {
 describe("one job's evidence identity is order-free, as its own contract says", () => {
   it("hashes the same when the stored results pages arrive in a different order", () => {
     // LIVE: the same job's workKey moved between two builds a minute apart with no evidence change, because
-    // `pages` and `winners` were sorted here and `serp` was not, so rows arriving in whatever order the database
-    // felt like re-minted the row, re-stamped the ranking, and made a release that had learned nothing look like
-    // one that had. The docstring above the function already promised "deterministic and order-free".
     const page = { url: "https://x.example/a", content: null, search: null, engagement: null, friction: null, aiCitations: { count: 0 } };
     const serp = (query: string, urls: string[]) => ({ query, organic: urls.map((url, i) => ({ rank: i + 1, url })), aiOverview: [], aiMode: [] });
     const snap = (rows: unknown[]) => ({ ownedPages: [page], research: { serpEvidence: rows, winningPages: [] } } as never);

@@ -17,7 +17,8 @@ vi.mock("@/lib/persistence/json-store", () => ({
   writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; },}));
 vi.mock("@/lib/tenant", () => ({ getDataDir: () => "/tmp/beacon-fixture" }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
-vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => {} }));
+const invalidations = vi.hoisted(() => ({ n: 0 }));
+vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
 vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({
   readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map(),}));
@@ -84,6 +85,16 @@ beforeEach(() => {
     { slot: 1, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
     { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },]);});
 describe("the canonical Shipment", () => {
+  it("a measure loop invalidates the release once, never once per record", async () => {
+    const { upsertShippedChange, invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store");
+    invalidations.n = 0;
+    for (let i = 0; i < 3; i += 1) await upsertShippedChange(await ship({ path: `/loop-${i}` }), T, { invalidate: false });
+    expect(invalidations.n, "silent per-record writes").toBe(0);
+    await invalidateResultsSurfaceSafe();
+    expect(invalidations.n, "one invalidation for the whole pass").toBe(1);
+    await upsertShippedChange(await ship({ path: "/single" }), T);
+    expect(invalidations.n, "a lone upsert still tells the surface").toBe(2); });
+
   it("records ONE shipment with the stamp, the components and both starting numbers", async () => {
     await upsertShippedChange(await ship()); expect(db.state.rows).toHaveLength(1);
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.proposalId).toBe(`${T}::/nowruz-guide::existing_edit::bundle`);

@@ -184,7 +184,9 @@ export async function recomputeProofLedgerAction(): Promise<ProofLedgerActionRes
     // so a recheck read every change against pages the other two doors would have refused. The ledger
     // re-measure applies the same policy they do, and nothing here decides it a third way.
     const measuredAll: ShippedChangeRecord[] = await loadProofLedger(tenantId);
-    for (const measured of measuredAll) await upsertShippedChange(measured);
+    for (const measured of measuredAll) await upsertShippedChange(measured, undefined, { invalidate: false });
+    const { invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store");
+    if (measuredAll.length > 0) await invalidateResultsSurfaceSafe(); // once for the whole recompute
     // R4 (2026-07-03): each upsert above invalidated the /results SWR snapshot (shipped-change-store choke point). We JUST measured every
     // record, so persist the fresh snapshot now instead of making the very next render re-measure the whole ledger a second time.
     // Measurement history itself lives in the upserts.

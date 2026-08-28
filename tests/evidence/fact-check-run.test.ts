@@ -222,7 +222,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(fetched.some((u) => u.includes("iranopedia"))).toBe(false);
     const r = db.rows[0] as FactCheck;
     // The passage IS about the right subject, so the claim survives. The WORDING is not in it, so it may not
-    // replace anything yet: partial support authorizes only the part that is supported.
     expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
     expect(r.note).toContain("not carried by any passage that was read"); });
 
@@ -235,7 +234,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     await unit({ page: { ...PAGE, body }, held: owedAlready, searchSources: async () => ({ hold: "unavailable" as const }),
       read: reader({ claims: { statements: found }, judge: CONFIRMS }) });
     // A section was read and banked even though 33 claims were already waiting, so every entry it names now has
-    // a disposition of its own instead of being invisible behind the queue.
     expect(db.owed.length, "the section was inventoried rather than queued behind research").toBe(12);
     expect((db.cov as unknown as { coveredChars: number }).coveredChars).toBeGreaterThan(0);
 
@@ -266,7 +264,6 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     // and the pass ends honestly rather than on the first claim it could not resolve
     expect(out.attempts).toBeGreaterThanOrEqual(3);
     // AND IT NEVER CALLS THIS A SPENT LEASE. `lease_exhausted` is a HARD STOP that pauses the whole research
-    // run, so reporting it here would have stopped the run over sources that merely refused.
     expect(out.failure).not.toBe("lease_exhausted");
     expect(out.failure).toBe("fetch_refused"); });
 
