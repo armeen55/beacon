@@ -490,7 +490,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
-      // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns seven booleans for ever. THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine that could not be reached are three different
+      // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns an editor's verdict on one finished edit for ever, never the page's statements. THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine that could not be reached are three different
       // debts, and the unit names each one on the run row.
       const read = async (input: { kind: "fact_claim_extraction" | "fact_claim_judgement"; system: string; user: string; grounded: string; projectedCostUsd: number; maxTokens: number }) => {
         const left = deadlineAt - Date.now();

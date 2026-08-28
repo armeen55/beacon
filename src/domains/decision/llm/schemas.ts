@@ -376,8 +376,7 @@ const EditorJudgementSchema = z.object({ pageFit: z.boolean(), usefulAndNatural:
   implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300),
   resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });
 
-/** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns
- *  seven booleans and reads zero statements forever (Codex, 2026-08-18). */
+/** THE CLAIMS A PAGE MAKES, and ONE OF THEM JUDGED against passages actually fetched. Their own schemas because Structured Outputs returns the schema it is given: asking `editor_judgement` for a claim list returns an editor's verdict on one finished edit and reads zero statements forever (Codex, 2026-08-18). */
 const FactClaimExtractionSchema = z.object({ statements: z.array(z.object({ subject: z.string().min(1).max(200), current: z.string().min(1).max(600), locator: z.string().max(200) })).max(40) });
 const FactClaimJudgementSchema = z.object({
   verdict: z.enum(["page_correct", "page_wrong", "page_imprecise", "undecidable"]), confidence: z.enum(["confirmed", "likely", "disputed", "unsupported"]),

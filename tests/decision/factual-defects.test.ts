@@ -224,6 +224,9 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     // draft.factual_review, which would have governed the substantive editor's receipts by accident.
     const { PROMPT_REGISTRY } = await import("@/domains/decision/llm/prompt-registry");
     expect(REVIEW_CONTRACT).not.toBe(PROMPT_REGISTRY["draft.factual_review"]);
+    // AND A PROMPT WHOSE RESPONSE CONTRACT CHANGED CARRIES A NEW VERSION, or an answer shaped for the old one is
+    // served from cache and refused on arrival: the editor stopped returning `claimsEntailed` at v3.
+    expect(PROMPT_REGISTRY["draft.editor_judgement"]).toBeGreaterThanOrEqual(3);
     const live = await roundTrip(earned[0]!);
     expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
