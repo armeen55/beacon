@@ -65,19 +65,15 @@ describe("a page's own statements against their sources", () => {
   it("turns forty sourced corrections into forty separately ranked changes that nothing can retire together", async () => {
     checks.rows = many(40);
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
-    expect(cards).toHaveLength(40);
-    expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40);
-    expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40);
-    expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
-    expect(cards.every((c) => c.bundle === undefined)).toBe(true);
-    expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
+    expect(cards).toHaveLength(40); expect(new Set(cards.map((c) => c.id)).size, "each correction owns its own row").toBe(40);
+    expect(new Set(cards.map((c) => [...mutationFootprint(c)].join("|"))).size).toBe(40); expect(footprintsOverlap(cards[0]!, cards[1]!)).toBe(false);
+    expect(cards.every((c) => c.bundle === undefined)).toBe(true); expect(cards.every((c) => !/batch/i.test(c.opportunityType))).toBe(true); });
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
     checks.rows = [check({ alsoAt: ["the FAQ answer on this page"] })];
     const [card] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
     expect(card!.recommendedChange).toMatchObject({ kind: "existing_edit", field: "section",
       before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
-    expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry');
-    expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
+    expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]);
     expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
@@ -120,10 +116,8 @@ describe("a page's own statements against their sources", () => {
     expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
       sources: two(src("news", "Aryana means silver."), src("news", "Aryana means silver.")) }) as never)).toContain("no authoritative source");
     const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
-    expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false);
-    expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
-    expect(glossCarriedBy("founded 1979", ["established in 1,979 by decree", "founded by decree"])).toBe(true);
-    expect(glossCarriedBy("Studies", ["the study of names"])).toBe(true);
+    expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false); expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
+    expect(glossCarriedBy("founded 1979", ["established in 1,979 by decree", "founded by decree"])).toBe(true); expect(glossCarriedBy("Studies", ["the study of names"])).toBe(true);
     expect(glossCarriedBy("Shining", ["the name shines brightly"])).toBe(true);
     expect(glossCarriedBy("Sea", ["totally unrelated quote"]), "no vacuous pass on a short gloss").toBe(false);
     expect(glossCarriedBy("Sea", ['darya means "sea"'])).toBe(true); });
@@ -163,7 +157,13 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(say("leila"), "page_wrong contradicts").toContain("contradict");
     expect(say("leila")).toContain("Correct what");
     // A NARROWING SAYS SO, and never that the page is wrong.
-    expect(say("noor"), "page_imprecise sharpens").toContain("more precisely");
+    expect(say("noor"), "page_imprecise sharpens").toContain("less precisely");
+    // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
+    const CARRIER = new Set(["the", "and", "not", "its", "for", "with", "from", "that", "this", "was", "are"]);
+    const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !CARRIER.has(w));
+    for (const k of ["leila", "noor", "mahsa"]) { const card = by.get(k)!, mine = words((card.claims ?? [])[0]!.text);
+      const its = new Set(words((card.supportFacts ?? []).map((f) => f.fact).join(" ")));
+      expect(mine.filter((w) => its.has(w)).length / Math.max(1, mine.length), `${k} claim stays anchored to its evidence`).toBeGreaterThanOrEqual(0.25); }
     expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/);
     expect(by.get("noor")!.opportunityType).toContain("Sharpen");
     // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.

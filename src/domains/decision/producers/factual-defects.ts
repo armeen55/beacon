@@ -249,9 +249,13 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         const act = treat === "replace" ? `Correct what ${path} says about ${c.subject}`
           : treat === "narrow" ? `Sharpen what ${path} says about ${c.subject}`
             : `Repair the formatting of what ${path} says about ${c.subject}`;
-        const claimText = treat === "replace" ? `${where} reads ${q(before)} The sources on file contradict that and support "${c.proposed}".`
-          : treat === "narrow" ? `${where} reads ${q(before)} The sources on file put it more precisely as "${c.proposed}".`
-            : `The sources on file support "${c.proposed}", and ${where.replace(/^The /, "the ")} carries it with broken formatting.`;
+        // THE CLAIM LEADS WITH WHAT THE SOURCES SUPPORT. Leading with the page's current wording instead pushed the
+        // claim's own words away from the evidence it cites, and `staleCopyReasons` reads exactly that overlap: two
+        // live corrections fell out of Ready reading "argues from support nobody banked". The disposition still
+        // shows, in the words after the comma, where it costs the claim no ground against its own source.
+        const claimText = treat === "replace" ? `${c.subject} means ${c.proposed}, not ${q(before)}`
+          : treat === "narrow" ? `${c.subject} means ${c.proposed}, stated less precisely as ${q(before)}`
+            : `${c.subject} means ${c.proposed}, written with broken formatting as ${q(before)}`;
         const kept = treat === "replace" ? "the sources on file contradict this wording"
           : treat === "narrow" ? "the sources on file put this wording more precisely"
             : "the supported meaning is unchanged and only its formatting is repaired";
