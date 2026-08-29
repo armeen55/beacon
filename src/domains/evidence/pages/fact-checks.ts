@@ -52,7 +52,10 @@ export type FactCheck = {
   proposed: string | null;
   literal: string | null;
   usage: string | null;
-  sources: Array<{ url: string; kind: SourceKind; says: string }>;
+  /** `support` is this source's own ruling on THIS claim; `titleContext` is a heading from the SAME fetch,
+   *  never a SERP title or a URL slug, which are discovery hints and prove nothing about a passage. */
+  sources: Array<{ url: string; kind: SourceKind; says: string;
+    titleContext?: string; titleContextFrom?: "fetched_document"; support?: ClaimSupport }>;
   agreement: "multiple_agree" | "single_source" | "sources_conflict" | "none_found";
   confidence: "confirmed" | "likely" | "disputed" | "unsupported";
   verdict: "page_correct" | "page_wrong" | "page_imprecise" | "undecidable";
@@ -75,30 +78,36 @@ export type FactCheck = {
 /** THE SUPPORT ARTIFACT, versioned SEPARATELY from verification (2026-08-29). VERIFICATION_RULES_VERSION
  *  answers whether a source was really read, whether its quote exists, whether it is about the right entity
  *  and whether it may speak at all. It never answers the only question that authorizes a correction: does
- *  THIS passage explicitly support THIS proposed wording. That is its own contract with its own version, so
- *  adding it retires no banked verification and re-buys no research: a v4 fact stays exactly as it is and
- *  simply cannot authorize new work until the source it is cited for earns a current artifact. */
-export const SUPPORT_ARTIFACT_VERSION = 1;
+ *  THIS passage explicitly support THIS proposed wording. Its own contract, its own version, so adding it
+ *  retires no banked verification and re-buys no research.
+ *
+ *  V2 (2026-08-29), before a single artifact was banked, so this invalidates nothing. V1 shipped with four
+ *  defects found in review: it never actually attached to the source record so it could not persist; it
+ *  truncated its identity to 96 bits, which this codebase has already been bitten by once; it looked for
+ *  subject, relation and meaning ANYWHERE in a 600 character quote, so unrelated clauses reassembled into
+ *  support, which is the exact failure the contract exists to prevent; and it compared material words by
+ *  substring, so "light" was carried by "delight". */
+export const SUPPORT_ARTIFACT_VERSION = 2;
 
-/** WHY a source failed, typed rather than prose, so a caller can act on it and a test can pin it. */
 export type UnsupportedReason = "subject_absent" | "relation_absent" | "meaning_absent" | "span_not_verbatim"
-  | "wrong_source" | "wrong_claim" | "stale" | "empty_quote";
+  | "not_localized" | "wrong_source" | "wrong_claim" | "stale" | "empty_quote";
 
-/** One source's ruling on ONE claim. Every span is a promise that the text is findable where it says. */
+/** One source's ruling on ONE claim. Every span promises the text is findable where it says it is. */
 export type ClaimSupport = {
   version: number;
-  /** Over every load bearing input. Any drift in claim, wording, quote, source or context retires it. */
+  /** Full SHA-256 over every load bearing input. Any drift retires it. */
   identity: string;
   supported: boolean;
   reason?: UnsupportedReason;
+  /** THE ONE PLACE THE SUPPORT LIVES: a sentence, or an adjacent pair when the second continues the first.
+   *  Everything below must sit inside THIS, not merely somewhere in the quote. */
+  supportSpan: string;
   subjectSpan: string;
-  /** The quote, or the SAME source read's title. A title from another read is another source. */
   subjectFrom: "quote" | "title";
   relationSpan: string;
   meaningSpans: string[];
 };
 
-/** Everything the artifact is bound to. Changing any of it changes the identity and retires the artifact. */
 export type SupportContext = {
   tenantId: string; page: string; statementKey: string; pageLocator: string | null;
   subject: string; claimKind: string; current: string; proposed: string;
@@ -106,38 +115,45 @@ export type SupportContext = {
 };
 
 const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
+/** WORDS, not substrings: "light" is not carried by "delight", and a three letter gloss like "sea" counts. */
+const wordsOf = (t: string): string[] => t.toLowerCase().normalize("NFKD")
+  .replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 0);
 
 export function supportIdentity(c: SupportContext): string {
-  const parts = [c.tenantId, c.page, c.statementKey, c.pageLocator ?? "", c.subject, c.claimKind,
-    c.current, c.proposed, c.url, c.kind, c.quote, c.titleContext ?? "", String(SUPPORT_ARTIFACT_VERSION)];
-  return createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24);
+  return createHash("sha256").update([c.tenantId, c.page, c.statementKey, c.pageLocator ?? "", c.subject,
+    c.claimKind, c.current, c.proposed, c.url, c.kind, c.quote, c.titleContext ?? "",
+    String(SUPPORT_ARTIFACT_VERSION)].join("\u0000")).digest("hex");
 }
 
-/** AN EXPLICIT LEXICAL RELATION, not a topical one. A biography saying a man held a title states no relation
- *  between a NAME and a MEANING however true it is, which is exactly the passage that must never authorize. */
+/** AN EXPLICIT LEXICAL RELATION. Required for a NAME OR WORD MEANING, where a passage that merely mentions a
+ *  person carries nothing; a temperature, a date or a measurement is a different kind of claim and is not
+ *  asked for etymology vocabulary it would never contain. */
 const RELATION = /\b(means?|meaning|derives?\s+from|derived\s+from|comes?\s+from|from\s+(?:the\s+)?(?:arabic|persian|proto-\w+)|variants?\s+of|is\s+a\s+variant|translates?\s+(?:as|to)|etymolog\w*)\b/i;
+const LEXICAL_KIND = new Set(["word_meaning", "definition", "name_meaning"]);
 
 /** THE DETERMINISTIC HALF. A model may LOCATE spans; only this may accept them, and it accepts nothing it
- *  cannot find verbatim in the exact text that source banked. Returns null when valid, else the typed reason. */
+ *  cannot find verbatim in the exact text that source banked. Null when valid, else the typed reason. */
 export function supportFailure(a: ClaimSupport | null | undefined, c: SupportContext): UnsupportedReason | null {
   if (!a || a.version !== SUPPORT_ARTIFACT_VERSION) return "stale";
   if (a.identity !== supportIdentity(c)) return "stale";
   if (!a.supported) return a.reason ?? "meaning_absent";
-  if (norm(c.quote) === "") return "empty_quote";
-  const quote = norm(c.quote), title = norm(c.titleContext ?? "");
-  const where = a.subjectFrom === "title" ? title : quote;
-  if (norm(a.subjectSpan) === "" || !where.includes(norm(a.subjectSpan))) return "subject_absent";
-  // THE SUBJECT SPAN MUST BE THE SUBJECT. A span verbatim in the passage still fails when it names someone
-  // else: "Laila" is not "Leila" however close, because edit distance is not evidence of a variant.
-  if (norm(a.subjectSpan) !== norm(c.subject)) return "subject_absent";
-  if (!quote.includes(norm(a.relationSpan)) || !RELATION.test(a.relationSpan)) return "relation_absent";
+  const quote = norm(c.quote), title = norm(c.titleContext ?? ""), span = norm(a.supportSpan);
+  if (quote === "") return "empty_quote";
+  if (span === "" || !quote.includes(span)) return "not_localized";
+  // The subject is named INSIDE the supporting sentence, or by a heading from this same fetch.
+  const subject = norm(a.subjectSpan);
+  const where = a.subjectFrom === "title" ? title : span;
+  if (subject === "" || !where.includes(subject)) return "subject_absent";
+  // ...and it must BE the subject: "Laila" is not "Leila", because edit distance is evidence of spelling.
+  if (subject !== norm(c.subject)) return "subject_absent";
+  if (LEXICAL_KIND.has(c.claimKind)) {
+    if (!span.includes(norm(a.relationSpan)) || !RELATION.test(a.relationSpan)) return "relation_absent";
+  }
   if (a.meaningSpans.length === 0) return "meaning_absent";
-  for (const m of a.meaningSpans) { if (norm(m) === "" || !quote.includes(norm(m))) return "span_not_verbatim"; }
-  // The proposal may not carry a material word no span in this passage carries.
-  const carried = norm(a.meaningSpans.join(" "));
-  const material = norm(c.proposed).replace(/^meaning:\s*/, "").replace(/[^a-z0-9 ]+/g, " ").split(" ")
-    .filter((w) => w.length >= 4 && !GLOSS_STOP.has(w));
-  if (material.length > 0 && !material.every((w) => carried.includes(w))) return "meaning_absent";
+  for (const m of a.meaningSpans) { if (norm(m) === "" || !span.includes(norm(m))) return "span_not_verbatim"; }
+  const carried = new Set(wordsOf(a.meaningSpans.join(" ")));
+  const material = wordsOf(c.proposed.replace(/^\s*meaning\s*:/i, "")).filter((w) => !GLOSS_STOP.has(w));
+  if (material.length > 0 && !material.every((w) => carried.has(w))) return "meaning_absent";
   return null;
 }
 
