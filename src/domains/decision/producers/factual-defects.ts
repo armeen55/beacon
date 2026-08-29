@@ -231,27 +231,35 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       // independently ranked, and NO BUNDLE is minted for it: the stale sweep only reaches rows carrying one, so
       // a point edit cannot be taken by a replan of the page it happens to sit on. No cap: the queue is unlimited.
       for (const [i, c] of corrections.entries()) {
-        const also = c.alsoAt.filter(Boolean);
+        // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every
+        // correction, so the operator's Find step read "the Noor entry, and the same statement at: Popular
+        // Persian Female First Names and their Meanings", naming the very section it had just named. An exact
+        // location that repeats itself is not an exact location, so a repeat of the locator is dropped here.
+        const same = (a: string, b: string): boolean => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
+        const also = c.alsoAt.filter(Boolean).filter((a) => !same(a, c.pageLocator ?? "") && !same(a, `The "${c.subject}" entry`));
         const where = also.length > 0
           ? `The "${c.subject}" entry, and the same statement at: ${also.slice(0, 3).join("; ")}`
           : `The "${c.subject}" entry`;
         const before = replacedSpanOf(c), after = composedReplacement(before, c.proposed!);
         // THE CARD SAYS WHICH OF THE THREE IT IS, read from the stored verdict and never from the copy itself.
         const treat = treatmentOf(c.verdict, before, after);
+        // A QUOTED SENTENCE KEEPS ITS OWN STOP AND GETS NO SECOND ONE: the page's line ends in a full stop, so
+        // `reads "${before}".` rendered `reads "A warrior or conqueror.".` on every card that quotes a sentence.
+        const q = (t: string): string => `"${t}"${/[.!?]["')\]]?\s*$/.test(t) ? "" : "."}`;
         const act = treat === "replace" ? `Correct what ${path} says about ${c.subject}`
           : treat === "narrow" ? `Sharpen what ${path} says about ${c.subject}`
             : `Repair the formatting of what ${path} says about ${c.subject}`;
-        const claimText = treat === "replace" ? `${where} reads "${before}". The sources on file contradict that and support "${c.proposed}".`
-          : treat === "narrow" ? `${where} reads "${before}". The sources on file put it more precisely as "${c.proposed}".`
+        const claimText = treat === "replace" ? `${where} reads ${q(before)} The sources on file contradict that and support "${c.proposed}".`
+          : treat === "narrow" ? `${where} reads ${q(before)} The sources on file put it more precisely as "${c.proposed}".`
             : `The sources on file support "${c.proposed}", and ${where.replace(/^The /, "the ")} carries it with broken formatting.`;
         const kept = treat === "replace" ? "the sources on file contradict this wording"
           : treat === "narrow" ? "the sources on file put this wording more precisely"
             : "the supported meaning is unchanged and only its formatting is repaired";
         const matters = treat === "repair"
-          ? `${path} carries the supported meaning of ${c.subject} with broken formatting, so readers see "${before}". The meaning does not change and the line reads correctly once it is repaired.`
+          ? `${path} carries the supported meaning of ${c.subject} with broken formatting, so readers see ${q(before)} The meaning does not change and the line reads correctly once it is repaired.`
           : treat === "narrow"
-            ? `${path} tells readers "${before}" about ${c.subject}. Its own sources of record put it more precisely, and a sharper line is easier to trust than a loose one.`
-            : `${path} tells readers "${before}" about ${c.subject}. Its own sources of record contradict that, and a page that states what its sources deny is harder to trust than one that says less.`;
+            ? `${path} tells readers ${q(before)} about ${c.subject}, and its own sources of record put it more precisely. A sharper line is easier to trust than a loose one.`
+            : `${path} tells readers ${q(before)} about ${c.subject}, and its own sources of record contradict that. A page that states what its sources deny is harder to trust than one that says less.`;
         // THE EXACT PASSAGES, ONE SUPPORT PER QUOTED SOURCE. The card used to carry one summary sentence naming
         // urls, so the paid reviewer was asked "is it consistent with the quoted source" over no quote at all,
         // and the proof receipt could show a reader nothing a source actually said. A source whose banked quote

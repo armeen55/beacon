@@ -173,6 +173,20 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
     expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);
     expect(after("leila")).toBe("Meaning: Night or dark.");
+    // AN EXACT LOCATION MAY NOT REPEAT ITSELF. Live, `also_at` held the row's OWN locator on every correction, so
+    // the Find step read "the Noor entry, and the same statement at: <the section it is already in>".
+    const step = (k: string) => (by.get(k)!.operatorSteps ?? []).join(" | ");
+    expect(step("noor"), "the entry's own section is not a second place").not.toContain("the same statement at");
+    expect(step("noor"), "and the one place it names is still named").toContain('Find the "Noor" entry');
+    // A GENUINE SECOND PLACE STILL APPEARS.
+    checks.rows = [check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright.", proposed: "Light",
+      pageLocator: "Girl names", alsoAt: ["Girl names", "A to Z index"], sources: src('The name Noor means "light"') })];
+    const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
+    expect((two.operatorSteps ?? []).join(" "), "a real second location survives").toContain("A to Z index");
+    expect((two.operatorSteps ?? []).join(" "), "the duplicate does not").not.toContain("Girl names; ");
+    // AND A QUOTED SENTENCE CARRIES ONE TERMINAL MARK, never the page's stop plus another.
+    const everything = [...by.values()].flatMap((c) => [(c.claims ?? [])[0]?.text ?? "", c.whyItMatters]);
+    for (const line of everything) expect(line, "no doubled stop").not.toMatch(/[.!?]"\./);
     // AN UNSUPPORTED ROW NEVER BECOMES CONFIDENT CORRECTION COPY: it does not mint at all.
     checks.rows = [check({ subject: "Ghost", confidence: "unsupported", proposed: "anything at all" })];
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards, "unsupported mints nothing").toEqual([]);
