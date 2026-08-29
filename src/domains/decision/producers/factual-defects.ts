@@ -35,6 +35,19 @@ function replacedSpanOf(c: FactCheck): string {
  *  "Meaning:Light." to a paying customer as if reproducing a typo were respecting a house style. A gloss arriving as
  *  the source's own semicolon list is joined the way a person writes a list: two read "A or B", three or more read
  *  "A, B, or C". Every alternative the source gave survives; only the punctuation between them is Beacon's. */
+/** WHAT KIND OF CORRECTION THIS IS, from the verdict already stored and the two wordings themselves. Every card
+ *  said the same thing: "X means Y, not Z", which calls the page FALSE. Two of the three corrections live in the
+ *  operator's queue right now are `page_imprecise`, where the sources narrow the wording rather than deny it, and
+ *  telling a paying customer their page is wrong when it is merely loose is an overclaim Beacon has to stop
+ *  making. A third kind exists with no verdict of its own: when the supported value survives the composition
+ *  unchanged and only its spacing or punctuation moved, nothing about the meaning is being corrected at all. */
+type Treatment = "replace" | "narrow" | "repair";
+const bareOf = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+function treatmentOf(verdict: string, before: string, after: string): Treatment {
+  if (bareOf(before) === bareOf(after)) return "repair"; // the same words, differently punctuated
+  return verdict === "page_imprecise" ? "narrow" : "replace";
+}
+
 function composedReplacement(before: string, proposed: string): string {
   const lv = labelOf(before);
   const prefix = lv ? `${lv.label}:${lv.latin ? " " : lv.gap}` : "";
@@ -223,6 +236,22 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
           ? `The "${c.subject}" entry, and the same statement at: ${also.slice(0, 3).join("; ")}`
           : `The "${c.subject}" entry`;
         const before = replacedSpanOf(c), after = composedReplacement(before, c.proposed!);
+        // THE CARD SAYS WHICH OF THE THREE IT IS, read from the stored verdict and never from the copy itself.
+        const treat = treatmentOf(c.verdict, before, after);
+        const act = treat === "replace" ? `Correct what ${path} says about ${c.subject}`
+          : treat === "narrow" ? `Sharpen what ${path} says about ${c.subject}`
+            : `Repair the formatting of what ${path} says about ${c.subject}`;
+        const claimText = treat === "replace" ? `${where} reads "${before}". The sources on file contradict that and support "${c.proposed}".`
+          : treat === "narrow" ? `${where} reads "${before}". The sources on file put it more precisely as "${c.proposed}".`
+            : `The sources on file support "${c.proposed}", and ${where.replace(/^The /, "the ")} carries it with broken formatting.`;
+        const kept = treat === "replace" ? "the sources on file contradict this wording"
+          : treat === "narrow" ? "the sources on file put this wording more precisely"
+            : "the supported meaning is unchanged and only its formatting is repaired";
+        const matters = treat === "repair"
+          ? `${path} carries the supported meaning of ${c.subject} with broken formatting, so readers see "${before}". The meaning does not change and the line reads correctly once it is repaired.`
+          : treat === "narrow"
+            ? `${path} tells readers "${before}" about ${c.subject}. Its own sources of record put it more precisely, and a sharper line is easier to trust than a loose one.`
+            : `${path} tells readers "${before}" about ${c.subject}. Its own sources of record contradict that, and a page that states what its sources deny is harder to trust than one that says less.`;
         // THE EXACT PASSAGES, ONE SUPPORT PER QUOTED SOURCE. The card used to carry one summary sentence naming
         // urls, so the paid reviewer was asked "is it consistent with the quoted source" over no quote at all,
         // and the proof receipt could show a reader nothing a source actually said. A source whose banked quote
@@ -234,13 +263,13 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         cards.push({
           id: `${tenantId}::${path.toLowerCase()}::existing_edit::fact-${slugOf(c.subject) || i + 1}`, tenantId, kind: "existing_edit",
           pagePath: path, pageUrl: page.url, pageLabel: path, primaryQuery: `${path} factual accuracy`,
-          opportunityType: `Correct what ${path} says ${c.subject} means`,
+          opportunityType: act,
           changeFamily: "factual_correction", status: "needs_review",
           recommendedChange: { kind: "existing_edit", field: "section", before, after, where },
-          preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: `the source of record says ${c.subject} means ${c.proposed}` }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
-          claims: [{ text: `${c.subject} means ${c.proposed}, not "${before}".`, supportedBy: support.map((s) => s.id) }],
+          preservation: [{ text: before, disposition: "corrected" as const, by: support.map((s) => s.id), why: kept }], // THE LINE THIS REPLACES IS CORRECTED, NOT DROPPED, said in the one typed ledger every replacement answers to: a correction used to leave the preservation boundary entirely, which made "factual correction" a licence to delete whatever else stood in the line (Codex, 2026-08-28)
+          claims: [{ text: claimText, supportedBy: support.map((s) => s.id) }],
           supportFacts: support,
-          whyItMatters: `${path} tells readers ${c.subject} means "${before}". Its own sources of record say otherwise, and a page that states a wrong meaning is harder to trust than one that says less.`,
+          whyItMatters: matters,
           operatorSteps: [`Open the site editor on ${path}`, `Find ${where.replace(/^The /, "the ")}`,
             `Replace "${before}" with "${after}"`, "Mark it done here"],
           estimatedEffortMinutes: 2, riskLevel: "medium", confidence: "high",

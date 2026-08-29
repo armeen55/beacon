@@ -147,6 +147,36 @@ describe("a page's own statements against their sources", () => {
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); });});
 describe("Beacon reviews its own corrections, one page at a time", () => {
   beforeEach(() => { checks.rows = []; });
+  it("names which kind of correction it is, and never calls a narrowing a falsehood", async () => {
+    // TWO OF THE THREE CORRECTIONS LIVE IN THE OPERATOR'S QUEUE ARE page_imprecise, and every card said the same
+    // thing: "X means Y, not Z". Telling a paying customer their page is wrong when the sources merely sharpen it
+    // is an overclaim. The kind is read from the STORED verdict and from the two wordings, never from the copy.
+    const src = (says: string) => [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says }];
+    checks.rows = [
+      check({ subject: "Leila", verdict: "page_wrong", current: "Meaning:Beauty and purity.", proposed: "Night; dark", sources: src('layl means "night", or "dark"') }),
+      check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright, radiant, or glowing.", proposed: "Light", sources: src('The name Noor means "light"') }),
+      check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: src('The name has the meaning "like the moon"') })];
+    const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
+    expect([...by.keys()].sort(), "all three minted").toEqual(["leila", "mahsa", "noor"]);
+    const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
+    // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
+    expect(say("leila"), "page_wrong contradicts").toContain("contradict");
+    expect(say("leila")).toContain("Correct what");
+    // A NARROWING SAYS SO, and never that the page is wrong.
+    expect(say("noor"), "page_imprecise sharpens").toContain("more precisely");
+    expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/);
+    expect(by.get("noor")!.opportunityType).toContain("Sharpen");
+    // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.
+    expect(say("mahsa"), "mechanical only").toContain("broken formatting");
+    expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
+    // AND THE RENDERED REPLACEMENT IS MECHANICALLY CLEAN: one space after a Latin label, one terminal mark.
+    const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
+    expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);
+    expect(after("leila")).toBe("Meaning: Night or dark.");
+    // AN UNSUPPORTED ROW NEVER BECOMES CONFIDENT CORRECTION COPY: it does not mint at all.
+    checks.rows = [check({ subject: "Ghost", confidence: "unsupported", proposed: "anything at all" })];
+    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards, "unsupported mints nothing").toEqual([]);
+  });
   const cardsOf = async (n: number) => { checks.rows = many(n); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; };
   it("clears a correction to ready, holds another with its reason, and never charges the operator with the checking", async () => {
     const cards = await cardsOf(3);
