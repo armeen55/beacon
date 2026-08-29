@@ -1008,15 +1008,16 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at 60 percent because the copy is still owed and confidence is medium");
     expect([factorOf(rankProposals([prop({ diagnosisCause: "ranking_loss", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit"),
       factorOf(rankProposals([prop({ diagnosisCause: "demand_decline", bundle: bundleOf([comp({ kind: "section_add" })]) })])[0]!, "causeFit")].every((v) => v <= 0), "having a lever is never worth points, so a decline card cannot be scored for a fix that is not one").toBe(true); });
-  it("discounts a dangerous consolidation and a page that already has a change under measurement", () => {
+  it("discounts a dangerous consolidation, and records measurement overlap without spending a point of rank on it", () => {
     const safe = prop({ id: "safe", impactScore: 300, pagePath: "/quiet", bundle: bundleOf([comp({ kind: "title" })]) });
     const risky = prop({ id: "risky", impactScore: 300, pagePath: "/merge", status: "needs_review",
       bundle: bundleOf([comp({ kind: "consolidation", risk: "dangerous", after: "Fold this page into the sizing guide." })]) });
     const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) }); const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
-    expect(ranked.map((p) => p.id)).toEqual(["safe", "risky", "busy"]);
     const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBeLessThan(0); // it still ranks, it just ranks with its discount
-    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true); expect(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")).toBeLessThan(0);
-    expect(Math.abs(factorOf(ranked.find((p) => p.id === "safe")!, "overlap"))).toBe(0); expect(ranked[1]!.whyRankedAboveNext).toContain("/measuring already has a change under measurement");
+    expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
+    // RECORDED, NEVER A DISCOUNT (operator, 2026-08-29): busy stands equal to safe on rank, and the receipt still names the overlap for the reading.
+    expect([Math.abs(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")), Math.abs(factorOf(ranked.find((p) => p.id === "safe")!, "overlap"))]).toEqual([0, 0]);
+    expect(ranked.find((p) => p.id === "busy")!.rankingReceipt!.factors.find((f) => f.name === "overlap")!.input).toContain("noted for the reading");
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); }); // every factor stays inside its own ceiling, so no single input can quietly decide the order
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
     const [floored] = rankProposals([prop({ id: "floored", evidence: { query: "rain barrel sizing", hints: [], evidenceRefCount: -1000 } })]); // a tampered evidence count used to contribute -1,500 and drag a safe change down through the lifecycle tiers

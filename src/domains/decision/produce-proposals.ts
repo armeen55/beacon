@@ -115,7 +115,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   /** THE PAGES THIS PASS NEVER REACHED, because paid drafting stops at `bound`. NOT RE-EMITTED BY A CAP IS NOT NOT RE-EMITTED: the sweep read the budget's silence as the generator withdrawing its own work, and took back a draft already PAID for on the sixth strongest page of every pass. */
   let cappedOut = new Set(earned.slice(bound).flatMap((i) => [proposalId(i), ...pageKeys(i.page.url ?? "")]));
   let deep = selectDeepCandidates({ candidates, coverage, limit: bound }); // SELECTION ONLY: nothing here drafts, buys, or invents a figure.
-  const measuringPagesEarly = new Set([...measuring.measuringPagePaths, ...[...existing.values()].filter((r) => r.status === "implemented_pending_verification").map((r) => r.pagePath ?? "")].map((path) => path.trim().toLowerCase())); // Pages already carrying a change under measurement: a second change on one of them cannot be saved. The ONE measuring context the pass already derived, plus every implemented store row whatever its age: reading only the store here let a page the caller declared under measurement take a fresh $0 card.
+  // MEASUREMENT IS NEVER A REASON TO SUPPRESS WORK (operator ruling, 2026-08-29). The set that lived here fed three refusals: paid funding, factual minting and persistence each skipped any page carrying a change under measurement, which held Azadeh's one-cent review hostage to the operator's own applied Leila correction. Unlimited atomic changes may overlap on a page; overlap is recorded for Results and qualifies the CLAIM, never the work.
   // EVERY $0 PRODUCER RUNS BEFORE A CENT IS COMMITTED, so the manifest below can price the whole pass rather than whatever happens to have been minted by the time each family asks. THE PAGE'S OWN STATEMENTS AGAINST THEIR SOURCES, minted from banked fact checks alone, so a correction is reproducible (operator, 2026-08-17), and its review is a separate priced job below. READ BEFORE THE QUIET-DAY RETURN: this producer below the early exit meant a quiet day could never regenerate a correction bundle (Codex, 2026-08-18: two ordinary passes must reproduce it).
   const defects = await import("./producers/factual-defects"), factual = await defects.FACTUAL_DEFECTS.cards({ tenantId, snapshot, now: opts.now ?? new Date() }).catch(() => ({ cards: [] as ChangeProposal[], complete: false }));
   // THE $0 QUEUE RUNS ONCE PER PASS, HERE, on every path: both the quiet day and the ordinary one read this same run. Its banked coverage needs are written a few lines down, AFTER the funded reading, so the re-read of the verdict can never be moved by discoveries this same pass just made.
@@ -149,12 +149,11 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const preJudged = new Map<string, QualifiedCandidate>(); for (const c of candidates) for (const k of pageKeys(c.pageUrl)) preJudged.set(k, c);
   for (const c of candidates) if (c.cause.payload?.cause === "cannibalization") for (const u of c.cause.payload.competingPaths) for (const k of pageKeys(u)) // THE SAME PROPAGATION THE BOUNDARY READS, or the two answer differently and a slot is burned on a card admit was always going to refuse
     if ((preJudged.get(k)?.cause.cause ?? "no_problem") === "no_problem") preJudged.set(k, c); const preOwned = ownershipCards({ tenantId, now: opts.now ?? new Date(), basis: basis ?? null, pages: snapshot.ownedPages, judged: candidates, queryKeyOf: canonicalQueryKey });
-  const measuringNow = (c: { pagePath?: string | null; pageUrl?: string | null }): boolean => [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()].some((k) => k.length > 0 && measuringPagesEarly.has(k));
-  const MEASURED = "a change on this page is already being measured, so a second one cannot be saved until that finishes", MARKED_DONE = "the change on file for this page is marked done and is being read, so nothing is redrafted for it";
+  const MARKED_DONE = "the change on file for this page is marked done and is being read, so nothing is redrafted for it";
   /** WHY THIS ID CANNOT BE FUNDED, or undefined when it can: the stored row's own state, decided on the same identity the loop that would do the work uses. */
   const blockedById = (id: string, at: { pagePath?: string | null; pageUrl?: string | null }, reuse: boolean): string | undefined => {
     // WITHDRAWN IS DELIBERATELY NOT HERE (Codex, 2026-08-23): `withdrawnProposalIds` is basis-wide with no evidence comparison, while the store's own admission rule compares the readings underneath, so blocking on it would hold a row shut for a whole generation and refuse the redraft moved evidence had earned. The field-draft loop still settles a genuinely withdrawn row with its own receipt, which is where that answer belongs.
-    if (measuringNow(at)) return MEASURED; const held = existing.get(id); if (held && held.status === "implemented_pending_verification") return MARKED_DONE;
+    const held = existing.get(id); if (held && held.status === "implemented_pending_verification") return MARKED_DONE;
     return reuse && held && basis != null && held.basis === basis ? "the change already on file for this page still stands under today's evidence, so nothing is redrafted for it" : undefined; };
   /** A card's own ineligibility, including the boundary's answer WITHOUT its withdrawal side effect: the real `admit` below asks the same question and owns the consequence. */
   const blockedFor = (c: ChangeProposal): string | undefined => {
@@ -370,7 +369,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const investigating = candidates.filter((c) => c.action === "research_needed").length, consolidating = candidates.filter((c) => c.action === "consolidate").length; // A CONSOLIDATION IS WORK, NOT SILENCE: a split nothing can draft yet is counted, not passed over
   // ONE PAGE, ONE REVIEW, MANY CARDS. A correction is its own row so nothing can retire forty of them in one write, and the paid review is grouped by page so forty cost one page's worth of calls instead of forty. THE PLAN'S OWN TERMS still apply: an unfunded review promotes nothing and loses nothing.
   const factualByPage = new Map<string, ChangeProposal[]>();
-  for (const c of factual.cards) { if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue; const k = DRAFT_BUDGET.keyOf(c); const at = factualByPage.get(k); if (at) at.push(c); else factualByPage.set(k, [c]); }
+  for (const c of factual.cards) { if (!(await admit(c))) continue; const k = DRAFT_BUDGET.keyOf(c); const at = factualByPage.get(k); if (at) at.push(c); else factualByPage.set(k, [c]); }
   for (const [key, group] of factualByPage) {
     const slot = outOfTime() ? null : budget.draw(key, DRAFT_BUDGET.DELIVERABLE_CALLS * Math.max(1, Math.ceil(group.length / 10)));
     const reviewed = slot ? await defects.FACTUAL_DEFECTS.review(group, { tenantId, now: opts.now ?? new Date(), attempts: slot, ...(opts.complete ? { complete: opts.complete } : {}), ...(opts.bypassCache ? { bypassCache: true } : {}) }).catch(() => group) : group;
@@ -415,7 +414,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   if (quietDay) {
     log.info("[produce-proposals] nothing earned an action this pass", { tenantId, judged: candidates.length, watching: candidates.filter((c) => c.action === "watch").length + consolidating, researching: investigating });
     for (const c of extra.cards) { // A QUIET DAY STILL JUDGES THE AI CASES: returning before the $0 queue left the case file empty forever on a paused quiet account (first canonical $0 acceptance run, 2026-08-21).
-      if (measuringPagesEarly.has((c.pagePath ?? "").trim().toLowerCase()) || !(await admit(c))) continue; const p = { ...c, ...(basis ? { basis } : {}) };
+      if (!(await admit(c))) continue; const p = { ...c, ...(basis ? { basis } : {}) };
       if (!proposals.some((x) => x.id === p.id)) { proposals.push(p); await persistIfChanged(p); }
     }
     await sweepStale([await withSuggestions(proposals), { families: ["factual_correction"], complete: factual.complete }, // A proven gap with no explanation yet is NOT a quiet day, and neither is one that cannot be drafted.
@@ -483,7 +482,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   let noDraft = 0;
   for (const input of inputs) {
     if (pageKeys(input.page.url ?? input.page.path).some((k) => bundledNow.has(k))) continue; // the rewrite landed, and it replaces this edit
-    if (measuringNow({ pagePath: input.page.path, pageUrl: input.page.url ?? null })) { heldForMeasurement += 1; continue; } // ONE page may be funded through a live sibling family; that never licenses drafting for a page under measurement
+ // ONE page may be funded through a live sibling family; that never licenses drafting for a page under measurement
     const settled = existing.get(proposalId(input)); // A refresh re-pays nothing, and SETTLED WORK IS NOT REDRAFTED.
     if (settled && settled.status === "implemented_pending_verification") { heldForMeasurement += 1; continue; } // An IMPLEMENTED row is a change under measurement, so the fresh idea for that page is HELD, not dropped.
     if (withdrawn.has(proposalId(input))) { const k = DRAFT_BUDGET.keyOf({ pagePath: input.page.path, pageUrl: input.page.url ?? null }); // work already taken back under this evidence is SETTLED, not blocked
@@ -516,7 +515,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const owedNow = (opts.readyTarget ?? 0) > 0, keyOfRow = (r: ChangeProposal) => owedNow ? mutationKey(r) : (pageKeys(r.pageUrl ?? r.pagePath).at(-1) ?? (r.pagePath ?? "").trim().toLowerCase());
   const coveredNow = new Set(proposals.filter((r) => r.status === "ready" && r.researchOnly !== true).map(keyOfRow));
   const eligible: ChangeProposal[] = []; for (const c of editorCards) { const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()]; // the SAME list the manifest priced, so nothing spends outside the one plan
-    if (at.some((k) => measuringPagesEarly.has(k)) || !(await admit(c))) continue; // asked FIRST, so a card the diagnosis refuses is refused OUT LOUD with its reason on the receipt, rather than disappearing into the page-already-covered rule
+    if (!(await admit(c))) continue; // asked FIRST, so a card the diagnosis refuses is refused OUT LOUD with its reason on the receipt, rather than disappearing into the page-already-covered rule
     if (evidenceOwed.has(page(c))) { file(page(c), "evidence_required", false, evidenceOwed.get(page(c))!.reason); continue; }
     if (!coveredNow.has(keyOfRow(c))) eligible.push(c); }
   const byId = new Map(eligible.map((c) => [c.id, c] as const));
@@ -537,7 +536,7 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     if (settledIds.has(p.id)) continue; // already persisted the moment the editor finished it, and already counted or not by the store's own answer
     if (p.researchOnly === false && p.status === "ready") await persistAndFile(p, key); else { if (budget.funded.some((f) => f.key === key)) file(key, "retryable_blocked"); await persistIfChanged(p); } } // Stamped with THIS pass's basis, or the actionable door refuses every one as drafted under an older bar.
   if (!quietDay) for (const c of [...recovery.cards, ...extra.cards].filter((x) => NEEDS_DECISION.has(x.treatment ?? ""))) {
-    const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()], taken = new Set(proposals.flatMap((r) => [(r.pagePath ?? "").trim().toLowerCase(), (r.pageUrl ?? "").trim().toLowerCase()]).filter(Boolean)); if (at.some((k) => measuringPagesEarly.has(k)) || !(await admit(c))) continue;
+    const at = [(c.pagePath ?? "").trim().toLowerCase(), (c.pageUrl ?? "").trim().toLowerCase()], taken = new Set(proposals.flatMap((r) => [(r.pagePath ?? "").trim().toLowerCase(), (r.pageUrl ?? "").trim().toLowerCase()]).filter(Boolean)); if (!(await admit(c))) continue;
     const p = { ...c, ...(basis ? { basis } : {}) };
     if (!proposals.some((x) => x.id === p.id) && !at.some((k) => taken.has(k))) { proposals.push(p); await persistIfChanged(p);
       const key = DRAFT_BUDGET.keyOf(p), q = p.primaryQuery;

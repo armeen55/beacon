@@ -663,11 +663,11 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const quiet = compileCandidates(ACTORS_SEEN(), { measuringPagePaths: ["/somewhere-else"] })[0]!; // told, and this page is not one of them
     expect([quiet.action, quiet.cause.cause]).toEqual(["act_existing_page", "ctr_snippet"]);
     expect(compileCandidates(ACTORS_SEEN())[0]!.cause.notConsidered.find((n) => n.cause === "measuring_change")!.missing).toContain("Which of your pages already carry a change under measurement"); });
-  it("counts the page it is holding back WHERE THE HOLD HAPPENS, without a draft, a paid call or a store attempt", async () => {
-    reset(ACTORS_SEEN()); let called = 0; // the cause ladder fires measuring_change, so no draft is ever attempted for this page
+  it("counts the decline the ladder attributes to the change being read, and STILL works the page", async () => {
+    reset(ACTORS_SEEN()); let called = 0; // MEASUREMENT IS NEVER A REASON TO SUPPRESS WORK (operator, 2026-08-29): the ladder may explain a DECLINE as the change being read, and the page still receives candidates, drafts and rows
     const res = await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/iranian-actors-actresses"],
       complete: async () => { called += 1; return { value: VALID_ATOMIC_EDIT }; } });
-    expect([res.heldForMeasurement, res.proposals.length, called, env.saved.length]).toEqual([1, 0, 0, 0]);
+    expect([res.heldForMeasurement, res.proposals.length > 0, env.saved.length > 0], "the diagnosis is counted AND the page is worked").toEqual([1, true, true]); void called;
     expect(await produceProposalsForTenant("fixture-tenant", { now: NOW, measuringPagePaths: ["/somewhere-else"], complete: async () => ({ value: VALID_ATOMIC_EDIT }) })
       .then((r) => r.heldForMeasurement)).toBe(0); }); // and a page nothing is measuring on is never counted as held
   it("counts a consolidation it cannot draft as work, and never reports a quiet day over it", async () => {
@@ -695,9 +695,9 @@ describe("why this page loses the click, one named cause at a time", () => { it(
     const overlapOf = async (ageDays: number) => { env.store = new Map([["live", baseProposal({ id: "live", basis: "b" })], ["applied", applied(ageDays)]]);
       return (await loadProposalQueue("fixture-tenant", { currentBasis: "b" })).ranked[0]!.rankingReceipt!.factors.find((f) => f.name === "overlap")!; };
     const fresh = await overlapOf(10); const stale = await overlapOf(180); // the production read, not an injected context
-    expect(fresh.contribution).toBeLessThan(0);
+    expect(Math.abs(fresh.contribution), "RECORDED, NEVER A DISCOUNT (operator, 2026-08-29): overlap is context for the reading, and a card loses no rank for standing beside a measured change").toBe(0);
     expect([Math.abs(stale.contribution), stale.input]).toEqual([0, "nothing is being measured on this page"]);
-    expect(fresh.input).toBe("this page already has a change under measurement"); });
+    expect(fresh.input).toBe("this page already has a change under measurement, noted for the reading"); });
   /** THE SAFETY NET ON BOTH SIDES OF THE STORE: a stored change whose claims stopped resolving may not RENDER, and the next canonical pass takes it back even when nothing re-selects that page for a deep read. */
   it("neither renders nor keeps a stored change whose claims no longer resolve, without waiting to be re-selected", async () => {
     const bad = (basis: string): ChangeProposal => baseProposal({ id: "fixture-tenant::/split::existing_edit::bundle", pagePath: "/split", basis, status: "needs_review", riskLevel: "high",

@@ -247,8 +247,9 @@ function factorsFor(p: ChangeProposal, peers: number, measuring: boolean, histor
       : p.riskLevel === "medium" ? "this one touches claims worth reading twice" : "this one is safe to paste",
   risky ? 0.6 : p.riskLevel === "medium" ? 0.85 : 1);
 
-  discount("overlap", measuring ? "this page already has a change under measurement" : "nothing is being measured on this page",
-    measuring ? 0.5 : 1);
+  // RECORDED, NEVER A DISCOUNT (operator ruling, 2026-08-29): unlimited changes may overlap on a page, so
+  // measurement is context Results reads for its claims, and a card loses no rank for standing beside one.
+  discount("overlap", measuring ? "this page already has a change under measurement, noted for the reading" : "nothing is being measured on this page", 1);
 
   discount("confounding", peers > 0
     ? `${num(peers)} other ${peers === 1 ? "change" : "changes"} in this batch ${peers === 1 ? "lands" : "land"} on the same page`
