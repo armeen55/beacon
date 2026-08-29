@@ -74,8 +74,7 @@ describe("a page's own statements against their sources", () => {
     expect(card!.recommendedChange).toMatchObject({ kind: "existing_edit", field: "section",
       before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
-    expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]);
-    expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend, myth or fable in Persian"');
+    expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
@@ -106,8 +105,7 @@ describe("a page's own statements against their sources", () => {
     const parisa = check({ subject: "Parisa", current: "Meaning:Fairy-like, ethereal, or angelic.", proposed: "like a fairy; beautiful like a fairy",
       sources: two(src("encyclopedia", "Parisā ( Persian : پریسا, lit. ' fairy-like ' ) is a Persian feminine given name."),
         src("publisher", '"Parisa" means "like a fairy" or "beautiful like a fairy."')) });
-    expect(unauthorizedReason(parisa as never), "the live Parisa record").toContain("do not carry every word of the proposal");
-    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", literal: "silver",
+    expect(unauthorizedReason(parisa as never), "the live Parisa record").toContain("do not carry every word of the proposal"); expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", literal: "silver",
       sources: two(src("dictionary", "Aryana is a Persian feminine given name."), src("publisher", "Aryana means silver.")) }) as never)).toContain("do not carry every word");
     expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
       sources: two(src("dictionary", 'Aryana means "silver".'), src("publisher", "A popular name this year.")) }) as never), "authoritative carries all, weak corroborates").toBeNull();
@@ -118,8 +116,7 @@ describe("a page's own statements against their sources", () => {
     const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
     expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false); expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
     expect(glossCarriedBy("founded 1979", ["established in 1,979 by decree", "founded by decree"])).toBe(true); expect(glossCarriedBy("Studies", ["the study of names"])).toBe(true);
-    expect(glossCarriedBy("Shining", ["the name shines brightly"])).toBe(true);
-    expect(glossCarriedBy("Sea", ["totally unrelated quote"]), "no vacuous pass on a short gloss").toBe(false);
+    expect(glossCarriedBy("Shining", ["the name shines brightly"])).toBe(true); expect(glossCarriedBy("Sea", ["totally unrelated quote"]), "no vacuous pass on a short gloss").toBe(false);
     expect(glossCarriedBy("Sea", ['darya means "sea"'])).toBe(true); });
 
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
@@ -153,8 +150,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
     // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
-    expect(say("leila"), "page_wrong contradicts").toContain("contradict");
-    expect(say("leila")).toContain("Correct what");
+    expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(say("leila")).toContain("Correct what");
     // A NARROWING SAYS SO, and never that the page is wrong.
     expect(say("noor"), "page_imprecise sharpens").toContain("less precisely");
     // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
@@ -163,11 +159,9 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     for (const k of ["leila", "noor", "mahsa"]) { const card = by.get(k)!, mine = words((card.claims ?? [])[0]!.text);
       const its = new Set(words((card.supportFacts ?? []).map((f) => f.fact).join(" ")));
       expect(mine.filter((w) => its.has(w)).length / Math.max(1, mine.length), `${k} claim stays anchored to its evidence`).toBeGreaterThanOrEqual(0.25); }
-    expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/);
-    expect(by.get("noor")!.opportunityType).toContain("Sharpen");
+    expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/); expect(by.get("noor")!.opportunityType).toContain("Sharpen");
     // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.
-    expect(say("mahsa"), "mechanical only").toContain("broken formatting");
-    expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
+    expect(say("mahsa"), "mechanical only").toContain("broken formatting"); expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
     // AND THE RENDERED REPLACEMENT IS MECHANICALLY CLEAN: one space after a Latin label, one terminal mark.
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
     expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);

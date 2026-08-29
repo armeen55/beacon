@@ -189,7 +189,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     await unit({ held: [row({ statementKey: "k1" })], searchSources: async () => two, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://behindthename.com/x", quote: weak }],
         subjects: [{ url: "https://behindthename.com/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] } }) });
-    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]);
+    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["none_found", "likely"]); // AGREEMENT NAMES CARRIERS, NOT READERS: the only quote calls it "a lovely name for a girl" and carries none of "Legend, myth, fable", so no source stands behind the proposal
     db.rows = [];
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
@@ -234,7 +234,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
         subjects: [{ url: "https://en.wikipedia.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry is about this name" }] } }) });
     expect(fetched.some((u) => u.includes("iranopedia"))).toBe(false);
     const r = db.rows[0] as FactCheck;
-    expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
+    expect([r.agreement, r.confidence]).toEqual(["none_found", "likely"]); // AGREEMENT NAMES CARRIERS, NOT READERS: the quote derives Maryam from Hebrew marah, to be rebellious, and carries none of "beloved; wished-for child"
     expect(r.note).toContain("Held below confirmed:"); });
 
   it("a confirmed verdict the quote-bound contract refuses reopens as owed, and a carried one does not", async () => {
@@ -344,7 +344,13 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     expect(out.status).toBe("advanced"); // NOT none_found and NOT source_quality_unresolved
     expect([fetched.length, fetched.some((u) => u.includes("youtube"))]).toEqual([2, false]); // video excluded
-    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["single_source", "likely"]); });
+    expect([(db.rows[0] as FactCheck).agreement, (db.rows[0] as FactCheck).confidence]).toEqual(["none_found", "likely"]); }); // AGREEMENT NAMES CARRIERS, NOT READERS: the quote is about a heat record and carries none of the proposed gloss
+  it("never names a source behind wording no source carries", async () => {
+    // THE DEFECT THIS PINS, found by the operator reading the ladder: the carriers were computed correctly and then the single rung fell back to how many sources were READ, so a row whose every source had been fetched, quoted and verified, and none of which carried the proposal, still reported single_source. That names a source standing behind wording no source said. Three separate fixtures had encoded it.
+    reset(); await unit({ read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "a gloss no fetched passage contains anywhere" } }) });
+    const none = db.rows[0] as FactCheck; reset(); await unit({}); const carried0 = db.rows[0] as FactCheck; // and one that DOES carry it is still a single source
+    expect([none.agreement, none.confidence === "confirmed", none.sources.filter((x) => x.says.trim() !== "").length, none.note.includes("none of them carries the wording proposed here"), carried0.agreement, carried0.confidence],
+      "read is not carried, the passage stays credited, the row says so, and a real carrier still counts").toEqual(["none_found", false, 1, true, "single_source", "confirmed"]);});
   it("two credible publishers with no authoritative source stay a finding, credited separately, and never reopen", async () => {
     await unit({ held: [row({ statementKey: "k1", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });

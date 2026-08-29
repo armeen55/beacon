@@ -408,8 +408,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // "TWO SOURCES" IS A COUNT UNTIL EACH ONE CARRIES THE PROPOSAL. The wording test below asks whether the gloss survives the verified quotes JOINED, so a phrase assembled across two passages counted as two sources agreeing about it and the card said so to a paying customer. Agreement is now the sources that each carry the proposal on their own; one that only corroborates part of it is read, kept and never counted as a second voice.
   const backs = (url: string): boolean => !v.proposed?.trim() || glossCarriedBy(v.proposed, [verified.get(url) ?? ""]);
   const agreeing = supporters.filter((p) => backs(p.url));
+  // EVERY RUNG READS THE CARRIERS, NOT THE READERS. The first version filtered correctly and then fell back to `supporters.length` for the single rung, so a row whose sources were all read and none of which carried the proposal still reported single_source, naming a source standing behind wording no source said. Nothing is discarded either way: every passage stays on the row with its own quote, and the note says when what was read does not carry what is proposed.
   const agreement: FactCheck["agreement"] = agreeing.length > 1 ? "multiple_agree"
-    : supporters.length >= 1 ? "single_source" : "none_found";
+    : agreeing.length === 1 ? "single_source" : "none_found";
+  const readNotCarrying = agreeing.length === 0 && supporters.length > 0;
   // ONE AUTHORITY, OR TWO INDEPENDENT CREDIBLE PUBLISHERS. An ordinary publisher supports `likely` and never
   // authorizes replacing published words on its own (Codex, 2026-08-19).
   const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
@@ -432,7 +434,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
-    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
+    note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });
 }
 
 type FactCheckPassDeps = {
