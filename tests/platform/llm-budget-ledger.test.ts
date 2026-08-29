@@ -11,7 +11,8 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: a
   from: () => { const chain = { select: () => chain, eq: () => chain,
     then: (r: (v: unknown) => unknown) => r({ data: [{ spent_usd: db.spentToday }], error: null }) }; return chain; } }),
   isSupabaseConfigured: () => true }));
-vi.mock("@/domains/account", () => ({ getTenant: async () => ({ daily_budget_usd: 1 }) }));
+const acct = vi.hoisted(() => ({ fail: false, budget: 1 as number | null }));
+vi.mock("@/domains/account", () => ({ getTenant: async () => { if (acct.fail) throw new Error("flicker"); return { daily_budget_usd: acct.budget }; } }));
 beforeEach(() => { db.readError = null; db.wrote = []; db.tables = []; vi.spyOn(console, "warn").mockImplementation(() => {}); });
 describe("the durable per-account LLM spend writer", () => {
   it("adds what was just spent to that account's own running total, opening it when the account has spent nothing yet", async () => {
@@ -52,3 +53,9 @@ describe("migration history is immutable", () => {
     // the lifecycle, the ledger day and the rules version each got their own immutable file
     for (const f of ["2026-08-18b_claim_lifecycle", "2026-08-18c_ledger_reporting_day", "2026-08-18d_verification_rules_version"]) expect(existsSync(`migrations/${f}.sql`)).toBe(true);
   });});
+
+/** AN UNREADABLE BUDGET IS NOT THE DEFAULT BUDGET. The cap fell back to the standard allowance when the tenant read failed, so an account whose operator had set the day to zero, which that file's contract calls turning paid work off, would have spent against a five dollar cap the moment the read flickered. */
+describe("the day's budget", () => { it("refuses paid work when it cannot be read, and honours a zero the operator set", async () => {
+  const { dailyCapReason } = await import("@/lib/cost/daily-cap"); const ask = () => dailyCapReason("t", new Date(), 1, 0.01);
+  acct.fail = true; const unread = await ask(); acct.fail = false; acct.budget = 0; const off = await ask(); acct.budget = 50;
+  expect([unread?.includes("could not be read") ?? false, off?.includes("budget for this kind of work is spent") ?? false, await ask()], "unreadable refuses, zero refuses, a real budget allows").toEqual([true, true, null]); }); });

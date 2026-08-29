@@ -108,3 +108,7 @@ export {
 export {
   type ActionType,
 } from "./changes/action-types";
+
+/** THE BUDGET GATE THE PAID WORK ITSELF ASKS. A surface needs it to say a spent budget out loud rather than
+ *  letting it look like a quiet day, and asking any other source risks disagreeing with what the work sees. */
+export { checkBudget } from "./llm/adjudicator-budget";

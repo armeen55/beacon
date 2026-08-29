@@ -9,9 +9,7 @@ import { REVIEW_CONTRACT, copyKey, evidenceShortfall, mechanicalRepair, proofOf 
 import { unauthorizedReason } from "@/domains/evidence/pages/fact-checks";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 
-const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() }));
-const T = "t";
-const row = (id: string, over: Record<string, unknown>): ChangeProposal => ({
+const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const T = "t"; const row = (id: string, over: Record<string, unknown>): ChangeProposal => ({
   id: `${T}::/p::existing_edit::${id}`, tenantId: T, kind: "existing_edit", pagePath: "/p",
   pageUrl: "https://x.example/p", pageLabel: "P", primaryQuery: "onager", opportunityType: "o",
   changeFamily: "meta", status: "ready", whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low",
@@ -118,7 +116,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     const merged = preferFinished({ ...banked2, operatorSteps: ["NEW step"], semanticReview: undefined } as ChangeProposal, withRead);
     expect([(merged.operatorSteps ?? [])[0], merged.semanticReview?.of === copyKey(merged), (merged.claims ?? [])[0]?.text === (withRead.claims ?? [])[0]?.text],
       "today's steps, the banked reading still valid on the row it lands on, and the claims untouched").toEqual(["NEW step", true, true]);
-    // A CLAIM IS PART OF THE COPY, so rewording one retires the reading taken over it. Caught by causing it: a pass that refreshed the sentences on a settled card left its paid per-claim receipt attached to words the reviewer never saw, and only `copyKey` hashing the claims kept that from reaching the queue. Improving what a card ASSERTS therefore belongs in front of the reviewer again; it may never be swapped in underneath a banked reading.
+    // A CLAIM IS PART OF THE COPY, so rewording one retires the reading taken over it: a pass that refreshed the sentences on a settled card left its paid receipt attached to words the reviewer never saw, and only `copyKey` hashing the claims kept that out of the queue.
     const readAt = bind(authorized), reworded = { ...readAt, claims: [{ text: "the same fact, said a better way", supportedBy: [...(readAt.claims ?? [])[0]!.supportedBy] }] } as ChangeProposal;
     const refactedEvidence = { ...readAt, supportFacts: [...(readAt.supportFacts ?? []), { id: "fact-9", fact: "a source nobody read when this was judged" }] } as ChangeProposal;
     expect([evidenceShortfall(readAt), copyKey(reworded) === copyKey(readAt), copyKey(refactedEvidence) === copyKey(readAt)], "the reading stands on its own words").toEqual([null, false, false]);

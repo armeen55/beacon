@@ -8,6 +8,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { loadChangesView, sanitizeSurfaceComputedAt, type ChangesView } from "./changes-data";
 import { readCustomerSurface, isCustomerSurfaceStale } from "./surface-release";
 import { countTrackedQuestions, researchPermission, researchRunStatus } from "@/domains/runtime";
+import { checkBudget } from "@/domains/decision";
 import type { ChangeProposal, ProducerOutcome } from "@/domains/decision";
 
 /** One ranked "do this next" change Today reads. FOUR FIELDS, because four are rendered: the effort, the upside,
@@ -69,6 +70,8 @@ export type TodayComposite = {
    *  a next pass or work happening behind the scenes while it is off, so the surfaces read this and say the
    *  truthful line with the control that fixes it. A switch that could not be read claims nothing either way. */
   researchPaused?: boolean;
+  /** TRUE when the budget gate the paid work itself asks is refusing, so the screen says so instead of looking like a quiet day. */
+  paidWorkStopped?: boolean;
   /** THE HEARTBEAT SENTENCE, off the latest research run's own row: what the last pass did and when, or that
    *  none has run. Absent when the row could not be read, so an outage never claims research is dead. */
   researchLiveness?: string;
@@ -238,7 +241,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
   // One lean head-count, in parallel with the surface read: zero tracked questions is the ONE state that stops research outright, and Today
   // has to name it rather than look merely quiet. A failed count (null) claims NOTHING: a false zero would advertise a recovery the account
   // does not need.
-  const [customer, trackedCount, permission, runStatus] = await Promise.all([
+  const [customer, trackedCount, permission, runStatus, budgetSpent] = await Promise.all([
     readCustomerSurface(tenantId).catch(() => null),
     countTrackedQuestions(tenantId).catch(() => null),
     // THE REAL SWITCH, NOT AN ASSUMPTION. A surface that promises a nightly round while research is off is
@@ -246,8 +249,14 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     researchPermission(tenantId).catch(() => "unreadable" as const),
     // THE HEARTBEAT, off the latest run's own row: the day has a pulse the operator can read without asking.
     researchRunStatus(tenantId).catch(() => null),
+    // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY. This file already refuses to let an outage say "nothing
+    // needs a decision today"; a budget that has run out is the same claim by another route, and it is the one
+    // state that stops every paid door at once while the surface carries on looking normal. Asked of the SAME
+    // gate the runtime asks, with nothing projected, so the answer is the one the work itself would get.
+    // Unreadable claims nothing, exactly like the permission read above it.
+    checkBudget({ tenantId, projectedCostUsd: 0 }).then((b) => b.allowed === false).catch(() => false),
   ]);
-  const research = { ...(permission === "paused" ? { researchPaused: true } : {}),
+  const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { paidWorkStopped: true } : {}),
     ...(runStatus?.liveness?.line ? { researchLiveness: runStatus.liveness.line } : {}) };
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.

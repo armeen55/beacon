@@ -28,8 +28,9 @@ vi.mock("@/app/(shell)/surface-release", () => ({
     today: { today: { headerSentence: "stale", nextOpportunities: [] }, hasChanges: false },
     changes: { proposals: [], ready: [], toDo: [], measuringCountCanonical: 0, demotedStaleBasis: 0, decidedCountCanonical: 0,
       readyZeroHint: null, receiptLine: null, summary: { todo: 0, ready: 0, implemented: 0, measuring: 0, results: 0 } } }); },}));
+const budget = vi.hoisted(() => ({ allowed: true, throws: false }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  resolveCurrentBasis: async () => db.basis, produceProposalsForTenant: async () => ({ outcome: "proposals_persisted", candidates: [] }) }));
+  resolveCurrentBasis: async () => db.basis, produceProposalsForTenant: async () => ({ outcome: "proposals_persisted", candidates: [] }), checkBudget: async () => { if (budget.throws) throw new Error("unreadable"); return budget.allowed ? { allowed: true, remaining: 1 } : { allowed: false, reason: "cap" }; } }));
 vi.mock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")),
   countTrackedQuestions: async () => 30 }));
 const blob = vi.hoisted(() => ({ stored: null as unknown, writeFails: false }));
@@ -69,6 +70,11 @@ beforeEach(async () => {
 describe("Today and Changes answer one question once", () => {
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
+    // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
+    budget.allowed = false; const refused = (await loadTodayView()).paidWorkStopped; budget.throws = true;
+    const unread = (await loadTodayView()).paidWorkStopped; budget.throws = false; budget.allowed = true;
+    expect([refused, unread, (await loadTodayView()).paidWorkStopped], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
+
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
     const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
     expect(changes.summary.ready).toBe(N - 1); });

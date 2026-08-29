@@ -301,6 +301,12 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {composite.researchLiveness ? (
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{composite.researchLiveness}</p>
       ) : null}
+      {/* A SPENT BUDGET IS A FACT ABOUT THIS ACCOUNT TOO, and it stops every paid door at once while this screen carries on looking normal. Said in one line rather than left to look like a quiet day. */}
+      {composite.paidWorkStopped ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground" data-paid-work-stopped="true">
+          Paid research is stopped because this account&rsquo;s budget for it is spent, so no new opportunity is being worked on and nothing new lands here until the budget allows it again.
+        </p>
+      ) : null}
       {/* THE PAUSE SWITCH IS A FACT ABOUT THIS ACCOUNT, said where the work is with the control that turns it back on. Nothing here may promise a nightly round while it is off. */}
       {composite.researchPaused ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground" data-research-paused="true">
