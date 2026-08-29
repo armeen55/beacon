@@ -69,6 +69,21 @@ describe("Visibility is a workspace, and every number on it names what it was co
       answer_text: "x".repeat(5000), answer_hash: "h", analysis: null, analysis_hash: null,
       journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));
   });
+  it("calls a metric what Search Console calls it, and the same thing everywhere on the screen", () => {
+    // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly
+    // below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the
+    // same metric and the word Search Console actually uses was never learned.
+    const v = google({ metric: "impressions" });
+    const labels = [...(v.pages?.columns ?? []), ...(v.queries?.columns ?? [])].map((c) => c.label);
+    const cards = (v.tiles ?? []).map((x) => x.label);
+    expect(labels, "no invented substitute survives").not.toContain("Appearances");
+    expect(labels).not.toContain("Click rate");
+    expect(labels, "the table says what the card says").toContain("Impressions");
+    expect(labels).toContain("CTR");
+    expect(v.chart?.label, "and so does the chart").toBe("Impressions");
+    expect(google({ metric: "ctr" }).chart?.label).toBe("CTR");
+    for (const term of ["Impressions", "CTR"]) expect(cards, `the summary card already used ${term}`).toContain(term);
+  });
   it("says what it cannot show without Search Console rather than drawing an empty workspace", () => {
     const bare = google({ days: [] }); expect([bare.pages, bare.queries, bare.chart]).toEqual([null, null, null]);
     expect(bare.limitation).toContain("No Search Console numbers are on file for this account");

@@ -58,7 +58,10 @@ type GoogleInput = {
   days: Array<{ date: string; clicks: number; impressions: number }>;
   rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal> };
 
-const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Appearances", ctr: "Click rate" };
+/** THE WORDS THE SUMMARY CARDS ALREADY USE. The chart and both tables called impressions "Appearances" and the
+ *  click-through rate "Click rate", one screen away from cards reading "Impressions" and "CTR" over the very same
+ *  numbers, so nothing told a reader they were the same metric and the term Search Console uses was never learned. */
+const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Impressions", ctr: "CTR" };
 /** GOOGLE'S OWN FAILURE WORDS (operator, 2026-08-21): about GOOGLE, totals above stay current, and nothing about AI answers. */
 const GOOGLE_UNREAD = "Google's page movement could not be read in time just now. The totals above are current, and this table fills in on the next visit.";
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
@@ -96,8 +99,8 @@ export function googleView(input: GoogleInput) {
   const losing = moved.filter((r) => r.clicksNow < r.clicksPrior).length;
   const pages = table({
     columns: [{ key: "page", label: "Page", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "clicksChange", label: "Change", numeric: true },
-      { key: "impressions", label: "Appearances", numeric: true }, { key: "impressionsChange", label: "Change", numeric: true },
-      { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }, { key: "query", label: "Strongest search, 90 days", wide: true }],
+      { key: "impressions", label: "Impressions", numeric: true }, { key: "impressionsChange", label: "Change", numeric: true },
+      { key: "ctr", label: "CTR", numeric: true }, { key: "position", label: "Position", numeric: true }, { key: "query", label: "Strongest search, 90 days", wide: true }],
     empty: noPages ? GOOGLE_UNREAD : "Google has not reported a page for this account yet. The next daily round picks them up.",
     note: moved.length === 0 ? null : `Each page compares the 28 days${windowEnd ? ` ending ${windowEnd}` : ""} with the 28 days before them. ${losing > 0 ? `${num(losing)} ${losing === 1 ? "page is" : "pages are"} losing clicks, marked in the change column. The fix for one of them lives in Changes.` : "Not one page is losing clicks in this window."}`,
     rows: [...moved].sort((a, b) => b.clicksNow - a.clicksNow).map((r) => {
@@ -117,7 +120,7 @@ export function googleView(input: GoogleInput) {
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));
   const QUERY_CAP = 150;
   const queries = table({
-    columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Appearances", numeric: true }, { key: "ctr", label: "Click rate", numeric: true }, { key: "position", label: "Position", numeric: true }],
+    columns: [{ key: "query", label: "Search", wide: true }, { key: "page", label: "Page it lands on", wide: true }, { key: "clicks", label: "Clicks", numeric: true }, { key: "impressions", label: "Impressions", numeric: true }, { key: "ctr", label: "CTR", numeric: true }, { key: "position", label: "Position", numeric: true }],
     empty: noQueries ? GOOGLE_UNREAD : "Google has not named a single search for this account yet. It hides the rarest ones, and the next daily round picks up the rest.",
     note: seenQueries.length === 0 ? null : `These are the searches Google named over the last 90 reported days, strongest first${seenQueries.length > QUERY_CAP ? `. Showing the top ${num(QUERY_CAP)} of ${num(seenQueries.length)}` : ""}. Google hides its rarest searches, so this is what it reports and not every search you ever won.`,
     rows: [...seenQueries].sort((a, b) => b.clicks - a.clicks || b.impressions - a.impressions).slice(0, QUERY_CAP).map((q, n) => ({
