@@ -231,6 +231,11 @@ describe("done is only ever reached with a record behind it", () => {
     const row = seed();
     expect([await transitionProposalToImplemented(T, DONE_ID, "  "), row.status]).toEqual([false, "ready"]); // nothing moved, so the change is still theirs to do
     expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1"), db.state.rows[0]!.status]).toEqual([true, "implemented_pending_verification"]); });
+  it("walks a reconciliation-withdrawn row back to life through the one door, and never a dismissed one", async () => { // THE LIVE ORPHAN (Mahsa, 2026-08-29): the sweep withdrew the row after its shipment landed and the flip then failed on the retired row, leaving verification null and the card in two states; the operator's press outvotes reconciliation, and their own dismissal it never touches
+    Object.assign(seed(), { terminal_disposition: "withdrawn", withdrawn_reason: "evidence moved" });
+    expect([await transitionProposalToImplemented(T, DONE_ID, "rec-1"), db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition]).toEqual([true, "implemented_pending_verification", null]);
+    Object.assign(seed(), { terminal_disposition: "dismissed" });
+    expect([await transitionProposalToImplemented(T, DONE_ID, "rec-2"), db.state.rows[0]!.terminal_disposition]).toEqual([false, "dismissed"]); });
   it("sends a change marked done with no record back to the queue carrying the one sentence that says so", async () => {
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set<string>())).toEqual([SENTENCE]);
     expect([row.status, row.queue_lane, row.queue_rank]).toEqual(["needs_review", null, null]); // back in the queue, and it earns its position again

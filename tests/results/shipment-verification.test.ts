@@ -138,7 +138,8 @@ describe("what Beacon says overall, and what it refuses to say", () => {
   it("says blocked when it could not read the page, and not found when there is no page there", async () => {
     const robots = await check([{ kind: "title", after: "How to set a nowruz table" }], refuse("robots_blocked")); expect([robots.status, robots.components[0]!.state]).toEqual(["blocked", "unverifiable"]);
     expect(robots.components[0]!.note).toContain("robots rules"); expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "timeout"))).status).toBe("blocked");
-    expect((await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found"); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
+    const gone = await check([{ kind: "title", after: "x" }], refuse("fetch_failed", "http_404")); // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so read one schedules a bounded recheck instead of burying the change
+    expect([gone.status, gone.recheckAfter != null]).toEqual(["not_found", true]); expect((await check([{ kind: "new_page", after: "" }], refuse("fetch_failed", "http_404"))).status).toBe("not_found");
     expect((await check([{ kind: "noindex", after: "" }])).status).toBe("blocked");});
   it("goes and reads the page whatever the operator claimed, and cannot land verified without page evidence", async () => {
     let fetched = 0;

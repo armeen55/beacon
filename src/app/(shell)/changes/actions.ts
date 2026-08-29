@@ -8,7 +8,7 @@ import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
-import { actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
+import { proposalDisposition, actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
   loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
@@ -173,12 +173,16 @@ export async function markProposalImplementedAction(args: {
   const tenantId = await currentTenantId();
   try {
     const basis = await resolveCurrentBasis(tenantId).catch(() => null);
-    const stored = await loadChangeProposal(tenantId, args.proposalId).catch(() => null);
+    // THE PRESS MAY RACE RECONCILIATION AND STILL WIN (2026-08-29): Noor's row was withdrawn by the producer seconds before this load and the press answered "could not be found", recording nothing the operator did. A row retired by RECONCILIATION is still the operator's to finish, and the disposition is asked BEFORE any shipment is written so a dismissed or superseded row can never orphan one.
+    const disposition = await proposalDisposition(tenantId, args.proposalId).catch(() => null);
+    const rescued = disposition === "withdrawn";
+    const stored = disposition == null || rescued
+      ? await loadChangeProposal(tenantId, args.proposalId, rescued ? { retired: "include" } : {}).catch(() => null) : null;
     if (stored == null) {
       return { success: false, error: "That change could not be found, so it was not marked implemented." };
     }
     // THE VERDICT IS ASKED AT THE MOMENT OF THE MUTATION, not only where the screen was drawn. The button lives on a page that could have been open since before the bar moved or before this change's own receipt stopped resolving, and recording it would push a change I no longer stand behind into the proof ledger, where it would be measured and counted for weeks. No shipment lands unless this passes.
-    if (stored.status !== "implemented_pending_verification"
+    if (!rescued && stored.status !== "implemented_pending_verification"
       && actionableProposalFailures(stored, { tenantId, currentBasis: basis }).length > 0) {
       return { success: false, error: "This change was skipped, so it is not being recorded. Open Changes for the work that stands today." };
     }

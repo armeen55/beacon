@@ -185,6 +185,8 @@ function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | nul
   const v = p.verification;
   if (!v) return { text: "Live page not read yet", amber: false };
   if (v.status === "verified") return null;
+  // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
+  if (v.recheckAfter != null) return { text: "Waiting for your publish. Beacon checks the page again soon.", amber: false };
   if (v.status === "differs" || v.components?.some((c) => c.state === "changed_differently"))
     return { text: "Measured on your own wording, not Beacon's", amber: false };
   if (v.status === "partially_verified") return { text: "Part of it is live", amber: false };

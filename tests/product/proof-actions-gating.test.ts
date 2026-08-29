@@ -21,7 +21,7 @@ vi.mock("@/lib/auth/can-publish", () => ({
   canPublishForCurrentTenant: async () => ownerFlag.value,}));
 vi.mock("@/domains/decision", async () => ({
   loadPageSurgeonContext: mocks.loadPageSurgeonContext, topPagesByDemand: mocks.topPagesByDemand,
-  loadChangeProposal: mocks.loadChangeProposal, transitionProposalToImplemented: mocks.transitionProposalToImplemented,
+  loadChangeProposal: mocks.loadChangeProposal, proposalDisposition: async () => null, transitionProposalToImplemented: mocks.transitionProposalToImplemented,
   resolveCurrentBasis: mocks.resolveCurrentBasis,
   actionableProposalFailures: (await vi.importActual<typeof import("@/domains/decision/validate-proposal")>("@/domains/decision/validate-proposal")).actionableProposalFailures,
   openHold: (await vi.importActual<typeof import("@/domains/decision/completeness")>("@/domains/decision/completeness")).openHold, // the REAL one servability verdict, exactly as production gates the press

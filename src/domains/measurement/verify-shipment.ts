@@ -254,7 +254,8 @@ export async function verifyShipment(tenantId: string, shipment: VerifiableShipm
   catch { return transportBlocked("Your website did not answer, so this change could not be checked."); }
   if (!res.ok) {
     if (/^http_(404|410)$/.test(res.detail ?? "")) {
-      return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, "There is no page at that address right now.") };
+      // NOT_FOUND INSIDE THE PUBLISH LAG IS THE SAME LAG (operator, 2026-08-29): Mark Done means applied in the editor and the site may be published once at the end of the session, so a page not there yet is re-read on the same bounded schedule rather than buried on read one.
+      return { status: "not_found", checkedAt, checks, components: allUnknown(shipment, "There is no page at that address right now."), recheckAfter: checks < MAX_CHECKS ? reportingDay(now() + 2 * 86_400_000) : null };
     }
     return res.reason === "robots_blocked"
       ? { status: "blocked", checkedAt, checks, components: allUnknown(shipment, "Your site's robots rules ask for this page not to be read, so it was not.") }

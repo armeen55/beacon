@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
 const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Array<{ id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }>, breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
-const stored = vi.hoisted(() => ({ proposal: null as unknown }));
+const stored = vi.hoisted(() => ({ proposal: null as unknown, disposition: null as string | null }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
 vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () => true }));
@@ -11,7 +11,7 @@ const surf = vi.hoisted(() => ({ rebuilds: 0 }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surf.rebuilds += 1; } }));
 vi.mock("@/domains/account", () => ({ getTenant: async () => ({ id: "t", domain: "site.example" }) }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
-  loadChangeProposal: async () => stored.proposal, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
+  loadChangeProposal: async () => stored.proposal, proposalDisposition: async () => stored.disposition, resolveCurrentBasis: async () => "basis_now::d4", transitionProposalToImplemented: led.flip }));
 vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } })); // production runs in a request scope; here after() executes inline so the exact scheduled shipment is observable
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   verifyShipmentNow: async (_t: string, id: string) => { led.verified.push(id); return 1; },
@@ -36,7 +36,7 @@ const change = (after = AFTER): ChangeProposal => ({
 } as unknown as ChangeProposal);
 const press = async (p: ChangeProposal) => { stored.proposal = p;
   return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id }); };
-beforeEach(() => { led.records = []; led.breakWrite = false; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
+beforeEach(() => { led.records = []; led.breakWrite = false; stored.disposition = null; led.flip.mockReset(); led.flip.mockResolvedValue(true); });
 describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
@@ -74,6 +74,13 @@ describe("nothing is marked done that no record stands behind", () => {
     expect([research.success, errand.success, led.records.length, led.flip.mock.calls.length, research.error, errand.error])
       .toEqual([false, false, 0, 0, expect.stringContaining("nothing has been written for it yet"), expect.stringContaining("nothing has been written for it yet")]);
     expect([(await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal)).success, led.records.length]).toEqual([true, 1]); }); // that sentence on finished copy stops nothing
+  it("the press outvotes a reconciliation withdrawal, and never a dismissal", async () => {
+    // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).
+    stored.disposition = "withdrawn";
+    const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([true, 1, 1]);
+    stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
+    const no = await press(change("Different words for the dismissed row"));
+    expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
   it("a crash BEFORE the record lands flips nothing, so the change is still theirs to do", async () => {
     led.breakWrite = true;
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);

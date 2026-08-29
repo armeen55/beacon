@@ -40,6 +40,7 @@ export {
   saveChangeProposal,
   answerReviewedProposal,
   loadChangeProposal,
+  proposalDisposition,
   loadChangeProposals,
   transitionProposalToImplemented,
   dismissChangeProposal,

@@ -395,10 +395,8 @@ describe("backfilling support onto already-banked facts", () => {
     const deps = { rows: async () => (bank.at(-1) ?? rows).concat(), reopen: async (_p: string, r: FactCheck[]) => r.length,
       rebank: async (_p: string, r: FactCheck[]) => { bank.push([...(bank.at(-1) ?? rows).filter((x) => x.statementKey !== r[0]!.statementKey), ...r]); return r.length; },
       fetchSource: async (url: string) => { fetches.push(url); return url.includes("Mahsa") ? { text: 'The name has the meaning "like the moon".', title: "Mahsa" } : { text: 'Laila comes from the Arabic word layl, which means "night", or "dark".', title: "Leila (name)" }; } };
-    const targets = [{ page: "/persian-female-first-names", statementKey: "noor", onUnsupported: "bank" as const },
-      { page: "/persian-female-first-names", statementKey: "mahsa", onUnsupported: "bank" as const }, { page: "/persian-female-first-names", statementKey: "leila", onUnsupported: "reopen" as const }];
-    const out = await backfillClaimSupport("t", targets, deps);
-    expect(out.map((o) => [o.statementKey, o.action, o.supported])).toEqual([["noor", "banked_supported", 1], ["mahsa", "banked_supported", 1], ["leila", "reopened", 0]]);
+    const targets = [{ page: "/persian-female-first-names", statementKey: "noor", onUnsupported: "bank" as const }, { page: "/persian-female-first-names", statementKey: "mahsa", onUnsupported: "bank" as const }, { page: "/persian-female-first-names", statementKey: "leila", onUnsupported: "reopen" as const }];
+    const out = await backfillClaimSupport("t", targets, deps); expect(out.map((o) => [o.statementKey, o.action, o.supported])).toEqual([["noor", "banked_supported", 1], ["mahsa", "banked_supported", 1], ["leila", "reopened", 0]]);
     expect(fetches, "Noor cost no fetch; Mahsa and Leila each got one direct re-read; Leila's refetched page STILL defines Laila and its title alone may not bridge two names, so it reopens").toEqual(["https://en.wikipedia.org/wiki/Mahsa", "https://en.wikipedia.org/wiki/Leila"]);
     const mahsa = bank.at(-1)!.find((r) => r.statementKey === "mahsa")!; expect([mahsa.sources[0]!.titleContext, mahsa.sources[0]!.titleContextFrom, mahsa.agreement]).toEqual(["Mahsa", "fetched_document", "single_source"]);
     expect(bank.at(-1)!.find((r) => r.statementKey === "bystander"), "neighbours byte-identical").toEqual(rows[3]);
@@ -416,11 +414,9 @@ describe("a source supports a claim only when its own passage says so", () => {
   const LAILA = 'Laila comes from the Arabic word layl, which means "night", or "dark".';
   const base: SupportContext = { tenantId: "t", page: "/n", statementKey: "noor", pageLocator: "Names",
     subject: "Noor", claimKind: "word_meaning", current: "Meaning:Bright, radiant, or glowing.",
-    proposed: "Meaning: Light.", url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia",
-    quote: NOOR, titleContext: null };
-  const art = (over: Partial<ClaimSupport> = {}): ClaimSupport => ({ version: SUPPORT_ARTIFACT_VERSION,
-    identity: "", supported: true, supportSpan: NOOR, subjectSpan: "Noor", subjectFrom: "quote",
-    relationSpan: "means", meaningSpans: ["light"], ...over });
+    proposed: "Meaning: Light.", url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia", quote: NOOR, titleContext: null };
+  const art = (over: Partial<ClaimSupport> = {}): ClaimSupport => ({ version: SUPPORT_ARTIFACT_VERSION, identity: "", supported: true,
+    supportSpan: NOOR, subjectSpan: "Noor", subjectFrom: "quote", relationSpan: "means", meaningSpans: ["light"], ...over });
   /** Sign the artifact the way a banking pass would, so only the case under test is what differs. */
   const signed = (c: SupportContext, over: Partial<ClaimSupport> = {}) => {
     const a = art(over); return { ...a, identity: supportIdentity(c) }; };
@@ -431,10 +427,8 @@ describe("a source supports a claim only when its own passage says so", () => {
       proposed: "Meaning: Like the moon.", url: "https://en.wikipedia.org/wiki/Mahsa" };
     const leilaCtx: SupportContext = { ...base, subject: "Leila", statementKey: "leila", quote: LAILA,
       proposed: "Meaning: Night or dark.", url: "https://en.wikipedia.org/wiki/Leila_(name)" };
-    const SCATTER: SupportContext = { ...base, quote: 'Noor Inayat Khan was an operator. Nur al-Din means "light".' };
-    const DELIGHT: SupportContext = { ...base, quote: 'The name Noor means "delight"' };
-    const SEA: SupportContext = { ...base, subject: "Darya", statementKey: "darya", proposed: "Meaning: Sea.", quote: 'The name Darya means "sea"' };
-    const SEARCH: SupportContext = { ...SEA, quote: 'The name Darya means "search"' };
+    const SCATTER: SupportContext = { ...base, quote: 'Noor Inayat Khan was an operator. Nur al-Din means "light".' }; const DELIGHT: SupportContext = { ...base, quote: 'The name Noor means "delight"' };
+    const SEA: SupportContext = { ...base, subject: "Darya", statementKey: "darya", proposed: "Meaning: Sea.", quote: 'The name Darya means "sea"' }; const SEARCH: SupportContext = { ...SEA, quote: 'The name Darya means "search"' };
     const cases: Array<[string, UnsupportedReason | null]> = [
       // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
       ["noor explicit", verdict(base)],
@@ -449,13 +443,9 @@ describe("a source supports a claim only when its own passage says so", () => {
       ["a span nobody wrote", verdict(base, { meaningSpans: ["radiance"] })],
       ["an empty quote", verdict({ ...base, quote: "" }, { supportSpan: "", subjectSpan: "Noor", meaningSpans: ["light"] })],
       ["a source that ruled itself unsupported", verdict(base, { supported: false, reason: "subject_absent" })],
-      // SEMANTIC REASSEMBLY, the failure the whole contract exists to stop. "Noor", "means" and "light" are
-      // each genuinely in this quote, but only in two sentences about different people, and the sentence
-      // that would carry the claim has to be STITCHED to exist. v1 accepted exactly this.
+      // SEMANTIC REASSEMBLY, the failure the whole contract exists to stop: "Noor", "means" and "light" are each genuinely in this quote, but only across two sentences about different people, and the carrying sentence has to be STITCHED to exist. v1 accepted exactly this.
       ["support assembled from two unrelated sentences", supportFailure(signed(SCATTER, { supportSpan: 'Noor means "light"', subjectSpan: "Noor", relationSpan: "means", meaningSpans: ["light"] }), SCATTER)],
-      // WORDS, NOT SUBSTRINGS. v1 let "delight" carry "light".
       ["a proposal whose word is only a substring of the passage's", supportFailure(signed(DELIGHT, { supportSpan: 'The name Noor means "delight"', meaningSpans: ["delight"] }), DELIGHT)],
-      // ...and a short gloss is still material: three letters is not a stop word.
       ["a three letter gloss the passage carries", supportFailure(signed(SEA, { supportSpan: 'The name Darya means "sea"', subjectSpan: "Darya", meaningSpans: ["sea"] }), SEA)],
       ["a three letter gloss the passage only looks like it carries", supportFailure(signed(SEARCH, { supportSpan: 'The name Darya means "search"', subjectSpan: "Darya", meaningSpans: ["search"] }), SEARCH)],
       ["the same artifact offered for another tenant", supportFailure(signed(base), { ...base, tenantId: "other" })],
@@ -482,13 +472,8 @@ describe("a source supports a claim only when its own passage says so", () => {
 
   it("retires itself the moment any input it was signed over moves", () => {
     const good = signed(base);
-    const moved: Array<[string, Partial<SupportContext>]> = [
-      ["the proposed wording", { proposed: "Meaning: Radiance." }],
-      ["the quote", { quote: 'The name Noor means "lamp"' }],
-      ["the source", { url: "https://example.org/other" }],
-      ["the title context", { titleContext: "Noor" }],
-      ["the claim it was written for", { statementKey: "mahsa", subject: "Mahsa" }],
-    ];
+    const moved: Array<[string, Partial<SupportContext>]> = [["the proposed wording", { proposed: "Meaning: Radiance." }], ["the quote", { quote: 'The name Noor means "lamp"' }],
+      ["the source", { url: "https://example.org/other" }], ["the title context", { titleContext: "Noor" }], ["the claim it was written for", { statementKey: "mahsa", subject: "Mahsa" }]];
     expect(moved.map(([what, over]) => [what, supportFailure(good, { ...base, ...over })]))
       .toEqual(moved.map(([what]) => [what, "stale"]));
     expect(supportFailure(good, base)).toBeNull(); // and stands while nothing moved

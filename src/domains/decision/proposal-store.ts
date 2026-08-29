@@ -186,6 +186,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     // A CHANGE PUT AWAY STAYS AWAY, and a draft I WITHDREW stays withdrawn, UNTIL THE EVIDENCE MOVES: same basis AND the same readings underneath. The basis fingerprints the ACCOUNT, so basis alone held a row shut through a whole generation while the readings under it changed completely, and the redraft the moved evidence had earned was answered "refused" forever. A retired row whose evidence no longer matches has been overtaken and no longer speaks for this one. ASK EVERY RETIRED ROW, not whichever came back first, or an older dismissal sorting first lets a dismissed page be re-drafted; a row that will not decode keeps its refusal, because an unreadable answer is not a moved one.
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
+      if (transition === IMPLEMENTED_TRANSITION && r!.id === proposal.id && d === "withdrawn") return false; // the operator's own press outvotes a reconciliation withdrawal of THIS row (Mahsa's stranded flip, 2026-08-29); a DISMISSED row still refuses, because that retirement was the operator's decision and a stale tab may not undo it
       const stored = decode(r!.payload);
       // AN UNREADABLE ROW MAY ONLY REFUSE ITSELF: "unreadable is not moved" is right about THIS id and wrong about a neighbour, and once the sibling read widened to the whole page one undecodable retired row refused every new change there. To refuse, the store must be able to SHOW the evidence has not moved, which it cannot do about a row it cannot read.
       return stored ? evidenceFingerprint(stored) === evidenceFingerprint(proposal) : r!.id === proposal.id; })) return "refused";
@@ -237,15 +238,13 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
 /** THE LAST STEP OF THE MARK-IMPLEMENTED TRANSACTION, and the ONLY way a change reaches IMPLEMENTED, PENDING VERIFICATION. It may only be walked with a Shipment ALREADY ON FILE: the id of the record measuring this change is required, so there is no bare status flip left to call from anywhere. A bare flip was exported once, was called on its own during an incident repair, and left changes marked done that nothing on earth was measuring. ORDER IS DELIBERATE: the press writes the Shipment first and reaches this second, so a crash between the two leaves a record the next press heals, where the reverse leaves the operator waiting forever for a reading nobody is taking. This records their claim, and the claim is not the fact. A NEW PAGE OWES ITS ADDRESS. */
 export async function transitionProposalToImplemented(tenantId: string, id: string, shipmentId: string, liveUrl?: string): Promise<boolean> {
   if (!shipmentId.trim()) { log.error("[proposal-store] nothing is marked done without the record that is measuring it", { tenantId, id }); return false; }
-  const proposal = await loadChangeProposal(tenantId, id);
-  if (!proposal) return false;
+  // A ROW RECONCILIATION WITHDREW IS STILL THE OPERATOR'S TO FINISH (live, Noor and Mahsa, 2026-08-29): the press races the sweep, and their claim of what they applied does not evaporate because a background pass retired the card first. Dismissed stays dismissed and superseded stays superseded.
+  const held = await rowById(tenantId, id).catch(() => null); const disp = held?.terminal_disposition ?? null; if (disp != null && disp !== "withdrawn") return false;
+  const proposal = held ? decode(held.payload) : await loadChangeProposal(tenantId, id); if (!proposal) return false;
   // THE SHIP DOOR RE-ASKS THE ONE COMPLETENESS QUESTION. It used to trust the stored `ready` stamp, so a row stamped by an older pass shipped unexamined: "Shiraz has a population of NUMBER as of YEAR (SOURCE)." went live, was verified on the page, and was banked as a WIN that then taught the ranker. A deliverable with a gap is not implementable, whatever the stamp says.
-  const gaps = deliverableGaps(proposal);
-  if (gaps.length > 0) { log.error("[proposal-store] this change is not finished enough to mark done", { tenantId, id, gap: gaps[0] }); return false; }
-  if (proposal.kind === "new_page" && !liveUrl?.trim()) {
-    log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it", { tenantId, id }); return false; }
-  return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed";
-}
+  const gaps = deliverableGaps(proposal); if (gaps.length > 0) { log.error("[proposal-store] this change is not finished enough to mark done", { tenantId, id, gap: gaps[0] }); return false; }
+  if (proposal.kind === "new_page" && !liveUrl?.trim()) { log.info("[proposal-store] a new page has no address until you publish it, so I am not recording it", { tenantId, id }); return false; }
+  return (await saveChangeProposal({ ...proposal, status: "implemented_pending_verification" }, IMPLEMENTED_TRANSITION)) !== "failed"; }
 
 /** THE OPERATOR'S YES, APPLIED TO THE EXACT ROW THEY READ AND TO NO OTHER. Step two of the two-step hold used to be a read, a check and then an ordinary save, and the save takes its OWN read afterwards: a rewrite that landed in between was simply overwritten by the version the operator had been looking at, which is the one thing a hold on a page-mover exists to stop. ONE COMPARE-AND-SET instead. The row must still be this account's, still non-terminal, still in review, still at the stored version that was read, still under the basis it was drafted for, and still fingerprint for fingerprint the version that was confirmed; the promoted row is then put through the ONE servability verdict before anything is written. The write itself carries the version it read, so a save landing between this read and this write matches NO row, changes nothing, and answers `stale`. TWO ANSWERS RIDE THIS ONE DOOR, because both are a person answering one exact version of one reviewed change: `promote` makes it ready (the page-mover's confirmation, and a draft only judgement was holding, which stamps who and when), and `redraft` leaves it exactly where it is and asks the next funded pass to write better words over it. The refusal check runs on the PROMOTED row only: nothing about asking for better words has to pass the bar for handing work over. */
 export async function answerReviewedProposal(tenantId: string, id: string, version: string, basis: string | null,
@@ -327,6 +326,9 @@ async function readLegacy(tenantId: string, limit: number, id?: string): Promise
 }
 
 /** Load one proposal by id. History is NOT served as current unless the caller asks for it: a change put aside a moment ago must read as history, never as a page that never existed. Fail-soft to null. */
+/** WHETHER THIS ROW IS RETIRED AND HOW, asked on its own so the mark-done press decides BEFORE a shipment is written whether a retirement was reconciliation's (the operator may finish it) or the operator's own. */
+export const proposalDisposition = async (tenantId: string, id: string): Promise<TerminalDisposition | null> => !tenantId || !id ? null : (await rowById(tenantId, id).catch(() => null))?.terminal_disposition ?? null;
+
 export async function loadChangeProposal(tenantId: string, id: string, opts: { retired?: "include" } = {}): Promise<ChangeProposal | null> {
   if (!tenantId || !id) return null;
   try {
