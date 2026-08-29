@@ -1282,7 +1282,10 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
   it("funds a finish before a start, and the best ordinary candidate right after it", () => {
     // FINISHING OUTRANKS STARTING (operator program, 2026-08-30): a correction_review completes a card the account already paid to mint, and one-cent finishes losing to expensive fresh drafts is how Azadeh's review was skipped twice in one night.
     const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]);
-    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/rugs", "/best"], true, "topic:wildlife"]);});
+    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/rugs", "/best"], true, "topic:wildlife"]);
+    // ...and the finish wins its OWN page's one slot too: the collapse runs before the ranking, and a field draft taking the slot is exactly how Azadeh's review was skipped by a third funded pass.
+    const same = plan([job("/p", "field_draft", 90), job("/p", "correction_review", 90)]);
+    expect(same.funded.map((f) => [f.key, f.family, [...f.fallbacks]])).toEqual([["/p", "correction_review", ["field_draft"]]]);});
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
     expect(b.funded.map((f) => [f.key, f.family, f.calls, f.impact, [...f.fallbacks]])).toEqual([["/one", "deep_bundle", 12, 60, ["editor"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, 30, []]]);

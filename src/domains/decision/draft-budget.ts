@@ -50,12 +50,17 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // optimised the API bill instead of the site. And BOTH versions handed the winner the loser's impact score, so a
   // cheap edit inherited the expected value of the rewrite it does not perform. The winner keeps ITS OWN impact and
   // ITS OWN price; the losers stay recorded as fallbacks, never as extra funded work and never as donors.
+  const finishes = (j: PaidJob): number => (j.family === "correction_review" ? 1 : 0);
   const byKey = new Map<string, PaidJob>();
   for (const j of input.jobs) { const at = byKey.get(j.key);
     if (!at) byKey.set(j.key, { ...j });
     else { // A LIVE JOB ALWAYS BEATS A BLOCKED ONE on the same page, whatever the scores say: a page is only blocked
       // when EVERY family that wants it is blocked, or a stale field draft would silence a live editor card.
+      // AND A FINISH WINS THE PAGE'S ONE SLOT (2026-08-30): the collapse ran before the ranking, so the
+      // finishing-first order never saw the correction_review at all; the field family took the page's slot
+      // and Azadeh's one-cent review was skipped by a THIRD funded pass. Same doctrine at both doors now.
       const cmp = at.blocked && !j.blocked ? j : j.blocked && !at.blocked ? at
+        : finishes(j) !== finishes(at) ? (finishes(j) ? j : at)
         : j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at;
       const win = cmp, lose = win === j ? at : j;
       byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
@@ -69,7 +74,6 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // account ALREADY paid to mint, and ranking it by page worth alone let one-cent finishes lose to expensive
   // fresh drafts twice in one night (Azadeh, live). Same doctrine as the acquisition runtime's "finish what
   // is already bought first"; impact still orders everything within each half.
-  const finishes = (j: PaidJob): number => (j.family === "correction_review" ? 1 : 0);
   const ranked = [...byKey.values()].sort((a, b) =>
     Number(tried.has(a.key)) - Number(tried.has(b.key)) || finishes(b) - finishes(a) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
