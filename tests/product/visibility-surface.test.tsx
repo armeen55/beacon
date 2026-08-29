@@ -69,9 +69,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
       answer_text: "x".repeat(5000), answer_hash: "h", analysis: null, analysis_hash: null,
       journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));});
   it("makes a chosen assistant reach every number, or makes the number say it did not", () => {
-    // A FILTER THAT REACHED ONE NUMBER: choosing an assistant redrew the chart while all five headline tiles kept
-    // summing every assistant, with nothing on the screen saying so. A half-applied filter teaches an operator to
-    // distrust every number beside it.
+    // A FILTER THAT REACHED ONE NUMBER: choosing an assistant redrew the chart while all five headline tiles kept summing every assistant, with nothing on the screen saying so. A half-applied filter teaches an operator to distrust every number beside it.
     const all = ai({ engine: null }), one = ai({ engine: "chatgpt" });
     const tile = (v: ReturnType<typeof ai>, label: string) => (v.tiles ?? []).find((t) => t.label === label);
     expect(one.chart?.label, "the chart already named the assistant").toContain("ChatGPT");
@@ -85,9 +83,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
       expect(tile(one, label)?.basis, `${label} names its scope`).toContain("across all assistants");
       expect(tile(all, label)?.basis, "and says nothing extra when nothing is filtered").not.toContain("across all assistants");}});
   it("calls a metric what Search Console calls it, and the same thing everywhere on the screen", () => {
-    // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly
-    // below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the
-    // same metric and the word Search Console actually uses was never learned.
+    // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the same metric and the word Search Console actually uses was never learned.
     const v = google({ metric: "impressions" });
     const labels = [...(v.pages?.columns ?? []), ...(v.queries?.columns ?? [])].map((c) => c.label);
     const cards = (v.tiles ?? []).map((x) => x.label);

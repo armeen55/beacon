@@ -50,8 +50,7 @@ describe("the search is the proposition", () => {
 describe("the page slot is part of the proposition", () => {
   const NAMES = "Popular Persian Male(Boy) First Names and their Meanings";
   it("lets a heading break a tie, never overrule, and keeps two roles apart in one proposition identity", () => {
-    // THE LIVE LOSS. The male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry
-    // typed as a plain definition, the query asked about a warrior and returned a biography of a general.
+    // THE LIVE LOSS. The male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry typed as a plain definition, the query asked about a warrior and returned a biography of a general.
     expect(claimTypeOf("Afshin", "A warrior or conqueror."), "MUTATION: drop the locator and it is lost again").toBe("definition");
     expect(claimTypeOf("Afshin", "A warrior or conqueror.", NAMES), "the heading breaks the tie").toBe("word_meaning");
     // EXPLICIT WORDING WINS. A heading may refine what the words leave open and may never overrule what they say.

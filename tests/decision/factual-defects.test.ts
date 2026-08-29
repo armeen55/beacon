@@ -178,7 +178,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const step = (k: string) => (by.get(k)!.operatorSteps ?? []).join(" | ");
     expect(step("noor"), "the entry's own section is not a second place").not.toContain("the same statement at");
     expect(step("noor"), "and the one place it names is still named").toContain('Find the "Noor" entry');
-    // A GENUINE SECOND PLACE STILL APPEARS.
     checks.rows = [check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright.", proposed: "Light",
       pageLocator: "Girl names", alsoAt: ["Girl names", "A to Z index"], sources: src('The name Noor means "light"') })];
     const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;

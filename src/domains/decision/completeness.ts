@@ -171,7 +171,18 @@ function identityMoves(prior: ChangeProposal, incoming: ChangeProposal): string 
   return moves.join("; ") || "the pages this change writes on moved";
 }
 
+/** THE PAID READING RIDES ITS OWN WORDS, whichever branch below decided the row. `semanticReview.of` IS the copy
+ *  key it was taken over and `unreviewed` accepts a reading only while it still matches the row it sits on, so
+ *  carrying one onto a row with that exact key can never authorize words nobody read. Guarding this at the CALLER
+ *  was wrong and the gate caught it: a prior whose own copy is unfinished returns early from the branches below,
+ *  so a matching key at the call site never proved the reading would survive the merge. */
 export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
+  const row = decideFinished(incoming, prior);
+  return !row.semanticReview && prior?.semanticReview && prior.semanticReview.of === copyKey(row)
+    ? { ...row, semanticReview: prior.semanticReview } : row;
+}
+
+function decideFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
   // THE RECEIPT OUTLIVES THE PASS THAT STAMPED IT (review, 2026-08-22): every return carries the newest retirement receipt available, so the retired words stay inspectable under whatever replaced them instead of living exactly one pass. A NEW receipt below outranks an inherited one.
   const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: prior.previousCopy } : {};
   const priorAfter = prior?.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.after.trim() : "";
@@ -200,7 +211,15 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   const kept: ChangeProposal = { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes };
   const fits = copyKey(kept) === copyKey(incoming); // A RECEIPT MAY ARRIVE LATE ONLY IF IT WAS WRITTEN FOR THESE WORDS: the exception claimed identity proved the copy byte-identical, but `copyIdentity` EXCLUDES the copy and `workKey` names the job, so a redraft's receipts rode the banked words (Codex, 2026-08-28)
-  for (const f of COPY_OWNED) if (prior[f] != null) (kept as Record<string, unknown>)[f] = prior[f]; else if (!(fits && (f === "preservation" || f === "informationGain"))) delete (kept as Record<string, unknown>)[f];
+  // THE STEPS FOLLOW THE WORDS THEY DESCRIBE. `fits` means the kept copy is byte for byte what this pass would
+  // have written, so the instructions for carrying it out are the ones today's rules produce. Deliberately ONLY
+  // the steps: `claims` and `supportFacts` are hashed into `copyKey`, so refreshing either moves the key and
+  // silently retires the paid reading attached to it, which is a copy change and belongs in front of the
+  // reviewer rather than swapped in underneath one. That is a live defect this shipped and reverted once.
+  for (const f of COPY_OWNED) {
+    if (fits && f === "operatorSteps") continue; // already carrying this pass's value from `incoming`
+    if (prior[f] != null) (kept as Record<string, unknown>)[f] = prior[f];
+    else if (!(fits && (f === "preservation" || f === "informationGain"))) delete (kept as Record<string, unknown>)[f]; }
   return kept;
 }
 /** THE FIELDS THAT BELONG TO THE BANKED COPY and must survive with it. `redraftRequested` is deliberately ABSENT: a person who asked for better words outranks preservation, and that path returns before this list is read. The day someone adds a copy-owned field to the contract and forgets it here, the typed faults lesson repeats; keep this list beside the contract change in the same commit. */

@@ -115,6 +115,12 @@ describe("the proof burden matches the promise, at the one door every surface re
     const carried = preferFinished(draftB, bankedA);
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
+    // THE STEPS FOLLOW THE WORDS, AND THE PAID READING SURVIVES THEM. A settled card kept its instructions for ever, so the correction family could learn to say "Find the Noor entry" instead of naming the section it is already in and no card already on file would ever say it. Only the steps refresh: claims and support facts are hashed into the copy key, so refreshing either would retire the reading attached to it.
+    const banked2 = { ...authorized, informationGain: undefined, preservation: undefined, operatorSteps: ["OLD step"] } as ChangeProposal;
+    const withRead = { ...banked2, semanticReview: { of: copyKey(banked2), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } } as ChangeProposal;
+    const merged = preferFinished({ ...banked2, operatorSteps: ["NEW step"], semanticReview: undefined } as ChangeProposal, withRead);
+    expect([(merged.operatorSteps ?? [])[0], merged.semanticReview?.of === copyKey(merged), (merged.claims ?? [])[0]?.text === (withRead.claims ?? [])[0]?.text],
+      "today's steps, the banked reading still valid on the row it lands on, and the claims untouched").toEqual(["NEW step", true, true]);
     // A CLAIM IS PART OF THE COPY, so rewording one retires the reading taken over it. Caught by causing it: a pass that refreshed the sentences on a settled card left its paid per-claim receipt attached to words the reviewer never saw, and only `copyKey` hashing the claims kept that from reaching the queue. Improving what a card ASSERTS therefore belongs in front of the reviewer again; it may never be swapped in underneath a banked reading.
     const readAt = bind(authorized), reworded = { ...readAt, claims: [{ text: "the same fact, said a better way", supportedBy: [...(readAt.claims ?? [])[0]!.supportedBy] }] } as ChangeProposal;
     const refactedEvidence = { ...readAt, supportFacts: [...(readAt.supportFacts ?? []), { id: "fact-9", fact: "a source nobody read when this was judged" }] } as ChangeProposal;
