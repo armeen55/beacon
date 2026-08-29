@@ -7,6 +7,7 @@ import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snaps
 import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness";
 import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
+import { supportShortfall } from "@/domains/evidence/pages/claim-support";
 import type { BundleComponent, ChangeProposal } from "@/domains/decision/contracts";
 
 /** How many corrections ride one card, and how many the operator is asked to do in one sitting. A hundred and seventy two prose steps is not a deliverable; batches of this size are. NOTHING DISAPPEARS BEHIND THE CAP (Codex,
@@ -218,7 +219,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats elsewhere on the page is the one to fix, and it must never be the one the cap drops. ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK
       // (Codex, 2026-08-18): an older version, or a source nobody recorded reading, is a finding and never a live instruction.
       // A MISSING-INFORMATION ROW IS NOT A CORRECTION: it has no current wording, so "X stops stating a meaning its own sources contradict" would name words the page never carried. Those rows are the WRITER'S fact-* evidence; only rows that correct wording the page holds become correction components.
-      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null }).filter((c) => c.current.trim() !== "")
+      const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null }, tenantId).filter((c) => c.current.trim() !== "")
         .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");
@@ -323,7 +324,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     const why = new Map<string, string>();
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
       for (const r of rows) { if (r.state !== "checked" || r.rulesVersion !== VERIFICATION_RULES_VERSION) continue;
-        const reason = unauthorizedReason(r); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
+        const reason = unauthorizedReason(r) ?? supportShortfall(r, tenantId); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::");

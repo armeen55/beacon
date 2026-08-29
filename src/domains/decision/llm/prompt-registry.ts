@@ -38,7 +38,7 @@ export const PROMPT_REGISTRY = {
   // v1 is the honest first identity for the wording each carries today. This is prompt-cache versioning and has
   // nothing to do with VERIFICATION_RULES_VERSION, which stays at 4.
   "draft.fact_claim_extraction": 1,
-  "draft.fact_claim_judgement": 1,
+  "draft.fact_claim_judgement": 2, // v2 (2026-08-29): every supporting source returns its own support ruling with verbatim spans (claim-support artifact v2), so a cached v1 answer cannot satisfy the new contract
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

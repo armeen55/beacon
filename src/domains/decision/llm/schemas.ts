@@ -382,7 +382,13 @@ const FactClaimExtractionSchema = z.object({ statements: z.array(z.object({ subj
 const FactClaimJudgementSchema = z.object({
   verdict: z.enum(["page_correct", "page_wrong", "page_imprecise", "undecidable"]), confidence: z.enum(["confirmed", "likely", "disputed", "unsupported"]),
   proposed: z.string().max(600), literal: z.string().max(400), usage: z.string().max(400), note: z.string().max(400),
-  supporting: z.array(z.object({ url: z.string().max(400), quote: z.string().max(600) })).max(6), // one quote per source: independent publishers never carry the identical sentence
+  // ONE RULING PER SOURCE (claim-support v2): the model locates the supporting sentence and its spans; the
+  // deterministic validator accepts nothing it cannot find verbatim. `supported` is the model's own answer to
+  // "does THIS passage explicitly support the exact claim"; code narrows it and never widens it.
+  supporting: z.array(z.object({ url: z.string().max(400), quote: z.string().max(600),
+    supported: z.boolean(), supportSpan: z.string().max(600), subjectSpan: z.string().max(120),
+    subjectFrom: z.enum(["quote", "title"]), relationSpan: z.string().max(120),
+    meaningSpans: z.array(z.string().max(120)).max(8) })).max(6), // one quote per source: independent publishers never carry the identical sentence
   // WHOSE NAME IS THIS PASSAGE ABOUT. A quote that exists in an authoritative source proves the source said it,
   // never that it said it about the SAME subject: Wikipedia's "Daria (given name)" is an encyclopedia, is
   // quotable, and even lists "Darya" among its variants, so it authorized a Slavic name from Darius as the

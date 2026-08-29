@@ -15,7 +15,8 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
       const gone = db.rows.filter((r) => !present(String(r.current)));
       db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
-import { VERIFICATION_RULES_VERSION, SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, type ClaimSupport, type SupportContext, type UnsupportedReason, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
+import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
+import { SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, deriveSupport, type ClaimSupport, type SupportContext, type UnsupportedReason } from "@/domains/evidence/pages/claim-support";
 const NOW = new Date("2026-08-18T00:00:00.000Z");
 const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." };
 const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
@@ -23,7 +24,10 @@ const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input:
   return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] };
 const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
-  supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable, legend, myth" }],
+  // THE FULL v2 RULING: the quote is the defining sentence, the subject its native-script headword, the relation the dictionary's own headword colon; the validator verifies every span.
+  supporting: [{ url: "https://en.wiktionary.org/x", quote: "Persian افسانه: tale, story, fable, legend, myth.",
+    supported: true, supportSpan: "Persian افسانه: tale, story, fable, legend, myth.", subjectSpan: "افسانه",
+    subjectFrom: "quote", relationSpan: "افسانه:", meaningSpans: ["legend", "myth", "fable"] }],
   subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry defines the Persian word" }] };
 const SOURCE = { organic: [{ domain: "en.wiktionary.org", url: "https://en.wiktionary.org/x", title: "Afsaneh" }] };
 const PASSAGE = "Persian افسانه: tale, story, fable, legend, myth.";
@@ -193,15 +197,20 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     db.rows = [];
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
-    expect(ok.sourceReadAt).not.toBeNull(); });
+    expect(ok.sourceReadAt).not.toBeNull();
+    // A FUTURE FACT EARNS ITS ARTIFACT INSIDE THE JUDGEMENT CALL IT ALREADY MAKES, and it survives the JSONB round trip it will live in: same identity, still valid, after JSON serialization.
+    const src = (JSON.parse(JSON.stringify(ok.sources)) as FactCheck["sources"])[0]!;
+    expect([src.support?.supported, src.support?.version]).toEqual([true, SUPPORT_ARTIFACT_VERSION]);
+    expect(supportFailure(src.support, { tenantId: "t", page: ok.page, statementKey: ok.statementKey, pageLocator: ok.pageLocator, subject: ok.subject, claimKind: "definition", current: ok.current,
+      proposed: ok.proposed ?? "", url: src.url, kind: src.kind, quote: src.says, titleContext: src.titleContext ?? null })).toBeNull(); });
   it("a passage about a different name cannot confirm this one, however alike the two are spelled", async () => {
     const daria = "Daria is a feminine given name, the Slavic form of Darius, meaning possessing goodness.";
     const darya = "Persian دریا (daryā): sea, ocean, a large body of water.";
     const enc = { organic: [{ domain: "en.wikipedia.org", url: "https://en.wikipedia.org/x", title: "Daria" }] };
     const claim = { statements: [{ subject: "Darya", current: "Beauty, elegance, and charm.", locator: "Darya" }] };
-    const judged = (text: string, sameEntity: boolean, language: string, script: string | null) => ({
+    const judged = (text: string, sameEntity: boolean, language: string, script: string | null, ruling: Record<string, unknown> = {}) => ({
       verdict: "page_wrong", proposed: "possessing goodness", confidence: "confirmed", literal: "", usage: "", note: "",
-      supporting: [{ url: "https://en.wikipedia.org/x", quote: text }],
+      supporting: [{ url: "https://en.wikipedia.org/x", quote: text, ...ruling }],
       subjects: [{ url: "https://en.wikipedia.org/x", sameEntity, language, script, why: "w" }] });
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: daria }),
@@ -217,7 +226,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     db.rows = [];
     await unit({ held: [row({ statementKey: "d1", subject: "Darya", current: "Beauty, elegance, and charm." })],
       searchSources: async () => enc, fetchSource: async () => ({ text: darya }),
-      read: reader({ claims: claim, judge: { ...judged(darya, true, "Persian", "دریا"), proposed: "sea, ocean" } }) });
+      read: reader({ claims: claim, judge: { ...judged(darya, true, "Persian", "دریا", { supported: true, supportSpan: darya, subjectSpan: "دریا", subjectFrom: "quote", relationSpan: "دریا (daryā):", meaningSpans: ["sea", "ocean"] }), proposed: "sea, ocean" } }) });
     const right = db.rows[0] as FactCheck;
     expect([right.confidence, right.proposed]).toEqual(["confirmed", "sea, ocean"]); });
 
@@ -298,18 +307,26 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
 
   it("a source nobody read, a stale page version and replaced rules each authorize nothing", async () => {
     const { authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
-    const c = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1",
-      sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "new" }] });
-    expect(authorizedCorrections([{ ...c, sourceReadAt: null }])).toHaveLength(0); const read = { ...c, sourceReadAt: NOW.toISOString() };
-    expect(authorizedCorrections([read], { pageContentHash: "h2" })).toHaveLength(0); // stale page version
-    expect(authorizedCorrections([{ ...read, state: "owed" }])).toHaveLength(0);
-    expect(authorizedCorrections([{ ...read, rulesVersion: 1 }])).toHaveLength(0); // verdict from replaced rules
-    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" })).toHaveLength(1);});
+    const q = 'The name Afsaneh means "new".';
+    const bare = row({ proposed: "new", verdict: "page_wrong", confidence: "confirmed", state: "checked", pageContentHash: "h1", sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: q }] });
+    const art = deriveSupport({ tenantId: "t", page: bare.page, statementKey: bare.statementKey, pageLocator: bare.pageLocator, subject: bare.subject, claimKind: "definition", current: bare.current, proposed: "new", url: "https://en.wiktionary.org/x", kind: "dictionary", quote: q, titleContext: null });
+    const c = { ...bare, sources: [{ ...bare.sources[0]!, support: art! }] };
+    expect(art?.supported, "the defining sentence derives mechanically").toBe(true);
+    expect(authorizedCorrections([{ ...c, sourceReadAt: null }], undefined, "t")).toHaveLength(0); const read = { ...c, sourceReadAt: NOW.toISOString() };
+    expect(authorizedCorrections([bare, { ...bare, sourceReadAt: NOW.toISOString() }], undefined, "t"), "an artifact-less confirmed correction authorizes NOTHING now").toHaveLength(0);
+    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "other-tenant"), "another tenant's artifact is stale here").toHaveLength(0);
+    expect(authorizedCorrections([read], { pageContentHash: "h2" }, "t")).toHaveLength(0); // stale page version
+    expect(authorizedCorrections([{ ...read, state: "owed" }], undefined, "t")).toHaveLength(0);
+    expect(authorizedCorrections([{ ...read, rulesVersion: 1 }], undefined, "t")).toHaveLength(0); // verdict from replaced rules
+    expect(authorizedCorrections([read], { pageContentHash: "h1", evidenceBasis: "b1" }, "t")).toHaveLength(1);});
   it("the real schema registry can express a claim list and a claim judgement", async () => {
     const { SCHEMA_BY_KIND } = await import("@/domains/decision/llm/schemas"); expect(SCHEMA_BY_KIND.fact_claim_extraction.safeParse({ statements: [{ subject: "A", current: "means B", locator: "A" }] }).success).toBe(true);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
-      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "",
+      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable", supported: true, supportSpan: "tale, story, fable", subjectSpan: "افسانه", subjectFrom: "quote", relationSpan: "افسانه:", meaningSpans: ["fable"] }], note: "",
       subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "same word" }] }).success).toBe(true);
+    expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
+      supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale, story, fable" }], note: "",
+      subjects: [] }).success, "the v1 answer shape no longer satisfies the judgement contract").toBe(false);
     expect(SCHEMA_BY_KIND.fact_claim_judgement.safeParse({ verdict: "page_wrong", confidence: "confirmed", proposed: "Legend", literal: "legend", usage: "",
       supporting: [{ url: "https://en.wiktionary.org/x", quote: "tale" }], note: "" }).success).toBe(false);
     expect(SCHEMA_BY_KIND.editor_judgement.safeParse({ statements: [] }).success).toBe(false);});
@@ -352,14 +369,41 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect([none.agreement, none.confidence === "confirmed", none.sources.filter((x) => x.says.trim() !== "").length, none.note.includes("none of them carries the wording proposed here"), carried0.agreement, carried0.confidence],
       "read is not carried, the passage stays credited, the row says so, and a real carrier still counts").toEqual(["none_found", false, 1, true, "single_source", "confirmed"]);});
   it("two credible publishers with no authoritative source stay a finding, credited separately, and never reopen", async () => {
-    await unit({ held: [row({ statementKey: "k1", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
-      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
+    await unit({ held: [row({ statementKey: "k1", subject: "Ahvaz", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
+      read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO, supported: true, supportSpan: WAPO, subjectSpan: "Ahvaz", subjectFrom: "quote", relationSpan: "", meaningSpans: [WAPO] }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
     // AGREEMENT IS EARNED, NOT COUNTED: the Post carries the whole proposal, CNBC reports 54 Celsius on Thursday and carries none of "Ahvaz 129 Fahrenheit record Asia", so it corroborates the story and is not a second voice for this wording. Both are still read, credited and kept on the row.
     const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
     expect(r.sources.filter((x) => x.says.trim() !== "").length, "both stay credited").toBe(2);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });
+
+/** THE LAZY BACKFILL: only selected facts are candidates, deterministic first, one direct re-read of the known source when the quote alone cannot carry it, idempotent, neighbours untouched. */
+describe("backfilling support onto already-banked facts", () => {
+  const mk = (key: string, subject: string, says: string, extra: Record<string, unknown> = {}): FactCheck => ({
+    page: "/persian-female-first-names", statementKey: key, subject, current: `Meaning:Wrong ${subject}.`,
+    proposed: subject === "Noor" ? "Light" : "Like the moon", literal: null, usage: null,
+    sources: [{ url: `https://en.wikipedia.org/wiki/${subject}`, kind: "encyclopedia", says }],
+    agreement: "single_source", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
+    pageContentHash: "h", pageLocator: null, sourceReadAt: NOW.toISOString(), state: "checked",
+    rulesVersion: VERIFICATION_RULES_VERSION, evidenceBasis: "b", checkedAt: NOW.toISOString(), ...extra } as FactCheck);
+  it("banks Noor for free, lifts Mahsa on its own fetched title, reopens what nothing supports, and reruns for nothing", async () => {
+    const { backfillClaimSupport } = await import("@/domains/evidence/pages/claim-support");
+    const bank: FactCheck[][] = [], fetches: string[] = [];
+    const rows = [mk("noor", "Noor", 'The name Noor means "light"'), mk("mahsa", "Mahsa", 'The name has the meaning "like the moon".', { sources: [{ url: "https://en.wikipedia.org/wiki/Mahsa", kind: "encyclopedia", says: 'The name has the meaning "like the moon".' }, { url: "https://x.example/bio", kind: "publisher", says: "Mahsa Amini was born in 1999." }] }),
+      mk("leila", "Leila", 'Laila comes from the Arabic word layl, which means "night", or "dark".', { proposed: "Night or dark" }), mk("bystander", "Yasmin", "unrelated")];
+    const deps = { rows: async () => (bank.at(-1) ?? rows).concat(), reopen: async (_p: string, r: FactCheck[]) => r.length,
+      rebank: async (_p: string, r: FactCheck[]) => { bank.push([...(bank.at(-1) ?? rows).filter((x) => x.statementKey !== r[0]!.statementKey), ...r]); return r.length; },
+      fetchSource: async (url: string) => { fetches.push(url); return url.includes("Mahsa") ? { text: 'The name has the meaning "like the moon".', title: "Mahsa" } : { text: 'Laila comes from the Arabic word layl, which means "night", or "dark".', title: "Leila (name)" }; } };
+    const targets = [{ page: "/persian-female-first-names", statementKey: "noor", onUnsupported: "bank" as const },
+      { page: "/persian-female-first-names", statementKey: "mahsa", onUnsupported: "bank" as const }, { page: "/persian-female-first-names", statementKey: "leila", onUnsupported: "reopen" as const }];
+    const out = await backfillClaimSupport("t", targets, deps);
+    expect(out.map((o) => [o.statementKey, o.action, o.supported])).toEqual([["noor", "banked_supported", 1], ["mahsa", "banked_supported", 1], ["leila", "reopened", 0]]);
+    expect(fetches, "Noor cost no fetch; Mahsa and Leila each got one direct re-read; Leila's refetched page STILL defines Laila and its title alone may not bridge two names, so it reopens").toEqual(["https://en.wikipedia.org/wiki/Mahsa", "https://en.wikipedia.org/wiki/Leila"]);
+    const mahsa = bank.at(-1)!.find((r) => r.statementKey === "mahsa")!; expect([mahsa.sources[0]!.titleContext, mahsa.sources[0]!.titleContextFrom, mahsa.agreement]).toEqual(["Mahsa", "fetched_document", "single_source"]);
+    expect(bank.at(-1)!.find((r) => r.statementKey === "bystander"), "neighbours byte-identical").toEqual(rows[3]);
+    const wrote = bank.length; fetches.length = 0; const again = await backfillClaimSupport("t", targets.slice(0, 2), deps); // IDEMPOTENT: the second run finds every artifact current, fetches nothing, writes nothing
+    expect([again.every((o) => o.action === "already_current"), bank.length, fetches.length]).toEqual([true, wrote, 0]); });});
 
 /** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification already asks whether a source was read, whether its
  *  quote exists and whether it may speak; none of that asks the only question that authorizes a correction.

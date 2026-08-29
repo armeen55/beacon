@@ -5,7 +5,9 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
-  VERIFICATION_RULES_VERSION, unauthorizedReason, glossCarriedBy, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+  VERIFICATION_RULES_VERSION, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
+import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
+export { claimTypeOf } from "./claim-support";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
   confidence: "unsupported" as const, verdict: "undecidable" as const, alsoAt: [], note: "", sourceReadAt: null,
@@ -50,8 +52,6 @@ function sourceClassOf(domain: string): SourceKind {
   if (NEWS.test(d)) return "news";
   return "publisher"; // unknown, ordinary: worth reading, never enough on its own
 }
-/** One of these alone may carry a confirmation. */
-const AUTHORITATIVE = new Set<SourceKind>(["scholarly", "dictionary", "encyclopedia"]);
 /** How much of a proposed replacement its sources must carry before it may replace published words. */ const SUPPORTED_SHARE = 0.6;
 const FILLER = new Set(["that", "this", "with", "from", "have", "which", "meaning", "means", "name", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about"]);
 /** TWO INDEPENDENT ones may carry a confirmation between them; one carries `likely` and no more. */
@@ -60,28 +60,6 @@ const CREDIBLE = new Set<SourceKind>(["news"]);
 const REJECTED = new Set<SourceKind>(["community", "babyname"]);
 
 export const pageHashOf = (body: string): string => createHash("sha256").update(body).digest("hex").slice(0, 16);
-
-/** WHAT KIND OF CLAIM THIS IS, which SHAPES how you look for a source but never erases what is being verified.
- *  Deterministic and total: an unrecognised claim is a plain definition, which searches plainly. */
-type ClaimType = "word_meaning" | "date_or_event" | "quantity" | "definition" | "specification" | "entity_fact" | "geography";
-
-/** THE SLOT BREAKS A TIE, IT NEVER OVERRULES. The wording is asked first and wins whenever it says anything, so "Capital of Iran" stays geography under a "Name meaning" heading and a measured record stays a quantity under a "History of" heading. Only when the words alone fall through to the generic `definition` is the page's own heading consulted, which is where the live loss was: the male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry typed as a plain definition and the query went looking for a warrior. Generic by construction, since the heading is read through the very same rules. */
-export function claimTypeOf(subject: string, current: string, locator?: string | null): ClaimType {
-  const own = typeFromText(`${subject} ${current}`);
-  if (own !== "definition") return own;
-  const said = (locator ?? "").trim();
-  return said ? typeFromText(said) : "definition";}
-
-function typeFromText(text: string): ClaimType {
-  const t = text.toLowerCase();
-  if (/\b(means?|meaning|derives?|derived|etymolog|origin of the name|name meaning|translat)/.test(t)) return "word_meaning";
-  if (/\b(1[0-9]{3}|20[0-9]{2}|bce?\b|ad\b|century|founded|born|died|dynasty|war|revolution|treaty)\b/.test(t)) return "date_or_event";
-  // Records and measurements are quantities: "hottest day at 54 °C" is not a definition (Codex, 2026-08-18).
-  if (/\b(\d[\d,.]*\s*(percent|%|million|billion|thousand|km|miles|kg|people|residents|users)|population|average|median|rate|record|hottest|coldest|largest|smallest|tallest|longest|highest|lowest|temperature|degrees)\b|°/.test(t)) return "quantity";
-  if (/\b(located|capital|province|region|city of|river|mountain|border|geograph\w*)\b/.test(t)) return "geography";
-  if (/\b(model|version|specification\w*|dimensions?|weight|materials?|capacity|voltage)\b/.test(t)) return "specification";
-  if (/\b(is a|was a|founder|ceo|author|invented|composer|poet|king|shah)\b/.test(t)) return "entity_fact";
-  return "definition";}
 
 const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its", "are", "was", "were", "has",
   "have", "had", "holds", "hold", "held", "also", "ever", "been", "not", "which", "their", "there", "into", "over"]);
@@ -138,7 +116,9 @@ const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGE
 
 type Extracted = { statements: { subject: string; current: string; locator?: string }[] };
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;
-  confidence: FactCheck["confidence"]; supporting: { url: string; quote: string }[]; note: string;
+  confidence: FactCheck["confidence"]; note: string;
+  supporting: { url: string; quote: string; supported?: boolean; supportSpan?: string; subjectSpan?: string;
+    subjectFrom?: "quote" | "title"; relationSpan?: string; meaningSpans?: string[] }[];
   subjects?: { url: string; sameEntity: boolean; language: string; script: string | null; why: string }[] };
 
 /** THE SCRIPT A LANGUAGE IS WRITTEN IN, for the one half of subject identity code can check without asking anybody: a passage claiming to define a Persian word, that contains no Perso-Arabic character anywhere, has not shown the word it is defining. Generic and open: a language absent here simply skips this test rather than failing it, so this is never a list of approved subjects. */
@@ -170,7 +150,7 @@ type UnitFailure = "no_page_body" | "lease_exhausted" | "inventory_write_failed"
 /** A search answer: readable results or a TYPED provider hold. Only the readable shape may settle a claim. */
 type SearchAnswer = { organic: { domain: string; url: string; title: string | null }[] } | { hold: ProviderHold };
 /** A source read: the page's words or a TYPED hold. A hold never clears the claim. */
-type SourceAnswer = { text: string } | { hold: ProviderHold };
+type SourceAnswer = { text: string; title?: string | null } | { hold: ProviderHold };
 
 /** WHERE THE PAGE STANDS, read back from the persisted inventory rather than carried in a lease. */
 type FactCheckCursor = {
@@ -350,13 +330,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // 4. READ THE SOURCES. A title is not a fact, and A SOURCE NOBODY READ NEVER CLEARS THE CLAIM: when every
   // fetch fails the claim stays OWED, because "the evidence disproved nothing" and "the infrastructure could
   // not read the evidence" are different answers (Codex, 2026-08-18).
-  const passages: { url: string; kind: SourceKind; text: string; readAt: string }[] = [];
+  const passages: { url: string; kind: SourceKind; text: string; title: string | null; readAt: string }[] = [];
   let lastHold: ProviderHold = "unavailable";
   for (const c of picks) {
     if (!d.fetchSource || !enough(d.deadlineAt, 20_000)) break;
     const got = await d.fetchSource(c.url).catch(() => ({ hold: "unavailable" as const }));
     if ("hold" in got) { lastHold = got.hold; continue; }
-    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), readAt: new Date().toISOString() });}
+    if (got.text.trim()) passages.push({ url: c.url, kind: c.kind, text: got.text.slice(0, 6_000), title: got.title ?? null, readAt: new Date().toISOString() });}
   if (passages.length === 0) return fail(`fetch_${lastHold}`, cursor, `sources were found and reading them is ${lastHold}, so this claim is still owed`, next.statementKey);
 
   // 5. JUDGE against the passages only.
@@ -369,7 +349,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     user: [`Claim type: ${type}`, `Subject: ${claim.subject}`,
       claim.current.trim() ? `The page says: "${claim.current}"` : "The page does not answer this yet. From the passages alone, state in `proposed` the accurate, source-supported statement of this subject; if the passages cannot support one, answer unsupported.",
       "Passages fetched from real sources:",
-      ...passages.map((p) => `--- [${p.kind}] ${p.url}\n${p.text}`), "", "Return the JSON now."].join("\n"),
+      ...passages.map((p) => `--- [${p.kind}] ${p.url}${p.title ? ` (document title: ${p.title})` : ""}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
   if ("hold" in verdict) return fail(`judge_${verdict.hold}`, cursor, `judging this claim is ${verdict.hold}, so it is still owed`);
   const v = verdict.value as unknown as Judged;
@@ -404,18 +384,38 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const identified = vouched.filter((p) => langOf(p) === leadLang);
   const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
   const supporters = identified;
-  // AGREEMENT IS DISTINCT PUBLISHERS, counted, never accepted from the model.
-  // "TWO SOURCES" IS A COUNT UNTIL EACH ONE CARRIES THE PROPOSAL. The wording test below asks whether the gloss survives the verified quotes JOINED, so a phrase assembled across two passages counted as two sources agreeing about it and the card said so to a paying customer. Agreement is now the sources that each carry the proposal on their own; one that only corroborates part of it is read, kept and never counted as a second voice.
-  const backs = (url: string): boolean => !v.proposed?.trim() || glossCarriedBy(v.proposed, [verified.get(url) ?? ""]);
-  const agreeing = supporters.filter((p) => backs(p.url));
-  // EVERY RUNG READS THE CARRIERS, NOT THE READERS. The first version filtered correctly and then fell back to `supporters.length` for the single rung, so a row whose sources were all read and none of which carried the proposal still reported single_source, naming a source standing behind wording no source said. Nothing is discarded either way: every passage stays on the row with its own quote, and the note says when what was read does not carry what is proposed.
-  const agreement: FactCheck["agreement"] = agreeing.length > 1 ? "multiple_agree"
-    : agreeing.length === 1 ? "single_source" : "none_found";
-  const readNotCarrying = agreeing.length === 0 && supporters.length > 0;
-  // ONE AUTHORITY, OR TWO INDEPENDENT CREDIBLE PUBLISHERS. An ordinary publisher supports `likely` and never
-  // authorizes replacing published words on its own (Codex, 2026-08-19).
-  const confirmable = supporters.some((p) => AUTHORITATIVE.has(p.kind))
-    || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2;
+  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support,
+  // 2026-08-29). The model locates the supporting sentence and its spans; supportFailure accepts nothing it
+  // cannot find verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the
+  // subject named in that sentence or by this same fetch's own document title. What used to stand here was
+  // glossCarriedBy, a bag-of-words provenance test that let a passage about the man who held a title carry a
+  // name's meaning; provenance remains a refusal inside unauthorizedReason and authorizes nothing.
+  const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const)); const proposedNow = (v.proposed ?? "").trim();
+  const bankedSources = passages.map((p) => {
+    const says = (verified.get(p.url) ?? "").slice(0, 600);
+    const stamp = { url: p.url, kind: p.kind, says, ...(p.title ? { titleContext: p.title, titleContextFrom: "fetched_document" as const } : {}) };
+    if (!says || !proposedNow || !supporters.includes(p)) return stamp;
+    const ctx: SupportContext = { tenantId, page: page.path, statementKey: next!.statementKey,
+      pageLocator: claim.locator, subject: claim.subject, claimKind: type, current: claim.current,
+      proposed: proposedNow, url: p.url, kind: p.kind, quote: says, titleContext: p.title ?? null };
+    const r = rulings.get(p.url) ?? rulings.get(vouchedAs.get(p.url) ?? "");
+    const candidate: ClaimSupport | null = r ? { version: SUPPORT_ARTIFACT_VERSION, identity: supportIdentity(ctx),
+      supported: r.supported === true, supportSpan: r.supportSpan ?? "", subjectSpan: r.subjectSpan ?? "",
+      subjectFrom: r.subjectFrom === "title" ? "title" : "quote", relationSpan: r.relationSpan ?? "",
+      meaningSpans: r.meaningSpans ?? [] } : null;
+    const failure = candidate ? supportFailure(candidate, ctx) : "meaning_absent" as const;
+    return { ...stamp, support: failure == null ? candidate! : unsupportedArtifact(ctx, failure) };
+  });
+  // AGREEMENT IS SUPPORT, NOT INVENTORY: the sources whose own validated artifact carries this proposal.
+  // Without a proposal there is nothing to carry and the vouched readers count, exactly as before.
+  const carriers = proposedNow
+    ? bankedSources.filter((b) => "support" in b && b.support?.supported)
+    : bankedSources.filter((b) => b.says.trim() !== "" && supporters.some((p) => p.url === b.url));
+  const agreement: FactCheck["agreement"] = carriers.length > 1 ? "multiple_agree" : carriers.length === 1 ? "single_source" : "none_found";
+  const readNotCarrying = carriers.length === 0 && supporters.length > 0;
+  const confirmable = (supporters.some((p) => AUTHORITATIVE.has(p.kind))
+    || supporters.filter((p) => CREDIBLE.has(p.kind)).length >= 2)
+    && (!proposedNow || carriers.some((b) => AUTHORITATIVE.has(b.kind)));
   // AND A REPLACEMENT HAS TO BE FOUND IN THE QUOTE THE ROW WILL BANK, NOT MERELY SOMEWHERE ON THE PAGE: the full fetched text used to authorize here, and live it confirmed "Mountain Rampart" off a sentence one past the verified quote, so the customer receipt showed a quote that never carried the published words. The page may help LOCATE evidence; only the verified quotes authorize. A correction (current wording exists) needs every content word of its short gloss carried by those quotes and may not simply restate one of them as the page's line; a missing-information statement keeps the older share, now against quotes.
   const read = norm(supporters.map((p) => verified.get(p.url) ?? "").join(" "));
   const words = (v.proposed ?? "").toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 4 && !FILLER.has(w));
@@ -431,7 +431,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   return bank({ ...base,
     proposed: confidence === "unsupported" ? null : (v.proposed?.trim() || null),
     literal: v.literal?.trim() || null, usage: v.usage?.trim() || null,
-    sources: passages.map((p) => ({ url: p.url, kind: p.kind, says: (verified.get(p.url) ?? "").slice(0, 600) })),
+    sources: bankedSources,
     sourceReadAt: supporters[0]?.readAt ?? null,
     agreement, confidence, verdict: v.verdict,
     note: `${v.note ?? ""}${supporters.length > 0 ? "" : " No fetched passage carries a quote it relied on, so this is held below confirmed."}${readNotCarrying ? ` ${supporters.length} ${supporters.length === 1 ? "source was" : "sources were"} read and none of them carries the wording proposed here, so no source is named as standing behind it.` : ""}${dropped.length > 0 ? ` ${dropped.length} quoted ${dropped.length === 1 ? "source was" : "sources were"} set aside for being about a different subject or language than this page's.` : ""}${carried || confidence === "unsupported" ? "" : blocked ? ` Held below confirmed: ${blocked}.` : " The wording proposed here is not carried by the verified quote, so it is held below confirmed until a source says it."}`.trim() });

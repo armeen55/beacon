@@ -14,8 +14,9 @@ import "server-only";
  *  `disputed` stay in review; `unsupported` names the missing source and proposes NOTHING. THE PAGE AS IT READ
  *  IS PART OF THE FACT TOO: `pageContentHash` is what tells a corrected statement from an untouched one. */
 
-import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
+import { AUTHORITATIVE_KIND, GLOSS_STOP, supportShortfall } from "./claim-support";
+import type { ClaimSupport } from "./claim-support";
 import { log } from "@/lib/logger";
 
 const TABLE = "page_source_facts";
@@ -74,88 +75,6 @@ export type FactCheck = {
   evidenceBasis: string | null;
   checkedAt: string;
 };
-
-/** THE SUPPORT ARTIFACT, versioned SEPARATELY from verification (2026-08-29). VERIFICATION_RULES_VERSION
- *  answers whether a source was really read, whether its quote exists, whether it is about the right entity
- *  and whether it may speak at all. It never answers the only question that authorizes a correction: does
- *  THIS passage explicitly support THIS proposed wording. Its own contract, its own version, so adding it
- *  retires no banked verification and re-buys no research.
- *
- *  V2 (2026-08-29), before a single artifact was banked, so this invalidates nothing. V1 shipped with four
- *  defects found in review: it never actually attached to the source record so it could not persist; it
- *  truncated its identity to 96 bits, which this codebase has already been bitten by once; it looked for
- *  subject, relation and meaning ANYWHERE in a 600 character quote, so unrelated clauses reassembled into
- *  support, which is the exact failure the contract exists to prevent; and it compared material words by
- *  substring, so "light" was carried by "delight". */
-export const SUPPORT_ARTIFACT_VERSION = 2;
-
-export type UnsupportedReason = "subject_absent" | "relation_absent" | "meaning_absent" | "span_not_verbatim"
-  | "not_localized" | "wrong_source" | "wrong_claim" | "stale" | "empty_quote";
-
-/** One source's ruling on ONE claim. Every span promises the text is findable where it says it is. */
-export type ClaimSupport = {
-  version: number;
-  /** Full SHA-256 over every load bearing input. Any drift retires it. */
-  identity: string;
-  supported: boolean;
-  reason?: UnsupportedReason;
-  /** THE ONE PLACE THE SUPPORT LIVES: a sentence, or an adjacent pair when the second continues the first.
-   *  Everything below must sit inside THIS, not merely somewhere in the quote. */
-  supportSpan: string;
-  subjectSpan: string;
-  subjectFrom: "quote" | "title";
-  relationSpan: string;
-  meaningSpans: string[];
-};
-
-export type SupportContext = {
-  tenantId: string; page: string; statementKey: string; pageLocator: string | null;
-  subject: string; claimKind: string; current: string; proposed: string;
-  url: string; kind: SourceKind; quote: string; titleContext: string | null;
-};
-
-const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
-/** WORDS, not substrings: "light" is not carried by "delight", and a three letter gloss like "sea" counts. */
-const wordsOf = (t: string): string[] => t.toLowerCase().normalize("NFKD")
-  .replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 0);
-
-export function supportIdentity(c: SupportContext): string {
-  return createHash("sha256").update([c.tenantId, c.page, c.statementKey, c.pageLocator ?? "", c.subject,
-    c.claimKind, c.current, c.proposed, c.url, c.kind, c.quote, c.titleContext ?? "",
-    String(SUPPORT_ARTIFACT_VERSION)].join("\u0000")).digest("hex");
-}
-
-/** AN EXPLICIT LEXICAL RELATION. Required for a NAME OR WORD MEANING, where a passage that merely mentions a
- *  person carries nothing; a temperature, a date or a measurement is a different kind of claim and is not
- *  asked for etymology vocabulary it would never contain. */
-const RELATION = /\b(means?|meaning|derives?\s+from|derived\s+from|comes?\s+from|from\s+(?:the\s+)?(?:arabic|persian|proto-\w+)|variants?\s+of|is\s+a\s+variant|translates?\s+(?:as|to)|etymolog\w*)\b/i;
-const LEXICAL_KIND = new Set(["word_meaning", "definition", "name_meaning"]);
-
-/** THE DETERMINISTIC HALF. A model may LOCATE spans; only this may accept them, and it accepts nothing it
- *  cannot find verbatim in the exact text that source banked. Null when valid, else the typed reason. */
-export function supportFailure(a: ClaimSupport | null | undefined, c: SupportContext): UnsupportedReason | null {
-  if (!a || a.version !== SUPPORT_ARTIFACT_VERSION) return "stale";
-  if (a.identity !== supportIdentity(c)) return "stale";
-  if (!a.supported) return a.reason ?? "meaning_absent";
-  const quote = norm(c.quote), title = norm(c.titleContext ?? ""), span = norm(a.supportSpan);
-  if (quote === "") return "empty_quote";
-  if (span === "" || !quote.includes(span)) return "not_localized";
-  // The subject is named INSIDE the supporting sentence, or by a heading from this same fetch.
-  const subject = norm(a.subjectSpan);
-  const where = a.subjectFrom === "title" ? title : span;
-  if (subject === "" || !where.includes(subject)) return "subject_absent";
-  // ...and it must BE the subject: "Laila" is not "Leila", because edit distance is evidence of spelling.
-  if (subject !== norm(c.subject)) return "subject_absent";
-  if (LEXICAL_KIND.has(c.claimKind)) {
-    if (!span.includes(norm(a.relationSpan)) || !RELATION.test(a.relationSpan)) return "relation_absent";
-  }
-  if (a.meaningSpans.length === 0) return "meaning_absent";
-  for (const m of a.meaningSpans) { if (norm(m) === "" || !span.includes(norm(m))) return "span_not_verbatim"; }
-  const carried = new Set(wordsOf(a.meaningSpans.join(" ")));
-  const material = wordsOf(c.proposed.replace(/^\s*meaning\s*:/i, "")).filter((w) => !GLOSS_STOP.has(w));
-  if (material.length > 0 && !material.every((w) => carried.has(w))) return "meaning_absent";
-  return null;
-}
 
 export const statementKeyOf = (subject: string): string => subject.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -367,7 +286,6 @@ const definesOtherName = (says: string, subject: string): boolean => {
  *  guesses synonyms, translation or semantic equivalence, and these rules apply ONLY to the correction shape
  *  (a row correcting current wording), never to any other proposal family. */
 const foldText = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/(\d),(?=\d)/g, "$1");
-const GLOSS_STOP = new Set(["that", "this", "with", "from", "have", "which", "also", "used", "word", "these", "their", "them", "when", "such", "into", "than", "then", "they", "were", "been", "being", "there", "where", "what", "would", "about", "means", "meaning", "name"]);
 const allTokens = (t: string): string[] => foldText(t).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 const contentTokens = (t: string): string[] => allTokens(t).filter((w) => w.length >= 4 && !GLOSS_STOP.has(w));
 /** One word's plain stems: -ies to -y, then one -ing/-es/-ed/-s/-d strip. Never shorter than three letters. */
@@ -403,7 +321,6 @@ export function citationOfQuote(proposed: string, quotes: readonly string[], cur
     for (const w of qt) if (w === pt[i]) { i += 1; if (i === pt.length) return true; }
     return false; });
 }
-const AUTHORITATIVE_KIND: ReadonlySet<SourceKind> = new Set(["scholarly", "dictionary", "encyclopedia"]);
 /** THE CORRECTION AS BOTH ENDS SEE IT: the evidence run judges a candidate before banking it and the card door
  *  judges the banked row, through the ONE rule below, so a row can never be banked `confirmed` and then be
  *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
@@ -434,7 +351,8 @@ export function unauthorizedReason(c: CorrectionCandidate): string | null {
 }
 
 export function authorizedCorrections(checks: readonly FactCheck[],
-  current?: { pageContentHash: string | null; evidenceBasis?: string | null }): FactCheck[] {
+  current: { pageContentHash: string | null; evidenceBasis?: string | null } | undefined,
+  tenantId: string): FactCheck[] {
   return checks.filter((c) => c.state === "checked"
     && c.rulesVersion === VERIFICATION_RULES_VERSION
     && c.confidence === "confirmed"
@@ -447,6 +365,10 @@ export function authorizedCorrections(checks: readonly FactCheck[],
     && !!c.sourceReadAt
     // AUTHORITY, SUBJECT IDENTITY AND QUOTE-BOUND WORDING, asked once, by the one rule above.
     && unauthorizedReason(c) == null
+    // AND THE SOURCE'S OWN PASSAGE MUST SUPPORT THE EXACT CLAIM (claim-support, 2026-08-29): a correction may
+    // stand only on a source whose current artifact carries this proposal, so a passage that merely discusses
+    // the subject authorizes nothing. Missing-information rows keep their own contract inside the shortfall.
+    && supportShortfall(c, tenantId) == null
     && (!current || (c.pageContentHash != null && c.pageContentHash === current.pageContentHash
       && (current.evidenceBasis === undefined || (c.evidenceBasis ?? null) === (current.evidenceBasis ?? null)))));
 }

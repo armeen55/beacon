@@ -25,24 +25,33 @@ Object.assign(db.client, supabaseFake({ rows: () => db.rows, insertDefaults: () 
 const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_DEFECTS.review;
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
+import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
 import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
 const LIVE_HASH = pageHashOf(["Persian female names", "Afsaneh means Goddess, divine and strong."].join("\n"));
 const snapshot = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }] } as unknown as EvidenceSnapshot;
-const check = (over: Record<string, unknown> = {}) => ({
+/** EVERY FIXTURE EARNS ITS ARTIFACTS THE REAL WAY: each source's quote goes through the same deterministic derivation production runs, so a quote that genuinely carries its claim is supported and one that does not is refused. Nothing is hand-signed. */
+type Src = { url: string; kind: string; says: string; titleContext?: string; support?: unknown };
+const bless = (row: Record<string, unknown>): Record<string, unknown> => ({ ...row,
+  sources: (row.sources as Src[]).map((s) => { const a = deriveSupport({ tenantId: "t", page: String(row.page),
+    statementKey: String(row.statementKey), pageLocator: (row.pageLocator as string | null) ?? null,
+    subject: String(row.subject), claimKind: claimTypeOf(String(row.subject), String(row.current), (row.pageLocator as string | null) ?? null),
+    current: String(row.current), proposed: String(row.proposed ?? ""), url: s.url, kind: s.kind as never,
+    quote: s.says, titleContext: s.titleContext ?? null }); return a ? { ...s, support: a } : s; }) });
+const check = (over: Record<string, unknown> = {}) => bless({
   page: "/persian-female-first-names", statementKey: String(over.subject ?? "Afsaneh").toLowerCase(),
   pageContentHash: LIVE_HASH, evidenceBasis: "basis_x::d8", state: "checked", rulesVersion: VERIFICATION_RULES_VERSION,
   sourceReadAt: "2026-08-17T00:00:00.000Z", pageLocator: null, subject: "Afsaneh", current: "Goddess, divine and strong.",
   proposed: "Legend, myth, fable in Persian.", language: "Persian", literal: "legend", usage: null,
-  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "legend, myth or fable in Persian" },
+  sources: [{ url: "https://www.behindthename.com/name/afsaneh", kind: "dictionary", says: "the name Afsaneh means legend, myth or fable in Persian" },
     { url: "https://en.wiktionary.org/wiki/افسانه", kind: "dictionary", says: "fable" }],
   agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
   checkedAt: "2026-08-17T00:00:00.000Z", ...over });
 import { mutationFootprint, footprintsOverlap } from "@/domains/decision/mutation-footprint";
 const many = (n: number) => Array.from({ length: n }, (_, i) =>
   check({ subject: `Name${i}`, current: `Wrong meaning ${i}.`, proposed: `Right gloss ${i}.`,
-    sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `it means right gloss ${i}` }] }));
+    sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `Name${i} means right gloss ${i}` }] }));
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
@@ -58,6 +67,12 @@ describe("a page's own statements against their sources", () => {
     store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.why.join(" "), "the live reading's own refusal").toContain("restates the source's own sentence");
+    // A ROW EVERY OLDER RULE ACCEPTS AND NO ARTIFACT SUPPORTS IS WITHDRAWN SAYING SO: exactly the passage that used to authorize silently.
+    const stripped = check() as { sources: { support?: unknown }[] };
+    stripped.sources = stripped.sources.map((x) => ({ ...x, support: undefined }));
+    checks.rows = [stripped]; store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
+    await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    expect(store.why.join(" "), "the support shortfall names itself").toContain("no source's own passage has been shown to support this exact claim");
     store.withdrew = []; store.bodyFails = true;
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.withdrew).toEqual([]); });
@@ -74,7 +89,7 @@ describe("a page's own statements against their sources", () => {
     expect(card!.recommendedChange).toMatchObject({ kind: "existing_edit", field: "section",
       before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
-    expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "legend, myth or fable in Persian"');
+    expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "the name Afsaneh means legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
     expect(card!.status, "Beacon's own reviewer has not read it yet, so it is not offered as finished").toBe("needs_review"); });
   it("a hypothesis or a homograph derivation never authorizes a flat replacement", async () => {
@@ -82,7 +97,8 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
       check({ subject: "Ariana", proposed: "Most holy", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
       check({ subject: "Aryana", proposed: "silver", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
-      check({ subject: "Leila", proposed: "Night", sources: src('The name Laila comes from the Arabic word layl, which means "night"') })];
+      // THE QUOTE NAMES LEILA HERSELF: the old fixture named Laila and still minted, the exact live defect claim-support refuses now, so the clean case that SHOULD mint has to earn it.
+      check({ subject: "Leila", proposed: "Night", sources: src('The name Leila comes from the Arabic word layl, which means "night"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
   it("the banked quote is the only text that may authorize a short gloss, and a citation is not a gloss", async () => {
@@ -129,8 +145,9 @@ describe("a page's own statements against their sources", () => {
       checks.rows = [check(bad)];
       expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); } });
   it("shows the worst first, never the alphabet", async () => {
-    checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [] }),
-      check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"] })];
+    const carry = (name: string) => [{ url: `https://en.wiktionary.org/${name}`, kind: "dictionary", says: `The name ${name} means legend, myth or fable in Persian` }];
+    checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [], sources: carry("Aaa") }),
+      check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"], sources: carry("Zzz") })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards[0]!.opportunityType).toContain("Zzz"); });
   it("mints nothing for a page this account does not own", async () => {
@@ -144,9 +161,10 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     // is an overclaim. The kind is read from the STORED verdict and from the two wordings, never from the copy.
     const src = (says: string) => [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says }];
     checks.rows = [
-      check({ subject: "Leila", verdict: "page_wrong", current: "Meaning:Beauty and purity.", proposed: "Night; dark", sources: src('layl means "night", or "dark"') }),
+      check({ subject: "Leila", verdict: "page_wrong", current: "Meaning:Beauty and purity.", proposed: "Night; dark", sources: src('The name Leila means "night", or "dark"') }),
       check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright, radiant, or glowing.", proposed: "Light", sources: src('The name Noor means "light"') }),
-      check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: src('The name has the meaning "like the moon"') })];
+      // THE SAME-FETCH TITLE IDENTIFIES THE ANAPHORIC PASSAGE: the live Mahsa shape, supportable only because the fetched document's own title names her while the sentence says "the name".
+      check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says: 'The name has the meaning "like the moon"', titleContext: "Mahsa" }] })];
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
     // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
@@ -217,7 +235,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(earned[0]!.semanticReview!.claims).toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     // A CARD STANDING ON TWO PASSAGES MUST BE RULED AGAINST BOTH: naming only one of them is a different question than the claim asks, and every named id is banked, so nothing else catches this.
     checks.rows = [check({ subject: "Pair", current: "Wrong.", proposed: "Right.",
-      sources: [{ url: "https://en.wiktionary.org/a", kind: "dictionary", says: "it means right" }, { url: "https://en.wikipedia.org/b", kind: "encyclopedia", says: "also right" }] })];
+      sources: [{ url: "https://en.wiktionary.org/a", kind: "dictionary", says: "Pair means right" }, { url: "https://en.wikipedia.org/b", kind: "encyclopedia", says: "Pair also means right" }] })];
     const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
     expect(two[0]!.claims![0]!.supportedBy.length, "the card really declares two").toBe(2);
     const ruleTwo = (ids: string[]) => async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "fine",
@@ -266,8 +284,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       check({ subject: "Mahsa", current: "Meaning:Moonbeam, delicate and bright.", proposed: "like the moon", sources: q1('Mahsa means "like the moon"') }),
       check({ subject: "Shab", current: "Meaning:Darkness everlasting.", proposed: "night; dusk; evening", sources: q1('shab means "night", "dusk", or "evening"') }),
       check({ subject: "Roya", current: "Definition:Ambition and hope.", proposed: "a dream", sources: q1('Roya means "a dream"') }),
-      check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark", sources: [...q1('layl means "night", or "dark"'), { url: "https://x.example/l", kind: "publisher", says: 'night; dark' }] }),
-      check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart", sources: q1('from Hara Barazaiti, meaning "Mountain Rampart"') })];
+      check({ subject: "Leila", current: "Meaning:Beauty, purity, and tranquility.", proposed: "Night; dark", sources: [...q1('The name Leila means "night", or "dark"'), { url: "https://x.example/l", kind: "publisher", says: 'night; dark' }] }),
+      check({ subject: "Alborz", current: "Alborz\nMeaning:Shining like a heavenly flower.", proposed: "Mountain Rampart", sources: q1('Alborz is derived from Hara Barazaiti, meaning "Mountain Rampart"') })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
@@ -310,7 +328,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
 
   it("an empty answer never reaches the paid call, and the reviewer reads the exact quotes", async () => {
     checks.rows = [check({ subject: "Jasmine", current: "Meaning:Water lily, pure and serene.", proposed: "Jasmine",
-        sources: [{ url: "https://en.wikipedia.org/j", kind: "encyclopedia", says: "the name Jasmine" }] }),
+        sources: [{ url: "https://en.wikipedia.org/j", kind: "encyclopedia", says: 'the name Jasmine means "Jasmine"' }] }),
       check({ subject: "Atossa", current: "Meaning:Heavenly and radiant.", proposed: "Bestowing very richly.",
         sources: [{ url: "https://en.wikipedia.org/a", kind: "encyclopedia", says: 'Atossa means "bestowing very richly"' }] })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });

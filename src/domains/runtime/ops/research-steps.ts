@@ -532,9 +532,9 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
         fetchSource: async (url) => {
           const r = await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));
           if (r == null || "hold" in r) return { hold: r?.hold ?? "unavailable" };
-          const parsed = r.parsed as { bodyText?: string | null; openingSample?: string | null; headings?: string[] } | null;
+          const parsed = r.parsed as { title?: string | null; bodyText?: string | null; openingSample?: string | null; headings?: string[] } | null;
           const text = [parsed?.bodyText, parsed?.openingSample, ...(parsed?.headings ?? [])].filter(Boolean).join("\n");
-          return text.trim() ? { text } : { hold: "refused" as const };
+          return text.trim() ? { text, title: parsed?.title ?? null } : { hold: "refused" as const }; // the FETCHED document's own title rides along: it identifies the subject of an anaphoric passage, which a SERP title or slug never can
         },
       });
       return { status: out.status, banked: out.banked, pagesComplete: out.pagesComplete, failure: out.failure, reason: out.reason };
