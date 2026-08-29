@@ -4,10 +4,12 @@ import "server-only";
  * THE OPERATOR'S DAILY CAP, MECHANICALLY ENFORCED AT EVERY PAID DOOR. `daily_budget_usd` sat on every
  * account row read by nothing, so the one number the operator was told bounds a day bounded nothing.
  * Today's total across EVERY platform on the one ledger is held under it, and both paid doors (the LLM
- * budget check and the search-buy reservation) ask this before spending. FAIL CLOSED where it matters:
- * an unreadable ledger refuses, because unknown spend is not allowance; an unreadable ACCOUNT falls back
- * to the provisioning default rather than refusing, because the account read failing must not silence
- * every paid path. A cap of zero or less means the operator turned paid work off for the day.
+ * budget check and the search-buy reservation) ask this before spending. FAIL CLOSED, both ways: an
+ * unreadable ledger refuses, because unknown spend is not allowance, and an unreadable ACCOUNT refuses
+ * too. It used to fall back to the provisioning default so a failed account read could not silence every
+ * paid path, and that was the wrong trade: an account whose operator had set the day to zero would have
+ * spent against the default allowance on one flickering read. A cap of zero or less means the operator
+ * turned paid work off for the day, and a cap nobody could read is not the default cap.
  */
 
 import { getTenant } from "@/domains/account";

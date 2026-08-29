@@ -70,8 +70,8 @@ export type TodayComposite = {
    *  a next pass or work happening behind the scenes while it is off, so the surfaces read this and say the
    *  truthful line with the control that fixes it. A switch that could not be read claims nothing either way. */
   researchPaused?: boolean;
-  /** TRUE when the budget gate the paid work itself asks is refusing, so the screen says so instead of looking like a quiet day. */
-  paidWorkStopped?: boolean;
+  /** TRUE when the MONTHLY MODEL budget the paid work itself asks about is refusing. Named for what it proves: search, stored evidence, cached answers and every deterministic path are not what this gate answers for. */
+  modelBudgetSpent?: boolean;
   /** THE HEARTBEAT SENTENCE, off the latest research run's own row: what the last pass did and when, or that
    *  none has run. Absent when the row could not be read, so an outage never claims research is dead. */
   researchLiveness?: string;
@@ -259,7 +259,7 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     // a ceiling where every real call is refused, so the line would never have appeared on the day it is for.
     checkBudget({ tenantId, projectedCostUsd: 0.01 }).then((b) => b.allowed === false).catch(() => false),
   ]);
-  const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { paidWorkStopped: true } : {}),
+  const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { modelBudgetSpent: true } : {}),
     ...(runStatus?.liveness?.line ? { researchLiveness: runStatus.liveness.line } : {}) };
   // WHAT I SAY WHEN I COULD NOT LOOK. "Nothing needs a decision today" is the one sentence an outage must never produce: it is a claim
   // about their business they cannot tell apart from the truth.

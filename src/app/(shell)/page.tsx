@@ -301,10 +301,10 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {composite.researchLiveness ? (
         <p className="text-[12px] leading-relaxed text-muted-foreground" data-research-liveness="true">{composite.researchLiveness}</p>
       ) : null}
-      {/* A SPENT BUDGET IS A FACT ABOUT THIS ACCOUNT TOO, and it stops every paid door at once while this screen carries on looking normal. Said in one line rather than left to look like a quiet day. */}
-      {composite.paidWorkStopped ? (
-        <p className="text-[13px] leading-relaxed text-muted-foreground" data-paid-work-stopped="true">
-          Paid research is stopped because this account&rsquo;s budget for it is spent, so no new opportunity is being worked on and nothing new lands here until the budget allows it again.
+      {/* A SPENT MODEL BUDGET IS A FACT ABOUT THIS ACCOUNT, said in one line rather than left to look like a quiet day. SAID NO WIDER THAN IT IS PROVEN (operator, 2026-08-29): the gate this asks answers for the monthly model budget alone, so the line may not claim that search, stored evidence, cached answers or any deterministic work has stopped, because none of that is what was checked. */}
+      {composite.modelBudgetSpent ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground" data-model-budget-spent="true">
+          New AI writing and factual reviews are paused because this month&rsquo;s model budget is spent. Work that costs nothing carries on, and anything already researched still lands here.
         </p>
       ) : null}
       {/* THE PAUSE SWITCH IS A FACT ABOUT THIS ACCOUNT, said where the work is with the control that turns it back on. Nothing here may promise a nightly round while it is off. */}

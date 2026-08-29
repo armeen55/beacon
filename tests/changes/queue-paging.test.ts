@@ -71,9 +71,9 @@ describe("Today and Changes answer one question once", () => {
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
     // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
-    budget.allowed = false; const refused = (await loadTodayView()).paidWorkStopped; budget.throws = true;
-    const unread = (await loadTodayView()).paidWorkStopped; budget.throws = false; budget.allowed = true;
-    expect([refused, unread, (await loadTodayView()).paidWorkStopped], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
+    budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true;
+    const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true;
+    expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
 
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
     const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
