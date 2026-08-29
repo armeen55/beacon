@@ -1507,3 +1507,54 @@ describe("distinct atomic changes on one page do not suppress each other", () =>
     expect(mutationKey(at("/farsi-numbers", "title", "a"))).toBe(mutationKey(at("/farsi-numbers", "title", "b")));
     expect(mutationKey(at("/farsi-numbers", "section", "Persian Numbers 0-9 Names And Symbols"))).toBe(zero);
     expect(mutationKey(at("/cities", "title"))).not.toBe(title); });});
+
+/** FINISHED WORK IS NOT HIDDEN BY UNFINISHED WORK (operator, 2026-08-29). Two overlapping rows were separated
+ *  on FOOTPRINT SIZE alone, so a half-finished bundle could take a finished, paste-ready atomic change off the
+ *  screen with it. Lifecycle asks first now, so richness only ever breaks a tie between rows at the same stage. */
+describe("an unfinished change may not hide a finished one", () => {
+  const PAGE = "/iran-flags/late-safavid-military-flag";
+  const base = (id: string, over: Partial<ChangeProposal>): ChangeProposal => ({
+    id, tenantId: TENANT, kind: "existing_edit", pagePath: PAGE, pageUrl: `https://www.iranopedia.com${PAGE}`,
+    pageLabel: "Flag", primaryQuery: "late safavid military flag", opportunityType: "o", changeFamily: "meta",
+    status: "ready", whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium",
+    limitations: [], evidence: { query: "late safavid military flag", hints: [], evidenceRefCount: 1 },
+    impactScore: 10, upsidePerMonth: null, basis: "basis_today", createdAt: "2026-08-01T00:00:00.000Z",
+    recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" }, ...over,
+  } as unknown as ChangeProposal);
+  /** A MARK-ONLY REPAIR IS ITS OWN EVIDENCE, so this row truly reaches the ready lane; a creative rewrite would be held for demand evidence and would prove nothing about lifecycle. */
+  const atomic = (id: string, field: string, over: Partial<ChangeProposal> = {}) =>
+    base(id, { recommendedChange: { kind: "existing_edit", field,
+      before: "Late Safavid Military Flag , Iran", after: "Late Safavid Military Flag, Iran" }, ...over } as Partial<ChangeProposal>);
+  const bundled = (id: string, kinds: string[], over: Partial<ChangeProposal> = {}) =>
+    base(id, { bundle: { components: kinds.map((k) => ({ kind: k, page: PAGE, after: `new ${k}`, evidenceKeys: [] })),
+      receipt: { items: [] }, scope: { prompts: [] } }, ...over } as Partial<ChangeProposal>);
+  const seat = async (rows: ChangeProposal[]) => {
+    store.rows.clear();
+    for (const r of rows) store.rows.set(r.id, r);
+    return loadProposalQueue(TENANT, { currentBasis: "basis_today", now: NOW });
+  };
+  it("keeps a finished atomic change visible when a bigger unfinished bundle overlaps it, whatever order they arrive in", async () => {
+    const rows = [bundled("bundle", ["title", "meta", "h1"], { status: "needs_review" }), atomic("finished-title", "title")];
+    const forward = await seat(rows), backward = await seat([...rows].reverse());
+    expect(forward.ranked.map((p) => p.id)).toEqual(["finished-title"]);
+    expect(forward.ready.map((p) => p.id)).toEqual(["finished-title"]);
+    expect(backward.ranked.map((p) => p.id)).toEqual(forward.ranked.map((p) => p.id)); // one order, every read
+  });
+
+  /** READY IS A VERDICT, NOT A COLUMN: a row stamped ready by an older pass, or still owing a source, is not finished work, and the stamp alone would hand the screen back to the half-done rows. */
+  it("does not treat a row merely stamped ready as finished when its own hold still stands", async () => {
+    const q = await seat([
+      bundled("stamped", ["title", "meta"], { status: "ready", limitations: ["Add one before this is paste-ready."] }),
+      atomic("really-ready", "title"),
+    ]);
+    expect(q.ranked.map((p) => p.id)).toEqual(["really-ready"]);
+    expect(q.ready.map((p) => p.id)).toEqual(["really-ready"]);
+  });
+
+  it("still lets richness decide between rows at the same stage, and leaves disjoint changes both standing", async () => {
+    const same = await seat([bundled("bundle", ["title", "meta"], { status: "needs_review" }), atomic("title-only", "title", { status: "needs_review" })]);
+    expect(same.ranked.map((p) => p.id)).toEqual(["bundle"]); // lifecycle does not separate them, so size still decides
+    const disjoint = await seat([atomic("t", "title"), atomic("m", "meta")]);
+    expect(disjoint.ranked.map((p) => p.id).sort()).toEqual(["m", "t"]); // different mutations, both stand
+  });
+});

@@ -130,8 +130,38 @@ export async function loadProposalQueue(
   // boundary decides is which of the three lanes it lands in and which controls its card carries.
   const all = standing;
   // A CHANGE REPLACES ONLY THE WORK IT ACTUALLY OVERWRITES (operator, 2026-08-26). This asked instead whether any OTHER row on the page carried a bundle, and dropped every non-bundle row when one did. Live that hid eight standing rows behind a single table-row bundle, three of them already shown to the operator as Ready: the /farsi-numbers zero explainer, and the Late Safavid linked paragraph and title. One page is not one opportunity, so the question is what each row WRITES: a bundle rewriting a title still takes the plain title rewrite with it, while a table row, a heading, a schema block and a title on one page are four changes and all four stand. READ AFTER the basis filter above, never before it: a row that cannot be presented may not suppress one that can. Richest first, so the bundle that subsumes several atomic cards is the one kept, and ties break on id so the queue is the same on every read. Ranking has not run yet, which is why worth cannot decide it here.
+  // FINISHED WORK IS NOT HIDDEN BY UNFINISHED WORK (operator, 2026-08-29). Which of two overlapping rows
+  // survived was decided on FOOTPRINT SIZE alone, so the richer row won whatever state it was in: a
+  // half-finished bundle outranked an atomic change that was finished, checked and paste-ready, and the
+  // finished one left the screen. Richness says how much a row rewrites, never whether it is done.
+  // Lifecycle asks first now, off the SAME verdict the lanes below publish rather than `status` alone,
+  // because a row stamped ready by an older pass is not ready. Size still breaks ties among equals, so a
+  // finished bundle keeps subsuming the finished atomics it contains, and id breaks the rest: one order.
+  const laneCache = new Map<string, "ready" | "research" | "todo">();
+  const laneOf = (p: ChangeProposal): "ready" | "research" | "todo" => {
+    const seen = laneCache.get(p.id); if (seen != null) return seen;
+    const hold = openHold(p);
+    // A CARD WHOSE OWN RECEIPT SAYS ITS ACTION CANNOT FIX ITS CAUSE IS NOT A DRAFT (operator, 2026-08-17: a
+    // title rewrite sat at rank 2 in the drafts lane with causeFit reading "this change does not touch two of
+    // your own pages splitting one search"). The opportunity stays visible in the research lane, where its
+    // evidence still argues; it returns as a draft only when a pass writes the treatment its cause authorizes.
+    const cause = p.causeFinding?.cause ?? p.diagnosisCause;
+    // An UNTREATABLE cause on an edit card is the same contradiction with a different receipt: nothing a page
+    // edit can carry fixes it, so the card is a finding and argues from the research lane.
+    const mismatched = p.researchOnly !== true && cause != null
+      && ((CAUSE_LEVERS[cause]?.size ?? 0) === 0 || withholdReason(p, cause) != null);
+    // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
+    // stamped by an older door, and this queue has already shipped what an older door waved through. The
+    // opportunity stays ranked and visible either way; only the paste-ready claim waits for the current
+    // door's own yes.
+    const lane = hold.lane === "research" || mismatched ? "research" as const
+      : p.status === "ready" && hold.blocking == null && unsettledCause(p) == null && p.basis === currentBasis ? "ready" as const
+      : "todo" as const;
+    laneCache.set(p.id, lane); return lane;
+  };
+  const finished = (p: ChangeProposal): number => (laneOf(p) === "ready" ? 1 : 0);
   const held: ChangeProposal[] = [];
-  for (const p of [...all].sort((a, b) => mutationFootprint(b).size - mutationFootprint(a).size || a.id.localeCompare(b.id)))
+  for (const p of [...all].sort((a, b) => finished(b) - finished(a) || mutationFootprint(b).size - mutationFootprint(a).size || a.id.localeCompare(b.id)))
     if (!held.some((k) => footprintsOverlap(k, p))) held.push(p);
   const current = all.filter((p) => held.includes(p));
   const demotedStaleBasis = live.length - standing.length;
@@ -144,22 +174,9 @@ export async function loadProposalQueue(
   // READY has to mean ready: the validator passed it (status "ready"), it owes nobody a source, AND its lever treats the cause its own evidence named. That last one is the screen's half of the same boundary the producer now applies: a row stamped ready by an older pass, or by a producer that never asked, cannot serve as paste-ready work just because it is already on file. Every other current-basis row is a to-do. THE THREE LANES, off the ONE hold: nothing written yet is research, exact copy with anything at all still standing is a draft to review, and a row stamped ready whose holds are all answered is ready. `blocking` is asked here as well as at the mutation, so a row promoted by an older pass, or one whose banked placement can no longer be checked, is demoted in presentation instead of being served as paste-ready work.
   const ready: ChangeProposal[] = [], toDo: ChangeProposal[] = [], research: ChangeProposal[] = [];
   for (const p of ranked) {
-    const hold = openHold(p);
-    // A CARD WHOSE OWN RECEIPT SAYS ITS ACTION CANNOT FIX ITS CAUSE IS NOT A DRAFT (operator, 2026-08-17: a
-    // title rewrite sat at rank 2 in the drafts lane with causeFit reading "this change does not touch two of
-    // your own pages splitting one search"). The opportunity stays visible in the research lane, where its
-    // evidence still argues; it returns as a draft only when a pass writes the treatment its cause authorizes.
-    const cause = p.causeFinding?.cause ?? p.diagnosisCause;
-    // An UNTREATABLE cause on an edit card is the same contradiction with a different receipt: nothing a page
-    // edit can carry fixes it, so the card is a finding and argues from the research lane.
-    const mismatched = p.researchOnly !== true && cause != null
-      && ((CAUSE_LEVERS[cause]?.size ?? 0) === 0 || withholdReason(p, cause) != null);
-    if (hold.lane === "research" || mismatched) research.push(p);
-    // A ROW RE-ADMITTED ACROSS A GENERATION IS WORK AGAIN, NEVER PASTE-READY ON ARRIVAL: its `ready` was
-    // stamped by an older door, and this queue has already shipped what an older door waved through. The
-    // opportunity stays ranked and visible either way; only the paste-ready claim waits for the current
-    // door's own yes.
-    else if (p.status === "ready" && hold.blocking == null && unsettledCause(p) == null && p.basis === currentBasis) ready.push(p);
+    const lane = laneOf(p);
+    if (lane === "research") research.push(p);
+    else if (lane === "ready") ready.push(p);
     else toDo.push(p);
   }
   return {
