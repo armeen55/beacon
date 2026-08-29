@@ -1,6 +1,5 @@
 /** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
   /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
   const state = {
@@ -42,7 +41,7 @@ import {
   loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
   upsertShippedChange, type ShipmentVerification,
 } from "@/domains/measurement/proof-gsc/shipped-change-store";
-import { supabaseFake } from "../helpers/supabase-fake";
+import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({ rows: () => db.state.rows,
   error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null,
   same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id }));

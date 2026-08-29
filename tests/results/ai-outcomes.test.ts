@@ -28,6 +28,12 @@ const reader = (rows: AiObservationRecord[]) =>
       && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay))
       .slice(0, o.limit ?? (o.fromDay || o.toDay ? 40_000 : 500)).map((r) => ({ ...r })));
 const allDays = (report: Awaited<ReturnType<typeof aiOutcomes>>) => report.segments.flatMap((s) => s.days);
+/** THE ONE CALENDAR WALK behind every fixture stretch below: each day from `from` to `to`, `perDay` answers a day, each built from that day and its index within it. */
+const eachDay = (from: string, to: string, perDay: number, make: (day: string, i: number) => AiObservationRecord[]) => {
+  const out: AiObservationRecord[] = [];
+  for (let t = Date.parse(`${from}T00:00:00.000Z`); t <= Date.parse(`${to}T00:00:00.000Z`); t += 86_400_000)
+    for (let i = 0; i < perDay; i += 1) out.push(...make(new Date(t).toISOString().slice(0, 10), i));
+  return out;};
 describe("the daily AI trend, over stored answers only", () => {
   it("counts the mention rate over the answers actually read, and says null when none were read", async () => {
     const readObservations = reader([
@@ -146,12 +152,8 @@ describe("what the AI answers did around one shipped change", () => {
   const NOW28 = new Date("2026-08-18T12:00:00.000Z"), TO28 = "2026-08-17";
   const STAMP = "2026-07-21T10:00:00.000Z", Q = ["where should I go"]; // the searches THIS change was aimed at, which is what every fixture answer asks
   /** Every day from `from` to `to`, four questions a day, `named` of them naming the account. */
-  const stretch = (from: string, to: string, named: number) => {
-    const out: AiObservationRecord[] = [];
-    for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
-      const day = d.toISOString().slice(0, 10);
-      for (let i = 0; i < 4; i += 1) out.push(row({ day, prompt_id: `p${i}`, mentioned: i < named }));}
-    return out;};
+  const stretch = (from: string, to: string, named: number) =>
+    eachDay(from, to, 4, (day, i) => [row({ day, prompt_id: `p${i}`, mentioned: i < named })]);
   /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, // 140 answers, 100 read closely, 90 naming: the rate before is 0.9, where the old count said 0.64.
@@ -337,11 +339,8 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     retrieved_results: read === null ? null : read.map((d) => ({ url: `https://${d}/page`, domain: d, title: null })),
   });
   /** Every day from `from` to `to`, four answers a day on this change's own question. */
-  const days = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) => {
-    const out: AiObservationRecord[] = [];
-    for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
-      for (let i = 0; i < 4; i += 1) out.push(mine({ day: d.toISOString().slice(0, 10), ...make(i) }));}
-    return out;};
+  const days = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) =>
+    eachDay(from, to, 4, (day, i) => [mine({ day, ...make(i) })]);
   const scope = (stage: string) => ({ promptIds: ["p1"], engines: [], fanouts: [], stage });
   /** A baseline frozen over this change's own searches at an adequate size: 40 answers read closely, 10 naming, and what the 40 said about sources. Four-answer sides can never support a verdict now. */
   const frozen = (over: Record<string, unknown> = {}) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10,
@@ -413,13 +412,8 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.line).toContain("Gemini on gpt-5 (api), which this change's starting numbers never saw");});
   /** CONTROLS SIT ON THE SAME TUPLE AS THE READING THEY ADJUST: an unaffected question answered on an instrument the comparison excludes would subtract that other instrument's weather from this verdict. */
   it("holds no control from an instrument the comparison excludes, and keeps the same rows as controls on the frozen tuple", async () => {
-    const ctl = (over: Partial<AiObservationRecord> & { day?: string; mentioned?: boolean | null }) =>
-      row({ prompt_id: "p-ctl", prompt_text: "an unaffected question", ...over });
-    const ctlDays = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) => {
-      const out: AiObservationRecord[] = [];
-      for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
-        for (let i = 0; i < 4; i += 1) out.push(ctl({ day: d.toISOString().slice(0, 10), ...make(i) }));}
-      return out;};
+    const ctlDays = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) =>
+      eachDay(from, to, 4, (day, i) => [row({ prompt_id: "p-ctl", prompt_text: "an unaffected question", day, ...make(i) })]);
     const members = days("2026-07-21", "2026-07-31", () => ({ mentioned: true }));
     const on = (over: Partial<AiObservationRecord>) => [
       ...ctlDays("2026-07-15", "2026-07-20", () => ({ mentioned: false, ...over })),
@@ -459,11 +453,8 @@ describe("a conversion objective is graded on both halves, each on its own polar
   const CREDITED_UNREAD: Shape = [SITE, RIVAL];   // credited it without reporting that it read it
   const SILENT: Shape = [null, null];             // reported neither, so it is in no denominator
   /** The full 28 days since the change, four answers a day, the same four shapes every day. */
-  const since = (shapes: Shape[]) => {
-    const out: AiObservationRecord[] = [];
-    for (let t = Date.parse("2026-07-21T00:00:00Z"); t <= Date.parse("2026-08-17T00:00:00Z"); t += 86_400_000)
-      shapes.forEach(([c, r], i) => out.push(answer(new Date(t).toISOString().slice(0, 10), i, c, r)));
-    return out;};
+  const since = (shapes: Shape[]) =>
+    eachDay("2026-07-21", "2026-08-17", shapes.length, (day, i) => [answer(day, i, ...shapes[i]!)]);
   /** The frozen starting point at an adequate size: 40 answers, `citing` of each 10 crediting the page, and `passedOver` of each 10 that read it passed over. Four-answer sides can never support a verdict now. */
   const before = (citing: number, passedOver: number) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 40,
     citationSample: 40, ownedCiting: citing * 10, rankSum: citing * 10, rankCount: citing * 10,
@@ -501,31 +492,26 @@ describe("controls and per-assistant verdicts", () => {
   const NOW28 = new Date("2026-08-18T12:00:00.000Z"), STAMP = "2026-07-21T10:00:00.000Z";
   const mk = (day: string, i: number, promptId: string, promptText: string, mentioned: boolean, engine: "chatgpt" | "gemini" = "chatgpt") =>
     row({ day, id: `o-${promptId}-${engine}-${day}-${i}`, prompt_id: promptId, prompt_text: promptText, engine, mentioned });
-  const daysOf = (from: string, to: string, make: (day: string, i: number) => AiObservationRecord[]) => {
-    const out: AiObservationRecord[] = [];
-    for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000)
-      for (let i = 0; i < 2; i += 1) out.push(...make(new Date(t).toISOString().slice(0, 10), i));
-    return out;};
   const HELD = { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } };
   const judge = (rows: AiObservationRecord[]) => aiOutcomeForShipment(T,
     { scopeQueries: ["where should I go"], implementedAt: STAMP, shipmentBaseline: HELD }, { readObservations: reader(rows), now: NOW28 });
   const C1 = "an unaffected question", C2 = "another unaffected question", MINE = "where should I go";
   it("subtracts the unaffected questions' own drift before calling a verdict", async () => {
     const outcome = await judge([ // The change's searches rose from 25 to 100 percent, and so did every unaffected question, by exactly as much: the world moved, not the change, and the receipt says so.
-      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
-      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
+      ...eachDay("2026-07-14", "2026-07-20", 2, (d, i) => [mk(d, i, "c1", C1, i === 0), mk(d, i, "c2", C2, false)]),
+      ...eachDay("2026-07-21", "2026-08-17", 2, (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, true), mk(d, i, "c2", C2, true)])]);
     expect([outcome?.controls?.questions, outcome?.controls?.mentionDrift]).toEqual([2, 0.75]);
     expect(outcome?.direction).toBe("no_clear_movement"); // the drift ate the whole rise
     expect(outcome?.line).toContain("their movement is subtracted before anything is called"); });
   it("calls the same rise a win when the unaffected questions held still", async () => {
     const outcome = await judge([
-      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "c1", C1, i === 0)]),
-      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, i === 0)])]);
+      ...eachDay("2026-07-14", "2026-07-20", 2, (d, i) => [mk(d, i, "c1", C1, i === 0)]),
+      ...eachDay("2026-07-21", "2026-08-17", 2, (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "c1", C1, i === 0)])]);
     expect([outcome?.controls?.mentionDrift, outcome?.direction]).toEqual([0, "improved"]); });
   it("reports a split when two assistants genuinely disagree, never an average", async () => {
     const outcome = await judge([ // ChatGPT names the account on every answer since; Gemini stops naming it at all. Both mature, both adequately sampled, and the one honest overall answer is that they split.
-      ...daysOf("2026-07-14", "2026-07-20", (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
-      ...daysOf("2026-07-21", "2026-08-17", (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);
+      ...eachDay("2026-07-14", "2026-07-20", 2, (d, i) => [mk(d, i, "p1", MINE, i === 0), mk(d, i, "p1", MINE, i === 0, "gemini")]),
+      ...eachDay("2026-07-21", "2026-08-17", 2, (d, i) => [mk(d, i, "p1", MINE, true), mk(d, i, "p1", MINE, false, "gemini")])]);
     expect(outcome?.direction).toBe("mixed"); expect(new Set(outcome?.perEngine.map((e) => e.direction))).toEqual(new Set(["improved", "worsened"]));
     expect(outcome?.line).toContain("The assistants disagree"); }); });
 /** THE FINGERPRINT COVERS THE WHOLE SCOPE (reviewer, 2026-08-19): hashing prompt ids, cluster key and engines alone let a baseline keep the identity of a claim whose wordings, models, modes, observation ids or stage had all moved on. Membership is what it must cover; write order is not membership. */

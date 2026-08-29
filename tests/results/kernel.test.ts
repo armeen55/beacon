@@ -73,14 +73,33 @@ describe("ranking outcome signal", () => {
   it("ignores zero-signal reads, and stays neutral below the sample floor", () => {
     expect(rankingPriors(Array.from({ length: 3 }, () => ({ actionType: "faq", read: { rankingSignal: 0 } }))).has("faq")).toBe(false); expect(rankingPriors([{ actionType: "meta", read: { rankingSignal: 0.6 } }]).has("meta")).toBe(false);});});
 /** PHASE 7: the windows count from the stamp, a later change on the same page closes the earlier one's clean window instead of being silently measured as if it were clean, the day-56 read runs only when the day-28 read did not settle, and every settled read carries the learning shape. Fixtures only. */
+/** One checkpoint that RAN, on the three fair comparisons every ledger fixture below is read against. */
+type LedgerWindow = NonNullable<LedgerRecordLike["windows"]>[number];
+const lw = (day: number, adjustedLift: number, over: Partial<LedgerWindow> = {}): LedgerWindow =>
+  ({ day, ran: true, adjustedLift, controlsUsed: 3, treatedPostImpressions: 5000, ...over });
 const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
   id: "a", page: "https://site.com/x", path: "/x", actionType: "content", shippedAt: "2026-05-01",
   baseline: { impressions: 5000, clicks: 400 },
-  windows: [
-    { day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-    { day: 14, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-    { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },], ...over,});
+  windows: [lw(7, 40), lw(14, 40), lw(28, 40)], ...over,});
 const LATE = new Date("2026-07-15T00:00:00Z");
+/** ONE stored shipment and ONE proof window, both anchored on the day the change shipped. Two describes below hand-rolled the same twenty five fields and drifted apart on the ones they never meant to vary. */
+const proofWindow = (stamp: string, day: ProofWindowDay, over: Partial<ProofWindowResult> = {}): ProofWindowResult => ({
+  day, checkOn: addDays(stamp, day), ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift: 0,
+  treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0,
+  adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,
+  treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0, ...over,});
+const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
+  id: "s1", page: "https://site.com/x", path: "/x", actionType: "title-family", before: null, after: null,
+  shippedAt: stamp, baseline: { clicks: 400, impressions: 5000, ctr: 0.08, position: 8, windowDays: 28 },
+  targetQueries: [], controlPages: [], controlsReceipt: null, judgedMetric: null, primaryWindowDays: null,
+  windows: [proofWindow(stamp, 7), proofWindow(stamp, 14), proofWindow(stamp, 28)],
+  verdict: "won", confidence: "medium", measuredAt: null, notes: null, verifiedLive: false,
+  liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
+  proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
+  componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: stamp,
+  preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
+  verification: { status: "verified", checkedAt: stamp, components: [] },
+  operatorNote: null, aiScope: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
 describe("checkpoints count from the stamp", () => {
   it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {
     expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0]
@@ -152,21 +171,8 @@ describe("the learning shape every read carries", () => {
 /** Product Truth: 7, 14 and 28 always; 56 ONLY when the 28-day read was confounded, insufficient or unclear, or the change was a dangerous one. A clean 28 closes it. */
 describe("the conditional day-56 read", () => {
   const STAMP = "2026-05-01T00:00:00.000Z";
-  const pw = (day: ProofWindowDay, ran: boolean): ProofWindowResult => ({
-    day, checkOn: addDays(STAMP, day), ran, treatedDelta: 0, controlDelta: 0, adjustedLift: 0,
-    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0,
-    controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,});
-  const shipped = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
-    id: "s1", page: "https://site.com/x", path: "/x", actionType: "title-family", before: null, after: null,
-    shippedAt: STAMP, baseline: { clicks: 400, impressions: 5000, ctr: 0.08, position: 8, windowDays: 28 },
-    targetQueries: [], controlPages: [], controlsReceipt: null, judgedMetric: null, primaryWindowDays: null, windows: [pw(7, true), pw(14, true), pw(28, true)],
-    verdict: "won", confidence: "medium", measuredAt: null, notes: null, verifiedLive: false,
-    liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
-    proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
-    componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: STAMP,
-    preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
-    verification: { status: "verified", checkedAt: "2026-05-02T00:00:00.000Z", components: [] },
-    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,});
+  const pw = (day: ProofWindowDay, ran: boolean) => proofWindow(STAMP, day, { ran });
+  const shipped = (over: Partial<ShippedChangeRecord> = {}) => shippedRecord(STAMP, over);
   const AFTER_56 = new Date("2026-07-10T00:00:00Z"), FINAL = "2026-07-05";
   it("omits the fourth read entirely when the 28-day read settled cleanly", () => {
     for (const verdict of ["won", "lost"] as const) {
@@ -188,28 +194,19 @@ describe("the conditional day-56 read", () => {
     expect(day56Followup(unsettled, "2026-06-01", AFTER_56)).toMatchObject({ runs: true, due: false });
     const taken = shipped({ verdict: "inconclusive", windows: [pw(7, true), pw(14, true), pw(28, true), pw(56, true)] }); expect(day56Followup(taken, FINAL, AFTER_56).runs).toBe(false);
     expect(day56Followup(shipped({ verdict: "measuring", windows: [pw(7, true)] }), FINAL, AFTER_56).runs).toBe(false);});
+  /** The same change read at both mature checkpoints, the 28 day lift against the 56 day one. */
+  const bothReads = (lift28: number, lift56: number) =>
+    readLedger([ledgerRow({ implementedAt: STAMP, windows: [lw(28, lift28), lw(56, lift56)] })], AFTER_56, FINAL)[0];
   it("shows the fourth checkpoint on the read, and treats it as a mature basis", () => {
-    const read = readLedger([ledgerRow({
-      implementedAt: STAMP,
-      windows: [
-        { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-        { day: 56, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000 },],
-    })], AFTER_56, FINAL)[0];
+    const read = bothReads(40, 90);
     expect(read.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]); expect(read.basisDay).toBe(56);
     expect(read.headline).toContain("56-day window"); expect(read.headline).not.toContain("This firms up when the 28-day window closes");});
   it("names BOTH reads when the fourth checkpoint changes the answer", () => {
-    const read = readLedger([ledgerRow({
-      implementedAt: STAMP,
-      windows: [
-        { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-        { day: 56, ran: true, adjustedLift: 0, controlsUsed: 3, treatedPostImpressions: 5000 },],
-    })], AFTER_56, FINAL)[0];
+    const read = bothReads(40, 0);
     expect([read.basisDay, bandOf(read)]).toEqual([56, "learned"]);
     expect(read.headline).toContain(
       "The 28 day read looked like a win; the full 56 day read shows no clear change, and the longer window wins.",);
-    const agrees = readLedger([ledgerRow({ implementedAt: STAMP, windows: [
-      { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-      { day: 56, ran: true, adjustedLift: 200, controlsUsed: 3, treatedPostImpressions: 5000 }] })], AFTER_56, FINAL)[0];
+    const agrees = bothReads(40, 200);
     expect(agrees.headline).not.toContain("The 28 day read looked like");}); });
 describe("no causal overclaim on any read", () => {
   const readFor = (windows: LedgerRecordLike["windows"]) => readLedger([ledgerRow({ windows })], LATE, "2026-07-01")[0];
@@ -251,22 +248,13 @@ describe("metric selection and vocabulary", () => {
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
   const STAMP = "2026-04-01T00:00:00.000Z";
-  const pinWin = (day: ProofWindowDay, lift: number): ProofWindowResult => ({
-    day, checkOn: addDays(STAMP, day), ran: true, treatedDelta: lift, controlDelta: 0, adjustedLift: lift,
-    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0,
-    adjustedPosLift: 0, controlsUsed: 4, treatedPostImpressions: 9000,
-    treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0,});
-  const record = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
-    id: "shp_pin", page: "https://site.com/x", path: "/x", actionType: "content", before: null, after: null,
-    shippedAt: STAMP, baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
-    targetQueries: [], controlPages: [], controlsReceipt: null, judgedMetric: null, primaryWindowDays: null, windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
-    verdict: "won", confidence: "high", measuredAt: null, notes: null, verifiedLive: false,
-    liveSourceUrl: null, recrawlRequestedAt: null, operatorVerdictOverride: null, proposalId: "p1",
-    proposalVersion: "v1", basis: null, caseId: null, bundleHypothesis: null,
-    componentsApplied: [{ kind: "section", label: "Section" }], implementedAt: STAMP,
-    preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
-    verification: { status: "verified", checkedAt: STAMP, components: [] },
-    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,});
+  const pinWin = (day: ProofWindowDay, lift: number) =>
+    proofWindow(STAMP, day, { treatedDelta: lift, adjustedLift: lift, controlsUsed: 4, treatedPostImpressions: 9000 });
+  const record = (over: Partial<ShippedChangeRecord> = {}) => shippedRecord(STAMP, {
+    id: "shp_pin", actionType: "content", confidence: "high",
+    baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
+    windows: [pinWin(7, 300), pinWin(14, 700), pinWin(28, 1040)],
+    componentsApplied: [{ kind: "section", label: "Section" }], ...over,});
   const AFTER = new Date("2026-06-01T00:00:00Z"), FINAL = "2026-05-20";
   it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {
     const r = record(); const read = readLedger([r], AFTER, FINAL)[0]!;

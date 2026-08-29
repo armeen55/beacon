@@ -251,7 +251,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
       const held2 = await roundTrip(broken as ChangeProposal);
       expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);}
-    // A TRANSPORT FAILURE BANKS NOTHING and fabricates no receipt.
+    // A REVIEW THAT DID NOT COME BACK DRAFTED (refused, failed, thrown: one branch answers them all) BANKS NOTHING, fabricates no receipt, and loses no card.
     const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);
     // AND THE SAME ARRAY COMES BACK: a fresh copy read as "moved" upstream, so a failing pass persisted these unreviewed copies over a banked paid review and erased it. Identity is the no-rewrite receipt.
@@ -324,9 +324,4 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(by.get("atossa")!.status).toBe("ready");
     expect(user, "the reviewer was shown the banked passage, not a bare url").toContain('says: "Atossa means');
     expect(user.includes("Jasmine"), "the unfit correction never reached the paid call").toBe(false); });
-
-  it("promotes nothing when the review cannot be read, and loses nothing", async () => {
-    const cards = await cardsOf(2);
-    const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: async () => ({ status: "failed" as const, error: "unreadable" }) });
-    expect(out.map((c) => c.status)).toEqual(["needs_review", "needs_review"]);
-    expect(out.map((c) => c.id)).toEqual(cards.map((c) => c.id)); });});
+});

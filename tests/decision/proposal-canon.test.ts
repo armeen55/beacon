@@ -1,6 +1,5 @@
 /** CANONICAL PROPOSAL PERSISTENCE (V1 Truth Convergence Phase 5): one current row per hypothesis (account, case, page, action family), a re-draft supersedes with a pointer and a version, an identical draft writes nothing, a dismissed change is not resurrected under the same evidence, history stays readable and is never revived, and a write that lands nothing is a failure. Fixtures only: the fake Postgres below enforces the primary key and the partial unique index. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-type Row = Record<string, unknown>;
 const db = vi.hoisted(() => {
   const state = { rows: [] as Row[], legacy: [] as Row[], missing: false, rpcMissing: false, breakWrite: false, rpcCalls: 0, raceForeign: "", race: null as null | (() => void) };
   const client: Record<string, unknown> = {
@@ -35,7 +34,7 @@ import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerR
 import { confirmedVersion } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
 import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
-import { supabaseFake } from "../helpers/supabase-fake";
+import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
   error: (t) => (t === "change_proposals" && db.state.missing ? { code: "PGRST205", message: "table not found in schema cache" } : null),

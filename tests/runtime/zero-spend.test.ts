@@ -3,15 +3,15 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { z } from "zod";
 import { runWithoutSpending, spendingRefused } from "@/lib/spend-scope";
 const fetchSpy = vi.spyOn(globalThis, "fetch");
+/** THE ONE MODEL-DOOR REQUEST every door test below presses, carrying a key that must never reach the network. */
+const MODEL_ASK = { promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
+  model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
+  maxOutputTokens: 16, tenantId: "tenant-fx" } as never;
 afterEach(() => { fetchSpy.mockClear(); });
 describe("inside a no-spend scope nothing is bought, and nothing pretends it failed", () => {
   it("closes the model door before a client, a schema or a budget is touched", async () => {
     const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
-    const args = {
-      promptId: "page-job-read" as never, promptVersion: 1, action: "test", apiKey: "sk-not-used",
-      model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
-      maxOutputTokens: 16, tenantId: "tenant-fx",
-    } as unknown as Parameters<typeof openAIStructuredResponse>[0];
+    const args = MODEL_ASK as unknown as Parameters<typeof openAIStructuredResponse>[0];
     const outcome = await runWithoutSpending(() => openAIStructuredResponse(args));
     expect(outcome.kind).toBe("blocked_budget"); // the state every caller already reads as "did not buy"
     expect(fetchSpy).not.toHaveBeenCalled(); // and it never reached the network to find that out
@@ -74,12 +74,8 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
   it("blocks the model door at the pause bit, before any network", async () => {
     const { setSpendPauseProbeForTests } = await import("@/lib/spend-scope");
     setSpendPauseProbeForTests(async () => true);
-    const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway"); const { z } = await import("zod");
-    const outcome = await openAIStructuredResponse({
-      promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
-      model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
-      maxOutputTokens: 16, tenantId: "tenant-fx",
-    } as never);
+    const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway");
+    const outcome = await openAIStructuredResponse(MODEL_ASK);
     setSpendPauseProbeForTests(null);
     expect(outcome.kind).toBe("blocked_budget");
     if (outcome.kind === "blocked_budget") expect(outcome.reason).toContain("paused");
@@ -228,11 +224,7 @@ describe("pressing Pause closes the doors on the very next paid call", () => {
     await withRealPausePath(async () => {
       const { openAIStructuredResponse } = await import("@/domains/decision/llm/gateway"); const { providerCall } = await import("@/domains/evidence/dataforseo/capabilities");
       paused = true; // Pause lands; the doors are asked next
-      const model = await openAIStructuredResponse({
-        promptId: "page-job-read", promptVersion: 1, action: "test", apiKey: "sk-not-used",
-        model: "gpt-5-mini", instructions: "x", input: "y", schemaName: "s", zodSchema: z.object({ a: z.string() }),
-        maxOutputTokens: 16, tenantId: "tenant-fx",
-      } as never);
+      const model = await openAIStructuredResponse(MODEL_ASK);
       expect(model.kind).toBe("blocked_budget"); const provider = await providerCall("serp_organic" as never, { keyword: "haft seen" } as never, { tenantId: "tenant-fx", unitKey: "u1" });
       expect(provider.state).toBe("capped");
       expect(fetchSpy).not.toHaveBeenCalled(); // zero network, so zero ledger movement by construction
