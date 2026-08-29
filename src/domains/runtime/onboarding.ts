@@ -145,14 +145,14 @@ function pickFirstWin(facts: readonly CrawlPageFact[]): FirstWin | null {
   };
   const home = facts.find((f) => f.path === "/");
   if (home && !home.has_meta_description) return {
-    action: "Add a search description", url: home.url,
-    plainWhy: `Your homepage (${home.url}) has no search description, so the snippet under it in search results is written for you rather than by you.`,
+    action: "Add a meta description", url: home.url,
+    plainWhy: `Your homepage (${home.url}) has no meta description, so the snippet under it in search results is written for you rather than by you.`,
     exactFix: "Add a one-sentence description of who you help and what you do. I will check how the snippet changes after it goes live.",
   };
   const noMeta = byWords.find((f) => !f.has_meta_description && f.word_count >= 40);
   if (noMeta) return {
-    action: "Add a search description", url: noMeta.url,
-    plainWhy: `${pageLabel(noMeta)} is one of your biggest pages (${noMeta.word_count} words) and has no search description, so its snippet is left to chance.`,
+    action: "Add a meta description", url: noMeta.url,
+    plainWhy: `${pageLabel(noMeta)} is one of your biggest pages (${noMeta.word_count} words) and has no meta description, so its snippet is left to chance.`,
     exactFix: "Add a one-sentence description that answers the page's main question. Pages with a real description usually win a cleaner snippet.",
   };
   const thin = byWords.filter((f) => f.word_count > 0 && f.word_count < THIN_PAGE_WORDS && Boolean(f.title?.trim())).sort((a, b) => a.word_count - b.word_count)[0];

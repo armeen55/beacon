@@ -252,7 +252,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
       {top ? (
         <div className={`rounded-2xl border bg-surface-raised p-5 ${lane === "ready" ? "border-accent-primary/50" : "border-border"}`} data-top-edit="true">
           <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground" data-top-lane={lane}>
-            {lane === "ready" ? "Do this first" : lane === "review" ? "A draft waiting on your review" : "A future opportunity"}
+            {lane === "ready" ? "Do this first" : lane === "review" ? "Beacon is still checking this one" : "A future opportunity"}{/* OWNERSHIP SAID TRUTHFULLY (operator, 2026-08-29): a review-lane row is held by BEACON'S own unfinished step, so Today may not tell the operator a draft waits on THEM; "your decision" is reserved for genuine operator decisions */}
           </p>
           <p className="mt-1 text-[15px] font-semibold leading-relaxed text-foreground">{edit?.action ?? top.recommendation}</p>
           {edit && edit.after ? (
@@ -283,7 +283,7 @@ async function renderCockpit(trace: ReturnType<typeof createPerfTrace>) {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <Link href={`/changes/${encodeURIComponent(top.changeId)}`}
               className="inline-flex rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white">
-              {lane === "research" ? "See what is missing" : lane === "review" ? "Read the draft" : plan ? "Open the steps" : "Make this change"}
+              {lane === "research" ? "See what is missing" : lane === "review" ? "See where it stands" : plan ? "Open the steps" : "Make this change"}
             </Link>
             <Link href="/changes" className="text-[13px] font-semibold text-accent-primary underline underline-offset-2 hover:text-accent-primary/85">
               {others > 0 ? `See the other ${others.toLocaleString("en-US")} finished ${others === 1 ? "change" : "changes"}` : "Open Changes"}

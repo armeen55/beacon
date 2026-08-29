@@ -605,7 +605,7 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
               : `A new section headed "${drafted.naturalHeading ?? ""}", placed after "${drafted.placementAnchor}"` },
         ...(card.treatment === "rewrite_existing_section" && shape !== "replace" ? { treatment: "add_answer_section" as const } : {}),
         operatorSteps: meta
-          ? [`Open the site editor on ${card.pagePath}`, "Paste the description above, exactly as written",
+          ? [`Open the site editor on ${card.pagePath}`, "Paste the meta description above, exactly as written",
             "Mark it done here and the click rate gets read again"]
           : title
             ? [`Open the site editor on ${card.pagePath}`, "Replace the page title with the copy above, exactly as written",

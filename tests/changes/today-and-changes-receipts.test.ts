@@ -205,7 +205,7 @@ describe("a ranked card explains itself without being opened", () => {
     for (const said of ["Add section", "Copy section", "Where it goes: As the final paragraph of the lead", "This adds new copy. Nothing on the page is deleted."]) expect(section, said).toContain(said);
     expect(section).not.toContain("There is no");
     const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
-    for (const said of ["Replace description", "Copy description", "Only the description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
+    for (const said of ["Replace meta description", "Copy meta description", "Only the meta description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
     const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
     two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,

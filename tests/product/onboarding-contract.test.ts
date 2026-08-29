@@ -300,7 +300,7 @@ describe("setup and settings surfaces (Phase 8)", () => {
     const resumed = await loadOnboardingState(A, w.deps); expect(resumed.currentStep).toBe(6); // connections are skippable, so a finished question set lands on the last optional step
     expect(resumed.connections.map((c) => c.kind)).toEqual(["google_gsc", "google_ga4", "clarity"]); // no Wix, and none is required to get here
     seedCrawl(w, A); Object.assign(w.crawls.get(A)!.page_facts[0], { path: "/rugs", has_meta_description: false });
-    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a search description"); expect(win.plainWhy).toContain("(200 words)");});
+    const win = (await loadOnboardingState(A, w.deps)).findings.firstWin!; expect(win.action).toBe("Add a meta description"); expect(win.plainWhy).toContain("(200 words)");});
   /** PHASE 6E.1 + 6E.2 + P1-1. Being ACTIVE is a status, not proof of setup, and the whole activation contract gates now. The opposite error is worse: a profile read that failed comes back EMPTY, indistinguishable from never filled in, so treating that as a gap would bounce a fully onboarded customer into onboarding over a five  second outage. */
   it("asks a RUNNING account only for what it cannot run without, and a PENDING one for the whole activation contract", async () => {
     const w = makeWorld(); const acct = (over: Record<string, unknown> = {}) => ({ status: "active", domain: "acme.com", growth_goal: "grow", tos_accepted_at: "2026-07-24T00:00:00.000Z", ...over });

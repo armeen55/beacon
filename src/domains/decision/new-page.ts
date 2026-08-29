@@ -282,7 +282,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
   const unbacked = cited.length === 0 || v.sourceRequirements.length > 0;
   const components: BundleComponent[] = [
     { kind: "title", label: "Page title", before: null, after: v.proposedTitle, evidenceKeys: core, risk: "safe" },
-    { kind: "meta", label: "Description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
+    { kind: "meta", label: "Meta description", before: null, after: v.metaDescription, evidenceKeys: core, risk: "safe" },
     { kind: "opening_answer", label: "Opening answer", before: null, after: v.openingAnswer, evidenceKeys: core, risk: "review" },
     { kind: "section", label: "The page, section by section", before: null, after: written.join("\n\n"), evidenceKeys: sectionKeys, risk: "review" },
   ];

@@ -32,7 +32,7 @@ const RISK: Record<ChangeProposal["riskLevel"], { intent: PillIntent; label: str
 
 /** Today, in the operator's words, for the sentence a just-finished card prints. */
 const DAY_NOW = (): string => new Date().toLocaleDateString("en-US", { month: "long", day: "numeric" });
-const fieldWord = (f: string): string => (f === "meta" ? "description" : f.replace(/_/g, " "));
+const fieldWord = (f: string): string => (f === "meta" ? "meta description" : f.replace(/_/g, " ")); // THE OFFICIAL TERM, EVERYWHERE (operator ruling, 2026-08-29): every SEO description is called "meta description"; bare "description" is reserved for visible content
 
 /** Effort in the operator's own units: sixty minutes is an hour, and "about 60 min" read like a rounding error. */
 const effortLabel = (m: number): string =>
@@ -54,7 +54,7 @@ const INLINE_PIECES = 4; /** How many steps a card shows in full before the list
 /** THE OBJECT THIS CHANGE TOUCHES, in the customer's own words, read off the canonical field and never off
  *  prose. "One edit" told the operator nothing, and "Copy new section" appeared on things that were not
  *  sections; at ten to thirty applied changes a day, guessing the object is the product's real cost. */
-const TARGET_WORD: Record<string, string> = { title: "title", meta: "description", h1: "heading", section: "section", answer_block: "answer", internal_link: "link" };
+const TARGET_WORD: Record<string, string> = { title: "title", meta: "meta description", h1: "heading", section: "section", answer_block: "answer", internal_link: "link" };
 function targetWordOf(p: ChangeProposal): string {
   const c = p.recommendedChange;
   if (c.kind === "new_page") return "page";
@@ -94,7 +94,7 @@ function untouchedOf(p: ChangeProposal): string | null {
   if (c.kind !== "existing_edit") return null;
   switch (c.field) {
     case "title": return "Only the title tag changes. The heading and page text stay as they are.";
-    case "meta": return "Only the description changes. Nothing on the page itself changes.";
+    case "meta": return "Only the meta description changes. Nothing on the page itself changes.";
     case "h1": return "Only this heading changes. The text under it stays as it is.";
     case "section": case "answer_block":
       return c.before ? "Only this passage changes. Everything around it stays." : "This adds new copy. Nothing on the page is deleted.";

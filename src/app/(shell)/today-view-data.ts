@@ -85,7 +85,7 @@ function recommendationOf(p: ChangeProposal): string {
   // A producer that wrote a real headline (a sentence, not a slug) owns this line.
   if (p.opportunityType.includes(" ") && p.opportunityType.length > 20) return p.opportunityType;
   if (c.kind === "new_page") return `Build a new page that answers "${p.primaryQuery}"`;
-  const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
+  const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " ");
   return `Update the ${field} on ${p.pageLabel} to sharpen it for "${p.primaryQuery}"`;
 }
 
@@ -105,7 +105,7 @@ function topEditOf(p: ChangeProposal): TodayView["topEdit"] {
   if (c.kind === "new_page") {
     return { action: `Build a new page that answers "${p.primaryQuery}"`, lead: "Page title: ", before: null, after, paste: true };
   }
-  const field = c.field === "meta" ? "description" : c.field.replace(/_/g, " ");
+  const field = c.field === "meta" ? "meta description" : c.field.replace(/_/g, " ");
   if (String(p.kind) === "consolidation" || p.changeFamily === "consolidation") {
     return { action: recommendationOf(p), lead: "", before: null, after: "", paste: false };
   }
