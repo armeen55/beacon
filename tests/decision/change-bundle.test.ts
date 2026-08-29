@@ -1279,9 +1279,10 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
     expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/strong", "/tiny"]);
     expect(plan(jobs, { candidates: 1, skip: ["/strong"] }).funded.map((f) => f.key)).toEqual(["/tiny"]); });
-  it("gives the first funded slot to the best ranked ordinary candidate, however early an unranked family asks for it", () => {
-    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]); expect(b.funded[0]!.key).toBe("/best");
-    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/best", "topic:wildlife"], true, "/rugs"]);});
+  it("funds a finish before a start, and the best ordinary candidate right after it", () => {
+    // FINISHING OUTRANKS STARTING (operator program, 2026-08-30): a correction_review completes a card the account already paid to mint, and one-cent finishes losing to expensive fresh drafts is how Azadeh's review was skipped twice in one night.
+    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]);
+    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/rugs", "/best"], true, "topic:wildlife"]);});
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
     expect(b.funded.map((f) => [f.key, f.family, f.calls, f.impact, [...f.fallbacks]])).toEqual([["/one", "deep_bundle", 12, 60, ["editor"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, 30, []]]);

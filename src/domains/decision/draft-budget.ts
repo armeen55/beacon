@@ -65,8 +65,13 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
   // it for free because settled keys are the only ones the caller skips.
   const tried = new Set(input.retry ?? []);
+  // FINISHING OUTRANKS STARTING (operator program, 2026-08-30): a correction_review completes a card the
+  // account ALREADY paid to mint, and ranking it by page worth alone let one-cent finishes lose to expensive
+  // fresh drafts twice in one night (Azadeh, live). Same doctrine as the acquisition runtime's "finish what
+  // is already bought first"; impact still orders everything within each half.
+  const finishes = (j: PaidJob): number => (j.family === "correction_review" ? 1 : 0);
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(tried.has(a.key)) - Number(tried.has(b.key)) || finishes(b) - finishes(a) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling, owed = input.readyTarget ?? null;
   for (const j of ranked) {
