@@ -95,7 +95,6 @@ export type ResultsView = {
 };
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
-const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const signed = (n: number): string => `${n > 0 ? "+" : n < 0 ? "-" : ""}${num(Math.abs(n))}`;
 // -- the closed label maps (a slug never reaches the screen) -------------------
 

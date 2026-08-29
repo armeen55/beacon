@@ -207,7 +207,6 @@ export function canonicalDemandUnits(input: CanonicalUnitInputs): CanonicalDeman
     // Deduplicated: two phrasings sharing one token set are ONE history row, never a double count.
     const keys = [...new Set(u.queries.map((q) => canon(q.query)))];
     const keySet = new Set(keys);
-    const unitTokens = new Set(u.queries.flatMap((q) => topicTokens(q.query)));
     // Pages currently earning members, biggest contributor first.
     const pageShare = new Map<string, number>();
     for (const q of u.queries) for (const [pg, imp] of merged.get(q.query.trim().toLowerCase())?.pages ?? []) pageShare.set(pg, (pageShare.get(pg) ?? 0) + imp);

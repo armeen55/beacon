@@ -341,7 +341,6 @@ function instrumentsOf(rows: readonly AiObservationRecord[]): Instrument[] {
 }
 
 /** A metric's before side in words, or nothing at all where nothing reported it. */
-const fromClause = (b: ScopedMetric): string => (b.rate == null ? "" : `, from ${b.hits} of ${b.sample}`);
 
 /** The declared objective's direction. A conversion objective takes BOTH halves: credited more often AND read and passed over less often,
  *  because a citation rate that rose only because fewer answers read the page at all is not the change working. */

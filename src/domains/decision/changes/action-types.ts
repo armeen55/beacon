@@ -74,7 +74,6 @@ function isIndexingDirectiveActionType(
  * Plain-English HOLD framing shown next to an indexing/crawling directive. Operator-locked copy (#310; destructive-action audit 2026-07-20). A HELD-FOR-
  * REVIEW notice, not a paste-ready caption. Beacon voice, no dashes.
  */
-const INDEXING_DIRECTIVE_CAVEAT =
   "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so it is held for review instead of being one tap.";
 
 /**

@@ -8,7 +8,7 @@ import type { ControlReceipt } from "@/domains/measurement";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import { monthDayLabel } from "@/components/data/receipt-line";
 import type { KernelRead } from "@/domains/measurement";
-import { groupOf, landsLabel, lastClosed, nextCloseOn, type ResultsGroup, type ShipmentPresentation } from "./results-presentation";
+import { groupOf, landsLabel, nextCloseOn, type ResultsGroup, type ShipmentPresentation } from "./results-presentation";
 
 const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const cap = (s: string): string => (s ? s[0]!.toUpperCase() + s.slice(1) : s);

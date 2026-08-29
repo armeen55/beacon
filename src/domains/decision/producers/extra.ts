@@ -5,8 +5,8 @@ import { log } from "@/lib/logger";
 import { canonicalQueryKey, domainOf, topicTokens } from "@/domains/evidence/relevance-gate";
 import { citesOwnSite } from "@/domains/evidence/ai-visibility/canonicalize-citation-url";
 import { buildFanoutEvidence } from "@/domains/evidence/ai-visibility/fanout-evidence";
-import { canonicalPairOf, readAiObservations, type CanonicalPairObservation } from "@/domains/evidence/ai-visibility/ai-observations";
-import { readFactChecks, VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
+import { canonicalPairOf, readAiObservations } from "@/domains/evidence/ai-visibility/ai-observations";
+import { readFactChecks } from "@/domains/evidence/pages/fact-checks";
 import { canonicalUrlKey, weakAnchorsOf, type EvidenceSnapshot, type OwnedPageEvidence, type OwnedQuerySignal } from "@/domains/evidence/snapshot";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import type { ChangeProposal } from "@/domains/decision/contracts";
@@ -15,7 +15,7 @@ import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
-import { asWritten, askable, bestPageFor, count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
+import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Understanding } from "./page-fit";
 
 // WHAT ONLY THIS FILE USES STAYS IN THIS FILE. The split exists so two producers share ONE answer to "which
@@ -50,8 +50,8 @@ import { aeoMeter, aiCaseCards, type AeoMeter } from "./ai-cases";
 
 /** What this producer did, whether it FINISHED, and what it refused to guess at: completeness is stated per family, so a dead source holds only its own out of the sweep, and `held` puts refusals on the receipt. */
 type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; aeoHold?: ReadonlySet<string>; aeoSpend?: { funded: number; attempted: number; cached: number; left: number }; needsOwnPage: { query: string; refusedPages?: string[] }[] };
-import { linkFit, pageUnderstanding, sectionFit } from "./page-job";
-import { journeyLabel, readAnswerJourneys, standingOf } from "@/domains/evidence/ai-visibility/answer-journeys";
+import { linkFit, pageUnderstanding } from "./page-job";
+import { journeyLabel } from "@/domains/evidence/ai-visibility/answer-journeys";
 /** What this producer did, whether it FINISHED, and what it refused to guess at. `complete` is true only when the queue on file was read AND every source these producers judge on answered: "none this pass" and "I could not look" are the same length and opposite facts, and the sweep behind this producer withdraws every card in a family it believes was rewritten in full. `families` names the ones that DID finish, so a dead source holds only its own out of that sweep. `held` puts refusals on the receipt. */
 function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: number) => number): number | null {
   const q = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0];

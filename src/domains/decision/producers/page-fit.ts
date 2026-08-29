@@ -5,13 +5,12 @@ import "server-only";
  *  answers. Nothing here is new behaviour; every rule below is the one that was already being applied, moved
  *  whole so a second copy can never appear beside it. */
 import { log } from "@/lib/logger";
-import { canonicalQueryKey, topicTokens } from "@/domains/evidence/relevance-gate";
-import { canonicalUrlKey, type OwnedPageEvidence } from "@/domains/evidence/snapshot";
+import { topicTokens } from "@/domains/evidence/relevance-gate";
+import { type OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 import { actionFamilyOf } from "../proposal-store";
 import { pageUnderstanding, sectionFit } from "./page-job";
-type ExtraQueueRun = { cards: ChangeProposal[]; complete: boolean; families: string[]; held: { pageUrl: string; reason: string }[]; needsOwnPage: { query: string; refusedPages?: string[] }[] };
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
 export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];

@@ -173,7 +173,6 @@ export function extractPageSnapshot(
   }
 
   // ── JSON-LD presence (checked before script removal for word count) ──
-  const hasJsonLd = $('script[type="application/ld+json"]').length > 0;
 
   // Plan A + B1 (2026-04-20): schema entity names. Distinct from
   // schema_types (which only captures @type). Harvest .name fields from

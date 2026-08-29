@@ -13,7 +13,7 @@
  * MODELED OPPORTUNITY, NEVER PROMISED LIFT: `recoverableClicks` is the distance to a generalized curve, so the copy never says "a sharper title is worth N clicks". PURE + deterministic. No I/O, no LLM.
  */
 
-import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot";
+import type { EvidenceSnapshot, OwnedPageEvidence } from "@/domains/evidence/snapshot";
 import { demandUnitsOf, type DemandUnit } from "@/domains/evidence/demand-units";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
 import { defaultExpectedCtrAt, type TenantCtrCurve } from "@/domains/evidence/forecast/tenant-ctr-curve";

@@ -15,7 +15,7 @@ import { sectionFit } from "./page-job";
 import { DIAGNOSIS_CONTRACT, freshDiagnosis, TREATMENT_FOR_KIND, readAiCaseDispositions, recordAiCaseDispositions, type AeoGapDiagnosis, type AiCaseDisposition, type AiCaseState } from "../ai-case-store";
 import { callStructuredLLM } from "../llm/structured-drafter";
 import { loadOwnedPageBodies } from "@/domains/evidence/pages/owned-context";
-import { asWritten, askable, bestPageFor, count, labelOf, MAX_PER_PRODUCER, noteNeedsOwnPage, pageWords, pathOf, plain,
+import { askable, bestPageFor, count, MAX_PER_PRODUCER, noteNeedsOwnPage, pageWords, pathOf, plain,
   STOREFRONT, subjectWords, type Draft, type Fit, type Understanding } from "./page-fit";
 
 /** WHERE A SEARCH ENDS UP AS FAR AS THE EVIDENCE ALONE CAN SAY. The vocabulary is the store's (ai-case-store) and is not spelled a second time here: two names for one set of states is the same defect this closure exists to remove. `held` and the landing states below need facts only a producer pass holds. */
