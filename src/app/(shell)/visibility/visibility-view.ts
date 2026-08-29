@@ -187,7 +187,7 @@ export function aiView(input: AiInput) {
   /** A FILTER THAT REACHES ONE NUMBER TEACHES DISTRUST OF ALL OF THEM. Choosing an assistant redrew the chart while every headline tile kept summing all four, with nothing on the screen saying so. The per-day record carries observed, analyzed and mentioning per assistant, so those obey the choice; the citation sample and the retrieval split are pooled across assistants only, so the tiles standing on them say that in the basis line this surface already gives every number. */
   const only = input.engine;
   const perEngine = new Set(["observed", "analyzed", "mentioning"]);
-  const ALL_ASSISTANTS = ", across all assistants, which is not broken out per assistant yet";
+  const ALL_ASSISTANTS = ", counted across every assistant rather than the one chosen";
   const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting" | "ownedRetrieved" | "retrievedNotCited") =>
     only != null && perEngine.has(k)
       ? rows.reduce((a, d) => a + d.byEngine.filter((e) => e.engine === only).reduce((b, e) => b + (e[k as "observed" | "analyzed" | "mentioning"] ?? 0), 0), 0)

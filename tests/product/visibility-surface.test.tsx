@@ -77,11 +77,11 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const checkedAll = tile(all, "Answers checked")?.basis ?? "", checkedOne = tile(one, "Answers checked")?.basis ?? "";
     expect(checkedOne, "the counts are a subset of the whole account").not.toBe(checkedAll);
     expect([tile(one, "Answers that name you")?.basis, tile(one, "Answers checked")?.basis]
-      .every((b) => !(b ?? "").includes("across all assistants")), "these obey the filter outright").toBe(true);
+      .every((b) => !(b ?? "").includes("across every assistant")), "these obey the filter outright").toBe(true);
     // AND WHAT IT DOES NOT CARRY PER ASSISTANT SAYS SO, in the basis line every number on this surface already has.
     for (const label of ["Answers crediting a page of yours", "Your share of everything credited"]) {
-      expect(tile(one, label)?.basis, `${label} names its scope`).toContain("across all assistants");
-      expect(tile(all, label)?.basis, "and says nothing extra when nothing is filtered").not.toContain("across all assistants");}});
+      expect(tile(one, label)?.basis, `${label} names its scope`).toContain("across every assistant");
+      expect(tile(all, label)?.basis, "and says nothing extra when nothing is filtered").not.toContain("across every assistant");}});
   it("calls a metric what Search Console calls it, and the same thing everywhere on the screen", () => {
     // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the same metric and the word Search Console actually uses was never learned.
     const v = google({ metric: "impressions" });
