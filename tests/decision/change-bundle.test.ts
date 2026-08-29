@@ -966,7 +966,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("its copy is 68 long, outside the 80 to 150 this field takes, or carries something nobody can paste")).toBe(false);
     expect(DRAFT_BUDGET.HARD_REFUSAL.test("it points at the page instead of answering")).toBe(false);
     for (const hard of ["the words it says it replaces are not on the stored page", "it names a page this evidence is not about",
-      "its copy is blank or still carries a placeholder", "the evidence its claims name is not banked beside them: card-9",
+      "its copy is blank or still carries a placeholder", "it cites a source that is not attached to it, so a reader could not check what it says",
       'its copy names "Cyrus", and nothing on file about this page mentions them', "it names evidence that is not on file: owned_snapshot"])
       expect(DRAFT_BUDGET.HARD_REFUSAL.test(hard)).toBe(true); });
   /** ONE RANGE, HOWEVER IT IS SPELLED (Codex, 2026-08-23): /iran-flags/achaemenid-empire-flag lost five calls and $0.026846 because "from 550 BCE to 330 BCE" was read as dropping a qualifier the page's own "550-330 BCE" never carried. Real qualifiers must still be enforced, so both directions are pinned. */
@@ -1086,7 +1086,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
       why({ supportFacts: [{ id: "card-1", fact: SHIP }] })[0], why({}, { ...page, metaDescription: "A description this page no longer carries." })[0], why({ claims: undefined })])
       .toEqual([[], [], "the figure's own sentence says international, and the copy drops it",
         'the sources this cites are about something else than what it claims, "Every order earns store credit toward the next pair", so nothing on file backs it',
-        "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
+        "it cites a source that is not attached to it, so a reader could not check what it says", "the line it says it replaces is not the one this page carries", []]); });
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";
     const body = { kind: "existing_edit" as const, field: "section" as const, before: null, after: BODY, where: 'A new section headed "Sizing", placed after "The studio cuts every barrel."' };
