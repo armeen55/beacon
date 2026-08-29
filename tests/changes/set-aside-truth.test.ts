@@ -164,8 +164,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     await link(soft); const yes = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "approve" });
     await link(hard); const no = await reviewDraftAction({ proposalId: hard.id, version: confirmedVersion(hard), decision: "approve" });
     await link(soft); const better = await reviewDraftAction({ proposalId: soft.id, version: confirmedVersion(soft), decision: "improve" }); const { answerReviewedProposal: answer } = await import("@/domains/decision");
-    expect([yes.success, no.success, no.error?.includes("not settled"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)])
-      .toEqual([true, false, true, true, ["promote", "redraft"]]); });
+    expect([yes.success, no.success, no.error?.includes("not settled"), better.success, vi.mocked(answer).mock.calls.map((c) => (c[4] as { kind: string }).kind)]) .toEqual([true, false, true, true, ["promote", "redraft"]]); });
   it("keeps everything this release actually knows when the bar moves under it", async () => {
     const stored = { schemaVersion: 2, releaseId: "t:1", computedAt: new Date().toISOString(), tenantId: "t",
       changes: { ...emptyView(0), proposals: [bundled("basis_old::d2", "t::old")], ready: [bundled("basis_old::d2", "t::old")],

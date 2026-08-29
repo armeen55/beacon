@@ -5,8 +5,7 @@ vi.mock("server-only", () => ({}));
 const TOKEN = { provider: "clarity", api_token: "tok", connected_at: "2026-06-12T00:00:00Z" } as unknown;
 const state = vi.hoisted(() => ({ connected: { google_gsc: true, google_ga4: true, clarity: true } as Record<string, boolean>, throw: false,
   clarityToken: { provider: "clarity", api_token: "tok", connected_at: "2026-06-12T00:00:00Z" } as unknown }));
-vi.mock("@/lib/connector-store", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/connector-store")>()),
+vi.mock("@/lib/connector-store", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/connector-store")>()),
   // never synced → stale → the on-use refresh runs it
   getConnectorInfo: async (provider: string) => (state.throw ? Promise.reject(new Error("connector store unreachable"))
     : { status: state.connected[provider] ? "connected" : "disconnected", last_synced_at: null, connected_at: null, expires_at: null }) as never,

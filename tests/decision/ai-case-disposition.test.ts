@@ -103,8 +103,7 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
   it("refuses a stale writer, and the stale pass may not claim the family it failed to write", async () => {
     const s = await coldInstance(); await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);
     // "The call worked" is not "my conclusions are canonical" (reviewer, 2026-08-21).
-    expect(await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" })]))
-      .toEqual({ filed: false, reason: "superseded", landed: 0 });
+    expect(await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "monitoring", decidedAt: "2026-08-18T00:00:00.000Z" })])) .toEqual({ filed: false, reason: "superseded", landed: 0 });
     const back = await s.readAiCaseDispositions("t"); expect(back.state === "read" ? back.rows[0]?.state : null).toBe("actionable");});
   it("reports superseded when even ONE row lost, because the family claim is all rows or nothing", async () => {
     const s = await coldInstance(); await s.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", decidedAt: "2026-08-20T00:00:00.000Z" })]);

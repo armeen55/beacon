@@ -198,8 +198,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.direction).toBe("no_clear_movement"); // 1.0 to 1.0: nothing to call, and never "flat"
     expect(outcome?.line).toContain("named in 33 of the 33 finished checking");});
   it("says null, never zero, when nothing since the change has been read closely", async () => {
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3)
-      .map((r) => ({ ...r, analysis: null, analysis_hash: null })));
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 3) .map((r) => ({ ...r, analysis: null, analysis_hash: null })));
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } }, }, { readObservations, now: NOW });
     expect(outcome?.after).toMatchObject({ analyzed: 0, mentioning: 0, rate: null }); expect(outcome?.direction).toBe("unclear");});
   it("calls the same share no clear movement, and an unsupported flat is never printed", async () => {
@@ -405,8 +404,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.after.checked).toBe(44);
     expect(outcome?.line).toContain("44 answers arrived on ChatGPT on gpt-5 (consumer search), which this change's starting numbers never saw");});
   it("treats the same model and mode on a different engine as a new instrument, never a member", async () => {
-    const readObservations = reader([
-      ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })),
+    const readObservations = reader([ ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })),
       ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true, engine: "gemini" })),]);
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP,
       shipmentBaseline: frozen({ instruments: ["chatgpt|gpt-5|api"] }), aiScope: scope("owned_mentioned_not_cited") },

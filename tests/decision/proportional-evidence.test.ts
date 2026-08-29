@@ -27,9 +27,7 @@ describe("the proof burden matches the promise, at the one door every surface re
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
     // 1. A MARK-ONLY REPAIR IS ITS OWN EVIDENCE: no diagnosis, no results page, and the receipt certifies the marks alone, never the sentence around them.
     const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where it's from.", "Learn all about the Kerman Rug, where it's from."));
-    expect(evidenceShortfall(typo)).toBeNull();
-    expect(openHold(typo).blocking).toBeNull();
-    expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
+    expect(evidenceShortfall(typo)).toBeNull(); expect(openHold(typo).blocking).toBeNull(); expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
     // ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF. Same-letter anagrams self-authorized, and then so did anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
     for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"],
       ["nowhere", "now here"], ["resign", "re-sign"], ["well", "we'll"], ["therapist", "the rapist"], ["learn more", "learnmore"], ["lets eat grandma", "let's eat, Grandma"], ["its history", "it's history"],
@@ -41,8 +39,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     // 2. A FACTUAL CORRECTION MAY NARROW, AND SAYS SO: shorter survives when only the source-carried meaning does, and the receipt discloses the narrowing instead of posing as traffic copy.
     const noor = bind(row("fact", { ...edit("section", "Meaning:Bright, radiant, or glowing.", "Meaning:Light."), changeFamily: "factual_correction",
       preservation: [{ text: "Meaning:Bright, radiant, or glowing.", disposition: "corrected", by: ["fact-1"], why: "the source of record says Noor means light" }], claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: 'encyclopedia says: "The name Noor means light"' }] }));
-    expect(evidenceShortfall(noor)).toBeNull();
-    expect(proofOf(noor).limits.join(" ")).toContain("the unsupported wording was narrowed");
+    expect(evidenceShortfall(noor)).toBeNull(); expect(proofOf(noor).limits.join(" ")).toContain("the unsupported wording was narrowed");
     // 3. RICHER FACTUAL CONTEXT WITHOUT EVIDENCE STAYS REFUSED, by the quote-bound authority chain itself.
     expect(unauthorizedReason({ subject: "Noor", current: "Meaning:Light.", proposed: "radiant and glowing",
       sources: [{ kind: "encyclopedia", says: 'The name Noor means "light"' }] } as never)).toContain("do not carry every word");

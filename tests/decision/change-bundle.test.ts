@@ -463,8 +463,7 @@ describe("traffic is the objective and every other factor may only discount it",
     for (const f of only!.rankingReceipt!.factors) {
       expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);}
     expect(only!.rankingReceipt!.factors.map((f) => f.name)).toContain("strategic");
-    expect(only!.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input)
-      .toBe("nothing else in this batch lands on the same page"); });
+    expect(only!.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input) .toBe("nothing else in this batch lands on the same page"); });
 
   it("never lets anything but traffic add to worth", () => {
     for (const p of rankProposals([clicky(), aeo(), prop({ id: "plain" })])) {

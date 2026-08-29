@@ -22,7 +22,13 @@ const DEFAULT_DAILY_CAP_USD = 5;
  *  evidence into work. On 17 August 105 observation calls consumed the full dollar before one draft ran. */
 export async function dailyCapReason(tenantId: string, now: Date = new Date(), share = 1, projectedUsd = 0): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
-  const cap = ((await getTenant(tenantId).catch(() => null))?.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD) * share;
+  // AN UNREADABLE BUDGET IS NOT THE DEFAULT BUDGET. A failed tenant read fell back to the standard allowance, so
+  // an account whose operator had set the day's budget to zero, which this file's own contract calls turning paid
+  // work off, would have spent against a five dollar cap the moment that read flickered. The line below already
+  // refuses when the day's SPEND cannot be read; the budget it is measured against answers the same way.
+  const account = await getTenant(tenantId).catch(() => null);
+  if (account == null) return "This account's budget for the day could not be read, so no paid work is started.";
+  const cap = (account.daily_budget_usd ?? DEFAULT_DAILY_CAP_USD) * share;
   const today = await getTenantSpentTodayUsd(tenantId, now);
   if (today == null) return "Today's spend could not be read, so no more is spent today.";
   // THE CALL ABOUT TO BE MADE COUNTS. Comparing only money already spent admitted the reservation that crossed

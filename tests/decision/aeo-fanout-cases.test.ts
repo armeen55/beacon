@@ -59,8 +59,7 @@ describe("every material search the assistants ran terminates somewhere a person
       ...recurring({ fanOutQueries: ["haft seen set delivery"] }).slice(0, 1),
       ...recurring({ fanOutQueries: ["nowruz table meaning"], citations: [OWN] }),
       ...recurring({ fanOutQueries: ["sabzeh how to grow"], retrievedResults: [OWN] }),
-      ...recurring({ fanOutQueries: ["haft seen history"], citations: null }),
-      ...recurring({ fanOutQueries: ["repeats on one assistant"] }),
+      ...recurring({ fanOutQueries: ["haft seen history"], citations: null }), ...recurring({ fanOutQueries: ["repeats on one assistant"] }),
       obs({ fanOutQueries: ["one off curiosity"] }),];
     const rows = buildFanoutEvidence(world, SITE).rows; const material = rows.filter((r) => r.material);
     expect(material.length).toBe(5); const states = material.map((r) => resolveFanoutCase(r, { pageUrl: OWN.url, refused: false }).state);
