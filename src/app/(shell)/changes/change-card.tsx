@@ -125,8 +125,10 @@ const piecesOf = (b: ChangeBundle | undefined) => (b?.components ?? []).map((c, 
   ...(dangerousComponents([c]).length > 0 ? { moves: true } : {}),
 }));
 
-export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast }: {
+export function ChangeCard({ proposal, rank, ready = false, review = false, caseLine = null, onAside, onDone, onToast, picked, onPick }: {
   proposal: ChangeProposal; rank: number; ready?: boolean;
+  /** BULK SELECTION, offered only where the list offers it (the Ready lane): ticking claims nothing by itself, and the one batch press below the list is what records. Absent means no checkbox renders at all. */
+  picked?: boolean; onPick?: (id: string) => void;
   /** WAITING ON A HUMAN LOOK. The card renders the whole argument and the words it has, and NOTHING that would record the work as made: no copy box, no Mark done, either on the collapsed row or inside the expander. A control is a claim that the work is finished, and this stage is the stage where it is not. */
   review?: boolean;
   /** What Decision concluded about the search this change answers, in its own words, read off the ONE case file Visibility reads. Null when the change answers no tracked search, or when that file could not be read: neither of those is a verdict, and neither is printed as one. */
@@ -172,6 +174,8 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
     <li className={`rounded-2xl border bg-surface-raised ${ready ? "border-accent-primary/50" : "border-border"}`}
       data-change-card="true">
       {/* THE WHOLE COLLAPSED HEAD IS THE CONTROL, so it is reachable by tab and opens on Enter or Space. */}
+      <div className="flex w-full items-start">
+      {onPick ? <input type="checkbox" data-pick-done="true" checked={picked ?? false} onChange={() => onPick(proposal.id)} aria-label={`Select ${pageTitle} for the batch`} className="ml-4 mt-5 h-4 w-4 shrink-0 accent-accent-primary" /> : null}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open}
         className="flex w-full items-start gap-3 p-4 text-left">
         <span className="mt-0.5 text-[12px] tabular-nums text-muted-foreground" title={proposal.whyRankedAboveNext ?? undefined}>{rank}</span>
@@ -187,6 +191,7 @@ export function ChangeCard({ proposal, rank, ready = false, review = false, case
         </span>
         <span aria-hidden className="mt-1 text-[12px] text-muted-foreground">{open ? "Hide" : "Details"}</span>
       </button>
+      </div>
 
       <div className="space-y-3 px-4 pb-4">
         {/* WHY THIS SITS HERE, in one sentence carrying its own figures. Two bare numbers used to stand here

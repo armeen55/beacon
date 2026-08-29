@@ -207,6 +207,8 @@ describe("a ranked card explains itself without being opened", () => {
     const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
     for (const said of ["Replace meta description", "Copy meta description", "Only the meta description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
+    // BULK MARK DONE offers a checkbox per Ready card (ticking claims nothing; the batch press records), and no bar until something is ticked.
+    expect([(meta.match(/data-pick-done="true"/g) ?? []).length, meta.includes('data-bulk-bar')], "one checkbox per ready card, no bar unticked").toEqual([1, false]);
     const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
     two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,
       { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };

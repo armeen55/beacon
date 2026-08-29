@@ -42,7 +42,7 @@ vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(a
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
-import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
+import { runResearchCycle, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { dueWork, researchPermission, setResearchPaused, visitMayOpenResearch, isDocumentArrival, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
@@ -642,14 +642,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW))) .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log)); expect([log, rows.length]).toEqual([["refresh", "backfill", "crawl", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
   /** ONE PRESS, SERVER-OWNED. The old shape ran one hop per request, capped six per day, and the browser looped: closing the tab stopped the day and hop seven said done over an unfinished queue. The server now drives the one runtime internally; nothing due runs nothing and spends nothing, and a due list a whole pass could not move is a BLOCKER to report, never a loop to buy again. */
-  it("one press: nothing due runs zero cycles, and an immovable due list stops with the waiting blocker instead of spinning", async () => {
-    completedToday(); let asked = 0;
-    const idle = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (asked += 1, NOTHING_DUE) } });
-    expect([idle.hop, idle.more, asked >= 1]).toEqual([0, false, true]); // the free read answered and not one cycle ran
-    let cycles = 0; const stuck = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => SOMETHING_DUE,
-      refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) } });
-    expect([stuck.more, cycles <= 2, typeof stuck.blocker]).toEqual([true, true, "string"]); // still owed, said so, and another press is allowed
-  });
+  // the one-press continuation tests left with continueResearch itself (deleted 2026-08-30: zero callers)
   it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => {
     const rows = completedToday(); const one = await RR.startExtraPass(T, "tab-1", today()); const two = await RR.startExtraPass(T, "tab-2", today()); // the first pass is still open
     expect([one?.lease_owner, two, rows.length]).toEqual(["tab-1", null, 2]); });

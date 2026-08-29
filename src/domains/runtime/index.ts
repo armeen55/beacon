@@ -9,7 +9,7 @@
 
 // The Research Run, through its two doors: the global daily scheduler (the guarded /api/cron/scheduler
 // endpoint calls runDueAccounts) and the visit, which recovers and resumes what the scheduler left.
-export { ensureResearchRunOnVisit, continueResearch } from "./ops/on-visit-refresh";
+export { ensureResearchRunOnVisit } from "./ops/on-visit-refresh";
 export { researchRunStatus, researchStatusLine, type ResearchRunStatusView } from "./research-run";
 export { runDueAccounts, type SchedulerReceipt } from "./ops/scheduler";
 

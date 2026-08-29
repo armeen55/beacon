@@ -473,45 +473,7 @@ export async function runResearchCycle(tenantId: string, options: ResearchCycleO
   });
 }
 
-/** THE OPERATOR'S OWN CYCLE: one press runs the canonical runtime, and the SERVER owns the continuation. The old
- *  shape ran ONE bounded hop per request, capped six per day, and left the browser looping: closing the tab stopped
- *  the day's work, and hop seven reported "done" over a queue that was not, which is a completion rule about the
- *  BROWSER, not the work. One press now drives the same one runtime until nothing durable is due or the press's own
- *  timebox is spent; each cycle persists its phase durably, so an aborted request never corrupts anything and the
- *  next press resumes exactly where the store says. NOTHING DUE COSTS NOTHING: the free due-work read answers first,
- *  so a second same-day press with nothing owed runs no cycle, spends $0 and writes nothing. A press that ends with
- *  work still due says so honestly (`more: true`, with the blocker), and another immediate press is always allowed:
- *  waiting on already-requested evidence is a state to report, never a lock. AFTER WORK, ONE PURE RELEASE: when any
- *  cycle ran, the stored truth is republished once at $0 so the queue the operator reads is the queue the work built. */
-const PRESS_BUDGET_MS = 250_000, PRESS_RESERVE_MS = 25_000;
-export async function continueResearch(tenantId: string, hop = 0, options: ResearchCycleOptions = {}): Promise<{ hop: number; more: boolean; blocker?: string }> {
-  void hop; // the wire shape survives (an old tab may still send it); the server no longer trusts a browser counter
-  if (!tenantId) return { hop: 0, more: false };
-  const nowFn = options.now ?? (() => new Date());
-  const endsAt = nowFn().getTime() + PRESS_BUDGET_MS;
-  const readDue = () => (options.steps?.dueWork ?? dueWork)(tenantId, nowFn()).catch(() => null);
-  let cycles = 0, prior = "";
-  let work = await readDue();
-  while (work?.readable && work.due.length > 0 && nowFn().getTime() < endsAt - PRESS_RESERVE_MS) {
-    cycles += 1;
-    await runResearchCycle(tenantId, { ...options, deadlineMs: Math.min(RESEARCH_CYCLE_DEADLINE_MS, endsAt - PRESS_RESERVE_MS - nowFn().getTime()) }).catch((error) => {
-      log.warn("[research-run] operator-cycle pass failed (non-blocking)", { tenantId, pass: cycles, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });
-    });
-    const next = await readDue();
-    // NO DURABLE MOVEMENT MEANS STOP, NEVER SPIN: an unchanged due list after a whole pass is a blocker to report
-    // (a foreign lease, a paused account, or evidence already requested and not yet answered), not a loop to buy again.
-    const fp = JSON.stringify(next?.due ?? []);
-    if (fp === prior || fp === JSON.stringify(work.due)) { work = next; break; }
-    prior = JSON.stringify(work.due); work = next;
-  }
-  if (cycles > 0) {
-    // ONE atomic $0 release after the work, so the surface the press returns to is the surface the work built.
-    await (await import("@/app/(shell)/surface-release")).refreshCustomerSurface(tenantId, { maxDrafts: 0 }).catch(() => null);
-  }
-  const stillDue = !!work?.readable && (work?.due.length ?? 0) > 0;
-  return { hop: cycles, more: stillDue,
-    ...(stillDue ? { blocker: cycles > 0 ? "waiting on already-requested evidence; press again any time" : "another instance holds this account's research right now; press again in a moment" } : {}) };
-}
+/* continueResearch DELETED (operator program, 2026-08-30): exported with zero callers once the arrival rule made the layout the one visit trigger, and the operator declined the paid-press control it existed for. The scheduler and the arrival door are the two ways research runs; a third door with no button was bloat wearing an export. */
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two instances from both advancing the cycle. after() is only valid in a request scope, so tests and scripts get a safe no-op. A visit may not open a pass this account cannot pay for: see visitMayOpenResearch in due-work. */
 export function ensureResearchRunOnVisit(tenantId: string, arrival: boolean): void {

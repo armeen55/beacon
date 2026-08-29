@@ -14,7 +14,7 @@ import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
 import { openHold } from "@/domains/decision/completeness";
 import { pageLabel } from "./changes/types";
-import { dismissProposalAction, loadMoreChangesAction } from "./changes/actions";
+import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
 type Lane = "ready" | "todo" | "research";
@@ -107,6 +107,20 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
     setTimeout(() => setToast((cur) => (cur && cur.undo ? null : cur)), UNDO_MS);
   }
   const say = (text: string) => { setToast({ text, undo: null }); setTimeout(() => setToast((c) => (c?.text === text ? null : c)), 3000); };
+  // BULK MARK DONE (operator ruling, 2026-08-29), offered only in the Ready lane and only now that the
+  // record-then-flip race is closed: ticking claims nothing, ONE press records every ticked change through
+  // the same per-change transaction, one card failing never erases the others, and the answer names counts.
+  const [picked, setPicked] = useState<string[]>([]);
+  const [bulkPending, startBulk] = useTransition();
+  const pick = (id: string) => setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const markPicked = () => startBulk(async () => {
+    const res = await markManyImplementedAction({ proposalIds: picked }).catch(() => null);
+    if (!res) { say("That could not be recorded just now. Press it again in a moment."); return; }
+    const failedIds = new Set(res.failed.map((f) => f.id));
+    setFinished((prev) => [...prev, ...picked.filter((id) => !failedIds.has(id))]);
+    setPicked(picked.filter((id) => failedIds.has(id)));
+    say(res.note + (res.failed[0] ? ` First problem: ${res.failed[0].error}` : ""));
+  });
 
   return (
     <div className="space-y-5">
@@ -125,10 +139,20 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
           <ul className="list-none space-y-3">
             {readyRows.map((p, i) => (
               <ChangeCard key={p.id} proposal={p} rank={i + 1} ready review={false} caseLine={caseLineOf(p)}
-                onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say} />
+                onAside={putAside} onDone={(id) => setFinished((prev) => [...prev, id])} onToast={say}
+                picked={picked.includes(p.id)} onPick={pick} />
             ))}
           </ul>
         )}
+        {picked.length > 0 ? (
+          <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-xl border border-accent-primary/50 bg-surface-raised px-4 py-2 shadow-lg" data-bulk-bar="true">
+            <p className="text-[13px] font-semibold text-foreground">{picked.length} selected</p>
+            <button type="button" data-bulk-done="true" disabled={bulkPending} onClick={markPicked}
+              className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
+              {bulkPending ? "Saving…" : `Mark ${picked.length} done`}
+            </button>
+          </div>
+        ) : null}
         {canMore && remaining > 0 ? (
           <button type="button" disabled={loadingMore} data-show-more="true"
             onClick={() => startLoadMore(async () => {
