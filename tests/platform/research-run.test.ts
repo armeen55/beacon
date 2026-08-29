@@ -43,7 +43,7 @@ const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: 
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
 import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
-import { dueWork, researchPermission, setResearchPaused, visitMayOpenResearch, type DueWork } from "@/domains/runtime/ops/due-work";
+import { dueWork, researchPermission, setResearchPaused, visitMayOpenResearch, isDocumentArrival, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -279,8 +279,7 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
   const FOCUS = focusOf("inv_haft");
   /** A two-stage winning-pages double over the REAL cycle: stage one persists winners, stage two would SPEND. Every invocation records its phase, the topic it was handed, and how many REAL lease renewals had happened by then, so a spend sits against a countable renewal. */
   function staged(renews: () => number) {
-    const seen: Array<[string, string | null, number]> = [], spent: string[] = [];
-    const funnelUnit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, focus) => {
+    const seen: Array<[string, string | null, number]> = [], spent: string[] = []; const funnelUnit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, focus) => {
       const topic = focus?.topics[0]?.topicKey ?? null; seen.push([phase, topic, renews()]); if (phase !== "winning_pages") return { status: "done", cursor: null, progress: {} };
       if (cursor?.stage !== "compare") return { status: "advanced", cursor: { stage: "compare" }, progress: {} };
       spent.push(String(topic)); return { status: "done", cursor: null, progress: {} }; };
@@ -459,8 +458,7 @@ describe("research-run conflict-free research closure", () => {
         analyzeAnswers: async () => ({ attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) });
       expect([later.includes("prompt_observations"), rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([false, 40]); }); // it reads what was owed and re-buys not one observation to do it
     it("refuses a second invocation while the lease is live: it claims nothing, opens no pass and reads nothing, so one pass does the reading", async () => {
-      const rows = withRun({ current_phase: "prompt_observations" }); let reads = 0;
-      await Promise.all([1, 2].map(() => run({ dayStanding: async () => FULL_DAY,
+      const rows = withRun({ current_phase: "prompt_observations" }); let reads = 0; await Promise.all([1, 2].map(() => run({ dayStanding: async () => FULL_DAY,
         analyzeAnswers: async () => (reads += 1, { attempted: 40, settled: 40, refused: 0, read: 40, outcomes: { settled: 40 } }) })));
       expect([reads, rows.length, rows[0]!.progress.funnel?.answersAnalyzed]).toEqual([1, 1, 40]); }); // one reading pass, one run: the second claim met a live lease and opened nothing
   });
@@ -568,7 +566,7 @@ describe("research-run fail-closed + render path", () => {
     let touched = false; const log: string[] = []; RR.setResearchRunRepoForTests({ ...memRepo().repo, claim: async () => { touched = true; throw new Error("db down"); } });
     await run(healthySteps(log)); expect([log, touched]).toEqual([[], true]); // no phase ran, and it did try to claim
     touched = false; await expect(RR.claimRun("", "o1")).rejects.toThrow(/tenantId is required/); expect(touched).toBe(false); // never reached the repo
-    const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); expect(() => ensureResearchRunOnVisit(T)).not.toThrow(); // after() invalid outside a request → caught
+    const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); expect(() => ensureResearchRunOnVisit(T, true)).not.toThrow(); // after() invalid outside a request → caught
     await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
 });
 /** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE: it fires on every render of the
@@ -584,6 +582,13 @@ describe("a visit may not open a research pass the account cannot pay for", () =
     // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against
     // an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
     expect([asked > 0, 54.9913 + asked > 55]).toEqual([true, true]); });
+  /** THE COUNTEREXAMPLE AFFORDABILITY CANNOT PRODUCE. Testing only at a spent ceiling proves the money
+   *  gate, never the free-control contract: with the allowance restored the press would arm research again. */
+  it("does not arm recovery on a repaint even when the budget is FULLY available", async () => {
+    const h = (o: Record<string, string>) => ({ get: (n: string) => o[n.toLowerCase()] ?? null });
+    expect((await visitMayOpenResearch(T, async () => ({ allowed: true }))).allowed).toBe(true); // money is NOT what stops it
+    // router.refresh(), a Server Action's own response and a client navigation are RSC payloads; only a full document is a person turning up.
+    expect([isDocumentArrival(h({ rsc: "1" })), isDocumentArrival(h({ "next-action": "a1" })), isDocumentArrival(h({})), isDocumentArrival(null)]).toEqual([false, false, true, false]); });
 });
 /** THE REGISTRY DECIDES, ONCE per run. The reconcile step here is the real one, so the wiring is what is pinned: a registry that only changed the ORDER it was written in is unmoved, and the advisory reading is bounded per RUN, never per unit iteration. */
 describe("the case registry a run saves, and the ONE reading it buys", () => {
@@ -744,8 +749,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     ROUTE.fail = null; vi.unstubAllEnvs();
     DB.fleetError = null; DB.fleet = []; expect(await dispatch({ ...NO_PHASE, strandedToday: defaultSteps.strandedToday })).toEqual(R()); }); // a read that SUCCEEDED and proved zero is still a clean 200
   it("never opens a recovery pass on a day that is genuinely terminal, and buys nothing twice on one that is", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); let paidUnits = 0;
-    const paying: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE,
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); let paidUnits = 0; const paying: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE,
       funnelUnit: async () => (paidUnits += 1, { status: "done", cursor: null, progress: {} }) };
     await dispatch(paying); const afterFirst = paidUnits; expect([rows.length, rows[0]!.status, afterFirst > 0]).toEqual([1, "completed", true]);
     expect(await dispatch(paying)).toEqual(R()); // the day is settled, so nothing is claimed and nothing is opened
@@ -866,15 +870,13 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     const noPlan = await dueWork(T, new Date(NOW), { ...base, checks: async () => null }); expect(noPlan.readable).toBe(false);
     const down = async () => { throw new Error("down"); }; // EVERY signal, not just the two: a swallowed read answered 200 with an empty due list over a day it could not judge. An individually EMPTY signal is untouched by that, which is what `base` is
     for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze", "analysisFingerprint", "consumedAnalyses", "factDebt", "readyStock", "creditHeld"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
-    expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true);
-    expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
+    expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true); expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
 });
 /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
   const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "candidates_exhausted" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
-    const order: string[] = []; void withRun();
-    await run({ ...healthySteps(order),
+    const order: string[] = []; void withRun(); await run({ ...healthySteps(order),
       replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
     const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0); expect(firstBuy).toBeGreaterThan(replenishAt);
@@ -890,8 +892,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     void withRun({ current_phase: "keyword_discovery", progress: { replenish: { day, fingerprint: "b1::v1::x", attempted: [], closed: "candidates_exhausted" as const } } });
     await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) }); expect(calls).toBe(0);
     void withRun({ current_phase: "keyword_discovery", progress: { replenish: { day, fingerprint: "b1::v1::x", attempted: [] } } });
-    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) });
-    expect(calls).toBe(1); });
+    await run({ ...healthySteps([]), replenishReady: async () => (calls += 1, REPLENISHED) }); expect(calls).toBe(1); });
   it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
@@ -899,8 +900,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and  stopped the pass that would have caught it. The free re-read runs first now and buys nothing, and the count is  no longer a ceiling either: the drive goes on to draft the row the bad one was hiding. */
   it("proves a stocked count against today's rules before it closes the day", async () => {
     vi.resetModules();
-    const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] };
-    vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
+    const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] }; vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
     vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
       loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),

@@ -411,6 +411,26 @@ export type VisitBudgetProbe = (tenantId: string, projectedCostUsd: number) => P
 const defaultVisitBudgetProbe: VisitBudgetProbe = async (tenantId, projectedCostUsd) =>
   (await import("@/domains/decision/llm/adjudicator-budget")).checkBudget({ tenantId, projectedCostUsd });
 
+/** Is this request somebody ARRIVING, or an internal repaint of a page that is already open?
+ *
+ *  $0 IS A PROPERTY OF THE CONTROL, NOT OF WHAT THE ACCOUNT CAN AFFORD (2026-08-29). visitMayOpenResearch
+ *  below answers "can this account pay for research". It cannot answer "did this research start because
+ *  somebody pressed a control labelled free", and that second question is the only one a free control can
+ *  be judged by. With the month's allowance restored, the free press still ran its refresh, called
+ *  router.refresh(), re-rendered the shell, and the shell armed visit recovery, which can open a paid pass
+ *  across the whole canonical cycle rather than only its OpenAI half. An affordability gate would have
+ *  waved that through, correctly, and the button would still have bought research.
+ *
+ *  So recovery is tied to an ARRIVAL, for every surface, instead of an exception carved out for one
+ *  button. Next.js asks for a page in two shapes: a full document request carries no RSC header, while a
+ *  client navigation, a router.refresh() and a Server Action's own response are all RSC payloads, and a
+ *  Server Action carries Next-Action besides. Only the first is a person turning up. The scheduler is
+ *  untouched and remains what actually drives the day, and an explicit control may still name a spend and
+ *  run it. FAIL CLOSED: headers that cannot be read are not an arrival. */
+export function isDocumentArrival(h: { get(name: string): string | null } | null | undefined): boolean {
+  try { return !!h && !h.get("rsc") && !h.get("next-action"); } catch { return false; }
+}
+
 /** May a VISIT open paid research right now? The MONEY gate on the visit door, sitting beside
  *  researchPermission above, which is the CONSENT one.
  *

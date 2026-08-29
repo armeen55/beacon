@@ -29,8 +29,11 @@ import {
  * put them back. It does ONE thing: it pulls the connected first-party sources and republishes the
  * stored truth. It also repaints ONCE. It used to repaint twice, and a repaint is a render of the app
  * shell, which is where the only reachable paid research trigger lives, so the button that promised to
- * pull numbers was arming research passes on the side. The trigger now asks the account's budget before
- * it opens anything, and this control asks for one repaint instead of two.
+ * pull numbers was arming research passes on the side. Asking whether the account can AFFORD research
+ * does not fix that: affordability cannot say whether a control labelled free is what started the work,
+ * so with the month's allowance restored this same press would buy research again. Recovery is tied to a
+ * document ARRIVAL now (isDocumentArrival, in runtime/ops/due-work), so a repaint of a page already open
+ * arms nothing at all, whatever the balance is. This control asks for one repaint instead of two.
  *
  * White-label: the action returns customer-safe labels (plain-English source
  * names, never a vendor name); this component renders them verbatim.

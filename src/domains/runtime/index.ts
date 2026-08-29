@@ -15,7 +15,7 @@ export { runDueAccounts, type SchedulerReceipt } from "./ops/scheduler";
 
 // The operator's own off switch for the daily run, read in three states because an unreadable switch over
 // paid work is not permission. Pausing never suspends the account, and a resume never backfills.
-export { researchPermission, setResearchPaused } from "./ops/due-work";
+export { researchPermission, setResearchPaused, isDocumentArrival } from "./ops/due-work";
 
 // Source refresh recording
 export { recordSourceRefresh } from "./ops/record-source-refresh";

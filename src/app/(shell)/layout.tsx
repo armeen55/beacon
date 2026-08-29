@@ -14,7 +14,8 @@ import {
   readPerfTraceIdFromHeaders,
 } from "@/lib/perf-trace";
 import { currentTenantId } from "@/lib/tenant-context";
-import { ensureResearchRunOnVisit } from "@/domains/runtime";
+import { ensureResearchRunOnVisit, isDocumentArrival } from "@/domains/runtime";
+import { headers } from "next/headers";
 import { loadWithDeadline } from "@/lib/load-with-deadline";
 
 // T-CustomerNav (2026-05-08) - keys aligned with `navigationGroups`
@@ -131,7 +132,10 @@ async function loadShellData(): Promise<{ latePaletteItems: LatePaletteItem[] }>
   // scheduler now; this trigger is what a visit adds on top: if today's run stalled or never started,
   // opening Beacon nudges it back into motion. The database lease (not any in-memory guard) still makes
   // the cycle exactly-once, so a visit during a healthy day costs nothing.
-  ensureResearchRunOnVisit(await currentTenantId());
+  // AN ARRIVAL, NOT EVERY REPAINT (2026-08-29). A router.refresh(), a client navigation and a Server
+  // Action's own response all re-render this layout, so the $0 "Update data" control was arming paid
+  // research simply by asking the screen to redraw. Only a real arrival recovers a stalled day.
+  ensureResearchRunOnVisit(await currentTenantId(), isDocumentArrival(await headers()));
 
   // ONE READ PER NAVIGATION. THE SIDEBAR NUMBERS ARE GONE, and with them three reads that fired on every
   // signed-in click. They counted raw scan diffs waiting to be triaged and URLs a retired verdict system

@@ -179,7 +179,7 @@ export function resolve(deps?: OnboardingDeps): Resolved {
     connectorInfo: deps?.connectorInfo ?? ((p, tid) => getConnectorInfo(p, tid)),
     complete: deps?.complete as CompleteFn,
     coldStartScan: deps?.coldStartScan ?? runInProcessColdStartScan,
-    scheduleResearch: deps?.scheduleResearch ?? ensureResearchRunOnVisit,
+    scheduleResearch: deps?.scheduleResearch ?? ((id: string) => ensureResearchRunOnVisit(id, true)), // finishing onboarding is a person acting, not a repaint
     now: deps?.now ?? (() => new Date()),
   };
 }

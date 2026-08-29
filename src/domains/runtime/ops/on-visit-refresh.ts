@@ -514,8 +514,8 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
 }
 
 /** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two instances from both advancing the cycle. after() is only valid in a request scope, so tests and scripts get a safe no-op. A visit may not open a pass this account cannot pay for: see visitMayOpenResearch in due-work. */
-export function ensureResearchRunOnVisit(tenantId: string): void {
-  if (!tenantId) return;
+export function ensureResearchRunOnVisit(tenantId: string, arrival: boolean): void {
+  if (!tenantId || !arrival) return; // arrival is a REQUIRED argument so no caller can silently re-arm research from a repaint
   try {
     after(async () => {
       try {
