@@ -115,6 +115,11 @@ describe("the proof burden matches the promise, at the one door every surface re
     const carried = preferFinished(draftB, bankedA);
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
+    // A CLAIM IS PART OF THE COPY, so rewording one retires the reading taken over it. Caught by causing it: a pass that refreshed the sentences on a settled card left its paid per-claim receipt attached to words the reviewer never saw, and only `copyKey` hashing the claims kept that from reaching the queue. Improving what a card ASSERTS therefore belongs in front of the reviewer again; it may never be swapped in underneath a banked reading.
+    const readAt = bind(authorized), reworded = { ...readAt, claims: [{ text: "the same fact, said a better way", supportedBy: [...(readAt.claims ?? [])[0]!.supportedBy] }] } as ChangeProposal;
+    const refactedEvidence = { ...readAt, supportFacts: [...(readAt.supportFacts ?? []), { id: "fact-9", fact: "a source nobody read when this was judged" }] } as ChangeProposal;
+    expect([evidenceShortfall(readAt), copyKey(reworded) === copyKey(readAt), copyKey(refactedEvidence) === copyKey(readAt)], "the reading stands on its own words").toEqual([null, false, false]);
+    for (const moved of [reworded, refactedEvidence]) expect(evidenceShortfall(moved), "a moved claim or moved evidence retires it").toContain("actually support what it claims");
     // PRESERVATION KEEPS FINISHED WORK, AND A LINE THAT WOULD PASTE AS ONE GLUED PHRASE IS NOT FINISHED WORK (operator, 2026-08-28): three corrections sat Ready reading "Meaning:Light." because the page's own missing space had been copied into them, and preservation kept handing that banked line back, so the repair that puts the one space there could never reach the rows it was written for.
     const glue = (after: string) => ({ ...authorized, informationGain: undefined, preservation: undefined, recommendedChange: { ...authorized.recommendedChange, field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after } }) as ChangeProposal;
     const banked = glue("Meaning:Light."), repaired = glue("Meaning: Light.");

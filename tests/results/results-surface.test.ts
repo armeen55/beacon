@@ -35,10 +35,7 @@ const shown = (s: string | null): number => {
   const m = /^([+-])([\d,]+)/.exec(s ?? ""); return m ? Number(m[2]!.replace(/,/g, "")) * (m[1] === "-" ? -1 : 1) : 0; };
 describe("the numbers at the top", () => {
   it("gives a Results row a shape a phone can hold", async () => {
-    // SEVEN TRACKS WHOSE FIXED PARTS ALONE TOTALLED 350px SAT IN A 301px CARD at phone width, so every row
-    // overflowed by about a hundred pixels and the parent's overflow-hidden cut it off: the outcome figure and
-    // the control to open the row were unreachable exactly where the operator checks results. Measured on the
-    // rendered surface at 375px the row now fits its card exactly, and at 768px and above all seven return.
+    // SEVEN TRACKS WHOSE FIXED PARTS ALONE TOTALLED 350px SAT IN A 301px CARD at phone width, so every row overflowed by about a hundred pixels and the parent's overflow-hidden cut it off: the outcome figure and the control to open the row were unreachable exactly where the operator checks results. Measured on the rendered surface at 375px the row now fits its card exactly, and at 768px and above all seven return.
     const src = await import("node:fs").then((fs) => fs.readFileSync("src/app/(shell)/results/results-rows-client.tsx", "utf8"));
     const grid = /const GRID = "([^"]+)"/.exec(src)?.[1] ?? "";
     expect(grid, "a narrow screen gets its own track set").toMatch(/^grid grid-cols-\[[^\]]+\] sm:grid-cols-\[/);
