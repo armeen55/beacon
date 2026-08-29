@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
 import { recordFactChecks, recordOwedClaims, reopenObsoleteChecks, supersedeStaleFacts, statementKeyOf,
   VERIFICATION_RULES_VERSION, unauthorizedReason, type FactCheck, type InventoryCoverage, type SourceKind } from "./fact-checks";
-import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
+import { SUPPORT_ARTIFACT_VERSION, supportIdentity, supportFailure, unsupportedArtifact, deriveSupport, claimTypeOf, AUTHORITATIVE_KIND as AUTHORITATIVE, type ClaimSupport, type ClaimType, type SupportContext } from "./claim-support";
 export { claimTypeOf } from "./claim-support";
 
 const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agreement: "none_found" as const,
@@ -384,12 +384,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const identified = vouched.filter((p) => langOf(p) === leadLang);
   const dropped = passages.filter((p) => verified.has(p.url) && !identified.includes(p));
   const supporters = identified;
-  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support,
-  // 2026-08-29). The model locates the supporting sentence and its spans; supportFailure accepts nothing it
-  // cannot find verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the
-  // subject named in that sentence or by this same fetch's own document title. What used to stand here was
-  // glossCarriedBy, a bag-of-words provenance test that let a passage about the man who held a title carry a
-  // name's meaning; provenance remains a refusal inside unauthorizedReason and authorizes nothing.
+  // EVERY SOURCE EARNS ITS OWN RULING, AND THE CODE ACCEPTS ONLY WHAT IT CAN VERIFY (claim-support, 2026-08-29).
+  // The model locates the supporting sentence and its spans; supportFailure accepts nothing it cannot find
+  // verbatim in the exact quote this row banks, localized to ONE sentence, whole words only, the subject named
+  // in that sentence or by this same fetch's own document title. What stood here was glossCarriedBy, a
+  // bag-of-words provenance test that let a passage about the man who held a title carry a name's meaning;
+  // provenance remains a refusal inside unauthorizedReason and authorizes nothing.
   const rulings = new Map((v.supporting ?? []).map((x) => [x.url, x] as const)); const proposedNow = (v.proposed ?? "").trim();
   const bankedSources = passages.map((p) => {
     const says = (verified.get(p.url) ?? "").slice(0, 600);
@@ -404,10 +404,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       subjectFrom: r.subjectFrom === "title" ? "title" : "quote", relationSpan: r.relationSpan ?? "",
       meaningSpans: r.meaningSpans ?? [] } : null;
     const failure = candidate ? supportFailure(candidate, ctx) : "meaning_absent" as const;
-    return { ...stamp, support: failure == null ? candidate! : unsupportedArtifact(ctx, failure) };
+    // THE MODEL LOCATES, AND WHEN IT LOCATES BADLY THE CODE MAY LOCATE FOR ITSELF: live, the judge returned supported rulings whose subject span was EMPTY over a quote opening "The name Alborz is derived from", and a fail-closed net with no deterministic fallback starves the pipeline on model formatting rather than on evidence. deriveSupport accepts nothing supportFailure would not; it only finds it.
+    return { ...stamp, support: failure == null ? candidate! : deriveSupport(ctx) ?? unsupportedArtifact(ctx, failure) };
   });
-  // AGREEMENT IS SUPPORT, NOT INVENTORY: the sources whose own validated artifact carries this proposal.
-  // Without a proposal there is nothing to carry and the vouched readers count, exactly as before.
+  // AGREEMENT IS SUPPORT, NOT INVENTORY: the sources whose own validated artifact carries this proposal. Without a proposal there is nothing to carry and the vouched readers count, exactly as before.
   const carriers = proposedNow
     ? bankedSources.filter((b) => "support" in b && b.support?.supported)
     : bankedSources.filter((b) => b.says.trim() !== "" && supporters.some((p) => p.url === b.url));
