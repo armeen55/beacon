@@ -67,8 +67,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
       engine: ["chatgpt", "claude", "gemini", "perplexity"][i % 4], sample_slot: 0, reporting_day: DAY, status: "observed",
       requested_at: `2026-08-02T${String(i % 24).padStart(2, "0")}:00:${String(i % 60).padStart(2, "0")}Z`,
       answer_text: "x".repeat(5000), answer_hash: "h", analysis: null, analysis_hash: null,
-      journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));
-  });
+      journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));});
   it("calls a metric what Search Console calls it, and the same thing everywhere on the screen", () => {
     // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly
     // below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the
@@ -82,17 +81,14 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(labels).toContain("CTR");
     expect(v.chart?.label, "and so does the chart").toBe("Impressions");
     expect(google({ metric: "ctr" }).chart?.label).toBe("CTR");
-    for (const term of ["Impressions", "CTR"]) expect(cards, `the summary card already used ${term}`).toContain(term);
-  });
+    for (const term of ["Impressions", "CTR"]) expect(cards, `the summary card already used ${term}`).toContain(term);});
   it("says what it cannot show without Search Console rather than drawing an empty workspace", () => {
     const bare = google({ days: [] }); expect([bare.pages, bare.queries, bare.chart]).toEqual([null, null, null]);
     expect(bare.limitation).toContain("No Search Console numbers are on file for this account");
     const broken = google({ decay: [], pages: new Map() });
     for (const said of [broken.pages!.empty, broken.queries!.empty, broken.tiles[3]!.basis]) {
       expect(said).toContain("could not be read in time just now"); expect(said).toContain("totals above are current");
-      expect(said).not.toMatch(/stored answers|AI/);
-    }
-  });
+      expect(said).not.toMatch(/stored answers|AI/);}});
   it("shows every page that moved with the window it was measured on, and marks the ones losing ground", () => {
     const v = google(); expect(v.pages!.rows.map((r) => r.id)).toEqual(["/haft-seen", "/nowruz"]);
     const losing = v.pages!.rows.find((r) => r.id === "/nowruz")!; expect([losing.cells[2]!.text, losing.cells[2]!.tone, losing.cells[0]!.sub]).toEqual(["-40", "down", "losing ground"]);
@@ -118,8 +114,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(ai({ segments: null, dayRows: null, window: null, sources: null }).empty).toContain("That could not be read back in time just now");
     const part = ai({ segments: null }); expect([part.empty, part.tiles.length, part.chart, part.byEngine, part.citations!.rows.length > 0, part.prompts!.rows.length > 0]).toEqual([null, 0, null, null, true, true]);
     expect(part.coverage).toContain("The daily trend could not be read back in time, so no rate, no chart and no period is claimed here.");
-    for (const said of [ai({ sources: null }).citations!.empty, ai({ dayRows: null, window: null }).prompts!.empty]) expect(said).toContain("That could not be read back in time just now");
-  });
+    for (const said of [ai({ sources: null }).citations!.empty, ai({ dayRows: null, window: null }).prompts!.empty]) expect(said).toContain("That could not be read back in time just now");});
   it("never lists a question of mine as a search an assistant thought of, and links every question to the runs behind it", () => {
     const v = ai();
     expect(v.searches!.rows.map((r) => r.cells[0]!.text)).not.toContain("Where to buy a haft seen set?"); // a capital letter and a question mark are the SAME question
@@ -133,8 +128,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const d = ai({ focus: { promptId: "p1", rows: [ROW, { ...ROW, id: "obs_8", engine: "claude", answered: false, mentioned: null, cited: null, fanOuts: null, citations: null }] } }).detail!; // One question opened: every run, each one linkable on its own.
     expect(d.headline).toBe("You are named in 1 of the 1 answers finished checking on this question, across 2 assistants."); expect(d.executions.rows[0]!.href).toBe("?view=ai&prompt=p1&reading=obs_7");
     const quiet = d.executions.rows.find((r) => r.id === "obs_8")!.cells.map((c) => c.text); expect(quiet).toEqual(["Aug 2", "Claude", "nothing came back", "not checked", "never reported", "never reported", "never reported"]);
-    expect(d.rivals[0]).toEqual({ text: "Rival Bazaar", count: 2 });
-  });
+    expect(d.rivals[0]).toEqual({ text: "Rival Bazaar", count: 2 });});
   it("opens every search the assistants ran into the answers, questions and pages behind it", () => {
     const v = ai(); const listed = v.searches!.rows.find((r) => r.id === FANOUT_KEY)!;
     expect(listed.href).toBe(`?view=ai&sub=searches&fanout=${encodeURIComponent(FANOUT_KEY)}`); const f = fanout();
@@ -151,8 +145,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     expect(many.executions.rows).toHaveLength(60); expect(many.executions.note).toContain("Showing the 60 newest of 61 executions. The rest are on file, not gone.");
     const markup = renderToStaticMarkup(<AiWorkspace view={ai()} range={7} engine={null} sub="searches" reading={null} fanout={f} />);
     for (const s of ["One search, and every answer that ran it", "Back to all searches", "What to do about it",
-      FANOUT_LINKAGE_CAVEAT, DISPOSITION.line, "prompt=p1&amp;reading=obs_7"]) expect(markup, s).toContain(s);
-  });
+      FANOUT_LINKAGE_CAVEAT, DISPOSITION.line, "prompt=p1&amp;reading=obs_7"]) expect(markup, s).toContain(s);});
   it("opens one run into the whole of itself, and never prints an unreported silence as a factual none", () => {
     const all = answerDetail(ROW, new Map(LANDSCAPE.map((l) => [l.domain, l.kind]))).join("\n");
     for (const s of [LONG_ANSWER, '"haft seen set delivery"', "https://own.example/haft-seen (your page)", "It named these instead of or beside you: Rival Bazaar, Persian Goods.",
@@ -166,15 +159,13 @@ describe("Visibility is a workspace, and every number on it names what it was co
       "ChatGPT does not report the pages it read but did not credit on this path.", "Nobody has read this answer closely yet"]) expect(quiet, s).toContain(s);
     for (const gone of ["It ran no searches of its own", "It credited no pages at all", "Every page it read, it credited"]) expect(quiet).not.toContain(gone);
     expect(answerDetail({ ...ROW, costUsd: null }).at(-1)).toContain("collected once and reused from storage"); expect(answerDetail({ ...ROW, costUsd: 0.004 }).at(-1)).not.toContain("cost");
-    expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");
-  });
+    expect(answerDetail({ ...ROW, reading: "checked" })).toContain("This answer was checked for your name and your website address, and nobody has read the rest of it closely.");});
   /** THE REAL SURFACE: it draws off answers already bought, asks no provider anything, and loads a whole answer only for the ONE run a customer opens. */
   it("draws the AI workspace off stored answers, calls no provider, and reads a whole answer only when one run is opened", async () => {
     const draw = async (params: Record<string, string>) => {
       const page = await VisibilityPage({ searchParams: Promise.resolve(params) }) as ReactElement<{ children: ReactElement[] }>;
       const body = (page.props.children[2]! as ReactElement<{ children: ReactElement }>).props.children as ReactElement<{ tenantId: string }>;
-      return renderToStaticMarkup(await (body.type as (p: { tenantId: string }) => Promise<ReactElement>)(body.props));
-    };
+      return renderToStaticMarkup(await (body.type as (p: { tenantId: string }) => Promise<ReactElement>)(body.props));};
     const listed = await draw({ view: "ai" }); expect(listed).toContain("Where AI answers have you");
     expect(listed).toContain("question 0"); // the tracked questions themselves, not a count of them
     expect(store.reads.every((r) => !r.cols.includes("answer_text"))).toBe(true); // no screen ever pulls a day of whole answers
@@ -190,7 +181,4 @@ describe("Visibility is a workspace, and every number on it names what it was co
       ...f.wordings.flatMap((w) => [w.text, w.basis]),
       ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries, f.parents, f.executions, f.ownPages, f.rivals].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
     for (const s of said) {
-      expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/); expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);
-    }
-  });
-});
+      expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/); expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);}});});

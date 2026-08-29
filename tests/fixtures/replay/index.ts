@@ -20,8 +20,7 @@ export const STALE_URL = `${SITE}/kite-festival-history`;
 type GscRow = EvidenceSnapshotInput["gsc"]["payload"][number];
 const q = (query: string, impressions: number, clicks: number, position: number): OwnedQuerySignal => ({ query, impressions, clicks, position });
 export function gscPage(url: string, totals: { impressions: number; clicks: number; position?: number }, topQueries: OwnedQuerySignal[]): GscRow {
-  return { url, clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: totals.position ?? 4, topQueries };
-}
+  return { url, clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: totals.position ?? 4, topQueries };}
 /** A REAL click-through gap: 3.0 percent where this position usually earns about 8.0 percent. */
 export const gscCtrGap = (): GscRow => gscPage(GAP_URL, { impressions: 6400, clicks: 190, position: 4.1 }, [q(GAP_QUERY, 6000, 180, 4.1)]);
 /** A page already beating the clicks its positions earn: nothing here is recoverable. */
@@ -33,21 +32,18 @@ export const gscCannibalPair = (): GscRow[] => [
   gscPage(GAP_URL, { impressions: 6400, clicks: 190, position: 4.1 }, [q(GAP_QUERY, 6000, 180, 4.1)])];
 /** The trailing 28 days against the 28 before: one page climbing, one slipping. */
 export function gscDecay(page: string, clicksNow: number, clicksPrior: number): GscDecaySignal {
-  return { page, clicksNow, positionNow: 4.1, impressionsNow: 2000, clicksPrior, positionPrior: 4.4, impressionsPrior: 2000, windowNowEnd: "2026-07-19" };
-}
+  return { page, clicksNow, positionNow: 4.1, impressionsNow: 2000, clicksPrior, positionPrior: 4.4, impressionsPrior: 2000, windowNowEnd: "2026-07-19" };}
 export const gscGain = (): GscDecaySignal => gscDecay(WINNER_URL, 320, 210);
 export const gscDecline = (): GscDecaySignal => gscDecay(GAP_URL, 140, 260);
 /** The SERP agenda's first-party portfolio, exactly as the funnel's own reader hands it over (a page whose last 28 days fell against the 28 before marks its queries declining). */
 export function agendaFromDecay(rows: { decay: GscDecaySignal; queries: OwnedQuerySignal[] }[]): SerpAgendaPageQuery[] {
-  return rows.flatMap((r) => r.queries.map((k) => ({ query: k.query, impressions: k.impressions, declining: r.decay.clicksNow < r.decay.clicksPrior })));
-}
+  return rows.flatMap((r) => r.queries.map((k) => ({ query: k.query, impressions: k.impressions, declining: r.decay.clicksNow < r.decay.clicksPrior })));}
 
 // ── owned page bodies, current and stale ────────────────────────────────────
 type WixRow = EvidenceSnapshotInput["wix"]["payload"][number];
 export function ownedBody(url: string, title: string, over: Partial<WixRow> = {}): WixRow {
   return { url, title, metaDescription: null, h1: title, h2: [], outline: ["What happens on the day", "What families bring"], schemaTypes: [],
-    hasFaq: false, faqCount: 0, wordCount: 780, internalLinks: [], fetchedAt: OBSERVED_AT, ...over };
-}
+    hasFaq: false, faqCount: 0, wordCount: 780, internalLinks: [], fetchedAt: OBSERVED_AT, ...over };}
 /** Read weeks ago: still a body, and honestly dated as an old one. */
 export const staleOwnedBody = (): WixRow => ownedBody(STALE_URL, "Kite Festival History", { fetchedAt: "2026-05-01T00:00:00.000Z", wordCount: 410 });
 
@@ -55,8 +51,7 @@ export const staleOwnedBody = (): WixRow => ownedBody(STALE_URL, "Kite Festival 
 export function winningPage(url: string, query: string, extract: ResearchPageExtract | null, over: Partial<FunnelWinningPage> = {}): FunnelWinningPage {
   return { url, domain: new URL(url).hostname, engines: [], examplePrompts: [],
     appearances: [{ kind: "serp_organic", query, promptId: null, promptText: null, engine: null, rank: 1, citedUrl: url, observedAt: OBSERVED_AT, modelServed: null }],
-    extract, ...over };
-}
+    extract, ...over };}
 /** The publisher said no, so the body is not in hand and this URL is not tried again yet. */
 export const blockedWinner = (url: string, query: string): FunnelWinningPage =>
   winningPage(url, query, null, { readOutcome: { state: "robots_blocked", attemptedAt: OBSERVED_AT, retryAfter: "2026-08-20T09:00:00.000Z" } });
@@ -67,8 +62,7 @@ export function replayProfile(over: { offerings?: string[]; topics?: string[] } 
   const p = emptyBusinessProfile(TENANT);
   p.offerings = confirmed(over.offerings ?? ["festival guides"]);
   p.topicsToOwn = confirmed(over.topics ?? ["kite festival", "paper lantern"]);
-  return p;
-}
+  return p;}
 
 // ── the funnel's basis-scoped store, in memory ──────────────────────────────
 export function memFunnelStore(seed?: FunnelState) {
@@ -79,8 +73,7 @@ export function memFunnelStore(seed?: FunnelState) {
     loadState: async (t: string, b: string) => { const row = rows.get(`${t}|${b}`); return row ? { state: clone(row.state), rowVersion: row.rowVersion } : { state: emptyFunnelState(t, b), rowVersion: 0 }; },
     saveState: async (t: string, b: string, s: FunnelState, expected: number) => { const k = `${t}|${b}`; if ((rows.get(k)?.rowVersion ?? 0) !== expected) return null; rows.set(k, { state: clone(s), rowVersion: expected + 1 }); return expected + 1; },
   } satisfies Pick<FunnelDeps, "loadState" | "saveState">;
-  return { deps, peek: (t = TENANT, b = BASIS) => rows.get(`${t}|${b}`)?.state, put: (s: FunnelState) => rows.set(`${s.tenantId}|${s.basisTag}`, { state: clone(s), rowVersion: (rows.get(`${s.tenantId}|${s.basisTag}`)?.rowVersion ?? 0) + 1 }) };
-}
+  return { deps, peek: (t = TENANT, b = BASIS) => rows.get(`${t}|${b}`)?.state, put: (s: FunnelState) => rows.set(`${s.tenantId}|${s.basisTag}`, { state: clone(s), rowVersion: (rows.get(`${s.tenantId}|${s.basisTag}`)?.rowVersion ?? 0) + 1 }) };}
 
 // ── the snapshot the decision kernel reads ──────────────────────────────────
 const src = <T>(payload: T): LoadedSource<T> => ({ status: "fresh", lastSyncedAt: OBSERVED_AT, payload });
@@ -90,6 +83,4 @@ export function replaySnapshot(over: WorldOver = {}): EvidenceSnapshot {
   return buildEvidenceSnapshot({
     scope: { tenantId: TENANT, site: SITE, builtAt: "2026-07-21T00:00:00.000Z" },
     gsc: src(over.gsc ?? [gscCtrGap()]), ga4: src([]), wix: src(over.wix ?? [ownedBody(GAP_URL, "Kite Festival")]),
-    clarity: src([]), dataforseo: src(over.keywordDemand ?? []), research: src(over.research ?? emptyResearchEvidence()), aiAnswersUnread: false,
-  });
-}
+    clarity: src([]), dataforseo: src(over.keywordDemand ?? []), research: src(over.research ?? emptyResearchEvidence()), aiAnswersUnread: false,});}

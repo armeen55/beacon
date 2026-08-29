@@ -63,8 +63,7 @@ describe("dual-write tenant validation (fires before any I/O)", () => {
   it("GLOBAL_TABLES holds the registry + shared config, never per-tenant data tables", () => {
     expect(GLOBAL_TABLES.has("tenants")).toBe(true); expect(GLOBAL_TABLES.has("business_config")).toBe(true);
     for (const t of ["results", "page_snapshots", "recommended_edits", "observation_runs", "pages"]) {
-      expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);
-    }
+      expect(GLOBAL_TABLES.has(t), `${t} must be tenant-scoped`).toBe(false);}
     expect(GLOBAL_TABLES.has("citation_evidence_index")).toBe(false); expect(GLOBAL_TABLES.has("answer_intelligence_index")).toBe(false);});
   it("tenantizeRows stamps missing tenant_id, throws on a real mismatch, never mutates input", () => {
     const original = { id: "r1", tenant_id: "" }; const out = tenantizeRows([original, { id: "r2", tenant_id: TENANT }, { id: "r3" }], TENANT, "results");

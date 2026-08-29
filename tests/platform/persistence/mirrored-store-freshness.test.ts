@@ -15,9 +15,7 @@ vi.mock("@/lib/persistence/supabase", () => ({
         : durable.fail === "throw" ? Promise.reject(new Error("client init failed"))
           : { data: null, error: { message: "schema cache stale", code: durable.fail } };
       return { data: durable.rows == null ? null : { content: durable.rows }, error: null };
-    } }) }) }),
-  }),
-}));
+    } }) }) }),}),}));
 /** How many times the DURABLE BLOB for this key was asked for, ignoring any other read a path resolution makes. */
 const blobReads = (tenant: string): number => durable.keys.filter((k) => k.includes(tenant)).length;
 import { readStore } from "@/lib/persistence/json-store";

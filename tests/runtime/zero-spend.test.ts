@@ -33,8 +33,7 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
   const storeMock = (claim: boolean, held: unknown[] = []) => ({
     readStore: async () => held, writeStore: async () => undefined,
     claimScope: async (name: string) => { calls.claims.push(name); return claim ? "hold-1" : null; },
-    releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); },
-  });
+    releaseScope: async (name: string, _key: string, owner: string) => { calls.releases.push(`${name}:${owner}`); },});
   const calls = { claims: [] as string[], releases: [] as string[] };
   it("overrides the caller's own draft budget, closes every door on the stack, and releases its hold", async () => {
     vi.resetModules(); calls.claims.length = 0; calls.releases.length = 0;
@@ -244,16 +243,13 @@ describe("a paused tick collects what was already paid for, free, then republish
     vi.resetModules();
     const events: string[] = [];
     vi.doMock("@/domains/evidence/dataforseo/default-deps", () => ({
-      pendingProviderTaskKeys: async (limit: number) => { events.push(`enumerate:${limit}`); return ["dfs2_owed"]; },
-    }));
+      pendingProviderTaskKeys: async (limit: number) => { events.push(`enumerate:${limit}`); return ["dfs2_owed"]; },}));
     vi.doMock("@/domains/evidence/dataforseo/capabilities", () => ({
-      collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },
-    }));
+      collectCapability: async (key: string) => { events.push(`collect:${key}`); return { state: "hit", envelope: {}, costUsd: 0, cacheKey: key }; },}));
     vi.doMock("@/domains/runtime/research-run", () => ({ claimDueRuns: async () => [], finishRun: async () => true, newOwnerToken: () => "o1", startExtraPass: async () => null }));
     vi.doMock("@/app/(shell)/surface-release", () => ({
       readCustomerSurface: async () => ({ computedAt: "2020-01-01T00:00:00.000Z" }), isCustomerSurfaceStale: () => true,
-      refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },
-    }));
+      refreshCustomerSurface: async (t: string) => { events.push(`rebuild:${t}`); return {}; },}));
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
       from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ id: "tenant-fx" }], error: null }) }) }) }) }) }),
     }) }));

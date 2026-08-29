@@ -38,8 +38,7 @@ function makeRequest(
     headers: init.headers,});}
 /** A request carrying a forged/stale account-selection cookie. */
 function makeCookieRequest(url: string, cookieTenant: string): NextRequest {
-  return makeRequest(url, { headers: { cookie: `beacon_tenant=${cookieTenant}` } });
-}
+  return makeRequest(url, { headers: { cookie: `beacon_tenant=${cookieTenant}` } });}
 function injectedTenant(res: Response): string | null {
   return res.headers.get("x-middleware-request-x-beacon-tenant");}
 function cookieValue(res: Response, name: string): string | null {

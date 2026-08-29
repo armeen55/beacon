@@ -95,8 +95,7 @@ const replayProvider: NonNullable<FunnelDeps["callProvider"]> = async (cap: Capa
   if (cap === "llm_scraper_chatgpt") return evidenceOf(fx.scraperAnswer(), "ck-scraper");
   if (cap.startsWith("llm_")) return evidenceOf(fx.llmAnswer({ model: cap }), `ck-${cap}`);
   if (cap.startsWith("serp_")) return evidenceOf(fx.serpOrganic({ keyword: kw }), `ck-serp-${kw}`);
-  return evidenceOf(fx.keywordBatch([{}, { keyword: WINNER_QUERY, volume: 900, intent: "commercial" }, { keyword: "kite festival food", volume: 480 }]), `ck-${cap}`);
-};
+  return evidenceOf(fx.keywordBatch([{}, { keyword: WINNER_QUERY, volume: 900, intent: "commercial" }, { keyword: "kite festival food", volume: 480 }]), `ck-${cap}`);};
 async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statuses: string[]; observed: AiObservationRecord[] }> {
   const store = fx.memFunnelStore();
   const observed: AiObservationRecord[] = [];
@@ -194,8 +193,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
       gsc: [fx.gscCtrGap(), fx.gscPage(SECOND_URL, { impressions: 5000, clicks: 130, position: 4.2 }, [{ query: SECOND_QUERY, impressions: 4800, clicks: 120, position: 4.2 }]), fx.gscStableWinner()],
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(SECOND_URL, "Lantern Release", { outline: ["When the lanterns go up", "How the release works"] })],
       research: { ...evidence, serpEvidence: [...evidence.serpEvidence,
-        { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })), aiOverview: [], aiMode: [], paa: [], related: [] }] } });
-  };
+        { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })), aiOverview: [], aiMode: [], paa: [], related: [] }] } });};
   const drive = async (evidence: FunnelResearchEvidence, readyTarget: number | undefined, refuse: string[], seedFrom?: Map<string, ChangeProposal>) => {
     env.snap = twoGapWorld(evidence); env.saved = []; env.store = new Map(seedFrom ?? []); env.refuseSave = new Set(refuse);
     const seam = drafter();

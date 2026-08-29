@@ -197,10 +197,8 @@ describe("an AI change is judged on the thing it was raised to move", () => {
         const row = first({ judgedMetric: m, ai: ai(d, days) });
         for (const s of [...fields(row), row.yardstick ?? "", row.googleAside?.heading ?? "", row.googleAside?.line ?? ""]) {
           expect(s, `${m} ${d} at ${days} days: ${s}`).not.toMatch(/[–—]|\b(I|me|my|we|our)\b|[a-z]+_[a-z]+/);
-          expect(s, `${m} ${d} at ${days} days: ${s}`).not.toMatch(/\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i);
-        }
-        expect(row.nextStep.length, `${m} ${d} at ${days} days`).toBeGreaterThan(0);
-      }});
+          expect(s, `${m} ${d} at ${days} days: ${s}`).not.toMatch(/\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i);}
+        expect(row.nextStep.length, `${m} ${d} at ${days} days`).toBeGreaterThan(0);}});
   it("leaves a click-judged row exactly as the rest of this file pins it, whatever the AI half says", () => {
     const declared = first({ judgedMetric: "clicks", ai: ai("worsened") }), plain = first();
     expect([declared.liftLabel, declared.bar, declared.impressionsLabel, declared.readLabel, declared.pipCaption, declared.happened, declared.taught, declared.nextStep])

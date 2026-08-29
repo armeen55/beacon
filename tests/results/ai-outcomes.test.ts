@@ -150,8 +150,7 @@ describe("what the AI answers did around one shipped change", () => {
     const out: AiObservationRecord[] = [];
     for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
       const day = d.toISOString().slice(0, 10);
-      for (let i = 0; i < 4; i += 1) out.push(row({ day, prompt_id: `p${i}`, mentioned: i < named }));
-    }
+      for (let i = 0; i < 4; i += 1) out.push(row({ day, prompt_id: `p${i}`, mentioned: i < named }));}
     return out;};
   /** BOTH SIDES ARE ONE MEASURE. The starting number written at mark time counts the answers that came back AND the ones read closely enough to say whether the account was named, and the rate divides by the second. Dividing by everything that came back made the before side a different metric from the after side, so a change was judged by a subtraction of two unlike numbers. */
   it("divides the starting number by the answers READ CLOSELY, so before and after are the same measure", async () => {
@@ -422,15 +421,12 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     const ctlDays = (from: string, to: string, make: (i: number) => Partial<AiObservationRecord> & { mentioned?: boolean | null }) => {
       const out: AiObservationRecord[] = [];
       for (let d = new Date(`${from}T00:00:00.000Z`); d <= new Date(`${to}T00:00:00.000Z`); d = new Date(d.getTime() + 86_400_000)) {
-        for (let i = 0; i < 4; i += 1) out.push(ctl({ day: d.toISOString().slice(0, 10), ...make(i) }));
-      }
-      return out;
-    };
+        for (let i = 0; i < 4; i += 1) out.push(ctl({ day: d.toISOString().slice(0, 10), ...make(i) }));}
+      return out;};
     const members = days("2026-07-21", "2026-07-31", () => ({ mentioned: true }));
     const on = (over: Partial<AiObservationRecord>) => [
       ...ctlDays("2026-07-15", "2026-07-20", () => ({ mentioned: false, ...over })),
-      ...ctlDays("2026-07-21", "2026-07-31", () => ({ mentioned: true, ...over })),
-    ];
+      ...ctlDays("2026-07-21", "2026-07-31", () => ({ mentioned: true, ...over })),];
     const ask = async (rows: AiObservationRecord[]) => aiOutcomeForShipment(T, { implementedAt: STAMP,
       shipmentBaseline: frozen({ instruments: ["chatgpt|gpt-5|api"] }), aiScope: scope("owned_mentioned_not_cited") },
       { readObservations: reader(rows), now: NOW });
@@ -470,8 +466,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     const out: AiObservationRecord[] = [];
     for (let t = Date.parse("2026-07-21T00:00:00Z"); t <= Date.parse("2026-08-17T00:00:00Z"); t += 86_400_000)
       shapes.forEach(([c, r], i) => out.push(answer(new Date(t).toISOString().slice(0, 10), i, c, r)));
-    return out;
-  };
+    return out;};
   /** The frozen starting point at an adequate size: 40 answers, `citing` of each 10 crediting the page, and `passedOver` of each 10 that read it passed over. Four-answer sides can never support a verdict now. */
   const before = (citing: number, passedOver: number) => ({ ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 40,
     citationSample: 40, ownedCiting: citing * 10, rankSum: citing * 10, rankCount: citing * 10,
@@ -487,8 +482,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     ["credited exactly as often and passed over MORE often is a loss, never flat", before(1, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE], "worsened"],
     ["credited less often and passed over less often is still a loss", before(3, 3), [CREDITED, ELSEWHERE, PASSED_OVER, ELSEWHERE], "worsened"],
     ["credited less often and passed over MORE often is a loss on both halves", before(3, 1), [CREDITED, PASSED_OVER, PASSED_OVER, ELSEWHERE], "worsened"],
-    ["neither half reported by any answer is unreadable, never a verdict", before(1, 1), [SILENT, SILENT, SILENT, SILENT], "unclear"],
-  ];
+    ["neither half reported by any answer is unreadable, never a verdict", before(1, 1), [SILENT, SILENT, SILENT, SILENT], "unclear"],];
   it.each(CASES)("%s", async (_label, held, shapes, direction) => {
     expect((await judged(held, shapes))?.direction).toBe(direction); });
   it("says out loud that being passed over rose, on the numbers, instead of reporting no change", async () => {
@@ -514,8 +508,7 @@ describe("controls and per-assistant verdicts", () => {
     const out: AiObservationRecord[] = [];
     for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000)
       for (let i = 0; i < 2; i += 1) out.push(...make(new Date(t).toISOString().slice(0, 10), i));
-    return out;
-  };
+    return out;};
   const HELD = { ai: { day: "2026-07-20", checked: 44, analyzed: 40, mentioning: 10 } };
   const judge = (rows: AiObservationRecord[]) => aiOutcomeForShipment(T,
     { scopeQueries: ["where should I go"], implementedAt: STAMP, shipmentBaseline: HELD }, { readObservations: reader(rows), now: NOW28 });

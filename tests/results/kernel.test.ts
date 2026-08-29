@@ -218,8 +218,7 @@ describe("no causal overclaim on any read", () => {
     const down = readFor([{ day: 28, ran: true, adjustedLift: -80, controlsUsed: 3, treatedPostImpressions: 5000 }]); expect(down.headline).toContain("moved down after the change");
     expect(bandOf(down)).toBe("learned"); expect(down.rankingSignal).toBeLessThan(0);
     for (const read of [down, readFor([{ day: 28, ran: true, adjustedLift: 90, controlsUsed: 3, treatedPostImpressions: 5000 }]), readFor([])]) {
-      expect(read.headline.toLowerCase()).not.toMatch(/caused|thanks to|because of the change|proof that/); expect([read.headline, ...read.caveats].join(" ")).not.toMatch(/[—–]/);
-    }
+      expect(read.headline.toLowerCase()).not.toMatch(/caused|thanks to|because of the change|proof that/); expect([read.headline, ...read.caveats].join(" ")).not.toMatch(/[—–]/);}
     const early = readFor([{ day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 }]); expect([bandOf(early), learningVerdictOf(early)]).toEqual(["promising", "measuring"]);
     expect(early.headline).toContain("This firms up when the 28-day window closes"); });
   it("says WHAT confounded a read, never just that it is confounded", () => {
@@ -240,8 +239,7 @@ describe("metric selection and vocabulary", () => {
       ["other", "unclassified"], ["bundle", "unclassified"], ["", "unclassified"], ["keep_current", "unclassified"]];
     expect(table.map(([a]) => metricFor(a))).toEqual(table.map(([, m]) => m));
     const unknown = readLedger([ledgerRow({ actionType: "other" })], LATE, "2026-07-01")[0]; // no verdict, no number, nothing taught to ranking
-    expect([unknown.verdict, unknown.basisDay, unknown.lift, unknown.rankingSignal]).toEqual(["insufficient_evidence", null, 0, 0]); expect(unknown.headline).toMatch(/not a kind that Search data can fairly judge/);
-  });
+    expect([unknown.verdict, unknown.basisDay, unknown.lift, unknown.rankingSignal]).toEqual(["insufficient_evidence", null, 0, 0]); expect(unknown.headline).toMatch(/not a kind that Search data can fairly judge/);});
   it("reads the live stored row spelled 'title-family' on click rate, with no history rewritten", () => {
     const read = readLedger([ledgerRow({ actionType: "title-family",
       windows: [{ day: 28, ran: true, adjustedLift: -40, adjustedCtrLift: 0.02, controlsUsed: 3, treatedPostImpressions: 5000 }] })], LATE, "2026-07-01")[0];
@@ -249,8 +247,7 @@ describe("metric selection and vocabulary", () => {
   it("exposes a phrase for every verdict with no dashes", () => {
     for (const v of ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const) {
       const phrase = verdictPhrase(v); expect(phrase.length).toBeGreaterThan(0);
-      expect(phrase).not.toMatch(/[—–]/);
-    }
+      expect(phrase).not.toMatch(/[—–]/);}
   }); });
 /** A FINISHED READING NEVER MOVES AGAIN. /results re-measures the whole ledger every fifteen minutes against fresh Google data and a fresh comparison set, so a change reported at +1,040 clicks was re-read at +1,428  the same afternoon. Once the window has closed with every day behind it finalized, the tuple is frozen. */
 describe("a settled reading is held still", () => {
@@ -259,8 +256,7 @@ describe("a settled reading is held still", () => {
     day, checkOn: addDays(STAMP, day), ran: true, treatedDelta: lift, controlDelta: 0, adjustedLift: lift,
     treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0,
     adjustedPosLift: 0, controlsUsed: 4, treatedPostImpressions: 9000,
-    treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0,
-  });
+    treatedImpressionsDelta: 0, controlImpressionsDelta: 0, adjustedImpressionsLift: 0,});
   const record = (over: Partial<ShippedChangeRecord> = {}): ShippedChangeRecord => ({
     id: "shp_pin", page: "https://site.com/x", path: "/x", actionType: "content", before: null, after: null,
     shippedAt: STAMP, baseline: { clicks: 900, impressions: 9000, ctr: 0.1, position: 6, windowDays: 28 },
@@ -271,8 +267,7 @@ describe("a settled reading is held still", () => {
     componentsApplied: [{ kind: "section", label: "Section" }], implementedAt: STAMP,
     preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
     verification: { status: "verified", checkedAt: STAMP, components: [] },
-    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,
-  });
+    operatorNote: null, aiScope: null, pinnedRead: null, createdAt: STAMP, updatedAt: STAMP, ...over,});
   const AFTER = new Date("2026-06-01T00:00:00Z"), FINAL = "2026-05-20";
   it("freezes the whole tuple once the window closed and Google finalized the days behind it", () => {
     const r = record(); const read = readLedger([r], AFTER, FINAL)[0]!;
@@ -298,16 +293,14 @@ describe("one comparison policy, one durable result", () => {
     ({ path, shippedAt: at, implementedAt: at, verdict, windows: [{ day: 28, ran: true }] } as unknown as ShippedChangeRecord);
   it("holds a page only for its own window, names why, and lets it back in afterwards", () => {
     const ledger = [change("/live", "2026-05-28", "measuring"), change("/old", "2026-01-05", "won")]; expect([...contaminationFor(ledger, ["/queued"], NOW_C)]).toEqual([["/live", "treated-now"], ["/queued", "open-proposal"]]);
-    expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-05-20", "measuring")).has("/old")).toBe(false); expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-01-20", "measuring")).get("/old")).toBe("measuring-window-overlap");
-  });
+    expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-05-20", "measuring")).has("/old")).toBe(false); expect(contaminationFor(ledger, [], NOW_C, change("/x", "2026-01-20", "measuring")).get("/old")).toBe("measuring-window-overlap");});
   it("stands the matched page behind a change instead of the biggest one, and says why in checkable facts", () => {
     const cand = (path: string, pageType: string | null, impr: number) =>
       ({ url: `https://s.test${path}`, path, pageType, baselineImpressions: impr, hasBaseline: impr > 0 });
     const { controls, receipts } = selectMatchedControls({
       treated: { path: "/a", pageType: "city", baselineImpressions: 1000 },
       candidates: [cand("/huge", "guide", 90000), cand("/peer", "city", 1400), cand("/dirty", "city", 1100), cand("/thin", null, 0)],
-      excluded: contaminationFor([change("/dirty", "2026-05-30", "measuring")], [], NOW_C),
-    });
+      excluded: contaminationFor([change("/dirty", "2026-05-30", "measuring")], [], NOW_C),});
     expect(controls).toEqual(["https://s.test/peer", "https://s.test/huge", "https://s.test/thin"]);
     expect(receipts[0]).toEqual({ path: "/peer", reasons: ["same page type: city", "traffic within 2x",
       "search data across the whole baseline window", "no open or measuring changes"] }); });

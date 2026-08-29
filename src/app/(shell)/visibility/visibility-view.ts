@@ -58,9 +58,7 @@ type GoogleInput = {
   days: Array<{ date: string; clicks: number; impressions: number }>;
   rangeDays: number; metric: "clicks" | "impressions" | "ctr"; decay: GscDecaySignal[]; pages: ReadonlyMap<string, GscPageSignal> };
 
-/** THE WORDS THE SUMMARY CARDS ALREADY USE. The chart and both tables called impressions "Appearances" and the
- *  click-through rate "Click rate", one screen away from cards reading "Impressions" and "CTR" over the very same
- *  numbers, so nothing told a reader they were the same metric and the term Search Console uses was never learned. */
+/** THE WORDS THE SUMMARY CARDS ALREADY USE. The chart and both tables called impressions "Appearances" and the click-through rate "Click rate", one screen away from cards reading "Impressions" and "CTR" over the very same numbers, so nothing told a reader they were the same metric and the term Search Console uses was never learned. */
 const METRIC_LABEL: Record<GoogleInput["metric"], string> = { clicks: "Clicks", impressions: "Impressions", ctr: "CTR" };
 /** GOOGLE'S OWN FAILURE WORDS (operator, 2026-08-21): about GOOGLE, totals above stay current, and nothing about AI answers. */
 const GOOGLE_UNREAD = "Google's page movement could not be read in time just now. The totals above are current, and this table fills in on the next visit.";

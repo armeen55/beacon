@@ -29,18 +29,15 @@ export function supabaseFake(o: SupabaseFakeOptions) {
         const want = cols && cols !== "*" ? cols.split(",").map((c) => c.trim()).filter(Boolean) : null;
         const page = hit.slice(first, first + max)
           .map((r) => (want ? Object.fromEntries(want.filter((c) => c in r).map((c) => [c, r[c]])) : { ...r }));
-        return counting ? { data: head ? null : page, count: hit.length, error: null } : { data: page, error: null };
-      }
+        return counting ? { data: head ? null : page, count: hit.length, error: null } : { data: page, error: null };}
       if (o.landsNothing?.()) return { data: [], error: null }; // accepted, landed nothing
       for (const row of sent) {
         const clash = o.clash?.(row, rows());
         if (clash) return { data: null, error: clash };
         const at = rows().findIndex((r) => same(r, row));
         if (at >= 0) { if (!skipDup) rows()[at] = { ...rows()[at], ...row }; continue; }
-        rows().push({ ...o.insertDefaults?.(), ...row });
-      }
-      return { data: sent.map((r) => ({ id: r.id })), error: null };
-    };
+        rows().push({ ...o.insertDefaults?.(), ...row });}
+      return { data: sent.map((r) => ({ id: r.id })), error: null };};
     const where = (t: (r: Row) => boolean) => { tests.push(t); return q; };
     const q: Record<string, unknown> = {
       select: (c?: string, x?: { count?: string; head?: boolean }) => {
@@ -62,9 +59,6 @@ export function supabaseFake(o: SupabaseFakeOptions) {
       // The ONE keyset shape every paged reader here builds: strictly past one row, in the query's own order.
       or: (expr: string) => { const m = /^(\w+)\.lt\."([^"]*)",and\(\w+\.eq\."[^"]*",id\.lt\."([^"]*)"\)$/.exec(expr);
         return m ? where((r) => String(r[m[1]!] ?? "") < m[2]! || (String(r[m[1]!] ?? "") === m[2]! && String(r.id) < m[3]!)) : q; },
-      then: (resolve: (v: unknown) => void) => resolve(run()),
-    };
-    return q;
-  };
-  return { from };
-}
+      then: (resolve: (v: unknown) => void) => resolve(run()),};
+    return q;};
+  return { from };}

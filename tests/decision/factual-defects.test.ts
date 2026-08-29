@@ -189,8 +189,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     for (const line of everything) expect(line, "no doubled stop").not.toMatch(/[.!?]"\./);
     // AN UNSUPPORTED ROW NEVER BECOMES CONFIDENT CORRECTION COPY: it does not mint at all.
     checks.rows = [check({ subject: "Ghost", confidence: "unsupported", proposed: "anything at all" })];
-    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards, "unsupported mints nothing").toEqual([]);
-  });
+    expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards, "unsupported mints nothing").toEqual([]);});
   const cardsOf = async (n: number) => { checks.rows = many(n); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; };
   it("clears a correction to ready, holds another with its reason, and never charges the operator with the checking", async () => {
     const cards = await cardsOf(3);
