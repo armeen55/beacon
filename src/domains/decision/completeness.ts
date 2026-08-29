@@ -200,10 +200,24 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
   const kept: ChangeProposal = { ...incoming, ...inherited, recommendedChange: prior.recommendedChange, researchOnly: false, status: prior.status,
     limitations: prior.limitations, estimatedEffortMinutes: prior.estimatedEffortMinutes };
   const fits = copyKey(kept) === copyKey(incoming); // A RECEIPT MAY ARRIVE LATE ONLY IF IT WAS WRITTEN FOR THESE WORDS: the exception claimed identity proved the copy byte-identical, but `copyIdentity` EXCLUDES the copy and `workKey` names the job, so a redraft's receipts rode the banked words (Codex, 2026-08-28)
-  for (const f of COPY_OWNED) if (prior[f] != null) (kept as Record<string, unknown>)[f] = prior[f]; else if (!(fits && (f === "preservation" || f === "informationGain"))) delete (kept as Record<string, unknown>)[f];
+  // THE SENTENCES ABOUT THE WORDS FOLLOW THE WORDS. `fits` means the kept copy is byte for byte what this pass
+  // would have written, so the claim, its evidence, the operator's steps and the preservation ledger describe
+  // exactly those words either way, and the ones today's rules produce are the honest pair. Without this a card
+  // that had settled kept its old sentences for ever: the correction family learned to say "Sharpen" over a
+  // narrowing rather than "Correct", and every settled card would still have read "X means Y, not Z" beneath a
+  // headline that no longer said that. Copy that is NOT identical keeps the banked pair, because a sentence
+  // minted for other words is not provenance for these.
+  for (const f of COPY_OWNED) {
+    if (fits && NARRATIVE.has(f)) continue; // already carrying this pass's value from `incoming`
+    if (prior[f] != null) (kept as Record<string, unknown>)[f] = prior[f];
+    else if (!(fits && (f === "preservation" || f === "informationGain"))) delete (kept as Record<string, unknown>)[f]; }
   return kept;
 }
 /** THE FIELDS THAT BELONG TO THE BANKED COPY and must survive with it. `redraftRequested` is deliberately ABSENT: a person who asked for better words outranks preservation, and that path returns before this list is read. The day someone adds a copy-owned field to the contract and forgets it here, the typed faults lesson repeats; keep this list beside the contract change in the same commit. */
+/** THE COPY-OWNED FIELDS THAT ONLY DESCRIBE THE COPY, refreshable when the words are byte-identical. `claims`
+ *  and `supportFacts` move together or not at all: a claim names ids its own pass banked, so taking one without
+ *  the other points provenance at nothing. */
+const NARRATIVE: ReadonlySet<string> = new Set(["claims", "supportFacts", "operatorSteps", "preservation"]);
 const COPY_OWNED = ["claims", "supportFacts", "operatorSteps", "bundle", "confirmedVersion", "approval", "faults", "modeledOn", "informationGain", "preservation"] as const satisfies readonly (keyof ChangeProposal)[];
 
 /** THE EXACT VERSION OF A CHANGE AN OPERATOR CAN SAY YES TO, and the ONE definition of it: the screen folds this and the server recomputes it byte for byte off the row it re-reads, so no second reading of "the same version" can exist. A confirmation is worthless unless it names WHAT was confirmed, and this used to name a third of it: the copy it replaces, where the copy lands, what survives a page move, the risks, the caveats, the steps, the reasons pages were left alone, every claim, the words behind every claim, the readings on the receipt and the days they were taken all moved without moving the version. It is now EVERYTHING MATERIAL THE OPERATOR READ. Any edit to any of it mints a different string, the stored stamp stops matching, and the stale confirmation refuses. UNORDERED SETS ARE SORTED, so re-listing the same caveats, support ids, readings or verdicts is not a rewrite; the ranking, the timestamps and the measurement figures are excluded because none of them is the change. SHORT and PURE: it folds through the same tiny fingerprint a bundle's pieces are already named by, so a server component can hand it to a browser. */

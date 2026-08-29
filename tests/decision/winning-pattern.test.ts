@@ -32,8 +32,7 @@ const reading = (over: Partial<WinningPatternRead> = {}): WinningPatternRead => 
   openingPattern: "Each of them answers the question plainly in its first sentence before it explains anything else.",
   ownedGaps: [{ gap: "your page never explains how one is made", seenOn: [0, 1, 2] }],
   disagreements: ["Some of them treat the region as the subject and others treat the craft as the subject."],
-  uniqueNotCommon: [{ detail: "one of them lays the knot counts out in a table", seenOn: [1] }],
-  ...over,});
+  uniqueNotCommon: [{ detail: "one of them lays the knot counts out in a table", seenOn: [1] }], ...over,});
 /** A completion seam that answers with one fixed reading and counts how many times it actually ran. */
 const seam = (value: unknown): { complete: CompleteFn; calls: () => number } => { let calls = 0; return { calls: () => calls, complete: async () => { calls += 1; return { value }; } }; };
 const memoryCache = (): CacheImpl => { const rows = new Map<string, LlmCallCacheEntry>(); return { read: async (t, k) => rows.get(`${t}|${k}`) ?? null, write: async (t, e) => void rows.set(`${t}|${e.key}`, e), recentTexts: async () => [] }; };

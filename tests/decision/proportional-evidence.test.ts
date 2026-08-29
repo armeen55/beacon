@@ -115,6 +115,13 @@ describe("the proof burden matches the promise, at the one door every surface re
     const carried = preferFinished(draftB, bankedA);
     expect([(carried.recommendedChange as { after: string }).after === KEEP, carried.informationGain?.adds ?? null],
       "a redraft's receipt may not ride the words that were banked").toEqual([true, null]);
+    // THE SENTENCES ABOUT THE WORDS FOLLOW THE WORDS. A settled card kept its old narrative for ever, so the correction family could learn to say "Sharpen" over a narrowing while every settled card still read "X means Y, not Z" beneath a headline that no longer said it. Identical words take this pass's sentences; different words keep the banked pair, because a sentence minted for other words is not provenance for these.
+    const settled = { ...authorized, informationGain: undefined, preservation: undefined, claims: [{ text: "OLD: X means Y, not Z.", supportedBy: ["fact-1"] }], operatorSteps: ["OLD step"] } as ChangeProposal;
+    const kept0 = (settled.recommendedChange as { after: string }).after;
+    const fresh = { ...settled, claims: [{ text: "NEW: the sources put it more precisely.", supportedBy: ["fact-1"] }], operatorSteps: ["NEW step"] } as ChangeProposal;
+    const same = preferFinished(fresh, settled), other = preferFinished({ ...fresh, recommendedChange: { ...fresh.recommendedChange, after: `${kept0} and more` } } as ChangeProposal, settled);
+    expect([(same.claims ?? [])[0]?.text, (same.operatorSteps ?? [])[0], (same.recommendedChange as { after: string }).after, (other.claims ?? [])[0]?.text],
+      "same words take today's sentences and keep the banked copy; other words keep the banked claim").toEqual(["NEW: the sources put it more precisely.", "NEW step", kept0, "OLD: X means Y, not Z."]);
     // PRESERVATION KEEPS FINISHED WORK, AND A LINE THAT WOULD PASTE AS ONE GLUED PHRASE IS NOT FINISHED WORK (operator, 2026-08-28): three corrections sat Ready reading "Meaning:Light." because the page's own missing space had been copied into them, and preservation kept handing that banked line back, so the repair that puts the one space there could never reach the rows it was written for.
     const glue = (after: string) => ({ ...authorized, informationGain: undefined, preservation: undefined, recommendedChange: { ...authorized.recommendedChange, field: "section", where: 'The "Noor" entry', before: "Meaning:Bright, radiant, or glowing.", after } }) as ChangeProposal;
     const banked = glue("Meaning:Light."), repaired = glue("Meaning: Light.");

@@ -160,15 +160,12 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect([...by.keys()].sort(), "all three minted").toEqual(["leila", "mahsa", "noor"]);
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
     // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
-    expect(say("leila"), "page_wrong contradicts").toContain("contradict");
-    expect(say("leila")).toContain("Correct what");
+    expect(say("leila"), "page_wrong contradicts and corrects").toMatch(/contradict[\s\S]*Correct what|Correct what[\s\S]*contradict/);
     // A NARROWING SAYS SO, and never that the page is wrong.
     expect(say("noor"), "page_imprecise sharpens").toContain("more precisely");
-    expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/);
-    expect(by.get("noor")!.opportunityType).toContain("Sharpen");
+    expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/); expect(by.get("noor")!.opportunityType).toContain("Sharpen");
     // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.
-    expect(say("mahsa"), "mechanical only").toContain("broken formatting");
-    expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
+    expect(say("mahsa"), "mechanical only").toContain("broken formatting"); expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
     // AND THE RENDERED REPLACEMENT IS MECHANICALLY CLEAN: one space after a Latin label, one terminal mark.
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
     expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);
