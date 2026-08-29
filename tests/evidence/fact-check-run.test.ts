@@ -15,7 +15,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
       const gone = db.rows.filter((r) => !present(String(r.current)));
       db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
-import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
+import { VERIFICATION_RULES_VERSION, SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, type ClaimSupport, type SupportContext, type UnsupportedReason, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
 const NOW = new Date("2026-08-18T00:00:00.000Z");
 const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." };
 const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
@@ -360,3 +360,74 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });
+
+/** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification already asks whether a source was read, whether its
+ *  quote exists and whether it may speak; none of that asks the only question that authorizes a correction.
+ *  The model may LOCATE spans. Only this may accept them, and it accepts nothing it cannot find verbatim in
+ *  the exact text that source banked, which is why a biography of a man who held a title can never authorize
+ *  a given name's meaning however true the biography is. */
+describe("a source supports a claim only when its own passage says so", () => {
+  const NOOR = 'The name Noor means "light"';
+  const MAHSA = 'The name has the meaning "like the moon".';
+  const LAILA = 'Laila comes from the Arabic word layl, which means "night", or "dark".';
+  const base: SupportContext = { tenantId: "t", page: "/n", statementKey: "noor", pageLocator: "Names",
+    subject: "Noor", claimKind: "word_meaning", current: "Meaning:Bright, radiant, or glowing.",
+    proposed: "Meaning: Light.", url: "https://en.wikipedia.org/wiki/Noor_(name)", kind: "encyclopedia",
+    quote: NOOR, titleContext: null };
+  const art = (over: Partial<ClaimSupport> = {}): ClaimSupport => ({ version: SUPPORT_ARTIFACT_VERSION,
+    identity: "", supported: true, subjectSpan: "Noor", subjectFrom: "quote", relationSpan: "means",
+    meaningSpans: ["light"], ...over });
+  /** Sign the artifact the way a banking pass would, so only the case under test is what differs. */
+  const signed = (c: SupportContext, over: Partial<ClaimSupport> = {}) => {
+    const a = art(over); return { ...a, identity: supportIdentity(c) }; };
+  const verdict = (c: SupportContext, over: Partial<ClaimSupport> = {}) => supportFailure(signed(c, over), c);
+
+  it("accepts an explicit definition and refuses every way a passage can fall short of one", () => {
+    const mahsaCtx: SupportContext = { ...base, subject: "Mahsa", statementKey: "mahsa", quote: MAHSA,
+      proposed: "Meaning: Like the moon.", url: "https://en.wikipedia.org/wiki/Mahsa" };
+    const leilaCtx: SupportContext = { ...base, subject: "Leila", statementKey: "leila", quote: LAILA,
+      proposed: "Meaning: Night or dark.", url: "https://en.wikipedia.org/wiki/Leila_(name)" };
+    const cases: Array<[string, UnsupportedReason | null]> = [
+      // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
+      ["noor explicit", verdict(base)],
+      ["mahsa says 'the name', never Mahsa", verdict(mahsaCtx, { subjectSpan: "The name", relationSpan: "meaning", meaningSpans: ["like the moon"] })],
+      ["laila is not Leila, and edit distance is not evidence", verdict(leilaCtx, { subjectSpan: "Laila", relationSpan: "means", meaningSpans: ["night", "dark"] })],
+      // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
+      ["mahsa with same source title", supportFailure(signed({ ...mahsaCtx, titleContext: "Mahsa" }, { subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Mahsa" })],
+      ["a title that never names the subject", supportFailure(signed({ ...mahsaCtx, titleContext: "Persian given names" }, { subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Persian given names" })],
+      ["a meaning span nobody wrote in this passage", verdict(base, { meaningSpans: ["moon"] })],
+      ["spans real, but not the words the proposal needs", verdict(base, { meaningSpans: ["name"] })],
+      ["a relation the passage never states", verdict({ ...base, quote: "Noor Inayat Khan was a wartime radio operator." }, { relationSpan: "was", meaningSpans: ["light"] })],
+      ["a span nobody wrote", verdict(base, { meaningSpans: ["radiance"] })],
+      ["an empty quote", verdict({ ...base, quote: "" }, { subjectSpan: "Noor", meaningSpans: ["light"] })],
+      ["a source that ruled itself unsupported", verdict(base, { supported: false, reason: "subject_absent" })],
+    ];
+    expect(cases).toEqual([
+      ["noor explicit", null],
+      ["mahsa says 'the name', never Mahsa", "subject_absent"],
+      ["laila is not Leila, and edit distance is not evidence", "subject_absent"],
+      ["mahsa with same source title", null],
+      ["a title that never names the subject", "subject_absent"],
+      ["a meaning span nobody wrote in this passage", "span_not_verbatim"],
+      ["spans real, but not the words the proposal needs", "meaning_absent"],
+      ["a relation the passage never states", "relation_absent"],
+      ["a span nobody wrote", "span_not_verbatim"],
+      ["an empty quote", "empty_quote"],
+      ["a source that ruled itself unsupported", "subject_absent"],
+    ]);
+  });
+
+  it("retires itself the moment any input it was signed over moves", () => {
+    const good = signed(base);
+    const moved: Array<[string, Partial<SupportContext>]> = [
+      ["the proposed wording", { proposed: "Meaning: Radiance." }],
+      ["the quote", { quote: 'The name Noor means "lamp"' }],
+      ["the source", { url: "https://example.org/other" }],
+      ["the title context", { titleContext: "Noor" }],
+      ["the claim it was written for", { statementKey: "mahsa", subject: "Mahsa" }],
+    ];
+    expect(moved.map(([what, over]) => [what, supportFailure(good, { ...base, ...over })]))
+      .toEqual(moved.map(([what]) => [what, "stale"]));
+    expect(supportFailure(good, base)).toBeNull(); // and stands while nothing moved
+  });
+});

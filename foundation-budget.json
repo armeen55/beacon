@@ -5,7 +5,8 @@
     "target": 55000
   },
   "tests": {
-    "max": 14500,
+    "_note": "Raised 14500 -> 14650 by explicit operator authorization on 2026-08-29, for the source-to-claim support cutover ONLY: the suite was at 14498 of 14500 and a prior survey with four mechanical duplication detectors had already established 53 lines as the honest reclaim maximum, so the only ways past it left the product less safe. 150 lines is a ceiling, never a target. RATCHET DOWN to the landed count once that work is in.",
+    "max": 14650,
     "target": 4000
   },
   "combined": {

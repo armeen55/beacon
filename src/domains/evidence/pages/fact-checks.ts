@@ -14,6 +14,7 @@ import "server-only";
  *  `disputed` stay in review; `unsupported` names the missing source and proposes NOTHING. THE PAGE AS IT READ
  *  IS PART OF THE FACT TOO: `pageContentHash` is what tells a corrected statement from an untouched one. */
 
+import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/persistence/supabase";
 import { log } from "@/lib/logger";
 
@@ -70,6 +71,75 @@ export type FactCheck = {
   evidenceBasis: string | null;
   checkedAt: string;
 };
+
+/** THE SUPPORT ARTIFACT, versioned SEPARATELY from verification (2026-08-29). VERIFICATION_RULES_VERSION
+ *  answers whether a source was really read, whether its quote exists, whether it is about the right entity
+ *  and whether it may speak at all. It never answers the only question that authorizes a correction: does
+ *  THIS passage explicitly support THIS proposed wording. That is its own contract with its own version, so
+ *  adding it retires no banked verification and re-buys no research: a v4 fact stays exactly as it is and
+ *  simply cannot authorize new work until the source it is cited for earns a current artifact. */
+export const SUPPORT_ARTIFACT_VERSION = 1;
+
+/** WHY a source failed, typed rather than prose, so a caller can act on it and a test can pin it. */
+export type UnsupportedReason = "subject_absent" | "relation_absent" | "meaning_absent" | "span_not_verbatim"
+  | "wrong_source" | "wrong_claim" | "stale" | "empty_quote";
+
+/** One source's ruling on ONE claim. Every span is a promise that the text is findable where it says. */
+export type ClaimSupport = {
+  version: number;
+  /** Over every load bearing input. Any drift in claim, wording, quote, source or context retires it. */
+  identity: string;
+  supported: boolean;
+  reason?: UnsupportedReason;
+  subjectSpan: string;
+  /** The quote, or the SAME source read's title. A title from another read is another source. */
+  subjectFrom: "quote" | "title";
+  relationSpan: string;
+  meaningSpans: string[];
+};
+
+/** Everything the artifact is bound to. Changing any of it changes the identity and retires the artifact. */
+export type SupportContext = {
+  tenantId: string; page: string; statementKey: string; pageLocator: string | null;
+  subject: string; claimKind: string; current: string; proposed: string;
+  url: string; kind: SourceKind; quote: string; titleContext: string | null;
+};
+
+const norm = (t: string): string => t.toLowerCase().replace(/\s+/g, " ").trim();
+
+export function supportIdentity(c: SupportContext): string {
+  const parts = [c.tenantId, c.page, c.statementKey, c.pageLocator ?? "", c.subject, c.claimKind,
+    c.current, c.proposed, c.url, c.kind, c.quote, c.titleContext ?? "", String(SUPPORT_ARTIFACT_VERSION)];
+  return createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24);
+}
+
+/** AN EXPLICIT LEXICAL RELATION, not a topical one. A biography saying a man held a title states no relation
+ *  between a NAME and a MEANING however true it is, which is exactly the passage that must never authorize. */
+const RELATION = /\b(means?|meaning|derives?\s+from|derived\s+from|comes?\s+from|from\s+(?:the\s+)?(?:arabic|persian|proto-\w+)|variants?\s+of|is\s+a\s+variant|translates?\s+(?:as|to)|etymolog\w*)\b/i;
+
+/** THE DETERMINISTIC HALF. A model may LOCATE spans; only this may accept them, and it accepts nothing it
+ *  cannot find verbatim in the exact text that source banked. Returns null when valid, else the typed reason. */
+export function supportFailure(a: ClaimSupport | null | undefined, c: SupportContext): UnsupportedReason | null {
+  if (!a || a.version !== SUPPORT_ARTIFACT_VERSION) return "stale";
+  if (a.identity !== supportIdentity(c)) return "stale";
+  if (!a.supported) return a.reason ?? "meaning_absent";
+  if (norm(c.quote) === "") return "empty_quote";
+  const quote = norm(c.quote), title = norm(c.titleContext ?? "");
+  const where = a.subjectFrom === "title" ? title : quote;
+  if (norm(a.subjectSpan) === "" || !where.includes(norm(a.subjectSpan))) return "subject_absent";
+  // THE SUBJECT SPAN MUST BE THE SUBJECT. A span verbatim in the passage still fails when it names someone
+  // else: "Laila" is not "Leila" however close, because edit distance is not evidence of a variant.
+  if (norm(a.subjectSpan) !== norm(c.subject)) return "subject_absent";
+  if (!quote.includes(norm(a.relationSpan)) || !RELATION.test(a.relationSpan)) return "relation_absent";
+  if (a.meaningSpans.length === 0) return "meaning_absent";
+  for (const m of a.meaningSpans) { if (norm(m) === "" || !quote.includes(norm(m))) return "span_not_verbatim"; }
+  // The proposal may not carry a material word no span in this passage carries.
+  const carried = norm(a.meaningSpans.join(" "));
+  const material = norm(c.proposed).replace(/^meaning:\s*/, "").replace(/[^a-z0-9 ]+/g, " ").split(" ")
+    .filter((w) => w.length >= 4 && !GLOSS_STOP.has(w));
+  if (material.length > 0 && !material.every((w) => carried.includes(w))) return "meaning_absent";
+  return null;
+}
 
 export const statementKeyOf = (subject: string): string => subject.trim().toLowerCase().replace(/\s+/g, " ");
 
