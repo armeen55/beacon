@@ -23,6 +23,7 @@ vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
   recordSpendSupabase: vi.fn(async (a: { tenantId: string; costUsd: number }) => {
     durableWrites.push({ tenantId: a.tenantId, costUsd: a.costUsd });}),}));
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
+const MONTHLY_CAP = 75;
 const A = "tenant-a";
 const B = "tenant-b";
 describe("per-account LLM budget isolation", () => {
@@ -32,13 +33,13 @@ describe("per-account LLM budget isolation", () => {
     durableWrites.length = 0;
     readCalls.length = 0;});
   it("account A's file-layer spend never changes account B's remaining budget", async () => {
-    await recordSpend(54.99, { tenantId: A }); const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
+    await recordSpend(MONTHLY_CAP - 0.01, { tenantId: A }); const a = await checkBudget({ tenantId: A, projectedCostUsd: 0.02 });
     const b = await checkBudget({ tenantId: B, projectedCostUsd: 0.02 });
-    expect(a.allowed).toBe(false); // A is at its own cap (55 default)
-    expect(b).toEqual({ allowed: true, remaining: 55 }); // B untouched
+    expect(a.allowed).toBe(false); // A is at its own cap, whatever that cap currently is
+    expect(b).toEqual({ allowed: true, remaining: MONTHLY_CAP }); // B untouched
   });
   it("recording spend for A writes A's ledgers only, and B stays uncapped on the durable layer too", async () => {
-    DURABLE.set(A, 55); // A's durable monthly spend at cap
+    DURABLE.set(A, MONTHLY_CAP); // A's durable monthly spend at cap
     const a = await checkBudget({ tenantId: A }); const b = await checkBudget({ tenantId: B });
     expect(a.allowed).toBe(false); expect(b.allowed).toBe(true);
     await recordSpend(0.5, { tenantId: B }); expect(durableWrites).toEqual([{ tenantId: B, costUsd: 0.5 }]);
@@ -47,10 +48,11 @@ describe("per-account LLM budget isolation", () => {
   it("same-account max(file, durable) and the exact-cap boundary are unchanged", async () => {
     DURABLE.set(A, 4);
     await recordSpend(6, { tenantId: A }); // file 6, durable(mock) 4 → effective 6... plus durable write
-    DURABLE.set(A, 55); // durable now reports AT cap for A
+    DURABLE.set(A, MONTHLY_CAP); // durable now reports AT cap for A
     const at = await checkBudget({ tenantId: A, projectedCostUsd: 0 });
     expect(at.allowed).toBe(false); // spend == cap fails closed at the boundary
   });
+  it("lifts an account state written under the former $55 default without changing its spend", async () => { FILE_ROWS.set(A, [{ monthKey: "2026-08", spendUsd: 54.991292, calls: 1, capUsd: 55, updatedAt: "2026-08-28T00:00:00.000Z" }]); expect(await checkBudget({ tenantId: A, now: new Date("2026-08-29T00:00:00.000Z") })).toEqual({ allowed: true, remaining: 20.008708 }); });
   it("a missing account fails before any ledger I/O; every read carried the explicit account", async () => {
     await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/); await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
