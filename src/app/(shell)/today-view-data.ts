@@ -254,7 +254,10 @@ async function loadTodayViewWithSwr(tenantId: string): Promise<TodayComposite> {
     // state that stops every paid door at once while the surface carries on looking normal. Asked of the SAME
     // gate the runtime asks, with nothing projected, so the answer is the one the work itself would get.
     // Unreadable claims nothing, exactly like the permission read above it.
-    checkBudget({ tenantId, projectedCostUsd: 0 }).then((b) => b.allowed === false).catch(() => false),
+    // ASKED THE WAY THE WORK ASKS IT: a cent of projected cost, because the gate compares the spend PLUS the
+    // call about to be made. Asking with nothing projected asks "could you spend nothing", which is yes even at
+    // a ceiling where every real call is refused, so the line would never have appeared on the day it is for.
+    checkBudget({ tenantId, projectedCostUsd: 0.01 }).then((b) => b.allowed === false).catch(() => false),
   ]);
   const research = { ...(permission === "paused" ? { researchPaused: true } : {}), ...(budgetSpent ? { paidWorkStopped: true } : {}),
     ...(runStatus?.liveness?.line ? { researchLiveness: runStatus.liveness.line } : {}) };
