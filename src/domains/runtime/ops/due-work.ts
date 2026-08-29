@@ -254,6 +254,14 @@ type DueWorkDeps = {
  *  2026-08-22). Internal: never a customer setting, never UI. */
 export const READY_STOCK_TARGET = 5;
 
+/** THE FLOOR ADAPTS TO THE OPERATOR'S OWN PACE (operator ruling, 2026-08-29): the universal five stranded a tenant who applies dozens of
+ *  changes a week on a queue sized for a browser tab. Roughly TWO DAYS of recent applied pace, read off the shipment ledger at $0, clamped
+ *  so a new account gets a small clear queue and none gets an unbounded promise. A FLOOR, never a ceiling: no gate weakens to hit it. */
+export const READY_FLOOR_MIN = READY_STOCK_TARGET, READY_FLOOR_MAX = 40; export async function readyStockFloor(tenantId: string): Promise<number> {
+  const applied = await (async () => { const { loadShippedChangesForTenant } = await import("@/domains/measurement"); const weekAgo = Date.now() - 7 * 86_400_000;
+    return (await loadShippedChangesForTenant(tenantId)).filter((r) => { const at = Date.parse(r.implementedAt ?? r.shippedAt ?? ""); return Number.isFinite(at) && at >= weekAgo; }).length; })().catch(() => 0);
+  return Math.min(READY_FLOOR_MAX, Math.max(READY_FLOOR_MIN, Math.ceil((applied / 7) * 2))); }
+
 /** How many finished changes THE CUSTOMER CAN SEE right now. $0. Counted off the released queue Today and Changes read, never off raw rows: a row is saved by one act and released by another, so a pass that
  *  persisted three finished changes and published none reported stock 3 against a screen showing 0, and the day closed on work nobody could reach. Undelivered work is not stock. */
 async function readyStock(tenantId: string): Promise<number | null> {

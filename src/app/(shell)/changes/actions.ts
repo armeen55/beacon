@@ -279,6 +279,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[]; o
       else if ((r.note ?? "").includes("already on file")) already += 1; else done += 1; }
   }
   if (done > 0 || already > 0) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
+  if (done > 0) { const { ensureResearchRunOnVisit } = await import("@/domains/runtime"); ensureResearchRunOnVisit(await currentTenantId(), true); } // CONSUMPTION TRIGGERS REPLENISHMENT (operator ruling, 2026-08-29): a recorded batch is exactly the moment the queue emptied, so the canonical cycle is armed NOW rather than waiting for a visit or the calendar; every budget, lease and permission door inside it still answers for itself
   const parts = [done > 0 ? `${done} recorded` : null, already > 0 ? `${already} already being measured` : null,
     failed.length > 0 ? `${failed.length} could not be recorded` : null].filter(Boolean);
   return { success: failed.length < ids.length, done, already, failed, note: `${parts.join(", ")}.` };

@@ -30,7 +30,7 @@ import { publishCustomerSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
-import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, type DuePhase, type DueWork } from "./due-work";
+import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, readyStockFloor, type DuePhase, type DueWork } from "./due-work";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import type { ResearchPhase } from "../research-run";
@@ -203,19 +203,19 @@ export const defaultSteps: ResearchCycleSteps = {
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (before == null) return null;
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
-    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : [];
+    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : []; const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_TARGET); // the tenant's own pace, never a universal five
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
       outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly OwedReading[]) =>
-      ({ ready, deficit: Math.max(0, READY_STOCK_TARGET - ready), persisted, satisfied: reason === "candidates_exhausted", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
+      ({ ready, deficit: Math.max(0, floor - ready), persisted, satisfied: reason === "candidates_exhausted", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
     // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
     let proven = before;
-    if (READY_STOCK_TARGET - before <= 0) { const { runWithoutSpending } = await import("@/lib/spend-scope");
+    if (floor - before <= 0) { const { runWithoutSpending } = await import("@/lib/spend-scope");
       // ZERO SPEND IS ASSERTED ON THE STACK, not just asked for in the options. `zeroSpend` closes the producer's own doors; the ambient scope closes any door a future caller adds underneath it, and this path now runs on EVERY drive, which is the last place to rely on one flag being read.
       await runWithoutSpending(() => d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true })).catch(() => null);
       proven = (await read()) ?? before; // and the count the day closes on is the one just proven, never the one it opened with
     }
     // THE STOCK TARGET IS A FLOOR, NEVER A CEILING. A drive that reached five returned `target_reached` and drafted nothing, so the queue stopped at an arbitrary quantity while real evidenced work stood unwritten and the operator was told the day was finished. Short of the floor the shortfall drives the pass; at or above it the drive still produces one bounded batch. The day ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` once the manifest it declared is fully settled.
-    const short = Math.max(0, READY_STOCK_TARGET - proven), deficit = short > 0 ? short : REPLENISH_DRAFTS_PER_DRIVE;
+    const short = Math.max(0, floor - proven), deficit = short > 0 ? short : REPLENISH_DRAFTS_PER_DRIVE;
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
       log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
@@ -285,7 +285,7 @@ export const defaultSteps: ResearchCycleSteps = {
     if (after > before) return mark("made_progress", after, persisted, fingerprint, attempted, tally, tried, out.paid.evidenceOwed ?? []);
     // AND ONLY NOW MAY A DAY BE CALLED FINISHED: every candidate the current manifest declares carries its own settled receipt. A manifest that declared nothing proves nothing, and neither does one nobody could read.
     const exhausted = out.paid.declared.length > 0 && out.paid.declared.every((k) => attempted.includes(k));
-    log.info("[research-run] the ready inventory is still short", { tenantId, before, after, target: READY_STOCK_TARGET, declared: out.paid.declared.length, settled: attempted.length, exhausted });
+    log.info("[research-run] the ready inventory is still short", { tenantId, before, after, target: floor, declared: out.paid.declared.length, settled: attempted.length, exhausted });
     return mark(exhausted ? "candidates_exhausted" : "retryable_blocked", after, persisted, fingerprint, attempted, tally, tried, out.paid.evidenceOwed ?? []);
   },
   async refreshSources(tenantId, now) {
