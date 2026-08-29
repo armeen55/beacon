@@ -348,7 +348,9 @@ describe("the live 54 C Ahvaz results page", () => { beforeEach(reset); // the o
   it("two credible publishers with no authoritative source stay a finding, credited separately, and never reopen", async () => {
     await unit({ held: [row({ statementKey: "k1", current: "Ahvaz holds the record for hottest day ever in Asia at 54 C." })], searchSources: async () => LIVE, fetchSource: split,
       read: reader({ claims: CLAIMS, judge: { ...CONFIRMS, proposed: "Ahvaz reached 129 degrees Fahrenheit, a record for Asia", supporting: [{ url: "https://washingtonpost.com/a", quote: WAPO }, { url: "https://cnbc.com/a", quote: CNBC }], subjects: [{ url: "https://washingtonpost.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }, { url: "https://cnbc.com/a", sameEntity: true, language: "English", script: null, why: "same city and event" }] } }) });
-    const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["multiple_agree", "likely"]);
+    // AGREEMENT IS EARNED, NOT COUNTED: the Post carries the whole proposal, CNBC reports 54 Celsius on Thursday and carries none of "Ahvaz 129 Fahrenheit record Asia", so it corroborates the story and is not a second voice for this wording. Both are still read, credited and kept on the row.
+    const r = db.rows[0] as FactCheck; expect([r.agreement, r.confidence]).toEqual(["single_source", "likely"]);
+    expect(r.sources.filter((x) => x.says.trim() !== "").length, "both stay credited").toBe(2);
     expect(r.sources.filter((x) => x.says.length > 0)).toHaveLength(2); // each credited with ITS OWN sentence
     db.reopened = []; await unit({ held: [{ ...r, state: "checked" } as FactCheck], read: reader({ claims: { statements: [] }, judge: CONFIRMS }) });
     expect(db.reopened).toEqual([]); }); });

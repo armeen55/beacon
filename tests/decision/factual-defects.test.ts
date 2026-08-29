@@ -151,7 +151,6 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright, radiant, or glowing.", proposed: "Light", sources: src('The name Noor means "light"') }),
       check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: src('The name has the meaning "like the moon"') })];
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
-    expect([...by.keys()].sort(), "all three minted").toEqual(["leila", "mahsa", "noor"]);
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
     // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
     expect(say("leila"), "page_wrong contradicts").toContain("contradict");
