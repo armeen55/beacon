@@ -71,12 +71,6 @@ function isIndexingDirectiveActionType(
 }
 
 /**
- * Plain-English HOLD framing shown next to an indexing/crawling directive. Operator-locked copy (#310; destructive-action audit 2026-07-20). A HELD-FOR-
- * REVIEW notice, not a paste-ready caption. Beacon voice, no dashes.
- */
-  "This changes how search engines index this page. Double check the exact value before you touch it; a wrong value can remove this page from Google, so it is held for review instead of being one tap.";
-
-/**
  * WHAT WAS DONE TO THIS PAGE, as a sentence, from the slug the ledger actually stores. A row's action type is a
  * change-family key ("section_add"), not English, and gluing it to an article printed "the section add" on the
  * operator's own Measuring lane. Every family that reads as broken English that way is written out here in
