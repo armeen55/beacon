@@ -1085,7 +1085,7 @@ describe("a change earns ready on its own evidence, its whole version, and words
     expect([why(), why({}, null), why(copy(GOOD.replace("International ", "")))[0], why({ supportFacts: [{ id: "card-1", fact: SHIP }, { id: "card-2", fact: "An entirely different reading nobody wrote this copy from." }] })[0],
       why({ supportFacts: [{ id: "card-1", fact: SHIP }] })[0], why({}, { ...page, metaDescription: "A description this page no longer carries." })[0], why({ claims: undefined })])
       .toEqual([[], [], "the figure's own sentence says international, and the copy drops it",
-        'the evidence "Every order earns store credit toward the next pair" names is about something else entirely, so this copy argues from support nobody banked',
+        'the sources this cites are about something else than what it claims, "Every order earns store credit toward the next pair", so nothing on file backs it',
         "the evidence its claims name is not banked beside them: card-2", "the line it says it replaces is not the one this page carries", []]); });
   it("sorts an opportunity into one lane only, and demotes unre-checkable placement instead of deleting it", () => {
     const BODY = "Rain barrels for a 1,200 square foot roof hold 50 gallons of the runoff that roof sheds in an inch of rain.";

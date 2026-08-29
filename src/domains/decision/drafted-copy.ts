@@ -217,8 +217,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
       // SET, so `indexOf(t) !== i` was never true and the rule had rejected nothing since the day it was written.
       // Repeating ONE word is fine ("Tabriz Rugs, Kashan Rugs, Kerman Rugs"); TWO separates his own examples.
       const toks = topicTokens(d.finalCopy, { keepRepeats: true }), reps = [...new Set(toks.filter((t, i) => toks.indexOf(t) !== i))];
-      if (reps.length > 1) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(" and ")} more than once each, which is a keyword list rather than a line a person would write`);
-    }
+      if (reps.length > 1) out.push(`it says ${reps.slice(0, 3).map((t) => `"${t}"`).join(" and ")} more than once each, which is a keyword list rather than a line a person would write`);}
   } else {
     if (d.beforeText != null && !onPage(stored, d.beforeText)) out.push("the words it says it replaces are not on the stored page");
     if (!blankish(d.placementAnchor) && !onPage(stored, d.placementAnchor)) out.push("the place it says it lands is not on the stored page"); }
@@ -544,8 +543,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     opts.note?.(key, "review_saved", deliverable.softFailures[0]);
   } else if (!ready) {
     // THE CANON HOLDING COMPLETE COPY IS A LOOK OWED, NOT A REFUSAL: `needs_review` is not `rejected`, so this is review work carrying the canon's own quality reason.
-    opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);
-  }
+    opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);}
   // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
   return { d: deliverable, ready };}
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
@@ -683,7 +681,8 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   out.push(...rereadableRefusals(c.after, packet));
   const adrift = claims.filter((x) => { const mine = topicTokens(x.text).filter((w) => !CARRIER.has(w)), its = new Set(topicTokens(x.supportedBy.map((id) => evidence[id] ?? "").join(" ")));
     return mine.length >= 4 && mine.filter((w) => its.has(w)).length / mine.length < 0.25; });
-  if (adrift.length > 0) out.push(`the evidence "${adrift[0]!.text.slice(0, 60)}" names is about something else entirely, so this copy argues from support nobody banked`);
+  // SAID SO A PERSON CAN ACT ON IT. This called the CLAIM the evidence, broke mid sentence with no mark, and ended in language no operator should have to parse ("argues from support nobody banked"); two live cards carried it tonight. Same rule, same trigger, said as the finding it is.
+  if (adrift.length > 0) { const said = adrift[0]!.text.trim(); out.push(`the sources this cites are about something else than what it claims, "${said.slice(0, 60)}${said.length > 60 ? "..." : ""}", so nothing on file backs it`); }
   // A REPLACEMENT MAY NOT SILENTLY REMOVE A LINK THE REPLACED WORDS CARRY (operator, 2026-08-27): a link is function, not phrasing, and the crawler fuses copy and controls into one chunk, so a span-sized rewrite can delete a reader's path without anybody choosing to; a dropped phrase can be the very correction being made, a dropped link never is unless something says so.
   if (c.before?.trim()) for (const u of c.before.match(/https?:\/\/\S+|\bwww\.\S+/g) ?? []) { const clean = u.replace(/[).,]+$/, "");
     if (!c.after.includes(clean)) { out.push(`it removes the link ${clean} that the words it replaces carry, and nothing says that removal is intended`); break; } }
