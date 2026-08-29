@@ -54,7 +54,7 @@ const proposal = (i: number, over: Partial<ChangeProposal> = {}): ChangeProposal
   recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: `Title ${i}` },
   whyItMatters: "The line Google shows misses the words people search for.", estimatedEffortMinutes: 1,
   riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: `q${i}`, hints: [], evidenceRefCount: 1 },
-  impactScore: 1000 - i, upsidePerMonth: null, basis: "b1", publish: "manual", createdAt: "2026-07-30T00:00:00.000Z", diagnosisCause: "ctr_snippet", ...over,
+  impactScore: 1000 - i, upsidePerMonth: null, basis: "b1", publish: "manual", createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString(), diagnosisCause: "ctr_snippet", ...over,
 } as unknown as ChangeProposal);
 const seed = (p: ChangeProposal, over: Row = {}): Row => ({ id: p.id, tenant_id: T, basis: p.basis ?? null,
   status: p.status, terminal_disposition: null, superseded_by: null, proposal_version: 1,
