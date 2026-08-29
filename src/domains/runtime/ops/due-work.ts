@@ -403,3 +403,31 @@ export async function dueWork(tenantId: string, now: Date = new Date(), deps: Du
     evidenceVersion: version.value,
   };
 }
+
+/** The cheapest paid step a pass can take, used only to ask the budget door a REAL question: it refuses on
+ *  `spend + projected > cap`, so a zero probe still answers "allowed" against a ceiling reached to the cent. */
+const VISIT_RESEARCH_PROBE_USD = 0.01;
+export type VisitBudgetProbe = (tenantId: string, projectedCostUsd: number) => Promise<{ allowed: boolean; reason?: string }>;
+const defaultVisitBudgetProbe: VisitBudgetProbe = async (tenantId, projectedCostUsd) =>
+  (await import("@/domains/decision/llm/adjudicator-budget")).checkBudget({ tenantId, projectedCostUsd });
+
+/** May a VISIT open paid research right now? The MONEY gate on the visit door, sitting beside
+ *  researchPermission above, which is the CONSENT one.
+ *
+ *  A VISIT MAY NOT OPEN A PASS THE ACCOUNT CANNOT PAY FOR (2026-08-29). ensureResearchRunOnVisit is the
+ *  only paid research trigger a person reaches without asking for one: it fires on every render of the app
+ *  shell, including the repaint the $0 "Update data" control asks for when it has finished, and it then
+ *  opened a brand-new same-day pass through startExtraPass whenever anything read as due. So a control
+ *  that said it pulls numbers could spend the month's allowance, and nothing on screen said so.
+ *
+ *  The gate at each paid call is still the last line of defence for the money. This is the line that stops
+ *  a visit opening work it can only fail, burning the day's extra-pass allowance and leaving a run that
+ *  looks alive because the call cache answers before the budget does. It lives here, not inside that
+ *  after() callback, because after() is a no-op outside a request scope: a decision left in there can
+ *  never be put under test. UNREADABLE MEANS UNAFFORDABLE, a visit that cannot prove the account can pay
+ *  does not get to spend on the strength of not knowing. */
+export async function visitMayOpenResearch(tenantId: string, probe: VisitBudgetProbe = defaultVisitBudgetProbe): Promise<{ allowed: boolean; reason: string }> {
+  const budget = await probe(tenantId, VISIT_RESEARCH_PROBE_USD).catch(() => null);
+  if (budget == null) return { allowed: false, reason: "this account's spend could not be read, so no paid research is opened by a visit" };
+  return budget.allowed ? { allowed: true, reason: "" } : { allowed: false, reason: budget.reason ?? "this account's model budget is spent" };
+}

@@ -42,8 +42,8 @@ vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(a
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
-import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, visitMayOpenResearch, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
-import { dueWork, researchPermission, setResearchPaused, type DueWork } from "@/domains/runtime/ops/due-work";
+import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
+import { dueWork, researchPermission, setResearchPaused, visitMayOpenResearch, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
 import { caseResearchReceipt } from "@/domains/evidence/case-receipt"; import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
@@ -188,8 +188,7 @@ describe("a fact check that cannot finish withholds that correction, not Beacon"
     await run({ ...BENIGN, factCheck: async () => ({ status: "advanced" as const, banked: 1, pagesComplete: 0 }), surfaceStale: async () => true, publishSurface: async () => void published.push("publish") });
     expect([ok[0]!.status, ok[0]!.progress.factsChecked, published]).toEqual(["completed", 1, ["publish"]]); }); });
 describe("research-run partial-success durability + deduped refreshed providers", () => { it("persists the providers that DID sync before pausing, never counts a failed one, and counts a later success exactly once across the retry", async () => {
-    const rows = withRun(); let firstAttempt = true;
-    const steps: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (firstAttempt
+    const rows = withRun(); let firstAttempt = true; const steps: Partial<ResearchCycleSteps> = { ...BENIGN, refreshSources: async () => (firstAttempt
       ? (firstAttempt = false, { attempted: 2, succeeded: ["google_gsc"], failures: [{ provider: "google_ga4", detail: "429" }] })
       : { attempted: 2, succeeded: ["google_gsc", "google_ga4"], failures: [] }) };
     await run(steps); // first attempt: gsc synced, ga4 failed
@@ -202,16 +201,14 @@ describe("research-run partial-success durability + deduped refreshed providers"
     await run({ ...BENIGN, surfaceStale: async () => false }); expect([rows[0]!.status, rows[0]!.progress.sourcesRefreshed]).toEqual(["completed", 2]); }); // legacy number survives the resume (refresh_sources not re-run)
   /** MEASUREMENT USED TO NEED A VISITOR. dueWork named verify_and_measure and the run only VERIFIED; the engine that turns a verified change into a won or lost verdict fired solely from a Results render, so production sat on sixteen measurable shipments, every one already verified, that no scheduled pass could settle. */
   it("checks and then MEASURES what the operator marked as done before it publishes off it, with nobody opening Results, and only when one is genuinely owed", async () => {
-    const order: string[] = [];
-    const steps = (due: DueWork): Partial<ResearchCycleSteps> => ({ dueWork: async () => due,
+    const order: string[] = []; const steps = (due: DueWork): Partial<ResearchCycleSteps> => ({ dueWork: async () => due,
       verifyShipments: async () => (order.push("verify"), 1), measureShipments: async () => (order.push("measure"), 16),
       publishSurface: async () => void order.push("publish"), surfaceStale: async () => true });
     const owed: DueWork = { ...SOMETHING_DUE, due: ["verify_and_measure"] }; withRun({ current_phase: "publish_surface" }); await run(steps(owed)); expect(order).toEqual(["verify", "measure", "publish"]); // verified first because measuring refuses an unverified change, then read, then published off both
     order.length = 0; withRun({ current_phase: "publish_surface" }); await run(steps(SOMETHING_DUE)); // nothing marked implemented is waiting
     expect(order).toEqual(["publish"]); }); // no shipment owed a check, so not one page of the customer's site is read and not one reading is taken
   it("never lets a check or a reading I could not make pause the pass: the surface still publishes", async () => {
-    const rows = withRun({ current_phase: "publish_surface" });
-    await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["verify_and_measure"] }),
+    const rows = withRun({ current_phase: "publish_surface" }); await run({ dueWork: async () => ({ ...SOMETHING_DUE, due: ["verify_and_measure"] }),
       verifyShipments: async () => { throw new Error("your website did not answer"); },
       measureShipments: async () => { throw new Error("the ledger did not answer"); }, surfaceStale: async () => true }); expect([rows[0]!.status, rows[0]!.progress.surfacePublished]).toEqual(["completed", true]); });});
 /** DUE WORK DECIDES WHETHER A PASS RUNS; IT DECIDES WHAT THE PASS DOES TOO. Once a run opened, the executor traversed the COMPLETE cycle whatever the debt was, so recovery for one stored-answer reading re-ran keyword discovery, results pages, winner reads, a crawl and a publication: four live passes spent about 69 cents on research nobody had asked for. The reason a pass was opened now rides its own row, and every phase outside that reason is skipped BEFORE a lease renewal or a cent. */
@@ -334,8 +331,7 @@ describe("research-run frozen investigation: ONE topic, and the lease the compar
     expect(rows[0]!.last_error!.message).toContain("confirmed business details"); // the existing pause vocabulary, and no completed evidence phase re-run to get here
     basis = "basis_test"; await run(steps); expect([order, rows[0]!.status, rows[0]!.progress.surfacePublished]).toEqual([["stale", "publish"], "completed", true]); }); // the retry publishes exactly once
   it("one empty read never silences a run for the rest of its life", async () => {
-    let asked = 0;
-    const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, _f) =>
+    let asked = 0; const unit: ResearchCycleSteps["funnelUnit"] = async (phase, _t, cursor, _b, _f) =>
       (phase === "winning_pages" && cursor?.stage !== "compare" ? { status: "advanced", cursor: { stage: "compare" }, progress: {} } : { status: "done", cursor: null, progress: {} });
     const cold = withRun({ current_phase: "serp_analysis" });
     const steps: Partial<ResearchCycleSteps> = { investigationFocus: async () => (asked++ === 0 ? null : FOCUS), // the first read comes back cold
@@ -569,41 +565,29 @@ describe("what a stored observation says it cost", () => {
 });
 describe("research-run fail-closed + render path", () => {
   it("fails closed when the claim RPC throws, throws on an empty tenant before any I/O, and runs no phase on the render path", async () => {
-    let touched = false; const log: string[] = [];
-    RR.setResearchRunRepoForTests({ ...memRepo().repo, claim: async () => { touched = true; throw new Error("db down"); } });
+    let touched = false; const log: string[] = []; RR.setResearchRunRepoForTests({ ...memRepo().repo, claim: async () => { touched = true; throw new Error("db down"); } });
     await run(healthySteps(log)); expect([log, touched]).toEqual([[], true]); // no phase ran, and it did try to claim
     touched = false; await expect(RR.claimRun("", "o1")).rejects.toThrow(/tenantId is required/); expect(touched).toBe(false); // never reached the repo
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); expect(() => ensureResearchRunOnVisit(T)).not.toThrow(); // after() invalid outside a request → caught
     await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
 });
-/** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE. It fires on every render of the
- *  app shell: arriving at Today, moving between surfaces, and the repaint the $0 "Update data" control asks
- *  for when it is done. The refresh ACTION was made free and genuinely is; the BUTTON was still a paid
- *  trigger one hop on, because its repaint re-rendered the shell and this door opened a brand-new same-day
- *  pass whenever anything read as due. The account's own spend is asked BEFORE a pass is opened now. */
+/** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE: it fires on every render of the
+ *  app shell, including the repaint the $0 "Update data" control asks for when it is done, and it opened a
+ *  same-day pass through startExtraPass whenever anything read as due. Spend is asked BEFORE that now. */
 describe("a visit may not open a research pass the account cannot pay for", () => {
-  it("refuses when the budget door refuses, allows when it allows, and treats an unreadable budget as unaffordable", async () => {
+  it("refuses a spent ceiling, allows a funded one, treats an unreadable budget as unaffordable, and probes a cost a ceiling can actually refuse", async () => {
     const refused = await visitMayOpenResearch(T, async () => ({ allowed: false, reason: "Monthly adjudicator budget cap reached (54.9913 / 55 USD this 2026-08)." }));
-    const allowed = await visitMayOpenResearch(T, async () => ({ allowed: true }));
     const unreadable = await visitMayOpenResearch(T, async () => { throw new Error("db down"); });
+    let asked = -1; const allowed = await visitMayOpenResearch(T, async (_t, projected) => { asked = projected; return { allowed: true }; });
     expect([refused.allowed, allowed.allowed, unreadable.allowed]).toEqual([false, true, false]);
-    // The refusal carries the door's OWN words, so a log line says which account ran out and by how much.
-    expect(refused.reason).toContain("54.9913 / 55");
-    expect(unreadable.reason).toContain("could not be read");
-  });
-  it("asks the budget door a question a spent ceiling can actually refuse", async () => {
-    // THE TRAP THIS PINS: the door refuses on `spend + projected > cap`. Probe with ZERO and an allowance
-    // reached to the last cent still answers "allowed", so a visit would open paid work on an empty account.
-    let asked = -1; await visitMayOpenResearch(T, async (_t, projected) => { asked = projected; return { allowed: true }; });
-    expect(asked).toBeGreaterThan(0);
-    const cap = 55, spent = 54.9913; // the live account on the night this was written
-    expect(spent + asked > cap).toBe(true); // the real ceiling refuses the real probe
-  });
+    expect([refused.reason.includes("54.9913 / 55"), unreadable.reason.includes("could not be read")]).toEqual([true, true]); // the refusal carries the door's OWN words
+    // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against
+    // an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
+    expect([asked > 0, 54.9913 + asked > 55]).toEqual([true, true]); });
 });
 /** THE REGISTRY DECIDES, ONCE per run. The reconcile step here is the real one, so the wiring is what is pinned: a registry that only changed the ORDER it was written in is unmoved, and the advisory reading is bounded per RUN, never per unit iteration. */
 describe("the case registry a run saves, and the ONE reading it buys", () => {
-  const row = (id: string, anchors: string[]) => ({ id, anchors });
-  const real = (steps: Partial<ResearchCycleSteps> = {}) => { const { reconcileCases: _seam, ...rest } = BENIGN;
+  const row = (id: string, anchors: string[]) => ({ id, anchors }); const real = (steps: Partial<ResearchCycleSteps> = {}) => { const { reconcileCases: _seam, ...rest } = BENIGN;
     return runResearchCycle(T, { now: () => new Date(NOW), steps: { ...rest, ...steps } }); };
   beforeEach(() => { REG.saves = 0; REG.readings = 0; });
   it("saves nothing and reads nothing when the registry changed only the order it happens to be written in", async () => {
@@ -657,8 +641,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     completedToday(); let asked = 0;
     const idle = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => (asked += 1, NOTHING_DUE) } });
     expect([idle.hop, idle.more, asked >= 1]).toEqual([0, false, true]); // the free read answered and not one cycle ran
-    let cycles = 0;
-    const stuck = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => SOMETHING_DUE,
+    let cycles = 0; const stuck = await continueResearch(T, 0, { now: () => new Date(NOW), steps: { ...BENIGN, dueWork: async () => SOMETHING_DUE,
       refreshSources: async () => (cycles += 1, { attempted: 0, succeeded: [], failures: [] }) } });
     expect([stuck.more, cycles <= 2, typeof stuck.blocker]).toEqual([true, true, "string"]); // still owed, said so, and another press is allowed
   });
@@ -675,8 +658,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
 });
 /** THE DAILY DISPATCH. Daily AI tracking must happen on a day nobody opens the app, without becoming a second orchestrator: the guarded endpoint is the only door, the dispatch claims through the SAME lease and drives the SAME cycle, firing it twice does nothing twice, and its receipt never flatters a failure. */
 describe("the daily scheduler: one guarded door, the same lease, the same cycle", () => {
-  const today = () => new Date(NOW).toISOString().slice(0, 10);
-  const NO_PHASE = { refreshSources: async () => { throw new Error("no phase may run"); } };
+  const today = () => new Date(NOW).toISOString().slice(0, 10); const NO_PHASE = { refreshSources: async () => { throw new Error("no phase may run"); } };
   /** The receipt's eight fields, so every expectation states the whole answer and a silent new key fails. */
   const R = (o: Partial<SchedulerReceipt> = {}): SchedulerReceipt =>
     ({ claimed: 0, attempted: 0, succeeded: 0, paused: 0, failed: 0, leaseHeldUntil: [], released: 0, remaining: 0, ...o });
@@ -721,8 +703,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const clean = one({}); expect(await clean.receipt).toEqual(R({ claimed: 1, attempted: 1, succeeded: 1 })); expect(clean.rows[0]!.status).toBe("completed"); }); // exactly one, on a run that really did land completed
   /** AN OUTAGE IS NOT AN EMPTY FLEET. The claim used to swallow every error into an empty list, so a database that was down, an RPC that was never migrated and a revoked permission all answered 200 with a zero receipt: identical to a genuinely idle fleet, and cron monitoring recorded a healthy day. */
   it("says 503 when it could not read what is owed, in one bounded word, and keeps 200 for a fleet that genuinely owes nothing", async () => {
-    const { repo } = memRepo();
-    for (const boom of [new Error("connect ECONNREFUSED 10.0.0.4:5432 db.vlxwevsdvwxvopkjsewo.supabase.co"),
+    const { repo } = memRepo(); for (const boom of [new Error("connect ECONNREFUSED 10.0.0.4:5432 db.vlxwevsdvwxvopkjsewo.supabase.co"),
       Object.assign(new Error("Could not find the function public.claim_due_research_work"), { code: "PGRST202" })]) {
       RR.setResearchRunRepoForTests({ ...repo, claimDue: async () => { throw boom; } }); await expect(RR.claimDueRuns("o1", 1)).rejects.toThrow(); // a typed failure, never an empty list
       await expect(dispatch(NO_PHASE)).rejects.toThrow(); ROUTE.fail = boom; vi.stubEnv("CRON_SECRET", "s3cret"); const res = await post({ authorization: "Bearer s3cret" });
@@ -736,8 +717,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
   it("opens exactly one more pass for a day left short, drives it to the end of the day, and only then goes back to a zero receipt", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
     rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() })); // today's pass finished its batch and stopped at 107
-    let done = 107, paidUnits = 0;
-    const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE,
+    let done = 107, paidUnits = 0; const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE,
       strandedToday: async () => (done < 140 ? [{ tenantId: T, due: ["daily_observations" as const] }] : []),
       dayStanding: async () => ({ done, total: 140, answers: done, unavailable: 0, unsupported: 0 }),
       funnelUnit: async (phase) => { if (phase === "prompt_observations") { paidUnits += 1; done = Math.min(140, done + 20); } return { status: "done", cursor: null, progress: {} }; } };
@@ -777,8 +757,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [{ tenantId: T, due: ["daily_observations" as const] }],
       dayStanding: async () => ({ done: 107, total: 140, answers: 107, unavailable: 0, unsupported: 0 }),
       funnelUnit: async (phase) => (phase === "prompt_observations" ? { status: "waiting", cursor: null, progress: {} } : { status: "done", cursor: null, progress: {} }) };
-    await dispatch(steps);
-    expect(rows.filter((r) => r.tenant_id === T && r.cycle_key.includes(":p"))).toHaveLength(1); }); // U being re-claimed must not cost T its recovery
+    await dispatch(steps); expect(rows.filter((r) => r.tenant_id === T && r.cycle_key.includes(":p"))).toHaveLength(1); }); // U being re-claimed must not cost T its recovery
   it("two ticks racing the same stranded day open at most one pass between them", async () => {
     const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "done1", status: "completed", completed_at: iso(), current_phase: "done", started_at: iso() }));
     const steps: Partial<ResearchCycleSteps> = { dueWork: async () => SOMETHING_DUE, strandedToday: async () => [{ tenantId: T, due: ["daily_observations" as const] }],
@@ -821,8 +800,7 @@ describe("the daily scheduler: one guarded door, the same lease, the same cycle"
     const rows = freshRepo(); PAUSED.add(T); PAUSED.add(U); expect(await dispatch(NO_PHASE)).toEqual(R()); PAUSED.delete(T); setAccountStatus(T, "pending_onboarding"); expect((await dispatch(NO_PHASE)).claimed).toBe(0);
     expect(rows).toHaveLength(0); });
   it("plans today and never the days it missed: a run resumed after a long pause reports into today's date, and one day makes one row", async () => {
-    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding");
-    rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
+    const rows = freshRepo(); setAccountStatus(U, "pending_onboarding"); rows.push(mk({ id: "old", status: "paused", cycle_key: `${T}:2026-07-01`, started_at: iso(NOW - 30 * DAY) }));
     await dispatch(); expect([rows.length, rows[0]!.status]).toEqual([1, "completed"]); // the one unfinished run is RESUMED, no missed day is invented
     expect(await dispatch(NO_PHASE)).toEqual(R()); });
   it("reports the pause switch only when the database took the row AND read the value back, and both doors honour the answer", async () => {
@@ -895,8 +873,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
   const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "candidates_exhausted" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
-    const order: string[] = [];
-    void withRun();
+    const order: string[] = []; void withRun();
     await run({ ...healthySteps(order),
       replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
@@ -998,8 +975,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     void rows; });
   /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
   it("carries only what settled into the day's memory, so an unreached page is asked again immediately", async () => {
-    const seen: Array<readonly string[]> = [];
-    const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
+    const seen: Array<readonly string[]> = []; const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });
     const drive = async (attempted: string[]) => {
       await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready"] }),
         replenishReady: async (_t, _n, was) => { seen.push(was?.attempted ?? []);
@@ -1035,8 +1011,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(await dueWork(T, new Date(NOW), { ...quiet, creditHeld: async () => true, run: async () => ({ open: false, progress: { ...DECIDED } }) })).toMatchObject({ due: [], readable: true }); });
   // A RUN ALREADY PARKED PAST THE FIRST PHASE STILL REPLENISHES BEFORE IT BUYS: bound to keyword_discovery alone, the live run sitting at serp_analysis could never top the inventory up at all.
   it("replenishes before acquisition from a run already at serp_analysis", async () => {
-    const order: string[] = [];
-    void withRun({ current_phase: "serp_analysis" });
+    const order: string[] = []; void withRun({ current_phase: "serp_analysis" });
     await run({ ...healthySteps(order), replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
     expect(order.indexOf("replenish")).toBeGreaterThanOrEqual(0); expect(order.indexOf("unit:serp_analysis")).toBeGreaterThan(order.indexOf("replenish"));});});
