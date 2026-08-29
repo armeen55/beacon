@@ -159,8 +159,7 @@ describe("every door answers for its own evidence", () => {
     evidence: { query: "rain barrel sizing", engine: null as string | null, promptText: null as string | null, competingUrls: [] as string[], window: null as string | null } };
   const refused = async (over: Partial<typeof DOOR>): Promise<string> => {
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), door: { ...DOOR, ...over } });
-    return out.status === "none" ? out.reason : `expected a refusal, got ${JSON.stringify(out)}`;
-  };
+    return out.status === "none" ? out.reason : `expected a refusal, got ${JSON.stringify(out)}`;};
   it("names what THAT door is missing and never falls back to the click sentence", async () => {
     expect(await refused({ door: "cannibalization" })).toContain("which pages those are is not settled"); expect(await refused({ door: "recent_decline" })).toContain("one 90 day total");
     expect(await refused({ door: "coverage_verdict" })).toContain("named it as the page of yours to improve"); expect(await refused({ evidence: { ...DOOR.evidence, query: " " } })).toContain("no longer names the search it was about");

@@ -47,6 +47,35 @@ describe("the search is the proposition", () => {
     expect(claimTypeOf("Tehran", "was founded in 1796")).toBe("date_or_event"); const meaning = sourceQueryFor("word_meaning", "Afsaneh", "means Goddess");
     expect([meaning.includes("etymology"), meaning.includes("Goddess")]).toEqual([true, true]); // the proposition survives the hint
     expect(sourceQueryFor("quantity", "Iran", "has a population of 89 million")).toContain("89"); expect(claimIdentity("Cyrus", "founded it", "History")).not.toBe(claimIdentity("Cyrus", "died 530 BCE", "Death"));});});
+describe("the page slot is part of the proposition", () => {
+  const NAMES = "Popular Persian Male(Boy) First Names and their Meanings";
+  it("lets a heading break a tie, never overrule, and keeps two roles apart in one proposition identity", () => {
+    // THE LIVE LOSS. The male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry
+    // typed as a plain definition, the query asked about a warrior and returned a biography of a general.
+    expect(claimTypeOf("Afshin", "A warrior or conqueror."), "MUTATION: drop the locator and it is lost again").toBe("definition");
+    expect(claimTypeOf("Afshin", "A warrior or conqueror.", NAMES), "the heading breaks the tie").toBe("word_meaning");
+    // EXPLICIT WORDING WINS. A heading may refine what the words leave open and may never overrule what they say.
+    expect([claimTypeOf("Tehran", "Capital of Iran", "Name meaning"), claimTypeOf("Ahvaz", "holds the record for hottest day at 54 C", "History of Ahvaz"),
+      claimTypeOf("Noor", "Meaning: Light", "Persian female name Noor"), claimTypeOf("flag", "Meaning of the colors", "Name entry")],
+    "MUTATION: let the locator win and the first two of these flip").toEqual(["geography", "quantity", "word_meaning", "word_meaning"]);
+    // AND IT IS THE PAGE'S OWN WORDS, not a vocabulary written for one tenant.
+    expect([claimTypeOf("Casing", "Brushed aluminium", "Product specifications"), claimTypeOf("Tehran", "Tehran", "Geography of Iran"),
+      claimTypeOf("Revolution", "1979", "Historical timeline"), claimTypeOf("Widget", "A small tool", "About us")],
+    "universal").toEqual(["specification", "geography", "date_or_event", "definition"]);
+    // THE NORMALIZED ROLE IS IN THE FINGERPRINT, and the heading's prose is not.
+    const meaning = tokenFingerprintOf("Afshin", "A warrior or conqueror.", "word_meaning");
+    expect(meaning, "same words, two roles, two propositions").not.toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
+    expect(tokenFingerprintOf("Afshin", "conqueror or warrior A.", "word_meaning"), "one role, harmless reorder").toBe(meaning);
+    expect(tokenFingerprintOf("Afshin", "A warrior or conqueror.", claimTypeOf("Afshin", "A warrior or conqueror.", "Boy names and their meanings")),
+      "two headings that mean the same role are ONE proposition, so a heading edit mints nothing").toBe(meaning);
+    expect(tokenFingerprintOf("Afshin", "A warrior or conqueror."), "MUTATION: without the role the two collide again").toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
+    // AND THE ROLE SHAPES THE QUERY WITHOUT ERASING THE PROPOSITION.
+    const q = (t: Parameters<typeof sourceQueryFor>[0], sub: string, cur: string) => sourceQueryFor(t, sub, cur);
+    const name = q("word_meaning", "Afshin", "A warrior or conqueror.");
+    for (const must of ["Afshin", "warrior", "conqueror", "meaning", "origin", "etymology"]) expect(name).toContain(must);
+    expect(q("geography", "Tehran", "Capital of Iran"), "geography asks where").toContain("location");
+    expect(q("date_or_event", "Tehran", "was founded in 1796"), "history asks when").toContain("period");
+    expect(q("quantity", "Iran", "has a population of 89 million"), "an unchanged type keeps its plain query").toContain("89");});});
 describe("a missing proposition is researched, never graded", () => { beforeEach(reset);
   /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
   it("an owed claim with no current wording banks the researched statement from real sources", async () => {

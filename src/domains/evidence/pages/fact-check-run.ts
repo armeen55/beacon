@@ -1,15 +1,6 @@
 import "server-only";
 
-/** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first live runs
- *  proved four ways a unit can look like research without being it (Codex, 2026-08-18): a query built from the
- *  SUBJECT alone researched "Ahvaz definition" for a heat-record claim; sources found but unreadable were
- *  banked as checked, permanently clearing work nobody did; a truncated 12,000-character sample was called the
- *  whole page; and two encyclopedia pages counted as agreement because they ranked first.
- *
- *  WHAT IT IS NOW. The persisted inventory is the cursor and coverage is persisted with it, so a page is only
- *  complete when every stored section was inventoried AND every claim is current. Acquisition searches the
- *  WHOLE PROPOSITION, never the subject alone. Every failure is TYPED and leaves the claim owed; only a
- *  readable world may settle one. `confirmed` requires a quote inside a fetched authoritative passage. */
+/** evidence/pages/fact-check-run - ONE CLAIM, RESEARCHED PROPERLY, PER RENEWED LEASE. The first live runs proved four ways a unit can look like research without being it (Codex, 2026-08-18): a query built from the SUBJECT alone researched "Ahvaz definition" for a heat-record claim; sources found but unreadable were banked as checked, permanently clearing work nobody did; a truncated 12,000-character sample was called the whole page; and two encyclopedia pages counted as agreement because they ranked first. WHAT IT IS NOW. The persisted inventory is the cursor and coverage is persisted with it, so a page is only complete when every stored section was inventoried AND every claim is current. Acquisition searches the WHOLE PROPOSITION, never the subject alone. Every failure is TYPED and leaves the claim owed; only a readable world may settle one. `confirmed` requires a quote inside a fetched authoritative passage. */
 
 import { createHash } from "node:crypto";
 import { log } from "@/lib/logger";
@@ -74,14 +65,21 @@ export const pageHashOf = (body: string): string => createHash("sha256").update(
  *  Deterministic and total: an unrecognised claim is a plain definition, which searches plainly. */
 type ClaimType = "word_meaning" | "date_or_event" | "quantity" | "definition" | "specification" | "entity_fact" | "geography";
 
-export function claimTypeOf(subject: string, current: string): ClaimType {
-  const t = `${subject} ${current}`.toLowerCase();
+/** THE SLOT BREAKS A TIE, IT NEVER OVERRULES. The wording is asked first and wins whenever it says anything, so "Capital of Iran" stays geography under a "Name meaning" heading and a measured record stays a quantity under a "History of" heading. Only when the words alone fall through to the generic `definition` is the page's own heading consulted, which is where the live loss was: the male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry typed as a plain definition and the query went looking for a warrior. Generic by construction, since the heading is read through the very same rules. */
+export function claimTypeOf(subject: string, current: string, locator?: string | null): ClaimType {
+  const own = typeFromText(`${subject} ${current}`);
+  if (own !== "definition") return own;
+  const said = (locator ?? "").trim();
+  return said ? typeFromText(said) : "definition";}
+
+function typeFromText(text: string): ClaimType {
+  const t = text.toLowerCase();
   if (/\b(means?|meaning|derives?|derived|etymolog|origin of the name|name meaning|translat)/.test(t)) return "word_meaning";
   if (/\b(1[0-9]{3}|20[0-9]{2}|bce?\b|ad\b|century|founded|born|died|dynasty|war|revolution|treaty)\b/.test(t)) return "date_or_event";
   // Records and measurements are quantities: "hottest day at 54 °C" is not a definition (Codex, 2026-08-18).
   if (/\b(\d[\d,.]*\s*(percent|%|million|billion|thousand|km|miles|kg|people|residents|users)|population|average|median|rate|record|hottest|coldest|largest|smallest|tallest|longest|highest|lowest|temperature|degrees)\b|°/.test(t)) return "quantity";
-  if (/\b(located|capital|province|region|city of|river|mountain|border)\b/.test(t)) return "geography";
-  if (/\b(model|version|specification|dimensions|weight|material|capacity|voltage)\b/.test(t)) return "specification";
+  if (/\b(located|capital|province|region|city of|river|mountain|border|geograph\w*)\b/.test(t)) return "geography";
+  if (/\b(model|version|specification\w*|dimensions?|weight|materials?|capacity|voltage)\b/.test(t)) return "specification";
   if (/\b(is a|was a|founder|ceo|author|invented|composer|poet|king|shah)\b/.test(t)) return "entity_fact";
   return "definition";}
 
@@ -91,6 +89,11 @@ const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its"
 /** THE SEARCH IS THE PROPOSITION. The subject alone researched "Ahvaz, Iran definition reference" for the
  *  claim that Ahvaz holds Asia's 54 degree heat record (Codex, 2026-08-18): the claim type may shape the
  *  query, but it may never erase the date, number, relationship or assertion being verified. */
+/** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
+const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
+  geography: " location region geography", date_or_event: " date period history",
+  quantity: "", definition: "", specification: "", entity_fact: "" };
+
 export function sourceQueryFor(type: ClaimType, subject: string, current: string): string {
   const seen = new Set<string>(); const toks: string[] = [];
   for (const raw of `${subject} ${current}`.replace(/[()"]/g, " ").split(/\s+/)) {
@@ -99,25 +102,24 @@ export function sourceQueryFor(type: ClaimType, subject: string, current: string
     if (!t || seen.has(k)) continue;
     if (/[\d°]/.test(k) || (k.length >= 3 && !STOP.has(k))) { seen.add(k); toks.push(t); }
     if (toks.length >= 14) break;}
-  const hint = type === "word_meaning" ? " meaning etymology" : type === "date_or_event" ? " history" : "";
-  return `${toks.join(" ")}${hint}`.trim();
-}
+  const hint = HINT_FOR[type]; // shaped by the proposition, never a synonym dump and never a second query builder
+  return `${toks.join(" ")}${hint}`.trim();}
 
 /** A STATEMENT'S IDENTITY is the normalized claim plus where it sits, never the subject alone: a page can say
  *  two different things about one subject and both are real (Codex, 2026-08-18). */
 export function claimIdentity(subject: string, current: string, locator?: string | null): string {
   const norm = `${subject}|${current}|${locator ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
-  return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;
-}
+  return `${statementKeyOf(subject)}#${createHash("sha256").update(norm).digest("hex").slice(0, 10)}`;}
 
 /** THE CLAIM'S CONTENT-TOKEN FINGERPRINT: subject + wording reduced to its content words, sorted. Two
  *  statements with the SAME content words in any order are one proposition reworded, and the second is
  *  superseded free instead of researched twice. Deliberately NOT semantic: a reformulation that swaps in
  *  different words is a different fingerprint and is researched on its own (Codex, 2026-08-18). */
-export function tokenFingerprintOf(subject: string, current: string): string {
+export function tokenFingerprintOf(subject: string, current: string, role: ClaimType = "definition"): string {
   const toks = `${subject} ${current}`.toLowerCase().replace(/[^\p{L}\p{N}° ]+/gu, " ").split(/\s+/)
     .filter((t) => t.length > 0 && (/[\d°]/.test(t) || (t.length >= 4 && !STOP.has(t))));
-  return [...new Set(toks)].sort().join(" ");}
+  // THE NORMALIZED ROLE JOINS THE PROPOSITION, never the heading's prose: two headings that both mean "these are name meanings" stay ONE proposition, or every heading edit mints a new claim. Without it an owed claim was superseded as a duplicate WITHOUT being researched, so a checked title definition could settle a name-meaning claim for free.
+  return `${role}:${[...new Set(toks)].sort().join(" ")}`;}
 
 const CLAIM_SYSTEM = 'You read one web page and list the statements on it that an outside source could confirm or contradict. '
   + 'Return ONLY {"statements":[{"subject","current","locator"}]}: `subject` is what the statement is about as the page writes it; '
@@ -248,14 +250,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
     const returned = ((extracted as unknown as Extracted).statements ?? [])
       .filter((s) => s.subject?.trim() && s.current?.trim()).map((s) => s.current.trim());
     const knownIds = new Set(inventory.map((h) => h.statementKey));
-    const knownProps = new Set(inventory.map((h) => tokenFingerprintOf(h.subject, h.current)));
-    const claims = ((extracted as unknown as Extracted).statements ?? [])
-      .filter((s) => s.subject?.trim() && s.current?.trim())
+    const propOf = (x: { subject: string; current: string }, loc: string | null): string => tokenFingerprintOf(x.subject, x.current, claimTypeOf(x.subject, x.current, loc));
+    const knownProps = new Set(inventory.map((h) => propOf(h, h.pageLocator)));
+    const claims = ((extracted as unknown as Extracted).statements ?? []) .filter((s) => s.subject?.trim() && s.current?.trim())
       .map((s) => ({ subject: s.subject.trim(), current: s.current.trim(), locator: s.locator?.trim() || null }))
-      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator), prop: tokenFingerprintOf(c.subject, c.current) }))
+      .map((c) => ({ ...c, statementKey: claimIdentity(c.subject, c.current, c.locator), prop: propOf(c, c.locator) }))
       // One row per identity AND one per proposition: reformulations of one fact are researched once.
-      .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i)
-      .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
+      .filter((c, i, all) => all.findIndex((x) => x.statementKey === c.statementKey) === i) .filter((c, i, all) => all.findIndex((x) => x.prop === c.prop) === i)
       .filter((c) => !knownIds.has(c.statementKey) && !knownProps.has(c.prop));
     if (cov.coveredChars === 0) {
       // THE PAGE MOVED ON: whatever was held against an older version, or objects to wording this version no
@@ -284,11 +285,12 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   }
   // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is
   // superseded for free, never researched and paid for again.
-  const settled = new Set(inventory.filter((h) => h.state === "checked").map((h) => tokenFingerprintOf(h.subject, h.current)));
+  const propOf = (h: FactCheck): string => tokenFingerprintOf(h.subject, h.current, claimTypeOf(h.subject, h.current, h.pageLocator));
+  const settled = new Set(inventory.filter((h) => h.state === "checked").map(propOf));
   let next: FactCheck | null = null;
   for (const o of owed) {
     if (d.skip?.has(o.statementKey)) continue; // this pass already tried it and it did not resolve
-    if (!settled.has(tokenFingerprintOf(o.subject, o.current))) { next = o; break; }
+    if (!settled.has(propOf(o))) { next = o; break; }
     const ok = await recordFactChecks(tenantId, page.path, [{ ...o, state: "superseded",
       note: "Duplicate of a proposition already checked at this page version." }]).catch(() => 0);
     if (ok > 0) owed = owed.filter((x) => x !== o);}
@@ -303,7 +305,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   const claim = { subject: next.subject, current: next.current, locator: next.pageLocator };
   const cursor: FactCheckCursor = { ...progress, pageComplete: false };
   const advance: FactCheckCursor = { ...progress, checked: progress.checked + 1, pageComplete: covered && owed.length === 1 };
-  const type = claimTypeOf(claim.subject, claim.current);
+  const type = claimTypeOf(claim.subject, claim.current, claim.locator);
 
   const bank = async (row: FactCheck): Promise<FactCheckUnitResult> => {
     const banked = await recordFactChecks(tenantId, page.path, [row]);
@@ -333,12 +335,10 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
   // it was correcting, iranopedia.com/persian-female-first-names, and banked that as a source.
   const ownSite = (page.url ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
   const candidates = organic
-    .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" }))
-    .filter((c) => !REJECTED.has(c.kind))
+    .map((o) => ({ url: o.url, domain: o.domain.replace(/^www\./, "").toLowerCase(), kind: sourceClassOf(o.domain), title: o.title ?? "" })) .filter((c) => !REJECTED.has(c.kind))
     .filter((c) => !ownSite || (c.domain !== ownSite && !c.domain.endsWith(`.${ownSite}`)))
     .filter((c) => !seenDomains.has(c.domain) && seenDomains.add(c.domain) !== undefined)
-    .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0))
-    .slice(0, CANDIDATES);
+    .sort((a, b) => (AUTHORITATIVE.has(b.kind) ? 1 : 0) - (AUTHORITATIVE.has(a.kind) ? 1 : 0)) .slice(0, CANDIDATES);
   // `none_found` IS A CLAIM ABOUT THE WORLD, and only an empty results page may make it. A page full of
   // results none of which clears the policy is an unresolved question, and the claim stays owed.
   if (organic.length === 0) {
@@ -493,7 +493,6 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
   if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };
   // A PASS THAT SET EVERY CLAIM ASIDE DID NOT RUN OUT OF LEASE, and saying so PAUSES the run: `lease_exhausted`
   // is a hard stop. The last real reason is carried out of the loop and reported as itself.
-  return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts,
-    ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
+  return { status: progressed ? "advanced" : pagesComplete > 0 ? "done" : "failed", banked, pagesComplete, attempts, ...(progressed || pagesComplete > 0 ? {} : lastPerClaim
       ? { failure: lastPerClaim.failure, reason: lastPerClaim.reason }
       : { failure: "lease_exhausted" as const, reason: "no page could be worked this pass" }) };}

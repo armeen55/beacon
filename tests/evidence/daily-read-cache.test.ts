@@ -3,8 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const store = vi.hoisted(() => ({ rows: [] as unknown[], readFails: false }));
 vi.mock("@/lib/persistence/json-store", () => ({
   readStore: async () => { if (store.readFails) throw new Error("store down"); return store.rows; },
-  writeStore: async (_n: string, rows: unknown[]) => { store.rows = rows; },
-}));
+  writeStore: async (_n: string, rows: unknown[]) => { store.rows = rows; },}));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 vi.mock("server-only", () => ({}));
 import { readThroughDaily } from "@/domains/evidence/readers/daily-read-cache";

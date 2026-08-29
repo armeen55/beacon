@@ -33,6 +33,12 @@ export const PROMPT_REGISTRY = {
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
   // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
   "draft.aeo_gap": 2, // v2 (2026-08-28): the reader's packet and instructions changed (it is told explicitly when no credited passage is on file, and the owned side is supplied as exact id/text tuples), so a v1 answer was given to a different question and must not be served from cache.
+  // The fact-check pair (2026-08-29): both are called through `draft.${kind}` and neither was ever registered,
+  // so promptVersion resolved to undefined and only the folded system text separated one contract from the next.
+  // v1 is the honest first identity for the wording each carries today. This is prompt-cache versioning and has
+  // nothing to do with VERIFICATION_RULES_VERSION, which stays at 4.
+  "draft.fact_claim_extraction": 1,
+  "draft.fact_claim_judgement": 1,
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,

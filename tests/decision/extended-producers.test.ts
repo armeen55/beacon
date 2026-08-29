@@ -98,8 +98,7 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const out = await produceInternalLinks(ctxOf({
       draft: { section: async () => null, internalLink: async (i) => {
         heard.push(...i.evidenceHints ?? []);
-        return { anchorText: `${i.topic} guide`, linkSentence: `Working out ${i.topic} means reading ${(i.evidenceHints ?? []).join(" ")}`, reason: "same subject" }; } },
-    }));
+        return { anchorText: `${i.topic} guide`, linkSentence: `Working out ${i.topic} means reading ${(i.evidenceHints ?? []).join(" ")}`, reason: "same subject" }; } },}));
     expect(heard.length).toBeGreaterThan(0); // it is grounded, not starved, and never on one of my own figures
     for (const fact of FACTS) expect(heard).not.toContain(fact);
     expect(out.components.map((c) => c.after).join(" ")).not.toMatch(/6,000|90 clicks/); // the receipt's numbers never reach the page

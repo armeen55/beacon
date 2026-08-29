@@ -39,8 +39,7 @@ function assertFullyStrict(n: Record<string, unknown>, at: string): void {
   if (n.type !== "object") return;
   const keys = Object.keys((n.properties ?? {}) as Record<string, unknown>);
   expect([n.additionalProperties, new Set(n.required as string[])], `${at}: strict and fully required`).toEqual([false, new Set(keys)]);
-  for (const k of keys) assertFullyStrict((n.properties as Record<string, Record<string, unknown>>)[k]!, `${at}.${k}`);
-}
+  for (const k of keys) assertFullyStrict((n.properties as Record<string, Record<string, unknown>>)[k]!, `${at}.${k}`);}
 describe("openAIStructuredResponse — fails closed before any fetch", () => {
   it("converts EVERY drafter schema in the registry, with no unsupported construct and nothing left loose", () => {
     for (const kind of Object.keys(SCHEMA_BY_KIND) as Array<keyof typeof SCHEMA_BY_KIND>) {

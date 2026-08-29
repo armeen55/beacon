@@ -215,8 +215,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       ["a mapping naming evidence the claim does not", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, claims: [{ i: 0, by: ["fact-9"], entailed: true }] } }],
       ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
       const held2 = await roundTrip(broken as ChangeProposal);
-      expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);
-    }
+      expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);}
     // A TRANSPORT FAILURE BANKS NOTHING and fabricates no receipt.
     const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);

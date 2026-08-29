@@ -461,8 +461,7 @@ describe("traffic is the objective and every other factor may only discount it",
   it("never prints a bare zero at the operator, it says the thing in words", () => {
     const [only] = rankProposals([clicky({ id: "alone" })]);
     for (const f of only!.rankingReceipt!.factors) {
-      expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);
-    }
+      expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);}
     expect(only!.rankingReceipt!.factors.map((f) => f.name)).toContain("strategic");
     expect(only!.rankingReceipt!.factors.find((f) => f.name === "confounding")!.input)
       .toBe("nothing else in this batch lands on the same page"); });

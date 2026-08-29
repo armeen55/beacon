@@ -11,10 +11,8 @@ export const labsKeywordsForSiteLive = {
         keyword_properties: { se_type: "google", keyword_difficulty: 60 }, search_intent_info: { se_type: "google", main_intent: "transactional" } },
       { se_type: "google", keyword: "apple watch couldn't pair", location_code: 2840, language_code: "en",
         keyword_info: { se_type: "google", competition: null, competition_level: "LOW", cpc: null, search_volume: 40, monthly_searches: [{ year: 2025, month: 1, search_volume: 50 }, { year: 2024, month: 12, search_volume: 70 }] },
-        keyword_properties: { se_type: "google", keyword_difficulty: 13 }, search_intent_info: { se_type: "google", main_intent: "commercial" } },
-    ],
-  }] }],
-};
+        keyword_properties: { se_type: "google", keyword_difficulty: 13 }, search_intent_info: { se_type: "google", main_intent: "commercial" } },],
+  }] }],};
 
 // serp/google/organic/task_get/advanced
 export const serpTaskGetAdvanced = {
@@ -34,18 +32,15 @@ export const serpTaskGetAdvanced = {
         references: [
           { type: "ai_overview_reference", source: "Python.org", domain: "python.org", url: "https://www.python.org/about/", title: "About Python", text: "Work quickly." },
           { type: "ai_overview_reference", source: "Wikipedia", domain: "wikipedia.org", url: "https://en.wikipedia.org/wiki/Python_(programming_language)", title: "Python (programming language)", text: "Interpreted." },
-        ] }] },
-    ],
-  }] }],
-};
+        ] }] },],
+  }] }],};
 
 // ai_optimization/chat_gpt/llm_responses/task_post (acknowledgement)
 export const llmResponsesTaskPostAck = {
   version: "0.1.20241227", status_code: 20000, status_message: "Ok.", cost: 0.035,
   tasks: [{ id: "llm-task-1", status_code: 20100, status_message: "Task Created.", cost: 0.035, result_count: 0,
     path: ["v3", "ai_optimization", "chat_gpt", "llm_responses", "task_post"],
-    data: { user_prompt: "best running shoes", model_name: "gpt-4o", tag: "TAGVALUE" }, result: null }],
-};
+    data: { user_prompt: "best running shoes", model_name: "gpt-4o", tag: "TAGVALUE" }, result: null }],};
 
 // ai_optimization/chat_gpt/llm_responses/task_get
 export const llmResponsesTaskGet = {
@@ -58,8 +53,7 @@ export const llmResponsesTaskGet = {
         { title: "Brand X review", url: "https://runnersworld.com/brand-x", start_index: 4, end_index: 20, text: "Brand X Runner" },
         { title: "Best shoes guide", url: "https://www.wirecutter.com/running-shoes", start_index: 21, end_index: 30, text: "guide" },
       ] }] }],
-  }] }],
-};
+  }] }],};
 
 // ai_optimization/perplexity/llm_responses/live
 export const perplexityLive = {
@@ -67,8 +61,7 @@ export const perplexityLive = {
   tasks: [{ id: "ppx-1", status_code: 20000, status_message: "Ok.", cost: 0.035, result: [{
     model_name: "sonar", input_tokens: 9, output_tokens: 40, web_search: true, money_spent: 0.03,
     items: [{ type: "message", sections: [{ type: "text", text: "Perplexity recommends Brand Y.", annotations: [{ title: "Brand Y", url: "https://www.gearlab.com/brand-y" }] }] }],
-  }] }],
-};
+  }] }],};
 
 // ai_optimization/{chat_gpt,perplexity}/llm_responses/models (perplexity is Live-only)
 export const chatgptModels = {
@@ -77,12 +70,10 @@ export const chatgptModels = {
     { model_name: "gpt-3.5-turbo-1106", reasoning: false, web_search_supported: false, task_post_supported: true },
     { model_name: "gpt-4o", reasoning: false, web_search_supported: true, task_post_supported: true },
     { model_name: "gpt-5", reasoning: true, web_search_supported: true, task_post_supported: false },
-  ] }],
-};
+  ] }],};
 export const perplexityModels = {
   status_code: 20000, status_message: "Ok.", cost: 0,
   tasks: [{ id: "ppx-models-1", status_code: 20000, status_message: "Ok.", cost: 0, result: [
     { model_name: "sonar-reasoning-pro", reasoning: true, web_search_supported: true, task_post_supported: false },
     { model_name: "sonar", reasoning: false, web_search_supported: true, task_post_supported: false },
-  ] }],
-};
+  ] }],};
