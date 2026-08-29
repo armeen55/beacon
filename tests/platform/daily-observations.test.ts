@@ -274,7 +274,8 @@ describe("reading the answers back", () => {
       return runAnswerAnalyses(T, DAY, { readObservations: async () => rows, readPrompts: async () => null, identity: BRAND, persist: async (_t, id, a) => void saved.push([id, a]),
         complete: async ({ kind }) => { calls += 1; return kind === "answer_analysis_batch" ? failed : single(); } }); };
     expect([(await pass(async () => failed)).read, saved.length, pg.inserted.length, calls, selectAnalysisTargets(rows).map((r) => r.id)]).toEqual([0, 0, 0, tries, ["z0", "z1", "z2"]]);
-    expect([(await pass(async () => ({ value: analysis }))).read, saved.every(([, a]) => a.rejected !== true), rows.every((r, i) => isAnalysisSettled({ analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}`, answerHash: r.answerHash }))]).toEqual([3, true, true]);});
+    expect([(await pass(async () => ({ value: analysis }))).read, saved.every(([, a]) => a.rejected !== true), rows.every((r, i) => isAnalysisSettled({ analysis: saved[i]?.[1] ?? null, analysisHash: `hz${i}`, answerHash: r.answerHash }))]).toEqual([3, true, true]);
+  });
   it("reads TODAY before older debt, and reaches ANY age of debt directly instead of waiting for a rotation", async () => {
     const back = (n: number) => new Date(Date.parse(`${DAY}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
     const unread = new Set([DAY, back(2), back(8), back(30)]); const days: string[] = []; let read = "";

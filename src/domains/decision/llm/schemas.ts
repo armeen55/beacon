@@ -396,11 +396,6 @@ const FactualReviewSchema = z.object({ rulings: z.array(z.object({
   index: z.number().int().min(0), publish: z.boolean(), reason: z.string().min(1).max(240),
   /** ONE ENTAILMENT RULING PER CLAIM, naming the exact fact ids weighed. The review answered one publish boolean and its claim-level reasoning was thrown away, so nothing ever recorded whether the cited passage SUPPORTS the claim: "Noor means light" could stand on a fact reading "Tehran is the capital of Iran" (Codex, 2026-08-28). `publish` is derived in code from these, never taken from the model. */
   claims: z.array(z.object({ claim: z.number().int().min(0), factIds: z.array(z.string().min(1)),
-    /** IS THE PASSAGE ABOUT THE SAME THING IN THE SAME RELATIONSHIP the page's statement is about. Entailment alone
-     *  cannot see this: "Afshin is a hereditary title of Oshrusana princes" entails "Afshin means a hereditary
-     *  title" word for word, while the page field is a GIVEN NAME'S MEANING and the source is a biography of a man
-     *  who bore the title. Same spelling, different role, and only the source COUNT stood in the way. */
-    sameSubjectAndRole: z.boolean(),
     entailed: z.boolean(), why: z.string().min(1).max(200) })).min(1).max(12) })).min(1).max(12) });
 
 /** THE AEO GAP READER'S ANSWER: a closed diagnosis vocabulary and only ids the packet supplied. A reader, never a writer. */

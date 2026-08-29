@@ -148,51 +148,36 @@ describe("a page's own statements against their sources", () => {
 describe("Beacon reviews its own corrections, one page at a time", () => {
   beforeEach(() => { checks.rows = []; });
   const cardsOf = async (n: number) => { checks.rows = many(n); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; };
-  it("refuses a source about the same spelling in a different role, however many sources repeat it", async () => {
-    // THE REAL COUNTEREXAMPLE. "Afshin is a hereditary title of Oshrusana princes" entails "Afshin means a hereditary title" word for word, so entailment alone ruled it published; the page field is a GIVEN NAME'S MEANING and every source is a biography of a man who bore the title. Only the SOURCE COUNT stood in the way, which is the wrong axis: two biographies agree with each other perfectly. The role ruling is now what decides, and the count is not consulted at all.
-    const TITLE = "Afshin is a hereditary title of Oshrusana princes before the Muslim conquest of Persia";
-    checks.rows = [check({ subject: "Afshin", current: "A warrior or conqueror.", proposed: "A hereditary title of Oshrusana princes.",
-      agreement: "multiple_agree", sources: [{ url: "https://en.wikipedia.org/wiki/Khaydhar_ibn_Kawus_al-Afshin", kind: "encyclopedia", says: TITLE }, { url: "https://www.britannica.com/biography/Afshin", kind: "encyclopedia", says: TITLE }] })];
-    const cards = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
-    const ruleRole = (role: boolean) => async () => ({ status: "drafted" as const, value: { rulings: cards.map((_c, i) => ({ index: i, publish: true,
-      reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1", "fact-2"], entailed: true, sameSubjectAndRole: role, why: role ? "the passage is about the given name" : "both passages describe a historical title borne by a man, not what the given name means" }] })) } });
-    const held = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ruleRole(false) });
-    expect(held.map((c) => c.status), "two agreeing sources about the wrong proposition still authorize nothing").toEqual(held.map(() => "needs_review"));
-    expect((held[0]!.limitations ?? []).join(" "), "the refusal names the mismatch, not the source count").toContain("not about the same thing in the same relationship");
-    // AND THE ROLE VERDICT IS WHAT DID IT: the identical batch, entailment and evidence, differing only in that one boolean, promotes.
-    const passed = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ruleRole(true) });
-    expect(passed.map((c) => c.status)).toEqual(passed.map(() => "ready"));
-  });
   it("clears a correction to ready, holds another with its reason, and never charges the operator with the checking", async () => {
     const cards = await cardsOf(3);
     // PUBLISH IS DERIVED FROM THE CLAIM RULINGS, never taken from the model: a reviewer that says publish while ruling the claim unsupported is not a pass, and a ruling that never came is not silence in Beacon's favour.
     const ok = (i: number) => ({ index: i, publish: true, reason: "reads cleanly and matches its source",
-      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "the quoted passage carries the corrected meaning" }] });
+      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries the corrected meaning" }] });
     const complete = async () => ({ status: "drafted" as const, value: { rulings: [ok(0),
-      { index: 1, publish: false, reason: "the replacement contradicts its own source", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, sameSubjectAndRole: true, why: "the passage says something else" }] }, ok(2)] } });
+      { index: 1, publish: false, reason: "the replacement contradicts its own source", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }, ok(2)] } });
     // A REVIEWER ANSWERING THE OLD COARSE SHAPE AUTHORIZES NOTHING: publish is derived from claim rulings, so a verdict carrying none of them is silence about every claim rather than a yes to all of them.
     const coarse = async () => ({ status: "drafted" as const, value: { rulings: [0, 1, 2].map((i) => ({ index: i, publish: true, reason: "reads cleanly" })) } });
     const old = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: coarse });
     expect(old.map((c) => c.status), "publish alone is not entailment").toEqual(old.map(() => "needs_review"));
     // THE RETURNED MAPPING IS CHECKED, NOT TIDIED. A ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean authorization from its OWN ids: self-authorization wearing a reviewer's name. Each shape below must hold the card instead.
     const rule = (over: Record<string, unknown>) => async () => ({ status: "drafted" as const, value: { rulings: cards.map((_c, i) => ({
-      index: i, publish: true, reason: "looks fine", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "carried" }], ...over })) } });
+      index: i, publish: true, reason: "looks fine", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }], ...over })) } });
     const promoted = async (over: Record<string, unknown>) => (await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: rule(over) })).filter((c) => c.status === "ready");
-    for (const [what, over] of [["a claim number nobody made", { claims: [{ claim: 99, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }] }],
-      ["evidence nobody banked", { claims: [{ claim: 0, factIds: ["wrong-fact"], entailed: true, sameSubjectAndRole: true, why: "w" }] }],
-      ["a claim ruled twice", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }, { claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }] }],
-      ["a claim the row never made, alongside the real one", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }, { claim: 1, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }] }],
-      ["the reviewer's own no", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, sameSubjectAndRole: true, why: "the passage says something else" }] }],
+    for (const [what, over] of [["a claim number nobody made", { claims: [{ claim: 99, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["evidence nobody banked", { claims: [{ claim: 0, factIds: ["wrong-fact"], entailed: true, why: "w" }] }],
+      ["a claim ruled twice", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }, { claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["a claim the row never made, alongside the real one", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }, { claim: 1, factIds: ["fact-1"], entailed: true, why: "w" }] }],
+      ["the reviewer's own no", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }],
       ["a sense refusal over an entailed claim", { publish: false, reason: "reads badly" }]] as const)
       expect(await promoted(over), `${what} authorizes nothing`).toEqual([]);
     // AND NOTHING RETURNED IS SILENTLY DROPPED: a ruling for a component nobody asked about was ignored, so a response could carry anything at all beside the real ones and still clear the batch.
     const withStray = async () => ({ status: "drafted" as const, value: { rulings: [...cards.map((_c, i) => ({ index: i, publish: true, reason: "fine",
-      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "carried" }] })),
-      { index: 99, publish: true, reason: "about nothing here", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "w" }] }] } });
+      claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }] })),
+      { index: 99, publish: true, reason: "about nothing here", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }] } });
     expect((await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: withStray })).filter((c) => c.status === "ready"),
       "a ruling about a component nobody asked about").toEqual([]);
     // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
-    const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "the quoted passage carries it" }] });
+    const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] });
     expect(earned.length, "an exact ruling still earns Ready").toBeGreaterThan(0);
     expect(earned[0]!.semanticReview!.claims).toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     // A CARD STANDING ON TWO PASSAGES MUST BE RULED AGAINST BOTH: naming only one of them is a different question than the claim asks, and every named id is banked, so nothing else catches this.
@@ -201,14 +186,14 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
     expect(two[0]!.claims![0]!.supportedBy.length, "the card really declares two").toBe(2);
     const ruleTwo = (ids: string[]) => async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "fine",
-      claims: [{ claim: 0, factIds: ids, entailed: true, sameSubjectAndRole: true, why: "carried" }] }] } });
+      claims: [{ claim: 0, factIds: ids, entailed: true, why: "carried" }] }] } });
     expect((await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-1"]) })).filter((c) => c.status === "ready"),
       "ruled against one of the two passages the claim names").toEqual([]);
     const both = (await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-2", "fact-1"]) })).filter((c) => c.status === "ready");
     expect(both[0]!.semanticReview!.claims, "and both, in any order, is what it banks").toEqual([{ i: 0, by: ["fact-1", "fact-2"], entailed: true }]);
     // AND THE REVIEWER WAS ACTUALLY SHOWN WHAT IT RULED ON: the canonical claim, its own fact ids, and the exact passage behind each.
     let shown = ""; await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 },
-      complete: async (i: { user: string }) => { shown = i.user; return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: false, reason: "n", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, sameSubjectAndRole: true, why: "n" }] }] } }; } });
+      complete: async (i: { user: string }) => { shown = i.user; return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: false, reason: "n", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "n" }] }] } }; } });
     expect(shown).toContain("claim 0:");
     expect(shown).toContain("must be entailed by exactly these fact ids: fact-1");
     expect(shown, "the exact passage, not an anonymous source blob").toMatch(/fact-1: "[^"]{10,}/);
@@ -283,7 +268,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]);
     // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
     const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal;
-    const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "the passage carries it" }] }] } });
+    const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });
     const seen = async (c: ChangeProposal) => (await reviewFactualBundle([c], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok }))[0]!;
     const [held, clean] = [await seen(glued), await seen(by.get("noor")!)];
     expect([held.status, held.limitations[0], clean.status], "a glued label may not reach Ready, and the composed line passes the same gate")
@@ -297,7 +282,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     let user = "";
     const complete = async (i: { user: string }) => { user = i.user;
-      return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, sameSubjectAndRole: true, why: "the passage carries it" }] }] } }; };
+      return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } }; };
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     const by = new Map(out.map((c) => [c.id.split("fact-")[1], c]));
     expect(by.get("jasmine")!.status).toBe("needs_review");

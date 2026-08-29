@@ -281,7 +281,8 @@ describe("onboarding contract (Slice 5)", () => {
 /** Fourteen topics of five questions: a broad candidate universe (70) an operator must never be asked to read row by row. The first seven topics are the ones approved as a group below. */
 const TOPICS = [
   ...INTENTS.map((intent) => ({ slug: `${intent}first`, half: "first", intent, size: 5 })),
-  ...INTENTS.slice(0, 5).map((intent) => ({ slug: `${intent}second`, half: "second", intent, size: 7 })),];
+  ...INTENTS.slice(0, 5).map((intent) => ({ slug: `${intent}second`, half: "second", intent, size: 7 })),
+];
 const FIVE_PER_TOPIC: CompleteFn = async () => ({ value: { groups: TOPICS.map((t, gi) => ({
   slug: t.slug, name: `${t.intent} ${t.half} topics`, intent: t.intent,
   prompts: WORDS.slice(0, t.size).map((word) => ({ text: `${t.intent} ${t.half} ${word} question`, recommended: gi < 7 })) })) } });
