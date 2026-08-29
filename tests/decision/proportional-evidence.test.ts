@@ -49,7 +49,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     const fill = row("meta", { ...edit("meta", null, "Iran adopted a new flag in 1979 and redesigned it in 1980."),
       claims: [{ text: "covers both versions", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "the page covers both" }] });
     expect(evidenceShortfall(fill)).toBeNull();
-    expect(evidenceShortfall(row("meta2", edit("meta", null, "Everything you need to know.")))).toContain("no banked claim");
+    expect(evidenceShortfall(row("meta2", edit("meta", null, "Everything you need to know.")))).toContain("none of its own sources carry");
     // 6. A PATTERN CLAIM RIDES A STORED SHAPE: the same creative replacement passes once a stored results page backs it, and the shape is named on the receipt rather than implied.
     expect(evidenceShortfall({ ...creative, modeledOn: "the stored results page for onager, whose top titles share this shape" } as ChangeProposal)).toBeNull();
     // 7. GAIN IS NOT SOURCING. Citing an outside id proved only that a source exists: it can perfectly well confirm what the page already says, and that copy adds nothing. Body copy answers to a re-readable receipt the evaluator wrote, so recurrence across any number of days still authorizes no copy.

@@ -188,6 +188,10 @@ const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replac
 
 /** WHAT THIS CHANGE PROMISES THAT ITS OWN EVIDENCE DOES NOT CARRY, or null when the burden is met. THE PROOF BURDEN  MATCHES THE PROMISE (operator, 2026-08-28): a rendering repair, a factual correction, a title hypothesis and an  AEO answer make different promises and may not owe the same evidence. Refused here: replacing a title,  description or heading that exists on demand figures alone (the live Onager title rode 8,112 impressions and one  page claim into Ready with nothing naming a defect in the line it replaced); filling an empty field with  statements no banked claim carries; body copy with no re-readable gain receipt; and a replacement that loses a  unit of the passage it replaces without a checkable disposition for it. Read at the ONE servability verdict  (completeness's openHold), so the queue, Today, the detail page, Mark done, the promotion door and the producer  sweep refuse together. PURE, canonical fields only. */
 /** WHAT A RECEIPT IS AUTHORIZED FOR, written out EXACTLY and compared exactly. A receipt is about a draft, never a job: `copyIdentity` excludes the copy and `workKey` names the work, so preservation kept copy A while an incoming draft's receipts rode along. The first repair bound it with `componentIdOf`, a 32-bit fingerprint meant for naming a bundle piece in a browser, and two real drafts collided on it and transferred a receipt through the very merge this was written to stop (Codex, 2026-08-28). A HASH NAMES A BUCKET; THIS NAMES THE THING: tenant and page, so the same sentence elsewhere is another decision; field and locator, so the same sentence in another slot is another decision; the replaced and proposed words; every bundle piece in order; and the CONTENT of every banked fact, so a passage rewritten under its old id goes stale. */
+/** A QUOTE THE OPERATOR READS, CUT HONESTLY. `slice(0, 60)` ended mid word behind a closing quote, so a
+ *  shortened passage read as if that were all the page said. */
+const cut = (t: string, n = 60): string => (t.trim().length > n ? `${t.trim().slice(0, n)}...` : t.trim());
+
 export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
   return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
     (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
@@ -217,7 +221,7 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
       if (!(cause && CAUSE_LEVERS[cause]?.has(c.field)) && !p.modeledOn) // AND A DIAGNOSIS THE FIELD DOES NOT TREAT IS NOT WORDING EVIDENCE EITHER: "the cause is treatable by something" let a split authorize an exact title, which is the bypass wearing a wider condition (Codex, 2026-08-28)
         return `it replaces the ${FIELD_WORD[c.field]} this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current ${FIELD_WORD[c.field]} or a stored results page backs this shape`;
     } else if ((p.claims ?? []).length === 0) {
-      return `it fills the empty ${FIELD_WORD[c.field]} with statements no banked claim carries, so what the copy asserts about this page cannot be re-checked`;
+      return `it fills the empty ${FIELD_WORD[c.field]} with statements none of its own sources carry, so nothing on file can confirm what it says about this page`;
     }
     return null;
   }
@@ -251,10 +255,10 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
               : BASIS_PROVED[u.basis ?? ""]?.(u) ? null : "removes material without a basis this door can check, and a sentence is an explanation rather than a proof";
     const unaccounted = (t: string): string | null => { const e = entryFor(t), bad = e ? unverified(e) : null; return e == null ? "neither says it nor accounts for it: every unit of a replaced passage is kept, corrected, moved with its destination, or removed with its reason before the change is offered" : bad ? `${bad}: "${e.text.slice(0, 60)}"` : null; };
     const strayed = ledger.map((u) => ({ u, why: unverified(u) })).find((x) => x.why != null); // AN ENTRY NOBODY NEEDED IS STILL A CLAIM: entries were checked only when an unaccounted unit reached one, so a ledger written for other words rode along untouched whenever every unit happened to survive
-    if (strayed) return `it ${strayed.why}: "${strayed.u.text.slice(0, 60)}"`;
+    if (strayed) return `it ${strayed.why}: "${cut(strayed.u.text)}"`;
     if (c.field === "section" || c.field === "answer_block") {
       const lost = units.filter((u) => !carriesUnit(u, c.after)).map((u) => ({ u, why: unaccounted(u) })).find((x) => x.why != null);
-      if (lost) return `it replaces a passage saying "${lost.u.slice(0, 60)}" and ${lost.why}`;
+      if (lost) return `it replaces a passage saying "${cut(lost.u)}" and ${lost.why}`;
       if ((c.where ?? "").includes("absorbs the duplicated entries") && ledger.length === 0)
         return "it says it absorbs the entries below it without naming one of them, so what the operator is being asked to delete is not stated";
     }
