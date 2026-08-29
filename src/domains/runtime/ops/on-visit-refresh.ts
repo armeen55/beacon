@@ -514,12 +514,56 @@ export async function continueResearch(tenantId: string, hop = 0, options: Resea
     ...(stillDue ? { blocker: cycles > 0 ? "waiting on already-requested evidence; press again any time" : "another instance holds this account's research right now; press again in a moment" } : {}) };
 }
 
-/** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two instances from both advancing the cycle. after() is only valid in a request scope, so tests and scripts get a safe no-op. */
+/** The cheapest paid step a research pass can take, used only to ASK the budget door a real question.
+ *  A projected cost of zero is the wrong probe: the door refuses on `spend + projected > cap`, and with
+ *  projected zero a ceiling that is already reached to the last cent still answers "allowed". */
+const VISIT_RESEARCH_PROBE_USD = 0.01;
+
+/** Schedule one post-response Research Run from the app shell. Every navigation may call this; the DATABASE lease (not any in-memory guard) prevents two instances from both advancing the cycle. after() is only valid in a request scope, so tests and scripts get a safe no-op.
+ *
+ *  A VISIT MAY NOT OPEN A PASS THE ACCOUNT CANNOT PAY FOR (2026-08-29). The door below is the only paid
+ *  research trigger a person can reach without asking for one: it fires on every render of the app shell,
+ *  which means arriving at Today, moving between surfaces, and the repaint that the $0 "Update data"
+ *  control asks for after it has finished. That was the whole hole. The refresh ACTION was made free in
+ *  e45a9b3e, and it genuinely is; the button was still a paid trigger one hop further on, because its
+ *  repaint re-rendered this layout and this door then opened a brand-new same-day pass through
+ *  startExtraPass whenever any work read as due. So a control that says it pulls numbers could spend the
+ *  month's allowance, and nothing on the screen said so.
+ *
+ *  The account's own spend is now asked BEFORE a pass is opened, never after it has been claimed and
+ *  driven into a wall of blocked_budget refusals. This is not the last line of defence for the money, the
+ *  gate at each paid call still is; it is the line that stops a visit from opening work it can only fail,
+ *  burning the day's extra-pass allowance and leaving a run that looks alive because the call cache
+ *  answers before the budget does. An unreadable budget is treated as unaffordable: a visit that cannot
+ *  PROVE the account can pay does not get to spend on the strength of not knowing. Research keeps its own
+ *  schedule under the one approved runtime either way, which is what actually moves the work. */
+export type VisitBudgetProbe = (tenantId: string, projectedCostUsd: number) => Promise<{ allowed: boolean; reason?: string }>;
+const defaultVisitBudgetProbe: VisitBudgetProbe = async (tenantId, projectedCostUsd) => {
+  const { checkBudget } = await import("@/domains/decision/llm/adjudicator-budget");
+  return checkBudget({ tenantId, projectedCostUsd });
+};
+
+/** May a VISIT open paid research right now? Named and exported on its own because the answer is a
+ *  decision about the account's money, while ensureResearchRunOnVisit below is only the scheduling of it,
+ *  and after() is a no-op outside a request scope, so a decision left inside that callback can never be
+ *  put under test. UNREADABLE MEANS UNAFFORDABLE: a visit that cannot prove the account can pay does not
+ *  get to spend on the strength of not knowing. */
+export async function visitMayOpenResearch(tenantId: string, probe: VisitBudgetProbe = defaultVisitBudgetProbe): Promise<{ allowed: boolean; reason: string }> {
+  const budget = await probe(tenantId, VISIT_RESEARCH_PROBE_USD).catch(() => null);
+  if (budget == null) return { allowed: false, reason: "this account's spend could not be read, so no paid research is opened by a visit" };
+  return budget.allowed ? { allowed: true, reason: "" } : { allowed: false, reason: budget.reason ?? "this account's model budget is spent" };
+}
+
 export function ensureResearchRunOnVisit(tenantId: string): void {
   if (!tenantId) return;
   try {
     after(async () => {
       try {
+        const mayOpen = await visitMayOpenResearch(tenantId);
+        if (!mayOpen.allowed) {
+          log.info("[research-run] visit opened no research pass: this account cannot pay for one right now", { tenantId, reason: mayOpen.reason });
+          return;
+        }
         await runResearchCycle(tenantId);
       } catch (error) {
         log.warn("[research-run] cycle failed (non-blocking)", { tenantId, error: error instanceof Error ? error.message.slice(0, 200) : String(error) });

@@ -42,7 +42,7 @@ vi.mock("@/domains/evidence/scanning/crawl-frontier", async (actual) => ({ ...(a
 const ROUTE = vi.hoisted(() => ({ receipt: {} as Record<string, unknown>, fail: null as Error | null }));
 vi.mock("@/domains/runtime", async (actual) => ({ ...(await actual<Record<string, unknown>>()), runDueAccounts: async () => { if (ROUTE.fail) throw ROUTE.fail; return ROUTE.receipt; } }));
 import * as RR from "@/domains/runtime/research-run";
-import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
+import { runResearchCycle, continueResearch, ensureResearchRunOnVisit, visitMayOpenResearch, RESEARCH_CYCLE_DEADLINE_MS, type ResearchCycleSteps } from "@/domains/runtime/ops/on-visit-refresh";
 import { dueWork, researchPermission, setResearchPaused, type DueWork } from "@/domains/runtime/ops/due-work";
 import { runDueAccounts, type SchedulerReceipt } from "@/domains/runtime/ops/scheduler"; import { defaultSteps } from "@/domains/runtime/ops/research-steps";
 import { POST } from "@/app/api/cron/scheduler/route"; import { NextRequest } from "next/server";
@@ -575,6 +575,30 @@ describe("research-run fail-closed + render path", () => {
     touched = false; await expect(RR.claimRun("", "o1")).rejects.toThrow(/tenantId is required/); expect(touched).toBe(false); // never reached the repo
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); expect(() => ensureResearchRunOnVisit(T)).not.toThrow(); // after() invalid outside a request → caught
     await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
+});
+/** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE. It fires on every render of the
+ *  app shell: arriving at Today, moving between surfaces, and the repaint the $0 "Update data" control asks
+ *  for when it is done. The refresh ACTION was made free and genuinely is; the BUTTON was still a paid
+ *  trigger one hop on, because its repaint re-rendered the shell and this door opened a brand-new same-day
+ *  pass whenever anything read as due. The account's own spend is asked BEFORE a pass is opened now. */
+describe("a visit may not open a research pass the account cannot pay for", () => {
+  it("refuses when the budget door refuses, allows when it allows, and treats an unreadable budget as unaffordable", async () => {
+    const refused = await visitMayOpenResearch(T, async () => ({ allowed: false, reason: "Monthly adjudicator budget cap reached (54.9913 / 55 USD this 2026-08)." }));
+    const allowed = await visitMayOpenResearch(T, async () => ({ allowed: true }));
+    const unreadable = await visitMayOpenResearch(T, async () => { throw new Error("db down"); });
+    expect([refused.allowed, allowed.allowed, unreadable.allowed]).toEqual([false, true, false]);
+    // The refusal carries the door's OWN words, so a log line says which account ran out and by how much.
+    expect(refused.reason).toContain("54.9913 / 55");
+    expect(unreadable.reason).toContain("could not be read");
+  });
+  it("asks the budget door a question a spent ceiling can actually refuse", async () => {
+    // THE TRAP THIS PINS: the door refuses on `spend + projected > cap`. Probe with ZERO and an allowance
+    // reached to the last cent still answers "allowed", so a visit would open paid work on an empty account.
+    let asked = -1; await visitMayOpenResearch(T, async (_t, projected) => { asked = projected; return { allowed: true }; });
+    expect(asked).toBeGreaterThan(0);
+    const cap = 55, spent = 54.9913; // the live account on the night this was written
+    expect(spent + asked > cap).toBe(true); // the real ceiling refuses the real probe
+  });
 });
 /** THE REGISTRY DECIDES, ONCE per run. The reconcile step here is the real one, so the wiring is what is pinned: a registry that only changed the ORDER it was written in is unmoved, and the advisory reading is bounded per RUN, never per unit iteration. */
 describe("the case registry a run saves, and the ONE reading it buys", () => {

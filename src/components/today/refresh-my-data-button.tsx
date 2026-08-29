@@ -18,10 +18,19 @@ import {
  * `router.refresh()` so the dashboard repaints with the freshly-pulled data.
  *
  * IT IS A RECOVERY CONTROL, NOT THE ENGINE (2026-08-02). The daily round is driven by the one global
- * scheduler; this press is the operator saying "do it now" and "pick up anything unfinished". So it is
- * exactly THREE things, once: refresh the connected sources, ask for the extra AI reading, and resume
- * unfinished work with ONE bounded continuation. The eight-hop loop that used to live here existed only
- * because nothing else finished the day; keeping it would put the day's work back behind a button.
+ * scheduler; this press is the operator saying "do it now" for the data Beacon reads about them.
+ * The eight-hop loop that used to live here existed only because nothing else finished the day;
+ * keeping it would put the day's work back behind a button.
+ *
+ * IT COSTS NOTHING, AND THAT IS NOW A PROPERTY OF THE CONTROL (2026-08-29). This docblock used to say
+ * the press did "exactly THREE things: refresh the connected sources, ask for the extra AI reading, and
+ * resume unfinished work with ONE bounded continuation". Two of those three were taken out when the
+ * action was made free, and the description was left behind describing them, which is an invitation to
+ * put them back. It does ONE thing: it pulls the connected first-party sources and republishes the
+ * stored truth. It also repaints ONCE. It used to repaint twice, and a repaint is a render of the app
+ * shell, which is where the only reachable paid research trigger lives, so the button that promised to
+ * pull numbers was arming research passes on the side. The trigger now asks the account's budget before
+ * it opens anything, and this control asks for one repaint instead of two.
  *
  * White-label: the action returns customer-safe labels (plain-English source
  * names, never a vendor name); this component renders them verbatim.
@@ -92,9 +101,8 @@ export function RefreshMyDataButton({
       const res = await refreshAllConnectedDataNow().catch(() => null);
       setResults(res?.results ?? []);
       setPulling(false);
-      // Repaint with the freshly-pulled data BEFORE the continuation: the operator should not
-      // wait on the long half to see the short half.
-      router.refresh();
+      // ONE repaint. The second call was a belt-and-braces habit from when this press had a long
+      // second half to wait on; it has none now, and every repaint re-renders the shell.
       router.refresh();
     })();
   }
@@ -112,8 +120,8 @@ export function RefreshMyDataButton({
         <span>Update data</span>
       </button>
       <p className="text-[11px] text-muted-foreground">
-        {(connectedCount == null ? "Updates your data now" : connectedCount > 0 ? "Pulls your latest numbers now" : "Picks up anything unfinished now")
-          + (researchPaused ? ", and nothing else runs while research is paused." : ", and the daily round runs on its own either way.")}
+        {(connectedCount == null ? "Updates your data now, free" : connectedCount > 0 ? "Pulls your latest numbers now, free" : "Refreshes your stored data now, free")
+          + (researchPaused ? ". Nothing else runs while research is paused." : ". The daily round runs on its own either way.")}
       </p>
       <div aria-live="polite" className="w-full">
         {pulling ? (
