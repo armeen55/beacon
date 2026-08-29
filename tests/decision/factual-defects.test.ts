@@ -291,6 +291,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
     // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the label to its value; the replacement keeps the label, terminology and sentence shape, and puts the one space there rather than reproducing the page's mistake.
     expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning: Light." });
+    checks.rows = [check({ subject: "Azadeh", current: "AzadehMeaning:Free, independent, or liberated.", proposed: "free, free-minded; also noble", sources: q1('Azadeh is a Persian female given name meaning free, free-minded also means someone noble') })]; // THE GLUED HEADING, no newline at all (render audit, 2026-08-30): the name is cut off the span exactly as the multi-line case cuts it
+    const glued = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!.recommendedChange as { before: string; after: string }; expect([glued.before, glued.after.startsWith("Meaning: ")]).toEqual(["Meaning:Free, independent, or liberated.", true]);
     expect(rc("mahsa").after).toBe("Meaning: Like the moon.");
     expect(rc("leila").after, "two glosses read as a person writes them").toBe("Meaning: Night or dark.");
     expect(rc("shab").after, "three or more keep the list, and only its punctuation is Beacon's").toBe("Meaning: Night, dusk, or evening.");

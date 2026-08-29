@@ -23,10 +23,9 @@ const n = (x: number): string => x.toLocaleString("en-US");
 
 /** THE SPAN THE CORRECTION ACTUALLY REWRITES. The extractor quotes exactly, and its exact quote sometimes opens  with the name heading itself ("Alborz\nMeaning:..."): a replacement targeted at that whole quote would delete  the name from the page. The heading is not what is wrong, so when the first line is the subject and nothing  else, the replaced span is everything after it. Shape only: no other narrowing is ever guessed. */
 function replacedSpanOf(c: FactCheck): string {
-  const lines = c.current.split("\n").map((l) => l.trim()).filter(Boolean);
-  return lines.length > 1 && lines[0]!.toLowerCase() === c.subject.trim().toLowerCase()
-    ? lines.slice(1).join("\n") : c.current.trim();
-}
+  const lines = c.current.split("\n").map((l) => l.trim()).filter(Boolean); if (lines.length > 1 && lines[0]!.toLowerCase() === c.subject.trim().toLowerCase()) return lines.slice(1).join("\n");
+  // THE CRAWLER GLUES A HEADING TO ITS LINE WITH NO NEWLINE AT ALL (render audit, 2026-08-30): the stored span read "AzadehMeaning:Free, independent, or liberated.", the multi-line strip above never fired, and the label regex swallowed "AzadehMeaning" whole, so the card told a paying customer to paste the name glued to its label. The subject is a heading here exactly as in the newline case, so it is cut the same way: only when the span STARTS with the subject immediately followed by a capitalized label of its own ("Meaning:"), never when the subject is part of the sentence.
+  const flat = c.current.trim(), who = c.subject.trim(); return flat.length > who.length && flat.toLowerCase().startsWith(who.toLowerCase()) && /^[A-Z][a-z]+ ?:/.test(flat.slice(who.length)) ? flat.slice(who.length) : flat; }
 
 
 /** A SOURCED GLOSS SHAPED INTO THE LINE IT REPLACES. THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS
