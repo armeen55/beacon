@@ -27,7 +27,7 @@ export const PROMPT_REGISTRY = {
   // answer_block, a value nothing ever passed before, and the cache key folds in the system text itself, so no stored title or meta draft can be served under wording it was not taken under.
   "draft.atomic_edit": 4, // v4 (2026-08-24): a meta carries META_SUBJECT_CLAUSE, which forbids the page's FAQ rail as its subject and requires it to open by naming the thing. No v2/v3 description can be served under wording that forbids what it did.
   "draft.editor_judgement": 3, // v3 (2026-08-28): the response contract changed. `claimsEntailed` is gone; the editor returns one entailment ruling per material claim ({i, by, entailed}) naming that claim's own evidence ids, and the overall claims result is derived from those rulings. No v2 verdict answers this contract.
-  "draft.factual_review": 3, // v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
+  "draft.factual_review": 4, // v4 (2026-08-28): the reviewer now rules on ROLE as well as entailment. A cached v3 answer carries no role verdict, and reusing one would authorize exactly the mismatch v4 exists to refuse
   // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
   // there is no stale answer a version could protect. Any change to the wording from here must bump them.
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited

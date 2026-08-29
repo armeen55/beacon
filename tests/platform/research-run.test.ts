@@ -894,8 +894,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
   it("stamps nothing when the top-up did not land, so the day stays retryable", async () => {
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
-      const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();
-    }});
+      const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();}});
   /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and  stopped the pass that would have caught it. The free re-read runs first now and buys nothing, and the count is  no longer a ceiling either: the drive goes on to draft the row the bad one was hiding. */
   it("proves a stocked count against today's rules before it closes the day", async () => {
     vi.resetModules();
