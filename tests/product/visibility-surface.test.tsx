@@ -68,6 +68,22 @@ describe("Visibility is a workspace, and every number on it names what it was co
       requested_at: `2026-08-02T${String(i % 24).padStart(2, "0")}:00:${String(i % 60).padStart(2, "0")}Z`,
       answer_text: "x".repeat(5000), answer_hash: "h", analysis: null, analysis_hash: null,
       journey: { fan_outs: null, retrieved_results: null, cited_sources: null, brand_mentions: null, web_search_reported: null } } as Row));});
+  it("makes a chosen assistant reach every number, or makes the number say it did not", () => {
+    // A FILTER THAT REACHED ONE NUMBER: choosing an assistant redrew the chart while all five headline tiles kept
+    // summing every assistant, with nothing on the screen saying so. A half-applied filter teaches an operator to
+    // distrust every number beside it.
+    const all = ai({ engine: null }), one = ai({ engine: "chatgpt" });
+    const tile = (v: ReturnType<typeof ai>, label: string) => (v.tiles ?? []).find((t) => t.label === label);
+    expect(one.chart?.label, "the chart already named the assistant").toContain("ChatGPT");
+    // WHAT THE PER DAY RECORD CARRIES PER ASSISTANT NOW OBEYS THE CHOICE.
+    const checkedAll = tile(all, "Answers checked")?.basis ?? "", checkedOne = tile(one, "Answers checked")?.basis ?? "";
+    expect(checkedOne, "the counts are a subset of the whole account").not.toBe(checkedAll);
+    expect([tile(one, "Answers that name you")?.basis, tile(one, "Answers checked")?.basis]
+      .every((b) => !(b ?? "").includes("across all assistants")), "these obey the filter outright").toBe(true);
+    // AND WHAT IT DOES NOT CARRY PER ASSISTANT SAYS SO, in the basis line every number on this surface already has.
+    for (const label of ["Answers crediting a page of yours", "Your share of everything credited"]) {
+      expect(tile(one, label)?.basis, `${label} names its scope`).toContain("across all assistants");
+      expect(tile(all, label)?.basis, "and says nothing extra when nothing is filtered").not.toContain("across all assistants");}});
   it("calls a metric what Search Console calls it, and the same thing everywhere on the screen", () => {
     // ONE SCREEN CALLED THE SAME NUMBER TWO THINGS: the summary card read "Impressions" and the table directly
     // below it read "Appearances", with "CTR" above and "Click rate" below, so nothing told a reader they were the

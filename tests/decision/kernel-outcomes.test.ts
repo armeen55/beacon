@@ -155,8 +155,7 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     expect(shown.basis).not.toContain("No click figure backs this one");
     expect(shown.basis).toContain("nothing has named the cause yet");
     expect(rankProposals([baseProposal({ impactScore: 400, diagnosisCause: "ctr_snippet",
-      recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]!
-      .rankingReceipt!.basis).toContain("not a forecast");
+      recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } })])[0]! .rankingReceipt!.basis).toContain("not a forecast");
     const thin = new Map([[actionFamilyOf("title"), { readings: 3, netLift: 900 }]]);
     expect(rankProposals([card], { familyHistory: thin })[0]!.rankingReceipt!.factors
       .find((f) => f.name === "visibility")!.input).toContain("not a figure measured here"); });

@@ -558,8 +558,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const SAYS = "the figure's own sentence says international, and the copy drops it";
     expect([meta("Iran Shir o Khorshid Vertical Stripe Shirt - lightweight polyester jersey with Lion & Sun emblem; ships in 7-21 business days. Free USA shipping.").includes(SAYS),
       meta("Iran Shir o Khorshid vertical stripe jersey with green, white, red panel and Lion & Sun emblem; loose athletic fit. Ships in 7 - 21 business days - see details.").includes(SAYS),
-      meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)])
-      .toEqual([true, true, false]); });
+      meta("Iran Shir o Khorshid Vertical Stripe Shirt - runs true to size, relaxed fit. Free USA shipping in 2-6 business days; see sizing and details.").includes(SAYS)]) .toEqual([true, true, false]); });
   it("refuses the keyword list the operator rejected, and keeps the topic list that names three different things", () => {
     const pk = { targetUrl: "https://www.iranopedia.com/x", title: "T", h1: "H", metaDescription: null, bodyText: "b", headings: [], evidence: { "page-copy-1": "b" }, trackedQuestion: "Q", ownedPaths: ["/x"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
     const title = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/x", actionType: "title", naturalHeading: null, beforeText: null, placementAnchor: "the title", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never)
@@ -574,8 +573,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/discover-iran", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
     const stuffed = "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source.";
     expect(meta(stuffed).some((r) => r.includes("names iranopedia 3 times"))).toBe(true);
-    expect(meta("Iran adopted a new flag in 1979 and redesigned it in 1980. The red emblem arrived with the Takbir written in Kufic script along both bands.")
-      .some((r) => r.includes("names iranopedia"))).toBe(false);
+    expect(meta("Iran adopted a new flag in 1979 and redesigned it in 1980. The red emblem arrived with the Takbir written in Kufic script along both bands.") .some((r) => r.includes("names iranopedia"))).toBe(false);
     expect(meta("An onager is a wild ass native to Iran's deserts, fast, hardy and able to live on very little water. Where it lives and why it is rare.")
       .some((r) => r.includes("names iranopedia"))).toBe(false); });
 
@@ -941,8 +939,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       claims: [{ text: "Native wildlife of Iran includes the caracal and the Persian leopard", supportedBy: ["page-copy-1"] }],
       finalCopy: "Native wildlife of Iran includes the caracal and the Persian leopard, each with the one fact a reader needs about it on the page today, drawn from what this page already carries and nothing else." } as never, P as never)
       .some((r) => r.startsWith("where it goes is two page elements glued together"));
-    expect([at("Iran Wildlife and National Animals  Discover the Animals of Iran"), at("Iran Wildlife and National AnimalsDiscover"), at("Iran Wildlife and National Animals")])
-      .toEqual([true, true, false]); });
+    expect([at("Iran Wildlife and National Animals  Discover the Animals of Iran"), at("Iran Wildlife and National AnimalsDiscover"), at("Iran Wildlife and National Animals")]) .toEqual([true, true, false]); });
   it("reads a list member as a thing, never as the sentence around it", () => {
     const CASES = [
       { body: "Iran Animals. Native wildlife of Iran: caracal, red fox, Pallas cat, striped hyena, Eurasian lynx, green sea turtle, Mugger crocodile, Asiatic cheetah, Persian leopard, Caspian horse, Caspian seal, white bellied sea eagle, Bezoar ibex, Persian wolf (Iranian wolf), Houbara bustard, Persian cat (Persian longhair). Iran animals and Persian wildlife, with mammals of Iran and habitats.",

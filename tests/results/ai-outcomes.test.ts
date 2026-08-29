@@ -263,8 +263,7 @@ describe("what the AI answers did around one shipped change", () => {
       asked.push({ fromDay: o.fromDay, toDay: o.toDay });
       if ((o.toDay ?? "") <= "2026-03-01") throw new Error("[ai_observations] read hit the 40000 row ceiling");
       return rows.filter((r) => (o.slot === undefined || r.sample_slot === o.slot)
-        && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay) && r.tenant_id === t)
-        .map((r) => ({ ...r }));});
+        && (!o.fromDay || r.reporting_day >= o.fromDay) && (!o.toDay || r.reporting_day <= o.toDay) && r.tenant_id === t) .map((r) => ({ ...r }));});
     const held = { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } };
     const batch = await aiOutcomesForShipments(T, [
       { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: held },                        // 2026-07-21

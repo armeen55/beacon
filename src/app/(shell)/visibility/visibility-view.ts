@@ -40,13 +40,11 @@ const MODE_LABEL: Record<string, string> = { api: "asked directly", consumer_sea
 /** AN INSTANT A STRANGER CAN READ: "Aug 2 at 4:02 PM UTC". A stored timestamp is never printed as it was written. */
 const instant = (iso: string | null): string | null => {
   const t = iso ? Date.parse(iso) : NaN;
-  return Number.isFinite(t) ? `${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC` : null;
-};
+  return Number.isFinite(t) ? `${new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }).replace(", ", " at ")} UTC` : null;};
 /** THE TAIL OF A STORED RECEIPT KEY, and never an empty string: a key that ends in its separator has no tail, so the whole key stands in rather than printing "Stored answer receipt ." at a customer. */
 const receiptTail = (key: string): string => {
   const tail = key.split(":").pop() ?? "";
-  return (tail.trim() ? tail : key).slice(0, 8);
-};
+  return (tail.trim() ? tail : key).slice(0, 8);};
 /** Plain English for the eight groups a recurring domain lands in. */
 const KIND_LABEL: Record<CompetitorKind, string> = { commercial_competitor: "A competitor", citation_authority: "A source",
   publisher: "A publisher", marketplace_directory: "A marketplace", social_community: "A social platform",
@@ -65,8 +63,7 @@ const GOOGLE_UNREAD = "Google's page movement could not be read in time just now
 /** WHERE GOOGLE HAS YOU, as numbers a stranger can act on. `limitation` is set only when Search Console never reported a day: the view then says what it cannot show and where to fix it. */
 export function googleView(input: GoogleInput) {
   if (input.days.length === 0) {
-    return { limitation: "No Search Console numbers are on file for this account, so clicks, impressions, and average position cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, watermark: "", coverage: "" };
-  }
+    return { limitation: "No Search Console numbers are on file for this account, so clicks, impressions, and average position cannot be shown here. Connect Google Search Console on Connections and this fills in on the next daily round.", tiles: [] as Tile[], chart: null, pages: null, queries: null, watermark: "", coverage: "" };}
   const span = Math.min(input.rangeDays, input.days.length);
   const now = input.days.slice(-span), prior = input.days.slice(Math.max(0, input.days.length - span * 2), input.days.length - span);
   const sum = (rows: typeof now, k: "clicks" | "impressions") => rows.reduce((a, d) => a + d[k], 0);
@@ -87,8 +84,7 @@ export function googleView(input: GoogleInput) {
     { label: "Average position", value: posNow == null ? "not yet" : posNow.toFixed(1),
       basis: posNow == null ? (noPages ? "Google's per page windows could not be read in time just now; the totals above are current" : "no page of yours was shown in the last 28 days") : `weighted by impressions across ${num(seen.length)} pages over the 28 days${windowEnd ? ` ending ${windowEnd}` : ""}, which is the only window Google reports per page`,
       delta: posNow != null && posPrior != null ? `${posNow < posPrior ? "" : "+"}${(posNow - posPrior).toFixed(1)}` : null,
-      tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },
-  ];
+      tone: posNow != null && posPrior != null ? (posNow < posPrior - 0.1 ? "up" : posNow > posPrior + 0.1 ? "down" : "flat") : "flat" },];
   const value = (d: { clicks: number; impressions: number }): number => input.metric === "clicks" ? d.clicks : input.metric === "impressions" ? d.impressions : d.impressions > 0 ? d.clicks / d.impressions : 0;
   const chart = { label: METRIC_LABEL[input.metric], percent: input.metric === "ctr", points: now.map((d) => ({ day: d.date, label: monthDayLabel(d.date) ?? d.date, value: value(d) })),
     prior: prior.length === span ? prior.map((d) => value(d)) : null, priorLabel: prior.length === span ? `the ${num(span)} days before` : null };
@@ -111,9 +107,7 @@ export function googleView(input: GoogleInput) {
         { text: ctr == null ? "not yet" : pct(ctr), sort: ctr ?? -1 },
         { text: r.positionNow > 0 ? r.positionNow.toFixed(1) : "not ranked", sub: r.positionNow > 0 && r.positionPrior > 0 ? `was ${r.positionPrior.toFixed(1)}` : undefined, sort: r.positionNow > 0 ? r.positionNow : 999 },
         { text: top ? top.query : "no search named yet", sub: top ? `${num(top.clicks)} ${top.clicks === 1 ? "click" : "clicks"} at ${top.position.toFixed(1)}` : undefined },
-      ] };
-    }),
-  });
+      ] };}),});
   // THE SEARCHES THEMSELVES, off the same 90 reported days the page rows carry. One row is one search on one page: that is the grain Google reports, and merging them would invent a position nobody measured.
   const seenQueries = [...input.pages.entries()].flatMap(([page, sig]) => sig.topQueries.map((q) => ({ page, ...q })));
   const QUERY_CAP = 150;
@@ -126,13 +120,11 @@ export function googleView(input: GoogleInput) {
         { text: q.query }, { text: shortUrl(q.page) }, { text: num(q.clicks), sort: q.clicks }, { text: num(q.impressions), sort: q.impressions },
         { text: q.impressions > 0 ? pct(q.clicks / q.impressions) : "not yet", sort: q.impressions > 0 ? q.clicks / q.impressions : -1 },
         { text: q.position > 0 ? q.position.toFixed(1) : "not ranked", sort: q.position > 0 ? q.position : 999 },
-      ] })),
-  });
+      ] })),});
 
   return { limitation: null, tiles, chart, pages, queries,
     coverage: `${num(input.days.length)} reported days on file, showing the last ${num(span)}.`,
-    watermark: `Search Console, through ${through ?? "a day it has not named"}. Google reports a few days behind, so the newest days are still settling.` };
-}
+    watermark: `Search Console, through ${through ?? "a day it has not named"}. Google reports a few days behind, so the newest days are still settling.` };}
 // ── AI answers ───────────────────────────────────────────────────────────────────────────────────
 /** ONE stored answer flattened by the page. The tri-state survives end to end: a reading nobody has taken reports null, not false, and an engine that never said which pages it used reports null, not "nobody". */
 export type AnswerRow = {
@@ -192,7 +184,14 @@ export function aiView(input: AiInput) {
   const trend = days.length > 0;
   const span = Math.min(input.rangeDays, days.length || input.rangeDays);
   const now = days.slice(-span), prior = days.slice(Math.max(0, days.length - span * 2), days.length - span);
-  const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting" | "ownedRetrieved" | "retrievedNotCited") => rows.reduce((a, d) => a + d[k], 0);
+  /** A FILTER THAT REACHES ONE NUMBER TEACHES DISTRUST OF ALL OF THEM. Choosing an assistant redrew the chart while every headline tile kept summing all four, with nothing on the screen saying so. The per-day record carries observed, analyzed and mentioning per assistant, so those obey the choice; the citation sample and the retrieval split are pooled across assistants only, so the tiles standing on them say that in the basis line this surface already gives every number. */
+  const only = input.engine;
+  const perEngine = new Set(["observed", "analyzed", "mentioning"]);
+  const ALL_ASSISTANTS = ", across all assistants, which is not broken out per assistant yet";
+  const pool = (rows: typeof now, k: "observed" | "analyzed" | "mentioning" | "citationSample" | "ownedCiting" | "ownedRetrieved" | "retrievedNotCited") =>
+    only != null && perEngine.has(k)
+      ? rows.reduce((a, d) => a + d.byEngine.filter((e) => e.engine === only).reduce((b, e) => b + (e[k as "observed" | "analyzed" | "mentioning"] ?? 0), 0), 0)
+      : rows.reduce((a, d) => a + d[k], 0);
   const [observed, analyzed, mentioning, citeSample, ownedCiting, opened, passedOver] = (["observed", "analyzed", "mentioning", "citationSample", "ownedCiting", "ownedRetrieved", "retrievedNotCited"] as const).map((k) => pool(now, k));
   const mentionRate = rate(mentioning, analyzed), priorMention = rate(pool(prior, "mentioning"), pool(prior, "analyzed")),
     citeRate = rate(ownedCiting, citeSample), priorCite = rate(pool(prior, "ownedCiting"), pool(prior, "citationSample"));
@@ -207,14 +206,14 @@ export function aiView(input: AiInput) {
   }
   const allVotes = [...votes.values()].reduce((a, v) => a + v.answers, 0);
   const myVotes = [...votes.entries()].filter(([, v]) => v.owned).reduce((a, [, v]) => a + v.answers, 0);
-  const placed = windowRows.filter((r) => r.day >= cut && r.position != null).map((r) => r.position!);
+  const placed = windowRows.filter((r) => r.day >= cut && r.position != null && (only == null || r.engine === only)).map((r) => r.position!);
   const tiles: Tile[] = !trend ? [] : [
     { label: "Answers that name you", value: mentionRate == null ? "not checked yet" : pct(mentionRate),
       basis: mentionRate == null ? `${num(observed)} answers are on file and none of them are checked yet` : `${num(mentioning)} of the ${num(analyzed)} answers finished checking over ${num(span)} days`, ...points(mentionRate, priorMention) },
     { label: "Answers crediting a page of yours", value: citeRate == null ? "not reported" : pct(citeRate),
-      basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used`, ...points(citeRate, priorCite) },
+      basis: citeRate == null ? "not one answer in this window reported which pages it used" : `${num(ownedCiting)} of the ${num(citeSample)} answers that reported what they used${only == null ? "" : ALL_ASSISTANTS}`, ...points(citeRate, priorCite) },
     { label: "Your share of everything credited", value: allVotes > 0 ? pct(myVotes / allVotes) : "not reported", delta: null, tone: "flat",
-      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site over the last ${num(span)} days, counting one vote per answer` : `no answer over the last ${num(span)} days named the pages it used` },
+      basis: allVotes > 0 ? `${num(myVotes)} of the ${num(allVotes)} times an answer credited any site over the last ${num(span)} days, counting one vote per answer${only == null ? "" : ALL_ASSISTANTS}` : `no answer over the last ${num(span)} days named the pages it used` },
     { label: "Where you land in the answer", value: placed.length > 0 ? `${(placed.reduce((a, p) => a + p, 0) / placed.length).toFixed(1)}` : "not reported", delta: null, tone: "flat",
       basis: placed.length > 0 ? `average place across the ${num(placed.length)} answers over ${num(span)} days that reported where you sat, best was ${num(Math.min(...placed))}` : `no answer in the last ${num(span)} days reported where in it you sat` },
     { label: "Answers checked", value: observed > 0 ? pct(analyzed / observed) : "nothing yet",
@@ -224,7 +223,7 @@ export function aiView(input: AiInput) {
   // READ AND PASSED OVER: the assistant opened a page of yours and credited somebody else for the answer. The claim needs BOTH halves reported, so the denominator is the answers that opened your page, never every answer.
   const missRate = rate(passedOver, opened);
   const retrieval = opened === 0 || missRate == null ? null : { value: pct(missRate),
-    basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead, or nobody at all`,
+    basis: `${num(passedOver)} of the ${num(opened)} answers that opened a page of yours over the last ${num(span)} days credited somebody else instead, or nobody at all${only == null ? "" : ALL_ASSISTANTS}`,
     next: "Those pages were worth reading and not worth quoting. Rewrite one so an answer can lift a line straight out of it." };
   // THE TREND, per day, over the assistants asked for. A day nobody checked is a HOLE in the line, never a zero.
   const enginesSeen = [...new Set(trend ? days.flatMap((d) => d.byEngine.map((e) => e.engine)) : [...windowRows, ...dayRows].map((r) => r.engine))].sort();

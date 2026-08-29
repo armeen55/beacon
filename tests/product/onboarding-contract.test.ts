@@ -31,8 +31,7 @@ function chain(): any {
       return { data: ledger.has ? [{ spent_usd: ledger.usd }] : [], error: null };
     }).then(res, rej),};
   return p;}
-vi.mock("@/lib/persistence/supabase", async (orig) => ({
-  ...(await orig<Record<string, unknown>>()),
+vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
   getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
   isSupabaseConfigured: () => true,}));
 // ── in-memory world ─────────────────────────────────────────────────────────
