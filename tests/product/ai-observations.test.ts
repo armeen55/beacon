@@ -246,8 +246,7 @@ describe("retrieved is not the same claim as not cited", () => {
   it("credits the whole site when the citation names only a site, and only that page when it names a page", () => {
     // The reader falls back to the bare domain whenever an engine reports no address for what it credited, and comparing whole urls alone matched none of those: a page that WAS credited came back as read and passed over, which is the harshest verdict this product can reach about a page.
     const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")];
-    expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url))
-      .toEqual(["https://rival.example/a"]);
+    expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url)) .toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url)) // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
       .toEqual(["https://acme.com/guide", "https://rival.example/a"]); });
   it("decodes a row stored before this rule as the raw list it always was, subtracted once and never twice", async () => {

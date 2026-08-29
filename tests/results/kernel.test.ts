@@ -79,8 +79,7 @@ const ledgerRow = (over: Partial<LedgerRecordLike> = {}): LedgerRecordLike => ({
   windows: [
     { day: 7, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
     { day: 14, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },
-    { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },],
-  ...over,});
+    { day: 28, ran: true, adjustedLift: 40, controlsUsed: 3, treatedPostImpressions: 5000 },], ...over,});
 const LATE = new Date("2026-07-15T00:00:00Z");
 describe("checkpoints count from the stamp", () => {
   it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {

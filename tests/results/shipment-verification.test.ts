@@ -180,8 +180,7 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   it("stops reading an address inside the same pass once an answer for it could not be saved", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b" }), row({ id: "c" })); // three changes, one page
     let reads = 0;
-    const written = await verifyDueShipments(T, {
-      ...base, record: async () => false,
+    const written = await verifyDueShipments(T, { ...base, record: async () => false,
       fetchPage: (async () => { reads += 1; return { ok: true as const, html: PAGE, status: 200 }; }),});
     expect([written, reads]).toEqual([0, 1]);});
   it("gives a site that did not answer ONE retry on a later day, and a robots denial none at all", async () => {

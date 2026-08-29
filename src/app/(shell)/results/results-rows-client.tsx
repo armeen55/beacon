@@ -27,7 +27,13 @@ const TABS: Array<{ key: ResultsGroup; label: string; line: string }> = [
   { key: "reading", label: "Reading", line: "Nothing to decide here until the next read lands." },
 ];
 
-const GRID = "grid grid-cols-[14px_minmax(0,1fr)_96px_84px_72px_64px_20px] items-center gap-2";
+/** THE ROW FITS THE SCREEN IT IS READ ON. Seven tracks whose fixed parts alone total 350px sat inside a 301px
+ *  card at phone width, so every row overflowed by about a hundred pixels and the parent's overflow-hidden
+ *  simply cut it off: the outcome figure and the chevron were unreachable exactly where the operator checks
+ *  results. Narrow screens keep the four things a row is for, the state dot, what changed, the outcome and the
+ *  control to open it, and the lift bar, the impressions figure and the read pips return at the first breakpoint
+ *  that can hold them. No row is dropped and no figure changes; the same detail is one tap away in the panel. */
+const GRID = "grid grid-cols-[14px_minmax(0,1fr)_84px_20px] sm:grid-cols-[14px_minmax(0,1fr)_96px_84px_72px_64px_20px] items-center gap-2";
 
 const DOT: Record<ResultsRow["dot"], string> = {
   emerald: "bg-emerald-500", rose: "bg-rose-500", grey: "bg-foreground/25", sky: "bg-sky-400",
@@ -126,10 +132,10 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
             </span>
           ) : null}
         </span>
-        <LiftBar value={row.bar} opacity={row.barOpacity} />
+        <span className="hidden sm:block"><LiftBar value={row.bar} opacity={row.barOpacity} /></span>
         <span className={`text-[12px] leading-tight tabular-nums ${cellTone}`}>{cell}</span>
-        <span className="text-[12px] tabular-nums text-muted-foreground">{row.impressionsLabel ?? ""}</span>
-        <span className="flex flex-col gap-0.5">
+        <span className="hidden text-[12px] tabular-nums text-muted-foreground sm:block">{row.impressionsLabel ?? ""}</span>
+        <span className="hidden flex-col gap-0.5 sm:flex">
           <span className="flex gap-1">
             {row.pips.map((p) => (
               <span

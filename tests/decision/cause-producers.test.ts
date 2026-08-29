@@ -59,8 +59,7 @@ const decided = (p: WinningPattern | null): DecidedTopic => ({
   investigation: investigation(), candidates: [candidate()], reading: null,
   decision: { verdict: "improve_existing", topicKey: "inv_rain", ownedUrls: [URL], evidenceKeys: ["demand"], missing: [],
     alternativesRuledOut: [{ alternative: "Write a new page for this", reason: "Your own page already answers this search." }],
-    explanation: "I would sharpen the page you already have rather than add another that competes with it.",
-    ...(p ? { pattern: p } : {}) } });
+    explanation: "I would sharpen the page you already have rather than add another that competes with it.", ...(p ? { pattern: p } : {}) } });
 const OPTS = { now: NOW, bypassCache: true, bodyByUrl: BODY };
 beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; bought.length = 0; });
 afterEach(() => { delete process.env.OPENAI_API_KEY; });

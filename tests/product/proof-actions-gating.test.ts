@@ -59,8 +59,7 @@ const proposal = (over: Record<string, unknown> = {}) => ({
     scope: { queries: ["nowruz traditions"], prompts: [] },
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks.", observedAt: new Date(Date.now() - 86_400_000).toISOString() }],
       missing: [], freshestObservedAt: new Date(Date.now() - 86_400_000).toISOString() },
-    components: [{ kind: "title", label: "Page title", after: null, risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] },
-  ...over, });
+    components: [{ kind: "title", label: "Page title", after: null, risk: "safe", evidenceKeys: ["k1"] }, { kind: "opening_answer", label: "Opening answer", risk: "safe", evidenceKeys: ["k1"] }] }, ...over, });
 beforeEach(() => {
   ownerFlag.value = true;
   Object.values(mocks).forEach((m) => m.mockReset());

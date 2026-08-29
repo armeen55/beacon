@@ -148,8 +148,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
     expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is working on 12 more opportunities"),
-      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")])
-      .toEqual([12, 12, true, false, true, false]); });
+      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")]) .toEqual([12, 12, true, false, true, false]); });
   it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
     const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
@@ -157,8 +156,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } }; const html = await renderChanges(view);
     expect([html.includes("Reading the competing pages before writing distinct titles and openings."),
       html.includes("Writing a page-specific description from the stored page."),
-      html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")])
-      .toEqual([true, true, true, false]); });
+      html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")]) .toEqual([true, true, true, false]); });
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;

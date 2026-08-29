@@ -46,8 +46,7 @@ const proposal = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({
       sourcePack: { sourceRequirements: ["The date needs a source a reader can check."], factRequirements: ["Nowruz falls on the spring equinox."] } },
       { kind: "canonical", label: "Canonical tag", risk: "dangerous", before: null, after: "Point /haft-seen at this page.", evidenceKeys: ["k1"] }],
     receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "1,200 impressions and 9 clicks for that search.", observedAt: SEEN }],
-      missing: [], freshestObservedAt: SEEN } },
-  ...over,
+      missing: [], freshestObservedAt: SEEN } }, ...over,
 } as ChangeProposal);
 /** The same change with only its one safe piece: nothing to pick between, and no hold to claim. */
 const SHAPE = "the stored results page for this search, whose top titles share this shape";

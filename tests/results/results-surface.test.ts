@@ -34,6 +34,21 @@ const cutOff = evaluateChange(input(), WINDOWS, ["c2"], "2026-05-10");
 const shown = (s: string | null): number => {
   const m = /^([+-])([\d,]+)/.exec(s ?? ""); return m ? Number(m[2]!.replace(/,/g, "")) * (m[1] === "-" ? -1 : 1) : 0; };
 describe("the numbers at the top", () => {
+  it("gives a Results row a shape a phone can hold", async () => {
+    // SEVEN TRACKS WHOSE FIXED PARTS ALONE TOTALLED 350px SAT IN A 301px CARD at phone width, so every row
+    // overflowed by about a hundred pixels and the parent's overflow-hidden cut it off: the outcome figure and
+    // the control to open the row were unreachable exactly where the operator checks results. Measured on the
+    // rendered surface at 375px the row now fits its card exactly, and at 768px and above all seven return.
+    const src = await import("node:fs").then((fs) => fs.readFileSync("src/app/(shell)/results/results-rows-client.tsx", "utf8"));
+    const grid = /const GRID = "([^"]+)"/.exec(src)?.[1] ?? "";
+    expect(grid, "a narrow screen gets its own track set").toMatch(/^grid grid-cols-\[[^\]]+\] sm:grid-cols-\[/);
+    const narrow = /grid-cols-\[([^\]]+)\] sm:/.exec(grid)?.[1] ?? "";
+    const fixed = [...narrow.matchAll(/(\d+)px/g)].reduce((a, m) => a + Number(m[1]), 0);
+    expect(fixed, "its fixed tracks fit inside a phone-width card, which 350px did not").toBeLessThan(200);
+    // AND THE THREE THAT STAND DOWN COME BACK AT THE FIRST BREAKPOINT THAT CAN HOLD THEM.
+    for (const cell of ["hidden sm:block", "hidden flex-col gap-0.5 sm:flex"]) expect(src).toContain(cell);
+    expect((src.match(/hidden[^"]*sm:(block|flex)/g) ?? []).length, "exactly the lift bar, the impressions figure and the read pips").toBe(3);
+  });
   it("counts only the changes that finished their 28 day read, and adds up the rows on the screen", () => {
     const view = buildResultsView([shipment(), shipment({ read: declined }), shipment({ read: measuring }), shipment({ read: sharedCredit })], NOW);
     expect(view.header.worked).toEqual({ value: "1 win", sub: "out of 3 finished", isCount: true }); // BANKED FRAMING: the denominator is every finished read, and the ones that did not win are named as what they taught.

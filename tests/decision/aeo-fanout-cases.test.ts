@@ -115,8 +115,7 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     const unrelated = (await ask({ passages: ["The rule changed in 2024."] }))!;
     net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the rival is newer" });
     const undated = (await ask())!;
-    expect([unrelated.kind, unrelated.treatment, undated.kind, undated.treatment], "differing dates about unrelated statements prove nothing, and neither does a bare sentence")
-      .toEqual(["unknown", null, "unknown", null]);
+    expect([unrelated.kind, unrelated.treatment, undated.kind, undated.treatment], "differing dates about unrelated statements prove nothing, and neither does a bare sentence") .toEqual(["unknown", null, "unknown", null]);
     expect(unrelated.limitation, "and it says exactly what is unproven").toContain("proposition-level dated conflict");
     for (const kind of ["missing_information", "authority_or_source_gap", "freshness_gap"]) { // a fan-out packet carries no credited passage, so nothing outside the page is in evidence
       net.answer = drafted({ kind, evidenceIds: [], missing: "the 1979 rule" });

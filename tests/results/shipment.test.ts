@@ -126,8 +126,7 @@ describe("the canonical Shipment", () => {
     await upsertShippedChange(await ship({ shipment: origin({ componentsApplied: withCopy }) as never })); expect((await loadShippedChangesForTenant(T))[0].componentsApplied).toEqual(withCopy);});
   it("writes the stamp and the starting numbers once: a later writer keeps what is on file", async () => {
     await upsertShippedChange(await ship()); const first = (await loadShippedChangesForTenant(T))[0];
-    await upsertShippedChange({
-      ...first, implementedAt: "2026-08-07T00:00:00.000Z",
+    await upsertShippedChange({ ...first, implementedAt: "2026-08-07T00:00:00.000Z",
       shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" },});
     const [after] = await loadShippedChangesForTenant(T); expect(after.implementedAt).toBe(NOW.toISOString());
     expect(after.shipmentBaseline?.search?.clicks).toBe(9);});
@@ -140,8 +139,7 @@ describe("the canonical Shipment", () => {
     db.state.rows.push(legacyRow());
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities");
     expect(stored.baseline.clicks).toBe(5);
-    expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification])
-      .toEqual([null, null, null, null]);});});
+    expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification]) .toEqual([null, null, null, null]);});});
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
 describe("a day-56 reading already taken", () => {
   const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
@@ -160,8 +158,7 @@ describe("recording what the live check found", () => {
     expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false); expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
     const [stored] = await loadShippedChangesForTenant(T);
-    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search?.clicks])
-      .toEqual(["verified", NOW.toISOString(), 9]);});});
+    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search?.clicks]) .toEqual(["verified", NOW.toISOString(), 9]);});});
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };

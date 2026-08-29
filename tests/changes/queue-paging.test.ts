@@ -77,8 +77,7 @@ describe("Today and Changes answer one question once", () => {
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
     expect(today.headerSentence).not.toMatch(/measuring/i); // no clause I cannot stand behind
     const { ChangesListClient } = await import("@/app/(shell)/changes-list-client");
-    expect(renderToStaticMarkup(createElement(ChangesListClient, { view })))
-      .toContain("What is measuring could not be read just now");
+    expect(renderToStaticMarkup(createElement(ChangesListClient, { view }))) .toContain("What is measuring could not be read just now");
     ledgerFails.value = false;
     expect((await buildChangesViewUncached(T, "rel-8")).countsUnavailable).toBeUndefined();
     await stamp("rel-1"); // back to the ranking the paging half of this promise reads

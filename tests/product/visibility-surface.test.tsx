@@ -193,8 +193,7 @@ describe("Visibility is a workspace, and every number on it names what it was co
     const v = ai(), g = google(), f = fanout();
     const said = [...v.tiles.flatMap((t) => [t.label, t.value, t.basis]), v.coverage, v.watermark, ...v.boundaries, g.watermark, g.coverage,
       ...Object.values(v.retrieval ?? {}), ...answerDetail(ROW), // PIN: a stored instant, a mode key, a cache key and a model id all reach a customer through these lines, and every one of them was leaking raw
-      f.query, f.headline, f.basis, f.standing, f.added ?? "", f.caveat, f.disposition.line, f.disposition.label,
-      ...f.wordings.flatMap((w) => [w.text, w.basis]),
+      f.query, f.headline, f.basis, f.standing, f.added ?? "", f.caveat, f.disposition.line, f.disposition.label, ...f.wordings.flatMap((w) => [w.text, w.basis]),
       ...[v.prompts, v.citations, v.searches, v.byEngine, g.pages, g.queries, f.parents, f.executions, f.ownPages, f.rivals].flatMap((t) => [t!.note ?? "", t!.empty, ...t!.columns.map((c) => c.label), ...t!.rows.flatMap((r) => r.cells.flatMap((c) => [c.text, c.sub ?? ""]))])];
     for (const s of said) {
       expect(s, `dash or raw date stamp in: ${s}`).not.toMatch(/[–—]|\d{4}-\d{2}-\d{2}/); expect(s.toLowerCase(), `lab word in: ${s}`).not.toMatch(/\b(experiment|control|baseline|treatment|serp|cohort|statistically|fingerprint|lease)\b/);}});});

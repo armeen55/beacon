@@ -208,8 +208,7 @@ describe("canonical proposal persistence", () => {
     await saveChangeProposal(proposal());
     arrange();
     expect(await saveChangeProposal(deep())).toBe("failed");
-    expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by]))
-      .toEqual([[proposal().id, null, null]]);
+    expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by])) .toEqual([[proposal().id, null, null]]);
     expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
   });
   // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
