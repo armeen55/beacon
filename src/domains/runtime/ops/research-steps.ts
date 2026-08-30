@@ -464,14 +464,14 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       const held = await facts.readFactChecks(tenantId);
       const coverage = new Map<string, number>();
       for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
-      // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one, then oldest coverage, then audience. A NAMED TARGET OUTRANKS ROTATION: an acquisition runs for one page's owed claims, and rotation would spend the pass on whichever page the account is most shown for instead.
+      // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one. THEN DEMAND OUTRANKS ROTATION (operator, 2026-08-30): the wave spent most of its $0.60 judging low-value claims because oldest-coverage rotation came before audience, so the audience the account actually has decides next and rotation only breaks the tie. Nothing is dropped: every owed claim stays owed and typed exhaustion still reaches the tail. A NAMED TARGET OUTRANKS EVERYTHING: an acquisition runs for one page's owed claims.
       const owedPage = new Set(held.filter((h) => h.state === "owed").map((h) => h.page));
       const want = firstPage ? pathOf(firstPage) : null, named = (u: string): number => (want != null && pathOf(u) === want ? 1 : 0);
       const ranked = [...snapshot.ownedPages]
         .sort((a, b) => named(b.url) - named(a.url)
           || (owedPage.has(pathOf(b.url)) ? 1 : 0) - (owedPage.has(pathOf(a.url)) ? 1 : 0)
-          || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1)
-          || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0));
+          || (b.search?.impressions90d ?? 0) - (a.search?.impressions90d ?? 0)
+          || (coverage.get(pathOf(a.url)) ?? -1) - (coverage.get(pathOf(b.url)) ?? -1));
       const basis = await import("@/domains/decision/load-proposals").then((m) => m.resolveCurrentBasis(tenantId)).catch(() => null);
       const { callStructuredLLM } = await import("@/domains/decision/llm/structured-drafter");
       // THE KIND IS THE SCHEMA: asking editor_judgement for a claim list returns an editor's verdict on one finished edit for ever, never the page's statements. THE MODEL'S OWN OUTCOME, CARRIED: a budget refusal, an answer that would not validate and an engine that could not be reached are three different
