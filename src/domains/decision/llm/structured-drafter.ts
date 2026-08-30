@@ -400,15 +400,21 @@ function runContentFirewalls(
   strings: string[],
   ledger: GroundedNumbers,
   // G4 (2026-07-10): when true, the flat marketing-superlative reject is SKIPPED here and handled instead by the verification-aware superlative post-check after source verification (a superlative IS allowed when a qualifying verified source asserts it; an ungrounded one triggers ONE rephrase retry, then fails closed). The drafter defers it for `answer_block` and for every `answer_analysis` kind, which RESTATES somebody else's answer and may quote a superlative that answer used; every other kind keeps the hard reject below.
-  opts?: { deferSuperlativeCheck?: boolean },
+  opts?: { deferSuperlativeCheck?: boolean; skipPlaceholderCheck?: boolean },
 ): { ok: true } | { ok: false; reason: string } {
   const blob = strings.join("  ");
   // NAME THE THING THAT WAS REJECTED. A bare "placeholder" tells a retry only its category, so it returns the
   // identical output and the second paid call buys nothing, which is exactly what happened on the live fact
   // judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage is a bracket pair, and the retry
   // had no way to know that was the offending text. `invented_numbers` below already reports its own match.
-  const placeholder = /\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.exec(blob);
-  if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
+  // A VERDICT IS NOT A PAGE (live, 2026-08-30): a judgement or analysis quotes the page and its sources, so a
+  // citation marker like "[ 1 ]" in that quote is data; rejecting it left the quoted claims permanently
+  // unsettleable, because every retry must quote the same words. The bracket rule guards what a customer could
+  // paste, so only kinds with customer-facing primary text keep it; every other rail still applies everywhere.
+  if (!opts?.skipPlaceholderCheck) {
+    const placeholder = /\[[^\]]*\]|\{\{|TODO|TBD|lorem ipsum/i.exec(blob);
+    if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
+  }
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
   if (!opts?.deferSuperlativeCheck && SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
   const invented = findUngroundedNumbers(blob, ledger);
@@ -650,6 +656,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
+      skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null,
     });
     if (!fw.ok) {
       errors.push(`firewall:${fw.reason}`);

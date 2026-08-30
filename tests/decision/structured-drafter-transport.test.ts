@@ -9,11 +9,9 @@ import { callStructuredLLM, draftAtomicEditStructured, draftInternalLinkStructur
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
 // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
 const VALID_ATOMIC_EDIT = {
-  field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen",
-  rationale: "The current title is one word and misses the customs searchers ask about.",
-  evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }],
-  confidence: "high", risks: ["keep the title concise"], operatorSteps: ["Replace the page title field with the new value"],
-  proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
+  field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", rationale: "The current title is one word and misses the customs searchers ask about.",
+  evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }], confidence: "high", risks: ["keep the title concise"],
+  operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
 const REQ = {
   kind: "atomic_edit" as const, tenantId: "tenant-fixture",
   system: "You improve one on-page field. Return the field, before, after, rationale, evidenceRefs, confidence, risks, operatorSteps, proofPlan.",
@@ -21,8 +19,7 @@ const REQ = {
   grounded: "nowruz traditions persian new year customs haft-seen",};
 /** A `complete` double that replays a queue and counts how many times it ran. */
 function seam(responses: Array<{ value: unknown } | { error: string; retryable: boolean; costUsd?: number }>): { complete: CompleteFn; calls: () => number } {
-  let i = 0, calls = 0;
-  const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
+  let i = 0, calls = 0; const complete: CompleteFn = async () => { calls += 1; return responses[Math.min(i++, responses.length - 1)]!; };
   return { complete, calls: () => calls };}
 describe("structured-drafter strict transport", () => {
   it("refuses a draft argued from analytics alone, and takes the same draft once it also cites a search", async () => {
@@ -57,8 +54,7 @@ describe("structured-drafter strict transport", () => {
     expect(stopped.status === "validation_failed" && [stopped.costUsd, blocked.calls()]).toEqual([0, 1]); }); });
 /** A DESCRIPTION IS ABOUT THE PAGE'S SUBJECT, AND A PAGE'S QUESTION RAIL IS NOT ITS SUBJECT. `Page covers:` renders the stored headings verbatim, so on a product page whose first headings are its FAQ the model was told, truthfully, that the page covers shipping and returns, and it sold those: "Iran Shir o Khorshid Vertical Stripe Shirt with FAQs on shipping, returns, waterproofing, and gift-ready details on the page". A heading shaped as a question is the page ASKING something, not being about it. Only a description drops them; every other field still reads the whole outline. */
 describe("a description names the subject, never the page's own furniture", () => {
-  const ask = async (field: "meta" | "title") => { let seen = { system: "", user: "" };
-    const capture: CompleteFn = async (r) => { seen = { system: r.system, user: r.user }; return { error: "refusal", retryable: false }; };
+  const ask = async (field: "meta" | "title") => { let seen = { system: "", user: "" }; const capture: CompleteFn = async (r) => { seen = { system: r.system, user: r.user }; return { error: "refusal", retryable: false }; };
     await draftAtomicEditStructured({ query: "shir o khorshid shirt", pageLabel: "Shir o Khorshid Shirt", field, currentValue: null, tenantId: "t",
       outline: ["Shir o Khorshid Vertical Stripe Shirt", "Does this ship internationally?", "What is the return policy?", "Cotton, mid-weight, regular fit"] }, { complete: capture });
     return seen; };
@@ -75,7 +71,11 @@ describe("a description names the subject, never the page's own furniture", () =
     const judge: CompleteFn = async (r) => { judgeRetry = r.system; return { value: { verdict: "not a valid judgement [ 2 ]" } }; };
     await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.",
       user: "Judge it.", grounded: "a passage", complete: judge } as never);
-    expect(judgeRetry, "a judgement has no evidenceRefs field, so it is never asked for one").not.toContain("evidenceRefs"); });
+    expect(judgeRetry, "a judgement has no evidenceRefs field, so it is never asked for one").not.toContain("evidenceRefs");
+    // A VERDICT IS NOT A PAGE (live, 2026-08-30): the judge quotes the page's own citation markers, so a schema-valid judgement carrying "[ 1 ]" DRAFTS; the bracket rule guards only copy a customer could paste (the atomic_edit above still refuses it).
+    const VERDICT = { verdict: "page_correct", confidence: "likely", proposed: "", literal: "light", usage: "given name", note: 'the page quotes its source as "light [ 1 ]"', supporting: [], subjects: [] };
+    const ruled = await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.", user: "Judge it.", grounded: "a passage", complete: seam([{ value: VERDICT }]).complete } as never);
+    expect(ruled.status, "a citation marker in a verdict is data, never an unfilled placeholder").toBe("drafted"); });
 
   it("keeps the questions out of a meta and leaves every other field alone", async () => {
     const meta = await ask("meta"), title = await ask("title");
