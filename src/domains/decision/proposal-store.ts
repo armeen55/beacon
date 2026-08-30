@@ -83,8 +83,7 @@ function evidenceFingerprint(p: ChangeProposal): string {
 export function proposalFingerprint(p: ChangeProposal): string {
   const material = {
     id: p.id, status: p.status, confidence: p.confidence, basis: p.basis ?? null,
-    // THE IDENTITY OF THE WORK IS MATERIAL (Codex, 2026-08-23): without it here, a row that gained or changed its
-    // workKey hashed identically to the one on file and the store answered "unchanged", so the key never persisted
+    // THE IDENTITY OF THE WORK IS MATERIAL (Codex, 2026-08-23): without it here, a row that gained or changed its workKey hashed identically to the one on file and the store answered "unchanged", so the key never persisted
     // and reuse could never match anything. Conditional, so a row minted before the key existed is never churned.
     ...(p.workKey ? { workKey: p.workKey } : {}),
     change: p.recommendedChange, limitations: p.limitations, cause: p.causeFinding ?? null,
@@ -187,6 +186,7 @@ export async function saveChangeProposal(proposal: ChangeProposal, transition?: 
     if ([mine, ...rows].some((r) => { const d = r?.terminal_disposition ?? null;
       if ((d !== "dismissed" && d !== "withdrawn") || (r!.basis ?? null) !== (proposal.basis ?? null)) return false;
       if (transition === IMPLEMENTED_TRANSITION && r!.id === proposal.id && d === "withdrawn") return false; // the operator's own press outvotes a reconciliation withdrawal of THIS row (Mahsa's stranded flip, 2026-08-29); a DISMISSED row still refuses, because that retirement was the operator's decision and a stale tab may not undo it
+      if (d === "withdrawn" && /::fact-[^:]+$/.test(r!.id)) return false; // A CORRECTION CARD EXISTS EXACTLY WHILE ITS CORRECTION IS AUTHORIZED: the factual producer recomputes that authorization from the evidence on every pass, so its own past withdrawal is a cache of "not authorized then", never a standing decision, and a re-mint under standing authorization revives the row. Seven authorized corrections stayed dead behind this refusal on 2026-08-30. A DISMISSED fact row still refuses above: that retirement was the operator's.
       const stored = decode(r!.payload);
       // AN UNREADABLE ROW MAY ONLY REFUSE ITSELF: "unreadable is not moved" is right about THIS id and wrong about a neighbour, and once the sibling read widened to the whole page one undecodable retired row refused every new change there. To refuse, the store must be able to SHOW the evidence has not moved, which it cannot do about a row it cannot read.
       return stored ? evidenceFingerprint(stored) === evidenceFingerprint(proposal) : r!.id === proposal.id; })) return "refused";
