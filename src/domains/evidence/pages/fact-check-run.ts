@@ -163,6 +163,8 @@ type FactCheckCursor = {
 type FactCheckUnitDeps = {
   read: StructuredRead;
   searchSources?: (query: string) => Promise<SearchAnswer>;
+  /** POST THE SUCCESSOR CLAIM'S SEARCH WHILE THIS ONE SETTLES, fire and forget (operator, 2026-08-30: provider waits are pipelined where safe). The cache layer keys on the INPUT, so the successor's real search collects the very task this posted instead of buying twice; a successor never reached leaves a paid task the NEXT pass collects from cache at $0. */
+  warmSearch?: (query: string) => void;
   /** THE SOURCE ITSELF: fetch and parse one URL. A hold means nothing may be confirmed and nothing is banked. */
   fetchSource?: (url: string) => Promise<SourceAnswer>;
   page: { url: string; path: string; body: string };
@@ -260,8 +262,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       state: "owed" as const, checkedAt: now.toISOString() }))];
     owed = seededFirst(inventory.filter((h) => h.state === "owed")); // a freshly inventoried section may not bury it either
   }
-  // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is
-  // superseded for free, never researched and paid for again.
+  // 2. THE NEXT OWED CLAIM WHOSE PROPOSITION IS NOT ALREADY SETTLED. A duplicate of a checked fact is superseded for free, never researched and paid for again.
   const propOf = (h: FactCheck): string => tokenFingerprintOf(h.subject, h.current, claimTypeOf(h.subject, h.current, h.pageLocator));
   const settled = new Set(inventory.filter((h) => h.state === "checked").map(propOf));
   let next: FactCheck | null = null;
@@ -296,15 +297,13 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
 
   // 3. ACQUIRE candidates by searching THE PROPOSITION, shaped but never erased by the claim type.
   if (!d.searchSources || !enough(d.deadlineAt, 15_000)) return fail("lease_exhausted", cursor, "no lease left to look for sources");
+  // THE SUCCESSOR'S SEARCH IS POSTED BEFORE THIS ONE IS AWAITED, so both tasks grind at the provider while this claim fetches and judges: the posted-SERP wait was the whole p95 tail (129s against a 20.6s median, live waves 2026-08-30).
+  const succ = owed.find((o) => o !== next && !d.skip?.has(o.statementKey) && !settled.has(propOf(o)) && propOf(o) !== propOf(next!));
+  if (succ) d.warmSearch?.(sourceQueryFor(claimTypeOf(succ.subject, succ.current, succ.pageLocator), succ.subject, succ.current));
   const found = await d.searchSources(sourceQueryFor(type, claim.subject, claim.current)).catch(() => ({ hold: "unavailable" as const }));
-  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable
-  // each leave the claim OWED under their own name, and only a readable answer with no qualifying source
-  // banks `none_found`.
+  // A PROVIDER THAT DID NOT ANSWER IS NOT A WORLD WITH NO SOURCES: capped, waiting, refused and unreachable each leave the claim OWED under their own name, and only a readable answer with no qualifying source banks `none_found`.
   if ("hold" in found) return fail(`search_${found.hold}`, cursor, `the source search is ${found.hold}, so this claim is still owed`, next.statementKey);
-  // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and
-  // filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever
-  // saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts
-  // QUALIFYING candidates.
+  // EXCLUSIONS COME BEFORE THE LIMIT, and ONE CANDIDATE PER PUBLISHER. Taking the first six raw results and filtering afterwards threw away a whole results page: six credible outlets were cut before the policy ever saw them, and the claim would have been buried as an empty world (Codex, 2026-08-19). The allowance counts QUALIFYING candidates.
   const organic = found.organic ?? [];
   const seenDomains = new Set<string>();
   // A SITE MAY NOT VOUCH FOR ITSELF, and nothing enforced it: live, the Nazanin correction cited the very page
@@ -448,7 +447,7 @@ type FactCheckPassDeps = {
   /** The lease, re-earned before every attempt: money is about to be spent under it. */
   renew?: () => Promise<boolean>;
   read: StructuredRead;
-  searchSources: (query: string) => Promise<SearchAnswer>;
+  searchSources: (query: string) => Promise<SearchAnswer>; warmSearch?: (query: string) => void;
   fetchSource: (url: string) => Promise<SourceAnswer>;
   readCoverage: (page: string) => Promise<InventoryCoverage | null>;
   writeCoverage: (page: string, cov: InventoryCoverage) => Promise<boolean>;};
@@ -474,7 +473,7 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
       attempts += 1; // EVERY attempt counts: banked, failed and waiting alike.
       const out = await runFactCheckUnit({ tenantId: d.tenantId, now: new Date(), basis: d.basis, deadlineAt: d.deadlineAt,
         held: held.filter((h) => h.page === page.path), page: { url: page.url, path: page.path, body }, skip: setAside,
-        read: d.read, searchSources: d.searchSources, fetchSource: d.fetchSource,
+        read: d.read, searchSources: d.searchSources, warmSearch: d.warmSearch, fetchSource: d.fetchSource,
         readCoverage: () => d.readCoverage(page.path), writeCoverage: (cov) => d.writeCoverage(page.path, cov) });
       // A CLAIM THAT WILL NOT RESOLVE IS SET ASIDE, NOT THE WHOLE PASS. Ending on any failed unit is right for a
       // spent budget or an outage, which repeat; wrong for a per-claim failure, because the owed order is stable

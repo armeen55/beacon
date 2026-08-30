@@ -512,6 +512,8 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
           const parsed = r.parsed as { organic?: { domain: string; url: string; title: string | null }[] } | null;
           return parsed?.organic ? { organic: parsed.organic } : { hold: "refused" as const };
         },
+        // THE SUCCESSOR'S TASK IS POSTED, NEVER COLLECTED, HERE: providerCall returns `waiting` right after the post, the cache keys on the input, and the successor's own searchSources above then collects the very task this posted. Same money doors, same caps; a refusal here simply means the successor pays at its own turn.
+        warmSearch: (query) => { if (Date.now() < deadlineAt) void providerCall("serp_organic", { keyword: query } as never, { tenantId, unitKey: `fact-check:${`serp:${query}`.slice(0, 80)}` }).catch(() => null); },
         // THE PARSER'S OWN SHAPE: bodyText, openingSample and headings.
         fetchSource: async (url) => {
           const r = await bought("onpage_content_parsing", { url }, `src:${url}`.slice(0, 80));

@@ -123,7 +123,17 @@ describe("every failure is typed and leaves the claim owed", () => { beforeEach(
     expect([bad.status, bad.failure, db.rows.length]).toEqual(["failed", "source_quality_unresolved", 0]);
     expect((await unit({ held, searchSources: async () => ({ organic: [] }) })).status).toBe("advanced"); // truly empty
     const r = db.rows[0] as FactCheck; expect([r.confidence, r.agreement, r.proposed]).toEqual(["unsupported", "none_found", null]);
-    db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");});});
+    db.writeFails = true; expect((await unit({ held })).failure).toBe("store_write_failed");});
+  /** THE PIPELINED WAIT (operator, 2026-08-30): the successor's search is POSTED while the current claim settles. The byte-identity below is load-bearing: the cache keys on the input, so if the warmed string ever drifts from the one the successor's own turn asks, the warm buys a task nothing collects. */
+  it("posts the successor's search while the current claim settles, byte-identical to the query its own turn asks", async () => {
+    db.cov = { pageContentHash: pageHashOf(PAGE.body), coveredChars: PAGE.body.length, totalChars: PAGE.body.length };
+    const warmed: string[] = [], askedQ: string[] = [], held = [row({ statementKey: "k1" }), row({ statementKey: "k2", subject: "Darya", current: "Beauty", pageLocator: "Darya" })];
+    const seam = { warmSearch: (q: string) => { warmed.push(q); }, searchSources: async (q: string) => (askedQ.push(q), SOURCE) };
+    await unit({ held, ...seam });
+    expect(warmed).toEqual([sourceQueryFor(claimTypeOf("Darya", "Beauty", "Darya"), "Darya", "Beauty")]); // the SUCCESSOR's proposition, exactly once, never the current claim's
+    await unit({ held, skip: new Set(["k1"]), ...seam });
+    expect([askedQ.at(-1), warmed.length]).toEqual([warmed[0], 1]); // its own turn asks the very string that was warmed, and with no third claim nothing further warms
+  });});
 describe("coverage, duplicates and diversity", () => { beforeEach(reset);
   it("a page longer than one section is NOT complete after its first chunk", async () => {
     const long = { url: "https://x.example/long", path: "/long", body: "A fact. ".repeat(2 + EXTRACT_CHUNK / 8) }; // longer than one section
@@ -403,11 +413,7 @@ describe("backfilling support onto already-banked facts", () => {
     const wrote = bank.length; fetches.length = 0; const again = await backfillClaimSupport("t", targets.slice(0, 2), deps); // IDEMPOTENT: the second run finds every artifact current, fetches nothing, writes nothing
     expect([again.every((o) => o.action === "already_current"), bank.length, fetches.length]).toEqual([true, wrote, 0]); });});
 
-/** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification already asks whether a source was read, whether its
- *  quote exists and whether it may speak; none of that asks the only question that authorizes a correction.
- *  The model may LOCATE spans. Only this may accept them, and it accepts nothing it cannot find verbatim in
- *  the exact text that source banked, which is why a biography of a man who held a title can never authorize
- *  a given name's meaning however true the biography is. */
+/** DOES THIS PASSAGE SUPPORT THIS WORDING. Verification asks whether a source was read, whether its quote exists and whether it may speak; none of that asks the one question that authorizes a correction. The model may LOCATE spans. Only this may accept them, and it accepts nothing it cannot find verbatim in the exact text that source banked, which is why a biography of a man who held a title can never authorize a given name's meaning however true the biography is. */
 describe("a source supports a claim only when its own passage says so", () => {
   const NOOR = 'The name Noor means "light"';
   const MAHSA = 'The name has the meaning "like the moon".';

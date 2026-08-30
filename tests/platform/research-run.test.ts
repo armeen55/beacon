@@ -569,9 +569,7 @@ describe("research-run fail-closed + render path", () => {
     const { repo, rows } = memRepo(); RR.setResearchRunRepoForTests(repo); expect(() => ensureResearchRunOnVisit(T, true)).not.toThrow(); // after() invalid outside a request → caught
     await Promise.resolve(); expect(rows).toHaveLength(0); }); // no phase work on the render path
 });
-/** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE: it fires on every render of the
- *  app shell, including the repaint the $0 "Update data" control asks for when it is done, and it opened a
- *  same-day pass through startExtraPass whenever anything read as due. Spend is asked BEFORE that now. */
+/** THE ONLY PAID RESEARCH TRIGGER A PERSON REACHES WITHOUT ASKING FOR ONE: it fires on every render of the app shell, including the repaint the $0 "Update data" control asks for when it is done, and it opened a same-day pass through startExtraPass whenever anything read as due. Spend is asked BEFORE that now. */
 describe("a visit may not open a research pass the account cannot pay for", () => {
   it("refuses a spent ceiling, allows a funded one, treats an unreadable budget as unaffordable, and probes a cost a ceiling can actually refuse", async () => {
     const refused = await visitMayOpenResearch(T, async () => ({ allowed: false, reason: "Monthly adjudicator budget cap reached (54.9913 / 55 USD this 2026-08)." }));

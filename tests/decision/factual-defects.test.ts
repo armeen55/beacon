@@ -156,9 +156,7 @@ describe("a page's own statements against their sources", () => {
 describe("Beacon reviews its own corrections, one page at a time", () => {
   beforeEach(() => { checks.rows = []; });
   it("names which kind of correction it is, and never calls a narrowing a falsehood", async () => {
-    // TWO OF THE THREE CORRECTIONS LIVE IN THE OPERATOR'S QUEUE ARE page_imprecise, and every card said the same
-    // thing: "X means Y, not Z". Telling a paying customer their page is wrong when the sources merely sharpen it
-    // is an overclaim. The kind is read from the STORED verdict and from the two wordings, never from the copy.
+    // TWO OF THE THREE LIVE CORRECTIONS ARE page_imprecise and every card said "X means Y, not Z". Telling a paying customer their page is wrong when the sources merely sharpen it is an overclaim. The kind is read from the STORED verdict and the two wordings, never from the copy.
     const src = (says: string) => [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says }];
     checks.rows = [
       check({ subject: "Leila", verdict: "page_wrong", current: "Meaning:Beauty and purity.", proposed: "Night; dark", sources: src('The name Leila means "night", or "dark"') }),

@@ -803,8 +803,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the overview." } }));
       const snap = { ownedPages: PATHS.map((x) => ({ url: URL_OF(x), content: { wordCount: 400, title: `Phrases ${x}`, h1: `Phrases ${x}`, outline: ["Overview"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT } };
       const SUMMARY = "Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.";
-      // The plan carried a `readyTarget` until 2026-08-30, and this test proved the editor asked NOTHING once "enough" rows existed.
-      // That gate is deleted: only money, time, and each candidate's own settlement bound a pass, however many rows land.
+      // The plan carried a `readyTarget` until 2026-08-30 and this very test proved the editor asked NOTHING once "enough" rows existed. That gate is deleted: only money, time, and each candidate's own settlement bound a pass, however many rows land.
       const run = async (settled: boolean) => { const asked: string[] = [];
         const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90 });
         const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
@@ -1512,9 +1511,7 @@ describe("distinct atomic changes on one page do not suppress each other", () =>
     expect(mutationKey(at("/farsi-numbers", "section", "Persian Numbers 0-9 Names And Symbols"))).toBe(zero);
     expect(mutationKey(at("/cities", "title"))).not.toBe(title); });});
 
-/** FINISHED WORK IS NOT HIDDEN BY UNFINISHED WORK (operator, 2026-08-29). Two overlapping rows were separated
- *  on FOOTPRINT SIZE alone, so a half-finished bundle could take a finished, paste-ready atomic change off the
- *  screen with it. Lifecycle asks first now, so richness only ever breaks a tie between rows at the same stage. */
+/** FINISHED WORK IS NOT HIDDEN BY UNFINISHED WORK (operator, 2026-08-29). Two overlapping rows were separated on FOOTPRINT SIZE alone, so a half-finished bundle could take a finished, paste-ready atomic change off the screen with it. Lifecycle asks first now, so richness only ever breaks a tie between rows at the same stage. */
 describe("an unfinished change may not hide a finished one", () => {
   const PAGE = "/iran-flags/late-safavid-military-flag";
   const base = (id: string, over: Partial<ChangeProposal>): ChangeProposal => ({
