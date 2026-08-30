@@ -13,7 +13,8 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<t
   loadChangeProposals: async () => new Map(store.rows.map((r) => [r.id, r])),
   withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return true; } }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
-  loadOwnedPageBodies: async () => { if (store.bodyFails) throw new Error("the page bodies could not be read"); // KEYED AS THE REAL LOADER KEYS: canonically. Raw-url keying here hid the producer reading this map with the wrong key and refusing every banked check site-wide; with this keying, every mint test below IS the regression pin for that join.
+  loadOwnedPageBodies: async (_t: string, urls: string[]) => { if (store.bodyFails) throw new Error("the page bodies could not be read"); // KEYED AS THE REAL LOADER KEYS: canonically. Raw-url keying here hid the producer reading this map with the wrong key and refusing every banked check site-wide; with this keying, every mint test below IS the regression pin for that join.
+    if ((urls?.length ?? 0) > 7) return new Map(); // AND BOUNDED AS THE REAL LOADER IS BOUNDED: an over-wide ask returns nothing at all, which live starved the mint the day checks crossed seven pages.
     return new Map([[canonicalUrlKey(PAGE), { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
@@ -63,8 +64,7 @@ const many = (n: number) => Array.from({ length: n }, (_, i) =>
 describe("a page's own statements against their sources", () => {
   beforeEach(() => { checks.rows = []; store.rows = []; store.withdrew = []; store.why = []; store.bodyFails = false; });
   it("a correction whose evidence stopped being current is withdrawn, and a page nobody could read is left alone", async () => {
-    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh";
-    const dead = "t::/persian-female-first-names::existing_edit::fact-darya";
+    const live = "t::/persian-female-first-names::existing_edit::fact-afsaneh", dead = "t::/persian-female-first-names::existing_edit::fact-darya";
     store.rows = [{ id: live }, { id: dead }, { id: "t::/other::existing_edit::fact-elsewhere" }];
     checks.rows = [check()]; // Afsaneh still authorized; Darya's row is gone, and /other was never read this pass
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
@@ -142,22 +142,22 @@ describe("a page's own statements against their sources", () => {
     expect(glossCarriedBy("Sea", ['darya means "sea"'])).toBe(true); });
 
   it("mints nothing off a stale page version, an unread source, history, or replaced verification rules", async () => {
-    for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) {
-      checks.rows = [check(bad)];
+    for (const bad of [{ pageContentHash: "stale" }, { sourceReadAt: null }, { state: "history" }, { rulesVersion: 1 }]) { checks.rows = [check(bad)];
       expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); } });
+  it("checks spread over more pages than one body read allows still mint, batch by batch", async () => {
+    const wide = { scope: { site: "x.example" }, ownedPages: [{ url: PAGE, search: { impressions90d: 100 } }, ...Array.from({ length: 7 }, (_, i) => ({ url: `https://x.example/p${i}` }))] } as unknown as EvidenceSnapshot;
+    checks.rows = [check(), ...Array.from({ length: 7 }, (_, i) => check({ page: `/p${i}`, statementKey: `s${i}`, subject: `S${i}`, pageContentHash: "elsewhere" }))];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot: wide, now: NOW });
+    expect(cards.map((c) => c.id.split("fact-")[1]), "an eight-page account reads its bodies in bounded batches").toEqual(["afsaneh"]); });
   it("refuses to replace published words on anything less than a confirmed, source-backed contradiction", async () => {
-    for (const bad of [{ verdict: "page_correct" }, { confidence: "disputed" }, { confidence: "unsupported" },
-      { proposed: null }, { current: "" }, { sources: [] }]) {
-      checks.rows = [check(bad)];
+    for (const bad of [{ verdict: "page_correct" }, { confidence: "disputed" }, { confidence: "unsupported" }, { proposed: null }, { current: "" }, { sources: [] }]) { checks.rows = [check(bad)];
       expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); } });
   it("shows the worst first, never the alphabet", async () => {
     const carry = (name: string) => [{ url: `https://en.wiktionary.org/${name}`, kind: "dictionary", says: `The name ${name} means legend, myth or fable in Persian` }];
-    checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [], sources: carry("Aaa") }),
-      check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"], sources: carry("Zzz") })];
+    checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [], sources: carry("Aaa") }), check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"], sources: carry("Zzz") })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards[0]!.opportunityType).toContain("Zzz"); });
-  it("mints nothing for a page this account does not own", async () => {
-    checks.rows = [check({ page: "/not-ours" })];
+  it("mints nothing for a page this account does not own", async () => { checks.rows = [check({ page: "/not-ours" })];
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); });});
 describe("Beacon reviews its own corrections, one page at a time", () => {
   beforeEach(() => { checks.rows = []; });
