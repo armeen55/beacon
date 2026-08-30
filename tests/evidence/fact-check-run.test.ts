@@ -174,10 +174,10 @@ describe("one pass, one global claim allowance", () => { beforeEach(reset);
     const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, pages, held: [],
       refreshHeld: async () => null, readCoverage: async () => null, writeCoverage: async () => true,
       read: async (i: { kind: string }) => ({ value: (i.kind === "fact_claim_extraction"
-        ? (units += 1, { statements: Array.from({ length: 5 }, (_, n) => ({ subject: `S${units}${n}`, current: `claim ${units} ${n}`, locator: `L${n}` })) })
+        ? (units += 1, { statements: Array.from({ length: 2 * ATTEMPTS_PER_PASS }, (_, n) => ({ subject: `S${units}${n}`, current: `claim ${units} ${n}`, locator: `L${n}` })) })
         : CONFIRMS) as Record<string, unknown> }),
       searchSources: async () => SOURCE, fetchSource: async () => ({ text: PASSAGE }) });
-    expect(out.attempts).toBe(ATTEMPTS_PER_PASS); }); // 4 TOTAL, not 4 per page
+    expect(out.attempts).toBe(ATTEMPTS_PER_PASS); }); // the allowance TOTAL, never per page: the fixture offers double it
   it("an account whose pages have no stored words owes nothing here, and never pauses a fresh account", async () => {
     const out = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: [],
       pages: [{ url: "https://x.example/new", path: "/new", loadBody: async () => "" }],

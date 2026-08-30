@@ -26,9 +26,8 @@ const RESERVE_MS = 8_000;
 export const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
 const CLAIM_CAP = 40;
-/** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and
- *  waits alike: the old per-page nesting advertised four and allowed twelve (Codex, 2026-08-18). */
-export const ATTEMPTS_PER_PASS = 4;
+/** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and waits alike (the old per-page nesting advertised four and allowed twelve, Codex 2026-08-18). A RUNAWAY STOP, not a meter (operator, 2026-08-30): at four, 283 owed claims took weeks of passes while the deadline and the money doors, the real bounds, sat idle. The pass now walks until the lease or the ledger says stop. */
+export const ATTEMPTS_PER_PASS = 30;
 /** About ONE CLAIM, not the account: set aside, carry on. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved"]);
 
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
@@ -487,7 +486,8 @@ export async function runFactCheckPass(d: FactCheckPassDeps): Promise<FactCheckP
         progressed = true; banked += out.banked;
         const back = await d.refreshHeld(page.path).catch(() => null);
         if (back) held = [...held.filter((h) => h.page !== page.path), ...back];}
-      if (out.status === "done" || out.cursor?.pageComplete) { pagesComplete += 1; break; }}}
+      // A PAGE IS COMPLETE ONLY IF NOTHING ON IT WAS SHELVED: with the allowance no longer cutting the walk short, a pass that set every claim aside reaches "no next claim" and would stamp the page done with no failure, burying the typed holds it just recorded.
+      if (out.status === "done" || out.cursor?.pageComplete) { if (!held.some((h) => h.page === page.path && setAside.has(h.statementKey))) pagesComplete += 1; break; }}}
   // AN ACCOUNT WITH NO STORED PAGE WORDS OWES NOTHING HERE. Reading that as a failure would pause a fresh
   // account at this phase for ever, now that it runs ahead of the crawl that fills the store.
   if (opened === 0) return { status: "done", banked: 0, pagesComplete: 0, attempts, reason: "no stored page words to check yet" };

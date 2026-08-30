@@ -115,8 +115,8 @@ export type ResearchCycleSteps = {
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-/** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
-const PAGES_PER_PASS = 3;
+/** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): more pages never multiply it. Six covers every page currently holding owed claims, so no owed page waits on rotation (operator, 2026-08-30). */
+const PAGES_PER_PASS = 6;
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
