@@ -5,8 +5,10 @@
  */
 /** HOW MUCH OF THE RANKED QUEUE ONE SCREEN CARRIES. The queue itself is unlimited; a list of a
  *  hundred and twelve changes is not a decision surface, so the page opens with this many and says
- *  exactly how many are behind it. Shared by the server slice and the client's "Show more". */
-export const CHANGES_PAGE_SIZE = 25;
+ *  exactly how many are behind it. Shared by the server slice and the client's "Show more". Raised 25 to 100
+ *  (operator, 2026-08-30): with production unlimited, 25 hid internal lanes past the first page behind a
+ *  headline that counted only rendered rows; 100 keeps every near-term queue whole on first render. */
+export const CHANGES_PAGE_SIZE = 100;
 
 /** A PAGE ADDRESS, READ THE WAY A PERSON SAYS IT. Every change surface printed the raw slug as its headline
  *  ("/famous-iranian-comedians"), which is a file name, not a page. The last segment becomes the name, the

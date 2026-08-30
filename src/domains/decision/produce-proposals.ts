@@ -321,9 +321,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
     for (const p of ranked) {
       const stored = existing.get(p.id);
       // THE NUMBER ON THE CARD IS PART OF THE ORDER, not decoration under it. This compared the ranker's SCORE alone, so a page whose fall was newly measured kept its old impact figure on file: the queue ranked it on 191 recovered clicks and the card it opened still said the old number.
+      // THE NEIGHBOUR SENTENCE IS NOT COMPARED: it belongs to the ORDER, not the row, and comparing it re-saved every row on any reorder (proposal_version 1357, live). Readers re-rank on load, so the fresh sentence always reaches the screen without a write.
       if (stored && stored.rankingReceipt?.score === p.rankingReceipt?.score
-        && (stored.impactScore ?? null) === (p.impactScore ?? null)
-        && (stored.whyRankedAboveNext ?? null) === (p.whyRankedAboveNext ?? null)) continue;
+        && (stored.impactScore ?? null) === (p.impactScore ?? null)) continue;
       if (await saveChangeProposal(p).catch(() => "failed" as const) === "saved") existing.set(p.id, p);}
     return ranked;};
   const proposals: ChangeProposal[] = []; for (const card of ownership.cards) { proposals.push(card); await persistIfChanged(card); } // suggested-edits reads every page's search evidence, so it may only claim to have rewritten its families when that evidence was whole. Empty is not fresh: no rows read is not every page judged.

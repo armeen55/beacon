@@ -24,7 +24,7 @@ import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
 /** A page shown HEAVY_IMPRESSIONS often is a page to write, not a stub to fill. MIN_EARNED_OVERLAP is the words of a page's own tie to a search, past the site wide ones, before it may be asked to answer it, and past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
 const HEAVY_IMPRESSIONS = 5_000, MIN_EARNED_OVERLAP = 2, MAX_HEADING_WORDS = 12;
 /** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
-const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 3;
+const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = 12; // 3 to 12 (operator, 2026-08-30): a pure count with no money or time behind it metered the cheapest deterministic cards in the system; the evidence floors above are untouched and stay the only quality gates
 /** Results led by places that sell. A page losing to these loses on having nothing to buy on it. */
 const SHOP_DOMAIN = /(^|\.)(amazon|etsy|ebay|aliexpress|walmart|redbubble|teepublic|zazzle|temu|wayfair|shop)\./i;
 const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
@@ -74,7 +74,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's purpose said as a number the operator can check, rather than as link equity.
   const inbound = new Map<string, number>();
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
-  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0).sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 3);
+  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0).sort((a, b) => clicksOf(b) - clicksOf(a)).slice(0, 12); // 3 to 12 (operator, 2026-08-30): more source pages, same anchor and fit gates
   const nearMiss = pages.flatMap((p) => {
     // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, a dictionary ask ("hyena in farsi") earns a line on its own page, and a question is a sentence nobody links with; anchors are the noun phrase the destination is FOR.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
@@ -159,7 +159,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     if (skeleton.length > 40) boilerplate.set(skeleton, [...(boilerplate.get(skeleton) ?? []), p]);
   }
   const templated = [...boilerplate.values()].filter((g) => g.length >= 5);
-  for (const p of rank(templated.flat()).slice(0, 2)) {
+  for (const p of rank(templated.flat()).slice(0, 12)) { // 2 to 12 (operator, 2026-08-30): a template shared by five pages deserves cards on more than two of them
     const family = templated.find((g) => g.includes(p))!.length;
     out.push({
       page: p, slug: "missing_description", field: "meta", query: topQueryOf(p), minutes: 3, confidence: "low", refs: family, impact: recoverableClicks(p, expectedCtrAt),

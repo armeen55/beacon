@@ -20,7 +20,7 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 
 /** Lost clicks per month before a unit is worth a card, and how many cards one pass mints. */
-const MIN_LOST_PER_MONTH = 20, MAX_CARDS = 5;
+const MIN_LOST_PER_MONTH = 20, MAX_CARDS = 20; // cards 5 to 20 (operator, 2026-08-30): the loss floor is the quality gate, the count was only a meter
 /** Positions slipped before the decline is a ranking loss, and the CTR fall that names the snippet. */
 const POSITION_SLIP = 2, CTR_FALL = 0.4;
 

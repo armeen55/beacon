@@ -145,7 +145,7 @@ describe("a card says why this opportunity and why these words, and never trades
     const html = await renderList(view);
     const seq = [...html.matchAll(/tabular-nums text-muted-foreground"[^>]*>(\d+)</g)].map((m) => m[1]);
     expect(seq, "finished cards count themselves").toEqual(["1", "2", "3"]);
-    expect(html).toContain("Show 25 more finished changes");
+    expect(html).toContain("Show 37 more finished changes"); // all 37 behind the page fit one press now that the page holds 100
     expect(html, "internal work never shares the finished lane's pagination").not.toMatch(/Show \d+ more of/);
     const many = Array.from({ length: 500 }, (_, i) => mk(i + 1, "ready"));
     const big = await renderList({ ...viewOf(many), summary: { todo: 0, ready: 500, research: 0, implemented: 0, measuring: 0, results: 0 } });

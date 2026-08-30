@@ -100,8 +100,8 @@ export function proposalFingerprint(p: ChangeProposal): string {
     copy: [p.opportunityType, p.whyItMatters, ...(p.operatorSteps ?? []), p.bundle?.objective ?? "", ...(p.bundle?.confidenceReasons ?? []), ...(p.research ? [p.research.missing, p.research.next] : [])],
     receipt: evidenceMaterial(p),
     missing: p.bundle?.receipt.missing ?? [],
-    // WHERE THE RANKING PUT IT IS MATERIAL. Leaving the receipt out meant a row written before its pass had ranked anything computed "unchanged" against the ranked version of itself, so every card the $0 producers mint sat on file for ever with no receipt and nothing could say why it ranked where it did. CONDITIONAL, exactly like the answer ids above: an unranked row hashes byte for byte what it always did, so nothing on file is rewritten once just to say the identical thing.
-    ...(p.rankingReceipt ? { rank: [p.rankingReceipt.score, p.whyRankedAboveNext ?? null, p.demandImpressions90d ?? null] } : {}),};
+    // WHERE THE RANKING PUT IT IS MATERIAL. Leaving the receipt out meant a row written before its pass had ranked anything computed "unchanged" against the ranked version of itself, so every card the $0 producers mint sat on file for ever with no receipt and nothing could say why it ranked where it did. CONDITIONAL, exactly like the answer ids above: an unranked row hashes byte for byte what it always did. THE NEIGHBOUR SENTENCE IS NOT HERE (operator, 2026-08-30): whyRankedAboveNext describes the row BELOW this one, so keying identity on it rewrote a row whenever any OTHER row moved, and one live card reached proposal_version 1357 against an account average of 86. Every reader re-ranks on load, so the sentence is always served fresh and never needs to be identity.
+    ...(p.rankingReceipt ? { rank: [p.rankingReceipt.score, p.demandImpressions90d ?? null] } : {}),};
   return createHash("sha256").update(JSON.stringify(material)).digest("hex").slice(0, 16);}
 
 /** WHY this change exists, on its own column so the reasoning reads without unpacking the whole proposal. Never a second source of truth: every field here is copied off the payload below it. */

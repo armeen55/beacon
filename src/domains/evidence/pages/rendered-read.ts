@@ -21,7 +21,7 @@ import { pageIdFor } from "@/domains/evidence/scanning/in-process-scan";
 import type { PageSnapshot } from "./types";
 
 /** Rendered reads one pass may buy: the biggest blind spots first, never the whole site. */
-const RENDERED_READS_PER_PASS = 5;
+const RENDERED_READS_PER_PASS = 15; // 5 to 15 (operator, 2026-08-30): the provider gateway prices each read; the count was only a meter
 /** How far back demand counts when ordering the blind spots. */
 const DEMAND_DAYS = 90;
 const SNAPSHOT_SCAN = 400; // newest snapshot rows scanned to find the latest-per-page zero-word reads

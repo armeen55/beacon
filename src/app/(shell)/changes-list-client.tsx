@@ -83,6 +83,8 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // never asked to authorize work Beacon itself knows is defective (approved contract, 2026-08-27).
   const decisionRows = useMemo(() => rows.filter((p) => { if (laneOf(p) !== "todo") return false; const h = openHold(p); return h.safetyHold && !h.faulted; }), [rows, laneOf]);
   const preparingRows = useMemo(() => rows.filter((p) => { if (laneOf(p) === "research") return true; if (laneOf(p) !== "todo") return false; const h = openHold(p); return !(h.safetyHold && !h.faulted); }), [rows, laneOf]);
+  // THE WORKING-ON COUNT IS THE DATABASE'S, NEVER THE RENDERED PAGE'S (operator, 2026-08-30): past one page, counting rendered rows silently under-reported the work in progress with no control to reach the rest.
+  const workingTotal = Math.max(preparingRows.length, (view.summary.todo ?? 0) + (view.summary.research ?? 0) - decisionRows.length);
   // THE HEADLINE COUNT IS FINISHED WORK AND NOTHING ELSE (2026-08-15), and it must be true of every row under
   // the Ready heading: the whole-lane total from the database, minus what this session finished or skipped.
   const openTotal = Math.max(0, readyRows.filter((p) => !finished.includes(p.id)).length
@@ -196,7 +198,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
       {preparingRows.length > 0 ? (
         <details className="rounded-2xl border border-border bg-surface-raised" data-lane-preparing="true">
           <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold tabular-nums text-foreground">
-            Beacon is working on {preparingRows.length.toLocaleString("en-US")} more {preparingRows.length === 1 ? "opportunity" : "opportunities"}
+            Beacon is working on {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity" : "opportunities"}
             <span className="ml-2 font-normal text-muted-foreground">Writing, checking and evidence still in progress. Nothing here is yours to do yet.</span>
           </summary>
           <ul className="list-none space-y-1 px-4 pb-3">

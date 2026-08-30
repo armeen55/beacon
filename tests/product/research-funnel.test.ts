@@ -281,10 +281,10 @@ describe("research funnel - SERP current set, freshness, and recovery", () => {
     expect(out.queries.slice(0, 4)).toEqual(["female baby names", "flag history timeline", "given name origins guide", "national holidays calendar"]);
     expect(out.uncoveredThemes).toEqual(["septic tank inspection"]); expect(out.queries.some((q) => q.includes("septic"))).toBe(false); // named, never faked
     expect(agenda({ themes: [] }, 40).queries).toHaveLength(8); }); // nothing trusted to check: a SHORTER agenda, never forty slots of padding
-  it("buys the searches an open question is stuck on FIRST, verbatim, and never more than three", () => {
+  it("buys the searches an open question is stuck on FIRST, verbatim, and never more than its bound", () => {
     const out = agenda({ priorityQueries: ["national flag 1979", "boys baby names", "given name origins", "septic tank inspection"], pageQueries: [{ query: "female baby names", impressions: 9000 }] }, 8);
-    expect(out.queries.slice(0, 3)).toEqual(["national flag 1979", "boys baby names", "given name origins"]); // the caller's own ranking, ahead of a 9,000-view first-party query
-    expect(out.queries).not.toContain("septic tank inspection"); expect(out.queries[3]).toBe("female baby names"); // a fourth is not a priority, and nothing trusted was displaced
+    expect(out.queries.slice(0, 4)).toEqual(["national flag 1979", "boys baby names", "given name origins", "septic tank inspection"]); // the caller's own ranking, verbatim, ahead of a 9,000-view first-party query; the bound is 10 now (operator, 2026-08-30), so a fourth stuck search is bought instead of starved
+    expect(out.queries[4]).toBe("female baby names"); expect(agenda({ priorityQueries: Array.from({ length: 12 }, (_, i) => `stuck query ${String(i).padStart(2, "0")}`) }, 40).queries.filter((q) => q.startsWith("stuck query"))).toHaveLength(10); // and eleven is still not a priority list
     expect(JSON.stringify(agenda({ priorityQueries: ["boys baby names", "boys names baby"] }, 8).queries.slice(0, 2))).toBe(JSON.stringify(["boys baby names", "female baby names"])); }); // one subject, ONE paid slot
   it("keeps every slipping page's own search ahead of generic discovery, and a full portfolio fills the wide agenda past eighty searches", () => {
     const slip = Array.from({ length: 20 }, (_, i) => ({ query: `slipping query ${String(i).padStart(2, "0")}`, impressions: 50, declining: true }));

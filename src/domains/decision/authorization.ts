@@ -130,7 +130,7 @@ const pageFor = (w: Wiring, url: string): Page | undefined => {
 };
 
 /** How many splits one pass may hand over at once. A queue of merges is nobody's morning. */
-const MAX_OWNERSHIP = 3;
+const MAX_OWNERSHIP = 10; // 3 to 10 (operator, 2026-08-30): a split the diagnosis proved deserves its card this pass, not a place in line
 
 /** ONE CARD PER SPLIT, MINTED OFF THE DIAGNOSED SPLITS THEMSELVES rather than off whichever page a deep read happened to refuse. The boundary refuses every content card on every page a split names, so if the card that settles the split only existed for the one page a door reached, four other pages were told to settle something nothing here settles. `covered` is every page key a minted card speaks for, and it is EXACTLY the set the caller may refuse cards on: no card, no refusal. Strongest split first, bounded, deterministic. No address moves, so the risk is low and the whole change is wording that says which search each page answers. */
 export function ownershipCards(w: Wiring & { judged: readonly Judged[]; queryKeyOf: (q: string) => string }): { cards: ChangeProposal[]; covered: Set<string>; assignable: Set<string> } {
@@ -194,7 +194,7 @@ function ownershipCard(b: CardBase & { competingPaths: readonly string[]; surviv
 }
 
 /** A fall worth naming as work before its results page is read, and how many of them one pass may name. */
-const MIN_RESEARCHING_CLICKS = 16, MAX_RESEARCHING = 3;
+const MIN_RESEARCHING_CLICKS = 16, MAX_RESEARCHING = 10; // count 3 to 10 (operator, 2026-08-30): the clicks floor stays the gate
 
 /** WHAT A PRODUCER THAT REACHED THIS PAGE AND WROTE NOTHING SAID: the one read still missing, and the levers it
  *  weighed on the way there. A blocked page has been reasoned about, so its card says so instead of guessing. */
