@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { bandOf, evaluateChange, evaluateWindows, type KernelInput } from "@/domains/measurement/proof-gsc/kernel";
 import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
+import { buildLearningStrip, LearningStrip } from "@/app/(shell)/results/results-learning";
 import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
 import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
 /** RESULTS, WHOLE. What a customer READS on the surface, not how it is computed. Fixtures only, zero network. The promises: a read shared with a later change is never painted as this change's own win, the header totals are the visible rows added up rather than the wins alone, the next step fits the work that was done, "similar" is only said where a receipt backs it. */
@@ -239,3 +240,54 @@ describe("the surface never renders uncertainty as No change", () => {
     // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
     const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }; const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []);
     expect(await render({ read: flat })).toContain("No change");});});
+/** THE LEARNING STRIP AT THE TOP OF RESULTS: what the kinds of work have DONE here, off the same rows the list below renders. Pinned, RENDERED and never read off the object: the kernel's counts reach the screen intact and in its order, a group under five finished readings says it is early and is never turned into a recommendation, a reading taken beside other work on the same page says so, a ledger with nothing countable says exactly that instead of implying a record, and no lab word or first person reaches the screen. */
+describe("what each kind of change has done here", () => {
+  type Row = Parameters<typeof buildLearningStrip>[0][number];
+  const w = (adjustedLift: number) => ({ day: 28 as const, checkOn: "2026-05-29", ran: true, treatedDelta: adjustedLift, controlDelta: 0,
+    adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3 });
+  const rec = (over: Partial<Row> = {}): Row => ({ path: "/p", page: "https://site.com/p", actionType: "edit_title", after: "the new words",
+    windows: [w(10)], implementedAt: null, verification: null, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, ...over });
+  const many = (n: number, tag: string, over: Partial<Row> = {}): Row[] =>
+    Array.from({ length: n }, (_, i) => rec({ ...over, path: `/${tag}-${i}`, page: `https://site.com/${tag}-${i}` }));
+  const strip = async (rows: Row[]): Promise<string> => {
+    const [{ renderToStaticMarkup }, { createElement }] = await Promise.all([import("react-dom/server"), import("react")]);
+    return renderToStaticMarkup(createElement(LearningStrip, { strip: buildLearningStrip(rows) }));};
+  /** ONE card's own markup, so a sentence can never be credited to the card beside it. */
+  const cardOf = (html: string, key: string) => html.slice(html.indexOf(`data-learning-card="${key}"`)).split("</details>")[0]!;
+  const words = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&apos;/g, "'").replace(/\s+/g, " ");
+  const TITLES = [...many(4, "up"), ...many(2, "down", { windows: [w(-2)] })];
+  const METAS = many(2, "meta", { actionType: "edit_meta", windows: [w(1)] });
+  const OLD = many(3, "old", { actionType: "", windows: [w(5)] });   // rows whose own record never said what kind of work they were
+  it("prints the kernel's own counts per kind, most countable first, with older unsigned work last", async () => {
+    const html = await strip([...METAS, ...OLD, ...TITLES]);
+    expect([...html.matchAll(/data-learning-card="([^"]+)"/g)].map((m) => m[1]))    // 3 countable beats 2, and unsigned is last whatever it holds
+      .toEqual(["title::", "meta::", "unsigned"]);
+    const titles = words(cardOf(html, "title::"));
+    expect(titles).toContain("6 changes marked done, 6 counted, 6 read to the end. Ahead 4, behind 2. 36 clicks ahead in total.");
+    expect(titles).toContain("Titles"); expect(titles).toContain("+10 clicks"); expect(titles).toContain("typically, against pages that were not changed");
+    expect(titles).toContain("Do this again on a similar page.");   // six readings, ahead on both the count and the total
+    expect(words(cardOf(html, "unsigned"))).toContain("Older changes recorded before kinds were tracked");
+    // The strongest reading and its counterexample, each on the page the ledger below links to.
+    expect(titles).toContain("Strongest: Up 0 , 10 clicks ahead of pages that were not changed.");
+    expect(titles).toContain("Weakest: Down 1 , 2 clicks behind pages that were not changed.");
+    expect(cardOf(html, "title::")).toContain('href="https://site.com/up-0"');});
+  it("says a thin record is early, counts what it still owes, and never turns it into a recommendation", async () => {
+    const meta = cardOf(await strip([...METAS, ...TITLES]), "meta::");
+    expect(words(meta)).toContain("Early: 2 readings so far.");
+    expect(meta).toContain('data-learning-early="true"');
+    expect(words(meta)).toContain("Needs 3 more readings before this kind of change can be counted on.");
+    expect(words(meta)).not.toMatch(/Do this again|Try a different kind/); expect(meta).not.toContain("text-emerald");});   // and it is never painted as an answer either
+  it("says out loud when a reading was taken beside other work on the same page", async () => {
+    const beside = rec({ actionType: "edit_meta", path: "/beside", page: "https://site.com/beside", windows: [w(4)],
+      implementedAt: "2026-05-01T00:00:00Z", verification: { status: "verified", checkedAt: "2026-05-03T00:00:00Z", components: [] },
+      treatmentStamp: { signature: { family: "meta", treatment: null, field: null, cause: null }, overlapAtShip: 2 } });
+    expect(words(cardOf(await strip([...METAS, beside]), "meta::"))).toContain("1 of these was measured alongside other changes on the same page.");});
+  it("says nothing has been read rather than implying a record, when no reading may count", async () => {
+    const html = await strip([rec({ implementedAt: "2026-05-01T00:00:00Z" }), rec({ path: "/q", implementedAt: "2026-05-01T00:00:00Z" })]);
+    expect(words(html)).toContain("No verified readings yet. Changes verify after they are applied and the page is read back.");
+    expect(html).toContain('data-learning-empty="true"'); expect(html).not.toContain("data-learning-card");});
+  it("prints no lab word, no slug, no first person and no dash", async () => {
+    const said = words(await strip([...TITLES, ...METAS, ...OLD, rec({ actionType: "internal_link", path: "/l", windows: [] })]));
+    for (const bad of [/[–—]/, /\b(I|me|my|we|our)\b/, /[a-z]+_[a-z]+/, /\b(experiment|controls?|baseline|treatments?|serp|observational)\b/i])
+      expect(said, `${bad} in: ${said}`).not.toMatch(bad);
+    expect(said).toContain("1 more change has not finished a read yet, and it is in the list below");});});   // work with no reading yet is counted, never hidden

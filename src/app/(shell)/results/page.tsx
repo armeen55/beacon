@@ -4,8 +4,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireReadyAccount } from "@/domains/account";
 import { currentTenantId } from "@/lib/tenant-context";
-import { scheduleAutoMeasure } from "@/domains/measurement";
+import { loadProofLedgerCached, scheduleAutoMeasure } from "@/domains/measurement";
 import { loadResultsLedgerSurface } from "./results-ledger-data";
+import { buildLearningStrip, LearningStrip } from "./results-learning";
 import { buildResultsView, type ShipmentPresentation } from "./results-presentation";
 import { ResultsRows } from "./results-rows-client";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
@@ -31,6 +32,11 @@ export default async function ProofPage({
   // `unavailable`, which renders as an outage with a way to retry rather than "no changes are being measured".
   const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
   const shipments = surface.shipments;
+  // WHAT THE WORK HAS TAUGHT, ABOVE THE LEDGER IT COMES OFF. The strip needs the records themselves (the kind
+  // of work, the live check, the stamp), which the presented shipments no longer carry; this read is request
+  // cached and re-measures nothing. A ledger that will not read costs the strip and never the page.
+  const records = await loadProofLedgerCached(tenantId).catch(() => []);
+  const strip = buildLearningStrip(records);
   const view = buildResultsView(shipments, new Date());
   const anyClosed = shipments.some((s) => s.read.windows.some((w) => w.state === "closed"));
 
@@ -52,6 +58,8 @@ export default async function ProofPage({
           </div>
         ) : null}
       </div>
+
+      {records.length > 0 ? <LearningStrip strip={strip} /> : null}
 
       {surface.unavailable ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-6 text-[13px] text-amber-800" data-results-unavailable="true">
