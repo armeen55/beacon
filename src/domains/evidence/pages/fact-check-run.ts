@@ -28,7 +28,7 @@ export const EXTRACT_CHUNK = 3_000;
 const CLAIM_CAP = 40;
 /** CLAIM ATTEMPTS one pass may make, GLOBAL across every page it touches, counting successes, failures and waits alike (the old per-page nesting advertised four and allowed twelve, Codex 2026-08-18). A RUNAWAY STOP, not a meter (operator, 2026-08-30): at four, 283 owed claims took weeks of passes while the deadline and the money doors, the real bounds, sat idle. The pass now walks until the lease or the ledger says stop. */
 export const ATTEMPTS_PER_PASS = 30;
-/** About ONE CLAIM, not the account: set aside, carry on. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved"]);
+/** About ONE CLAIM, not the account: set aside, carry on. `judge_refused` joined 2026-08-30: a judgement that fails validation fails on THIS claim's content (live: one stubborn claim ended three passes running while 18 others had just judged clean); `judge_capped` and `judge_unavailable` stay account-wide stops. */ const PER_CLAIM = new Set(["fetch_refused", "fetch_unavailable", "search_refused", "search_unavailable", "search_waiting", "source_quality_unresolved", "judge_refused"]);
 
 const SCHOLARLY = /(^|\.)(iranicaonline\.org|dsal\.uchicago\.edu|jstor\.org|academia\.edu|brill\.com|oup\.com|cambridge\.org|nih\.gov|who\.int)$|\.(edu|gov|ac\.[a-z]{2})$/i;
 const DICTIONARY = /(^|\.)(wiktionary\.org|merriam-webster\.com|oed\.com|dehkhoda\.ut\.ac\.ir|vajehyab\.com|abadis\.ir|collinsdictionary\.com)$/i;
