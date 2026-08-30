@@ -349,7 +349,7 @@ export async function runFactCheckUnit(d: FactCheckUnitDeps): Promise<FactCheckU
       "Passages fetched from real sources:",
       ...passages.map((p) => `--- [${p.kind}] ${p.url}${p.title ? ` (document title: ${p.title})` : ""}\n${p.text}`), "", "Return the JSON now."].join("\n"),
     grounded: passages.map((p) => p.text).join("\n"), projectedCostUsd: 0.02, maxTokens: 1500 }).catch(() => ({ hold: "unavailable" as const }));
-  if ("hold" in verdict) return fail(`judge_${verdict.hold}`, cursor, `judging this claim is ${verdict.hold}, so it is still owed`);
+  if ("hold" in verdict) return fail(`judge_${verdict.hold}`, cursor, `judging this claim is ${verdict.hold}, so it is still owed`, next.statementKey); // the key rides along so a per-claim refusal is set aside instead of ending the pass
   const v = verdict.value as unknown as Judged;
   // EVERY CLAIMED SUPPORT IS VERIFIED IN ITS OWN SOURCE. A quote is credited only to the passage that actually
   // contains it, so one sentence attributed to several publishers supports exactly the one it came from.
