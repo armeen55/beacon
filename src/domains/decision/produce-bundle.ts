@@ -271,7 +271,7 @@ function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date,
   const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
   const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
   // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
-  const facts = Object.fromEntries([...siblings.values()].filter((b) => canonicalUrlKey(b.url) !== canonicalUrlKey(held?.url ?? " ")).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
+  const facts = Object.fromEntries([...siblings.values()].filter((b) => held == null || canonicalUrlKey(b.url) !== canonicalUrlKey(held.url)).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
   const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[]): Promise<AuthorizedPiece | null> =>
     !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts }, editor);
   return {
