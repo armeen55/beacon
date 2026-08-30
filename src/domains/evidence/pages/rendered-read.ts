@@ -24,16 +24,17 @@ import type { PageSnapshot } from "./types";
 const RENDERED_READS_PER_PASS = 60; // the meter is effectively gone (operator, 2026-08-30): the provider gateway prices every read; 60 is a runaway stop
 /** How far back demand counts when ordering the blind spots. */
 const DEMAND_DAYS = 90;
-const SNAPSHOT_SCAN = 400; // newest snapshot rows scanned to find the latest-per-page zero-word reads
+const SNAPSHOT_SCAN = 2000; // newest snapshot rows scanned to find the latest-per-page blind reads. 400 was a hidden meter: with 233 pages crawling nightly, a page last crawled weeks ago fell outside the window and its blind capture could never earn its render (live: the kabob stubs, 2026-08-30)
 
 const hash = (s: string): string => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
-/** Under this many raw words, a page with real search demand is IMPLAUSIBLY thin: a CMS body the raw fetch
- *  half-missed reads the same as a genuine stub, and only a rendered look can tell them apart. One render
- *  settles it either way: much more content replaces the capture, about the same confirms the stub. */
+/** Under this many raw words, a capture is IMPLAUSIBLY thin: a CMS body the raw fetch half-missed reads the
+ *  same as a genuine stub, and only a rendered look can tell them apart. One render settles it either way:
+ *  much more content replaces the capture, about the same confirms the stub. The demand floor that used to
+ *  gate this is DELETED (operator, 2026-08-30): a seven word nav-crumb capture is blind whatever its
+ *  audience, and it left the kabob pages undescribable because nothing real was ever stored to ground on.
+ *  Each page still gets exactly ONE rendered look ever, so the whole site settles once and stays settled. */
 const IMPLAUSIBLY_THIN_WORDS = 50;
-/** Demand floor before a thin page earns its one rendered look. */
-const THIN_RENDER_MIN_IMPRESSIONS = 200;
 
 /** The account's own pages whose NEWEST snapshot the raw fetch cannot be trusted on: a zero-word 200 (a
  *  javascript body, always eligible), or an implausibly thin capture on a page with real demand that has
@@ -69,8 +70,7 @@ async function unreadOwnedPages(tenantId: string): Promise<{ url: string; impres
     per.set(k, (per.get(k) ?? 0) + (d.impressions ?? 0));
   }
   return blank.map((b) => ({ url: b.url, impressions: per.get(canonicalUrlKey(b.url)) ?? 0 }))
-    // A zero-word page is blind whatever its audience; a merely thin one earns its render only with one.
-    .filter((b) => newest.get(canonicalUrlKey(b.url))!.word_count === 0 || b.impressions >= THIN_RENDER_MIN_IMPRESSIONS)
+    // Every blind capture earns its one look; the audience only decides who goes first.
     .sort((a, b) => b.impressions - a.impressions);
 }
 
