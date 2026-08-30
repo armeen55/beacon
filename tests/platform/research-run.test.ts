@@ -577,8 +577,7 @@ describe("a visit may not open a research pass the account cannot pay for", () =
     let asked = -1; const allowed = await visitMayOpenResearch(T, async (_t, projected) => { asked = projected; return { allowed: true }; });
     expect([refused.allowed, allowed.allowed, unreadable.allowed]).toEqual([false, true, false]);
     expect([refused.reason.includes("54.9913 / 55"), unreadable.reason.includes("could not be read")]).toEqual([true, true]); // the refusal carries the door's OWN words
-    // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against
-    // an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
+    // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
     expect([asked > 0, 54.9913 + asked > 55]).toEqual([true, true]); });
   /** THE COUNTEREXAMPLE AFFORDABILITY CANNOT PRODUCE. Testing only at a spent ceiling proves the money
    *  gate, never the free-control contract: with the allowance restored the press would arm research again. */

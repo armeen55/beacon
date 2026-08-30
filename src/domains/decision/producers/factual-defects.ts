@@ -52,9 +52,12 @@ function composedReplacement(before: string, proposed: string): string {
   const lv = labelOf(before);
   const prefix = lv ? `${lv.label}:${lv.latin ? " " : lv.gap}` : "";
   const parts = proposed.trim().split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
+  // THE JUDGE'S OWN STRUCTURE SURVIVES (operator, 2026-08-30): "free, free-minded; also noble" was or-joined into "free, free-minded or also noble", which no dictionary would print. A part that already opens with a connective keeps its semicolon; only plain alternatives are or-joined.
+  const connective = parts.some((x, i) => i > 0 && /^(also|and|or|but)\b/i.test(x));
   const listed = parts.length <= 1 ? (parts[0] ?? "")
-    : parts.length === 2 ? `${parts[0]} or ${parts[1]}`
-      : `${parts.slice(0, -1).join(", ")}, or ${parts.at(-1)}`;
+    : connective ? parts.join("; ")
+      : parts.length === 2 ? `${parts[0]} or ${parts[1]}`
+        : `${parts.slice(0, -1).join(", ")}, or ${parts.at(-1)}`;
   // ONE TERMINAL MARK, NEVER TWO: a source fragment that already ends in a stop plus the one this adds reads as "light..".
   const gloss = listed.replace(/^\p{Ll}/u, (ch) => ch.toUpperCase()).replace(/([.!?])[.!?]+$/, "$1");
   const stop = /[.!?]["')\]]?\s*$/.test(before) && !/[.!?]["')\]]?$/.test(gloss) ? "." : "";
@@ -234,7 +237,14 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       // forty of the operator's best work died in one write. A correction is independently applicable, so it is
       // independently ranked, and NO BUNDLE is minted for it: the stale sweep only reaches rows carrying one, so
       // a point edit cannot be taken by a replan of the page it happens to sit on. No cap: the queue is unlimited.
+      // A WORDING SWAP THAT KEEPS THE MEANING IS NOT A CORRECTION (operator, 2026-08-30): "Hand of God" to "God's hand" reached Ready as work. Content tokens, possessives folded, connectors dropped; equal sets mint nothing and the row stands as it is. A REPAIR is exempt: same words differently punctuated is exactly what that treatment fixes.
+      const contentTokens = (t: string): string => [...new Set(t.toLowerCase().replace(/'s\b/g, "").replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 0 && !["of", "the", "a", "an", "meaning"].includes(w)))].sort().join(" ");
       for (const [i, c] of corrections.entries()) {
+        const span0 = replacedSpanOf(c);
+        if (bareOf(span0) !== bareOf(composedReplacement(span0, c.proposed!)) && contentTokens(span0) === contentTokens(c.proposed ?? "")) {
+          log.info("[factual-defects] a proposed rewording keeps the page's meaning, so no card is minted", { tenantId, subject: c.subject });
+          continue;
+        }
         // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every
         // correction, so the operator's Find step read "the Noor entry, and the same statement at: Popular
         // Persian Female First Names and their Meanings", naming the very section it had just named. An exact
@@ -297,7 +307,9 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
             ?? "Beacon's own sense review has not read this correction yet, so it waits for that reading rather than for the operator to do Beacon's checking.",
             "The page's own words were treated as evidence of what it says, never as proof they are true."],
           causeFinding: { cause: "factual_error", action: "section", evidenceKeys: ["fact-1"],
-            explanation: `${path} states a meaning for ${c.subject} that an independent source of record contradicts, and a supported replacement is on file.`,
+            explanation: treat === "replace" ? `${path} states a meaning for ${c.subject} that an independent source of record contradicts, and a supported replacement is on file.`
+              : treat === "narrow" ? `${path} states a meaning for ${c.subject} more broadly than its own sources of record support, and the supported wording is on file.`
+                : `${path} carries the supported meaning of ${c.subject} with broken formatting, and the repaired wording is on file.`,
             competingExplanations: [{ cause: "no_problem", reason: `${n(rows.filter((r) => r.verdict === "page_correct").length)} of ${n(rows.length)} checked statements on this page are correct, so the page is not wholesale wrong.` }],
             notConsidered: [{ cause: "ranking_loss", missing: "whether this wrong meaning costs the page positions is a separate question with separate evidence, and nothing here ties the two together." }],
             falsifier: `If the next check run finds ${path} already carries the corrected wording, this retires itself.` },

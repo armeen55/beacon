@@ -49,6 +49,11 @@ const check = (over: Record<string, unknown> = {}) => bless({
   agreement: "multiple_agree", confidence: "confirmed", verdict: "page_wrong", alsoAt: [], note: "",
   checkedAt: "2026-08-17T00:00:00.000Z", ...over });
 import { mutationFootprint, footprintsOverlap } from "@/domains/decision/mutation-footprint";
+/** PHASE 0 TRUTH GUARDS (operator, 2026-08-30): the judge's own structure survives composition, and a rewording that keeps the meaning mints nothing. */
+it("keeps the judge's semicolon before a connective, and refuses the semantic no-op", async () => {
+  checks.rows = [check({ proposed: "free, free-minded; also noble", verdict: "page_imprecise", sources: [{ url: "https://en.wiktionary.org/wiki/x", kind: "dictionary", says: "the name Afsaneh means free, free-minded; also noble" }] }), check({ subject: "Yadollah", statementKey: "yadollah", current: "Hand of God", proposed: "God's hand", verdict: "page_imprecise", sources: [{ url: "https://en.wikipedia.org/wiki/Yadollah", kind: "encyclopedia", says: "the name Yadollah means God's hand" }] })];
+  const out = await factualDefectCards({ tenantId: "t", snapshot, now: NOW }); const after = (out.cards.find((c) => c.id.includes("fact-afsaneh")) as { recommendedChange?: { after?: string } } | undefined)?.recommendedChange?.after ?? "";
+  expect([after.includes("free-minded; also noble"), after.includes("or also"), out.cards.some((c) => c.id.includes("fact-yadollah"))], "the semicolon survives, the or-mangle is gone, and a meaning-keeping rewording is not work").toEqual([true, false, false]); });
 const many = (n: number) => Array.from({ length: n }, (_, i) =>
   check({ subject: `Name${i}`, current: `Wrong meaning ${i}.`, proposed: `Right gloss ${i}.`,
     sources: [{ url: `https://en.wiktionary.org/w${i}`, kind: "dictionary", says: `Name${i} means right gloss ${i}` }] }));
@@ -67,8 +72,7 @@ describe("a page's own statements against their sources", () => {
     store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(store.why.join(" "), "the live reading's own refusal").toContain("restates the source's own sentence");
-    // A ROW EVERY OLDER RULE ACCEPTS AND NO ARTIFACT SUPPORTS IS WITHDRAWN SAYING SO: exactly the passage that used to authorize silently.
-    const stripped = check() as { sources: { support?: unknown }[] };
+    const stripped = check() as { sources: { support?: unknown }[] }; // A ROW EVERY OLDER RULE ACCEPTS AND NO ARTIFACT SUPPORTS IS WITHDRAWN SAYING SO: exactly the passage that used to authorize silently.
     stripped.sources = stripped.sources.map((x) => ({ ...x, support: undefined }));
     checks.rows = [stripped]; store.rows = [{ id: "t::/persian-female-first-names::existing_edit::fact-afsaneh" }]; store.withdrew = []; store.why = [];
     await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
@@ -115,8 +119,7 @@ describe("a page's own statements against their sources", () => {
     expect(unauthorizedReason(checks.rows[0] as never)).toContain("do not carry every word of the proposal");
     expect(unauthorizedReason(checks.rows[2] as never)).toContain("restates the source's own sentence");
     expect(unauthorizedReason(checks.rows[1] as never)).toBeNull();
-    // EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET. An authoritative source contributing ONE word while an ordinary publisher supplies the decisive one is still incomplete provenance: live, Parisa published "beautiful like a fairy" off an encyclopedia saying only "fairy-like".
-    const two = (a: Record<string, string>, b: Record<string, string>) => [a, b] as never;
+    const two = (a: Record<string, string>, b: Record<string, string>) => [a, b] as never; // EVERY MATERIAL WORD COMES FROM THE AUTHORITATIVE SET. An authoritative source contributing ONE word while an ordinary publisher supplies the decisive one is still incomplete provenance: live, Parisa published "beautiful like a fairy" off an encyclopedia saying only "fairy-like".
     const src = (kind: string, says: string) => ({ url: `https://x.example/${kind}${says.length}`, kind, says });
     const parisa = check({ subject: "Parisa", current: "Meaning:Fairy-like, ethereal, or angelic.", proposed: "like a fairy; beautiful like a fairy",
       sources: two(src("encyclopedia", "Parisā ( Persian : پریسا, lit. ' fairy-like ' ) is a Persian feminine given name."),
@@ -182,8 +185,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
     expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);
     expect(after("leila")).toBe("Meaning: Night or dark.");
-    // AN EXACT LOCATION MAY NOT REPEAT ITSELF. Live, `also_at` held the row's OWN locator on every correction, so
-    // the Find step read "the Noor entry, and the same statement at: <the section it is already in>".
+    // AN EXACT LOCATION MAY NOT REPEAT ITSELF. Live, `also_at` held the row's OWN locator on every correction, so the Find step read "the Noor entry, and the same statement at: <the section it is already in>".
     const step = (k: string) => (by.get(k)!.operatorSteps ?? []).join(" | ");
     expect(step("noor"), "the entry's own section is not a second place").not.toContain("the same statement at");
     expect(step("noor"), "and the one place it names is still named").toContain('Find the "Noor" entry');

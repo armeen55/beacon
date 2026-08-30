@@ -17,12 +17,7 @@ const EMPTY_ROW = { proposed: null, literal: null, usage: null, sources: [], agr
 const CANDIDATES = 6, FETCH_PER_CLAIM = 2;
 /** A call is only started when this much of the deadline remains, so its result can always be persisted. */
 const RESERVE_MS = 8_000;
-/** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted
- *  and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). */
-/** A SECTION SMALL ENOUGH THAT ONE EXTRACTION CAN READ IT WHOLE. At 12,000 a dense list page handed the reader
- *  its entire body at once and the forty-statement schema cap silently decided what was inventoried: 194 name
- *  entries went in and 33 came out, with the page then marked complete. Smaller sections cost one cheap
- *  extraction each and are resumable by the coverage cursor, so a long page is READ rather than sampled. */
+/** One extraction reads this much of the stored body. NEVER the definition of the page: coverage is persisted and a page is complete only when every stored section was inventoried (Codex, 2026-08-18). A SECTION SMALL ENOUGH THAT ONE EXTRACTION CAN READ IT WHOLE: at 12,000 a dense list page handed the reader its entire body at once and the forty-statement schema cap silently decided what was inventoried (194 name entries went in and 33 came out, with the page then marked complete). Smaller sections cost one cheap extraction each and are resumable by the coverage cursor, so a long page is READ rather than sampled. */
 export const EXTRACT_CHUNK = 3_000;
 /** The most statements one extraction may return (`FactClaimExtractionSchema`). Read here so the cursor can tell a chunk that was READ from one that merely filled up. */
 const CLAIM_CAP = 40;
@@ -111,7 +106,10 @@ const JUDGE_SYSTEM = 'You compare ONE statement a web page makes against PASSAGE
   + 'Distinguish literal etymology from modern usage: a page recording a live usage is not automatically wrong. Never invent a replacement. '
   + '`subjects` is one entry PER SOURCE you quoted: {"url", "sameEntity", "language", "script", "why"}. sameEntity is TRUE only when the passage is about the SAME name, word or entity the page is talking about, in the SAME language. '
   + 'A source that merely SPELLS the name the same way, or lists it as a variant of a different language\'s name, is a DIFFERENT subject and sameEntity is false. '
-  + '`language` is the language the passage says the subject belongs to. `script` is the subject written in its own script when the passage gives it, else null.';
+  + '`language` is the language the passage says the subject belongs to. `script` is the subject written in its own script when the passage gives it, else null. '
+  + 'For page_imprecise, `proposed` is the page\'s own wording with ONLY the unsupported part removed or corrected: keep every supported word the page already carries, and never discard supported context for a rewrite. '
+  + 'Include EVERY meaning your quoted passages support, never a silent subset. Write natural dictionary English with standard orthography (one word where English writes one, such as hailstone). '
+  + 'A rewording that keeps the same meaning, such as swapping "Hand of God" for "God\'s hand", is page_correct, never a correction.';
 
 type Extracted = { statements: { subject: string; current: string; locator?: string }[] };
 type Judged = { verdict: FactCheck["verdict"]; proposed: string; literal: string; usage: string;

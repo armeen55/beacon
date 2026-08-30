@@ -219,8 +219,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
   });
   it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => {
     const { evidence } = await replayFunnel();
-    // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory
-    // far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
+    // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
     const prior = await drive(evidence, []);
     const base = prior.landed[0]!;
     const flood = (n: number) => new Map([...Array(n)].map((_, i) => [`flood-${i}`, { ...base, id: `flood-${i}`, pagePath: `/flood-${i}`, pageUrl: `${SITE}/flood-${i}` }] as const));
