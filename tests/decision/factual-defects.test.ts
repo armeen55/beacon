@@ -13,8 +13,8 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<t
   loadChangeProposals: async () => new Map(store.rows.map((r) => [r.id, r])),
   withdrawChangeProposal: async (p: { id: string }, reason?: string) => { store.withdrew.push(p.id); store.why.push(reason ?? ""); return true; } }));
 vi.mock("@/domains/evidence/pages/owned-context", async (orig) => ({ ...(await orig<typeof import("@/domains/evidence/pages/owned-context")>()), // THE PAGE AS DECISION CAN SEE IT: a correction is work only while the page still says what it objected to.
-  loadOwnedPageBodies: async () => { if (store.bodyFails) throw new Error("the page bodies could not be read");
-    return new Map([[PAGE, { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
+  loadOwnedPageBodies: async () => { if (store.bodyFails) throw new Error("the page bodies could not be read"); // KEYED AS THE REAL LOADER KEYS: canonically. Raw-url keying here hid the producer reading this map with the wrong key and refusing every banked check site-wide; with this keying, every mint test below IS the regression pin for that join.
+    return new Map([[canonicalUrlKey(PAGE), { title: "Persian female names", h1: null, headings: [], passages: ["Afsaneh means Goddess, divine and strong."] }]]); } }));
 import { FACTUAL_DEFECTS } from "@/domains/decision/producers/factual-defects";
 import { loadChangeProposal, saveChangeProposal } from "@/domains/decision/proposal-store";
 import { openHold } from "@/domains/decision/completeness";
@@ -26,7 +26,7 @@ const factualDefectCards = FACTUAL_DEFECTS.cards, reviewFactualBundle = FACTUAL_
 import { pageHashOf } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION } from "@/domains/evidence/pages/fact-checks";
 import { claimTypeOf, deriveSupport } from "@/domains/evidence/pages/claim-support";
-import type { EvidenceSnapshot } from "@/domains/evidence/snapshot";
+import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
 const NOW = new Date("2026-08-17T00:00:00.000Z");
 const PAGE = "https://x.example/persian-female-first-names";
 const LIVE_HASH = pageHashOf(["Persian female names", "Afsaneh means Goddess, divine and strong."].join("\n"));

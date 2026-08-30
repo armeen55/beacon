@@ -210,7 +210,11 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         import("@/domains/evidence/pages/owned-context"), import("@/domains/evidence/pages/fact-check-run")]);
       const bodies = await loadOwnedPageBodies(tenantId, candidateUrls).catch(() => null);
       for (const url of candidateUrls) {
-        const b = bodies?.get?.(url);
+        // THE LOADER'S MAP IS CANONICALLY KEYED, and this read spelled the key raw, so it missed every body,
+        // every page hash stayed unset, and the currency gate below refused all 777 banked checks at once
+        // (live, 2026-08-30: four produce passes, cards 0). The gate was armed later than this read was
+        // written, which is why the dead join minted for weeks before it starved the queue.
+        const b = bodies?.get?.(canonicalUrlKey(url));
         const body = b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";
         if (body.trim()) pageHashes.set(canonicalUrlKey(url), pageHashOf(body));
       }
