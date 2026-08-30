@@ -400,6 +400,7 @@ const FactClaimJudgementSchema = z.object({
 /** BEACON'S OWN SENSE REVIEW of a batch of sourced corrections (decision/producers/factual-defects): one ruling per component by index, so one defective replacement never holds the valid ones hostage and the operator never does Beacon's checking (2026-08-22). */
 const FactualReviewSchema = z.object({ rulings: z.array(z.object({
   index: z.number().int().min(0), publish: z.boolean(), reason: z.string().min(1).max(240),
+  /** For a component flagged as a suspected wording-only change: true when the replacement genuinely moves meaning, precision or coverage; false when it keeps the page's meaning. */ materialChange: z.boolean().optional(),
   /** ONE ENTAILMENT RULING PER CLAIM, naming the exact fact ids weighed. The review answered one publish boolean and its claim-level reasoning was thrown away, so nothing ever recorded whether the cited passage SUPPORTS the claim: "Noor means light" could stand on a fact reading "Tehran is the capital of Iran" (Codex, 2026-08-28). `publish` is derived in code from these, never taken from the model. */
   claims: z.array(z.object({ claim: z.number().int().min(0), factIds: z.array(z.string().min(1)),
     entailed: z.boolean(), why: z.string().min(1).max(200) })).min(1).max(12) })).min(1).max(12) });

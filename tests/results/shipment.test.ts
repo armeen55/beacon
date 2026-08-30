@@ -55,8 +55,7 @@ beforeEach(() => {
   ai.records.mockResolvedValue([]);
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]]));
   gsc.lastFinal.mockResolvedValue("2026-07-30");
-  // Three answers on the latest day, two of them naming this site, and one older day nothing may count: the starting number is the LATEST day's, and it is the whole of that day.
-  const seen = (slot: number, day: string, mentioned: boolean) => ({ slot, day, status: "observed", analysis: { ownedBrandMention: { mentioned } }, analysisHash: "x", answerHash: "x" });
+  const seen = (slot: number, day: string, mentioned: boolean) => ({ slot, day, status: "observed", analysis: { ownedBrandMention: { mentioned } }, analysisHash: "x", answerHash: "x" }); // Three answers on the latest day, two of them naming this site, and one older day nothing may count: the starting number is the LATEST day's, and it is the whole of that day.
   ai.views.mockResolvedValue([seen(0, "2026-07-30", true), seen(0, "2026-07-30", false), seen(1, "2026-07-30", true), seen(0, "2026-06-01", true)]);});
 describe("the canonical Shipment", () => {
   it("a measure loop invalidates the release once, never once per record", async () => {
@@ -282,13 +281,12 @@ describe("the treatment record", () => {
       .toEqual({ family: "meta", treatment: null, field: "meta", cause: null }); // the treatment and the cause were never on that row, so they stay null
     expect(signatureOfShipment(row({ treatmentStamp: null, componentsApplied: [{ kind: "title", label: "T" }, { kind: "meta", label: "M" }] }))?.field).toBeNull(); // two pieces name no one field
     expect(signatureOfShipment(row({ treatmentStamp: null, actionType: "  " })), "a row that names no kind of work at all is unsigned, never filed under a guess").toBeNull(); });
-  it("counts every shipment, scores only the verified ones, flags a thin sample and says which readings shared a page", () => {
-    const [g] = treatmentLearning([row(), row({ windows: [ranWindow(28, 30)] }), row({ verification: verification("not_found"), windows: [ranWindow(28, 900)] }),
-      row({ windows: [ranWindow(28, 20)], treatmentStamp: { signature: { family: "edit_title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 2 } }),
-      row({ windows: [ranWindow(28, -40)] }), row({ windows: [ranWindow(7, 500)] }), row({ windows: [ranWindow(28, 60, 0)] }), row({ after: "Population of NUMBER as of YEAR", windows: [ranWindow(28, 700)] })]);
-    expect([g.key, g.shipped, g.verified, g.sampleSize], "eight marked done, seven found on the page, four with a finished reading").toEqual(["title::title_or_h1", 8, 7, 4]);
-    expect([g.ahead, g.behind, g.inconclusive, g.medianEffect, g.netEffect]).toEqual([3, 1, 0, 15, 20]);
-    expect([g.early, g.overlapping], "under five readings it is a story, and one of them shared its page").toEqual([true, 1]); });
+  it("counts every shipment, and lets nothing muted, legacy, or zero teach the policy numbers (operator, 2026-08-30)", () => {
+    const muted = () => row({ windows: [ranWindow(28, -20)], pinnedRead: { verdict: "confounded" } as never });
+    const [g] = treatmentLearning([muted(), muted(), muted(), row({ windows: [ranWindow(28, 100)], operatorVerdictOverride: "inconclusive" }), row({ implementedAt: null, windows: [ranWindow(28, 100)] }), row({ windows: [ranWindow(28, 0)] }), row({ windows: [ranWindow(28, 10)] }), row({ windows: [ranWindow(28, -10)] })]);
+    expect([g.shipped, g.verified, g.legacy, g.inconclusive], "three confounded, one operator-excluded and one clean zero are history; the legacy row has its own labelled count and is never verified").toEqual([8, 7, 1, 5]);
+    expect([g.sampleSize, g.netEffect, g.medianEffect, g.ahead, g.behind], "policy numbers come from the two clean directional readings alone, and symmetric readings net to zero").toEqual([2, 0, 0, 1, 1]);
+    expect([familyHistoryFromShipments([muted()]).size, familyHistoryFromShipments([row({ implementedAt: null, windows: [ranWindow(28, 100)] })]).size], "neither a confounded negative nor a legacy row can train a family").toEqual([0, 0]); });
   it("hands the ranking a record shrunk hard towards nothing while the sample is thin", () => {
     const one = familyHistoryFromShipments([row({ windows: [ranWindow(28, 120)] })]);
     expect(one.get("title"), "one reading of 120 clicks hands over a sixth of itself").toEqual({ readings: 1, netLift: 20 });

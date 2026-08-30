@@ -197,11 +197,25 @@ export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedC
     (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
 /** WHY BEACON'S OWN PAID REVIEWER HAS NOT AUTHORIZED THIS, or null. It already reads the claims and the evidence, and was answering ONE publish boolean whose claim-level reasoning was then discarded, so nothing ever recorded whether the cited facts SUPPORT the claim and "Noor means light" could stand on a passage reading "Tehran is the capital of Iran" (Codex, 2026-08-28). Asked only where a material claim is made: a mechanical repair, and copy citing only the page's own words, are not sent to a model to be told what they already prove. Fails closed on a missing, stale, short or mismatched ruling, because silence is never a pass. `REVIEW_CONTRACT` mirrors llm/prompt-registry's `draft.factual_review`, so a verdict from an older contract is re-read rather than trusted. */
 export const REVIEW_CONTRACT = 4; // THE PERSISTED AUTHORIZATION CONTRACT, one number for every family that banks a reading. It read `draft.factual_review`, which is a prompt CACHE version and would have governed editor receipts by accident; bumped to 4 as the substantive editor joins it, so every earlier receipt is re-read.
+/** A WORDING-ONLY SUSPICION, NEVER A PROOF (operator, 2026-08-30): equal content tokens lose order, multiplicity and grammar, and "fear of God" versus "God's fear" reduces to the same bag. Suspicion routes the card to the ONE existing reviewer, whose banked `materialChange` ruling settles it; nothing is auto-retired on a bag of words. Same words in the same order (a punctuation repair) are not suspicious at all. */
+export function wordingOnlySuspicion(p: Pick<ChangeProposal, "recommendedChange">): boolean {
+  const c = p.recommendedChange as { before?: string | null; after?: string | null };
+  const before = (c.before ?? "").trim(), after = (c.after ?? "").trim();
+  if (!before || !after) return false;
+  const bare = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+  if (bare(before) === bare(after)) return false;
+  const toks = (t: string): string => [...new Set(t.toLowerCase().replace(/'s\b/g, "").replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 0 && !["of", "the", "a", "an", "meaning"].includes(w)))].sort().join(" ");
+  return toks(before) === toks(after);
+}
 export function unreviewed(p: ChangeProposal): string | null {
   const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
   if (!(p.changeFamily === "factual_correction" || p.informationGain || claims.some((c) => c.supportedBy.some((id) => id.startsWith("fact-"))))) return null;
   if (!r || r.of !== copyKey(p)) return "nothing on file says the sources it cites actually support what it claims, so it is held until Beacon's own reviewer has read them together";
   if (r.version !== REVIEW_CONTRACT) return "the reading on file was made under an older review contract, so it is read again before these words are offered";
+  // THE SUSPECTED NO-OP IS RULED, NEVER ASSUMED: a suspected card without an explicit materiality ruling is held for the reviewer, and one the reviewer ruled immaterial is never offered. Provider unavailable means it WAITS, not that it publishes or dies.
+  if (wordingOnlySuspicion(p) && r.materialChange !== true) return r.materialChange === false
+    ? "Beacon's reviewer ruled this rewording keeps the page's meaning, so it is not offered"
+    : "this looks like a wording-only change, so Beacon's reviewer must confirm the meaning genuinely moves before it is offered";
   if (r.claims.length !== claims.length) return "the reading did not rule on every claim this change makes, and silence about one of them is not a pass";
   return claims.every((c, i) => { const v = r.claims.find((x) => x.i === i); return !!v && v.entailed && key(v.by) === key(c.supportedBy); }) ? null : "a claim here was not shown to follow from the exact sources it names";
 }

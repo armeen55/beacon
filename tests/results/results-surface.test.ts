@@ -58,8 +58,7 @@ describe("one change gets one line", () => {
     expect(row.pips).toEqual([{ day: 7, state: "read" }, { day: 14, state: "read" }, { day: 28, state: "read" }]);});
   it("calls a loss a loss, holds an early lean as still reading, and never grades them on different rules", () => {
     expect([first({ read: declined }).verdictWord, first({ read: declined }).liftLabel, first({ read: declined }).happened]).toEqual(["Went down", "-30 clicks behind", "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed."]);
-    // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading, which is what the header already claimed, and the running estimate stays on screen beside it.
-    const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []);
+    const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), []); // PIN: ONE MATURITY RULE. A 7 day lean is not a win and not a loss: until the window closes the row reads as Reading, which is what the header already claimed, and the running estimate stays on screen beside it.
     expect([first({ read: early }).group, first({ read: early }).verdictWord, first({ read: early }).happened]).toEqual(["reading", "Reading", "7 days in. Estimated lift: 40 clicks ahead of pages that were not changed."]);});
   it("claims no number on a read shared with a later change, and keeps the estimate visible as shared credit", () => {
     const row = buildResultsView([shipment({ read: sharedCredit })], NOW).rows.flat[0]!; expect([row.verdictWord, row.liftLabel, row.impressionsLabel, row.bar]).toEqual(["Shared with a later change", null, null, null]);
@@ -133,8 +132,7 @@ describe("what the screen calls the work, and what it will not promise", () => {
       ["lab word", /\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i]] as const)
       for (const s of strings) expect(s, `${why} in: ${s}`).not.toMatch(bad); });
   it("every sentence the headline switch can print speaks subjectless: the whole branch space, not a sample", () => {
-    // Third time this class shipped: a branch got rewritten and its sibling did not, and a fixture pin sampled around it. So walk the space.
-    const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const; const M = ["clicks", "ctr", "position", "unclassified"] as const;
+    const V = ["waiting", "insufficient_evidence", "directional_decline", "no_clear_movement", "directional_improvement", "stronger_improvement", "confounded"] as const; const M = ["clicks", "ctr", "position", "unclassified"] as const; // Third time this class shipped: a branch got rewritten and its sibling did not, and a fixture pin sampled around it. So walk the space.
     for (const verdict of V) for (const basisDay of [7, 14, 28, 56] as const) for (const overlapCount of [0, 1, 2]) for (const overlapClosedOn of [null, "2026-05-05"]) for (const metric of M) {
       const line = buildHeadline({ verdict, metric, lift: verdict === "directional_decline" ? -30 : 40, impressionsLift: 60, basisDay, overlapCount, overlapClosedOn, ga4ExtraSessions: 12, ga4Trustworthy: true });
       expect(line, line).not.toMatch(/\b(I|me|my|we|our)\b/); expect(line, line).not.toMatch(/[\u2013\u2014]/);}
@@ -246,7 +244,7 @@ describe("what each kind of change has done here", () => {
   const w = (adjustedLift: number) => ({ day: 28 as const, checkOn: "2026-05-29", ran: true, treatedDelta: adjustedLift, controlDelta: 0,
     adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3 });
   const rec = (over: Partial<Row> = {}): Row => ({ path: "/p", page: "https://site.com/p", actionType: "edit_title", after: "the new words",
-    windows: [w(10)], implementedAt: null, verification: null, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, ...over });
+    windows: [w(10)], implementedAt: "2026-05-01T12:00:00Z", verification: { status: "verified", checkedAt: "2026-05-03T00:00:00Z", components: [] }, operatorVerdictOverride: null, pinnedRead: null, treatmentStamp: null, componentsApplied: null, ...over }); // verified by default: a legacy row (implementedAt null) is labelled history now and teaches nothing (operator, 2026-08-30)
   const many = (n: number, tag: string, over: Partial<Row> = {}): Row[] =>
     Array.from({ length: n }, (_, i) => rec({ ...over, path: `/${tag}-${i}`, page: `https://site.com/${tag}-${i}` }));
   const strip = async (rows: Row[]): Promise<string> => {
@@ -283,7 +281,7 @@ describe("what each kind of change has done here", () => {
       treatmentStamp: { signature: { family: "meta", treatment: null, field: null, cause: null }, overlapAtShip: 2 } });
     expect(words(cardOf(await strip([...METAS, beside]), "meta::"))).toContain("1 of these was measured alongside other changes on the same page.");});
   it("says nothing has been read rather than implying a record, when no reading may count", async () => {
-    const html = await strip([rec({ implementedAt: "2026-05-01T00:00:00Z" }), rec({ path: "/q", implementedAt: "2026-05-01T00:00:00Z" })]);
+    const html = await strip([rec({ implementedAt: "2026-05-01T00:00:00Z", verification: null, windows: [] }), rec({ path: "/q", implementedAt: "2026-05-01T00:00:00Z", verification: null, windows: [] })]);
     expect(words(html)).toContain("No verified readings yet. Changes verify after they are applied and the page is read back.");
     expect(html).toContain('data-learning-empty="true"'); expect(html).not.toContain("data-learning-card");});
   it("prints no lab word, no slug, no first person and no dash", async () => {

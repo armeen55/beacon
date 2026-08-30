@@ -38,6 +38,7 @@ export type TreatmentGroup = {
   /** Finished readings that moved the page up, down, and neither. An operator who pinned a row out of learning, and a reading whose credit is
    *  shared with a later change on the same page, are both inconclusive: neither is a result this kind of work may claim. */
   ahead: number; behind: number; inconclusive: number;
+  /** Rows from before live verification existed: shown as history, never counted as verified and never taught from. */ legacy: number;
   /** How many finished readings are behind the two numbers below. Never the number shipped. */
   sampleSize: number;
   /** The measured clicks these readings moved against comparable pages, summed and at the middle. Null with no finished reading at all: an
@@ -86,7 +87,7 @@ function settledLift(r: LearningRow): number | null {
 
 /** Whether this row's reading may count at all. See the header: an unverified Shipment is a claim, and a row with no stamp was never owed a
  *  check, so refusing it would throw away the only track record this account has. */
-const countable = (r: LearningRow): boolean => r.implementedAt == null || CONFIRMED.has(r.verification?.status ?? "");
+/** The one eligibility rule for POLICY numbers (operator, 2026-08-30): only a live-confirmed reading may teach. A legacy row (no recorded implementation moment) is honestly labelled history and never verified; verified-only means verified. */
 
 /**
  * THE SIGNATURE OF ONE SHIPMENT: the stamp if it carries one, otherwise as much of it as the row's own stored fields can honestly carry.
@@ -116,23 +117,24 @@ export function treatmentLearning(rows: readonly LearningRow[]): TreatmentGroup[
     const family = sig ? actionFamilyOf(sig.family) : null;
     const key = family == null ? UNSIGNED : `${family}::${sig!.treatment ?? ""}`;
     const g = acc.get(key)
-      ?? { family, treatment: sig?.treatment ?? null, shipped: 0, verified: 0, ahead: 0, behind: 0, inconclusive: 0, overlapping: 0, effects: [] };
+      ?? { family, treatment: sig?.treatment ?? null, shipped: 0, verified: 0, legacy: 0, ahead: 0, behind: 0, inconclusive: 0, overlapping: 0, effects: [] };
     g.shipped += 1;
-    if (!countable(r)) { acc.set(key, g); continue; }
+    // A LEGACY ROW IS HISTORY, NEVER A TEACHER (operator, 2026-08-30): rows from before live verification existed were counting as verified and training rank. They keep their own honestly labelled count and touch nothing else.
+    if (r.implementedAt == null) { g.legacy += 1; acc.set(key, g); continue; }
+    if (!CONFIRMED.has(r.verification?.status ?? "")) { acc.set(key, g); continue; }
     g.verified += 1;
     const lift = settledLift(r);
     if (lift != null) {
-      g.effects.push(lift);
       if ((r.treatmentStamp?.overlapAtShip ?? 0) > 0) g.overlapping += 1;
-      // AN OPERATOR WHO PINNED A ROW OUT OF LEARNING HAS ANSWERED THIS, and so has a frozen reading whose credit is already shared with a
-      // later change on the same page: both are counted and neither is allowed to point anywhere.
+      // MUTED AND ZERO READINGS ARE HISTORY, NEVER SAMPLES (operator, 2026-08-30): an operator's inconclusive pin, a confounded frozen reading, and a clean no-movement each increment the visible count and enter NO effect, sample, median, or family history. They used to be pushed into effects first and excluded only from the direction tally, so three confounded readings could still swing a treatment's net.
       const muted = r.operatorVerdictOverride === "inconclusive" || r.pinnedRead?.verdict === "confounded";
-      if (muted || lift === 0) g.inconclusive += 1; else if (lift > 0) g.ahead += 1; else g.behind += 1;
+      if (muted || lift === 0) g.inconclusive += 1;
+      else { g.effects.push(lift); if (lift > 0) g.ahead += 1; else g.behind += 1; }
     }
     acc.set(key, g);
   }
   return [...acc].map(([key, g]) => ({
-    key, family: g.family, treatment: g.treatment, shipped: g.shipped, verified: g.verified,
+    key, family: g.family, treatment: g.treatment, shipped: g.shipped, verified: g.verified, legacy: g.legacy,
     ahead: g.ahead, behind: g.behind, inconclusive: g.inconclusive, overlapping: g.overlapping,
     sampleSize: g.effects.length, netEffect: g.effects.reduce((a, b) => a + b, 0), medianEffect: medianOf(g.effects),
     early: g.effects.length < EARLY_UNDER,

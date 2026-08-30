@@ -1277,13 +1277,14 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(plan(jobs, { candidates: 1 }).funded.map((f) => f.key)).toEqual(["/strong"]);
     expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/strong", "/tiny"]);
     expect(plan(jobs, { candidates: 1, skip: ["/strong"] }).funded.map((f) => f.key)).toEqual(["/tiny"]); });
-  it("funds a finish before a start, and the best ordinary candidate right after it", () => {
-    // FINISHING OUTRANKS STARTING (operator program, 2026-08-30): a correction_review completes a card the account already paid to mint, and one-cent finishes losing to expensive fresh drafts is how Azadeh's review was skipped twice in one night.
-    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)]);
-    expect([b.funded.map((f) => f.key), b.take("/best") != null, b.declined[0]?.key]).toEqual([["/rugs", "/best"], true, "topic:wildlife"]);
-    // ...and the finish wins its OWN page's one slot too: the collapse runs before the ranking, and a field draft taking the slot is exactly how Azadeh's review was skipped by a third funded pass.
-    const same = plan([job("/p", "field_draft", 90), job("/p", "correction_review", 90)]);
-    expect(same.funded.map((f) => [f.key, f.family, [...f.fallbacks]])).toEqual([["/p", "correction_review", ["field_draft"]]]);});
+  it("orders every paid job by expected value, with a finish breaking only a genuine tie", () => {
+    // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put every one-cent finish above every new section whatever the traffic said, which is the names-only queue. A finish still wins any true tie, at the manifest and at the page's one slot alike.
+    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)], { candidates: 3 });
+    expect(b.funded.map((f) => f.key), "value first: the 90-click draft beats the 3-click finish, and the finish funds LAST").toEqual(["/best", "topic:wildlife", "/rugs"]);
+    expect(plan([job("/a", "field_draft", 5), job("/b", "correction_review", 5)]).funded.map((f) => f.key), "equal value: the finish goes first").toEqual(["/b", "/a"]);
+    expect(plan([job("/p", "field_draft", 90), job("/p", "correction_review", 3)]).funded.map((f) => [f.key, f.family, [...f.fallbacks]]), "the page's one slot goes to value, with the finish as fallback").toEqual([["/p", "field_draft", ["correction_review"]]]);
+    expect(plan([job("/q", "field_draft", 90), job("/q", "correction_review", 90)]).funded.map((f) => f.family), "a same-page true tie still finishes first").toEqual(["correction_review"]);
+    expect(plan([job("/names", "correction_review", 0), job("/section", "editor", 5)], { candidates: 1 }).funded.map((f) => f.key), "a zero-demand correction inherits nothing and funds last, never at its page's worth").toEqual(["/section"]);});
   it("collapses every family that wants one page into ONE funded job, so two slots cover two pages and not one page twice", () => {
     const b = plan([job("/one", "deep_bundle", 60, DRAFT_BUDGET.BUNDLE_CALLS), job("/one", "editor", 55), job("/next", "field_draft", 30)]);
     expect(b.funded.map((f) => [f.key, f.family, f.calls, f.impact, [...f.fallbacks]])).toEqual([["/one", "deep_bundle", 12, 60, ["editor"]], ["/next", "field_draft", DRAFT_BUDGET.DELIVERABLE_CALLS, 30, []]]);

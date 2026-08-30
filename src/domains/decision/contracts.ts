@@ -328,7 +328,7 @@ export type ChangeProposal = {
   /** THE RETIREMENT RECEIPT for finished copy a later pass genuinely replaced (operator, 2026-08-22): the exact words that were retired and the material fact that retired them, so a replacement is inspectable and never the silent loss of the only record of the finished version. Stamped only when finished copy is really discarded for a material change; a pass that merely reworded its own prose preserves the copy and stamps nothing. */
   previousCopy?: { after: string; retiredBecause: string; at: string };
   /** WHAT BEACON'S OWN PAID REVIEWER RULED, CLAIM BY CLAIM. An exact identity string stood here: it proved a receipt could not ride other words and proved NOTHING about whether the cited facts SUPPORT the claim, because the producer computed it about its own output and the store then approved that description, so "Noor means light" could stand on a fact reading "Tehran is the capital of Iran" (Codex, 2026-08-28). `of` is decision/proof's `copyKey`; `version` is the review contract it was made under. */
-  semanticReview?: { of: string; version: number; claims: readonly { i: number; by: readonly string[]; entailed: boolean }[] };
+  semanticReview?: { of: string; version: number; claims: readonly { i: number; by: readonly string[]; entailed: boolean }[]; /** The reviewer's materiality ruling for a suspected wording-only change: false = the meaning did not move. Absent on rulings made before the question existed. */ materialChange?: boolean };
   informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean };
   preservation?: readonly { text: string; disposition: "kept" | "corrected" | "removed" | "moved"; why?: string; to?: string;
     basis?: "duplicate_of" | "replaced_by" | "unsupported" | "obsolete" | "owner_confirmed"; by?: readonly string[] }[];
@@ -448,7 +448,7 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   approval: z.object({ by: z.string().min(1), at: z.string().min(1) }).optional(),
   redraftRequested: z.string().min(1).optional(),
   previousCopy: z.object({ after: z.string().min(1), retiredBecause: z.string().min(1), at: z.string().min(1) }).optional(),
-  semanticReview: z.object({ of: z.string().min(1), version: z.number().int(), claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })) }).optional(), informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional(),
+  semanticReview: z.object({ of: z.string().min(1), version: z.number().int(), claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), materialChange: z.boolean().optional() }).optional(), informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional(),
   preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), why: z.string().optional(), to: z.string().optional(),
     basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).optional(),
   publish: z.literal("manual"),

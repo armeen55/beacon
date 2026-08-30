@@ -118,7 +118,9 @@ function cardOf(g: TreatmentGroup, rows: readonly OwnedRow[]) {
       : (g.medianEffect ?? 0) < 0 && verdict === "down" ? "down" : "muted",
     valueNote: "typically, against pages that were not changed",
     counts: `${plural(g.shipped, "change", "changes")} marked done, ${g.verified} counted, `
-      + `${plural(g.sampleSize, "read", "read")} to the end.${splitLine(g)} ${cap(shortly(g.netEffect))} in total.`,
+      + `${plural(g.sampleSize, "read", "read")} to the end.`
+      + (g.legacy > 0 ? ` ${g.legacy} from before live verification existed, shown as history only.` : "")
+      + `${splitLine(g)} ${cap(shortly(g.netEffect))} in total.`,
     earlyLine: g.early ? `Early: ${plural(g.sampleSize, "reading", "readings")} so far.` : null,
     overlapLine: g.overlapping > 0
       ? `${g.overlapping} of these ${g.overlapping === 1 ? "was" : "were"} measured alongside other changes on the same page.`

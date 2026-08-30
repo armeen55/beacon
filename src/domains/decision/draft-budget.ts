@@ -56,12 +56,12 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     if (!at) byKey.set(j.key, { ...j });
     else { // A LIVE JOB ALWAYS BEATS A BLOCKED ONE on the same page, whatever the scores say: a page is only blocked
       // when EVERY family that wants it is blocked, or a stale field draft would silence a live editor card.
-      // AND A FINISH WINS THE PAGE'S ONE SLOT (2026-08-30): the collapse ran before the ranking, so the
-      // finishing-first order never saw the correction_review at all; the field family took the page's slot
-      // and Azadeh's one-cent review was skipped by a THIRD funded pass. Same doctrine at both doors now.
+      // AND VALUE WINS THE PAGE'S ONE SLOT, with a finish breaking only a tie (operator, 2026-08-30): the
+      // same order at both doors, or the collapse hands the slot to work the ranking would never have chosen.
       const cmp = at.blocked && !j.blocked ? j : j.blocked && !at.blocked ? at
+        : j.impact !== at.impact ? (j.impact > at.impact ? j : at)
         : finishes(j) !== finishes(at) ? (finishes(j) ? j : at)
-        : j.impact > at.impact || (j.impact === at.impact && j.calls < at.calls) ? j : at;
+        : j.calls < at.calls ? j : at;
       const win = cmp, lose = win === j ? at : j;
       byKey.set(j.key, { ...win, fallbacks: [...new Set([...(win.fallbacks ?? []), ...(lose.fallbacks ?? []), lose.family])].filter((f) => f !== win.family) }); } }
   // ONE ORDER, AND IT IS EXPECTED SITE IMPACT (Codex, 2026-08-23). Sorting pages that were funded and never
@@ -70,12 +70,11 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
   // it for free because settled keys are the only ones the caller skips.
   const tried = new Set(input.retry ?? []);
-  // FINISHING OUTRANKS STARTING (operator program, 2026-08-30): a correction_review completes a card the
-  // account ALREADY paid to mint, and ranking it by page worth alone let one-cent finishes lose to expensive
-  // fresh drafts twice in one night (Azadeh, live). Same doctrine as the acquisition runtime's "finish what
-  // is already bought first"; impact still orders everything within each half.
+  // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
+  // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
+  // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(tried.has(a.key)) - Number(tried.has(b.key)) || finishes(b) - finishes(a) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {

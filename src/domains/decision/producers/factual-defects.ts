@@ -4,7 +4,7 @@ import "server-only";
 
 import { log } from "@/lib/logger";
 import { canonicalUrlKey, type EvidenceSnapshot } from "@/domains/evidence/snapshot";
-import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey, wordingOnlySuspicion } from "@/domains/decision/proof";
 import { labelOf } from "@/domains/decision/completeness";
 import { authorizedCorrections, correctionSeverity, readFactChecks, unauthorizedReason, VERIFICATION_RULES_VERSION, type FactCheck } from "@/domains/evidence/pages/fact-checks";
 import { supportShortfall } from "@/domains/evidence/pages/claim-support";
@@ -18,7 +18,6 @@ const slugOf = (s: string): string => s.toLowerCase().normalize("NFKD").replace(
 
 const pathOf = (url: string): string => {
   if (url.startsWith("/")) return url.split(/[?#]/)[0]!.replace(/\/+$/, "") || "/";
-  const noOpWhy = new Map<string, string>();
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 const n = (x: number): string => x.toLocaleString("en-US");
 
@@ -68,7 +67,7 @@ function composedReplacement(before: string, proposed: string): string {
 type FactualDefectRun = { cards: ChangeProposal[]; complete: boolean };
 
 /** BEACON PERFORMS THE SENSE REVIEW, NEVER THE OPERATOR (operator, 2026-08-22). The bundle sat at needs_review because "nothing has read this for sense yet", which delegated Beacon's own quality control. Batches of ten go to the one  gateway with the exact current statement, replacement, source quote and locator; each component is ruled on ITS OWN INDEX, so one defective replacement holds only itself. A batch that cannot be read (unaffordable, refused, no key)  reviews nothing and the card stays honestly at needs_review with the reason. Cached by content through the gateway, so a repeat pass reviews at $0. */
-const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component: judge whether the replacement reads as grammatical natural English a person would publish in place of the current statement, whether it contradicts any OTHER component in this batch, and then rule on EVERY listed claim of that component separately. A claim is entailed ONLY when the passages you are shown under the fact ids that claim names actually carry it; a passage about something else is not support however true it is. Return {\"rulings\":[{\"index\":<component>,\"publish\":<bool>,\"reason\":\"<one sentence>\",\"claims\":[{\"claim\":<the claim number shown>,\"factIds\":[<exactly the fact ids that claim lists>],\"entailed\":<bool>,\"why\":\"<one sentence>\"}]}]}. Rule on every claim shown for a component, once each, naming that claim's own fact ids and no others. When in doubt, entailed=false."
+const REVIEW_SYSTEM = "You are Beacon's own final sense reviewer of sourced factual corrections about to be offered to a paying customer. For EACH numbered component: judge whether the replacement reads as grammatical natural English a person would publish in place of the current statement, whether it contradicts any OTHER component in this batch, and then rule on EVERY listed claim of that component separately. A claim is entailed ONLY when the passages you are shown under the fact ids that claim names actually carry it; a passage about something else is not support however true it is. Return {\"rulings\":[{\"index\":<component>,\"publish\":<bool>,\"reason\":\"<one sentence>\",\"claims\":[{\"claim\":<the claim number shown>,\"factIds\":[<exactly the fact ids that claim lists>],\"entailed\":<bool>,\"why\":\"<one sentence>\"}]}]}. Rule on every claim shown for a component, once each, naming that claim's own fact ids and no others. A component marked SUSPECTED WORDING-ONLY CHANGE additionally gets \"materialChange\": true only when the replacement genuinely moves the meaning, precision or coverage of the statement; a reordering or possessive swap that keeps the meaning is materialChange false. When in doubt, entailed=false."
 /** WHAT THE REVIEWER IS SHOWN FOR ONE COMPONENT: its exact copy, its canonical claims by index with the exact fact ids each one names, and the exact passage behind every id. The review used to see an anonymous `source:` blob and "claim 0", so it could not name what it had weighed and nothing could check that it had. */
 type ReviewItem = { c: BundleComponent; where: string; claims: readonly { claimIndex: number; text: string; by: readonly string[] }[]; facts: readonly { factId: string; exactPassage: string }[] };
 async function reviewComponents(tenantId: string, items: readonly ReviewItem[], now: Date,
@@ -79,6 +78,7 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
     const batch = items.slice(b, b + BATCH);
     if (wiring.attempts && (wiring.attempts.left -= 1) < 0) return null; // an unpaid batch reviews nothing
     const user = batch.map((it, i) => [`#${i}: on the page now: "${it.c.before ?? ""}"`, `replacement: "${it.c.after}"`, `where: ${it.where}`,
+      ...(wordingOnlySuspicion({ recommendedChange: { kind: "existing_edit", field: "section", before: it.c.before ?? null, after: it.c.after } } as never) ? ["SUSPECTED WORDING-ONLY CHANGE: rule materialChange for this component."] : []),
       "claims to rule on:", ...it.claims.map((x) => `  claim ${x.claimIndex}: "${x.text}" — must be entailed by exactly these fact ids: ${x.by.join(", ")}`),
       "the exact passage behind each fact id:", ...it.facts.map((f) => `  ${f.factId}: "${f.exactPassage}"`)].join("\n")).join("\n\n")
       + `\n\nReturn one ruling per component, indexes 0 to ${batch.length - 1}, each with a ruling for every claim shown for it.`;
@@ -87,7 +87,7 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
       ...(wiring.complete ? { complete: wiring.complete as never } : {}), ...(wiring.bypassCache ? { bypassCache: true } : {}) }).catch(() => null);
     wiring.attempts?.record?.(r); // BEFORE the status branch: a paid failure is still paid, and the receipt says so
     if (r?.status !== "drafted") return null;
-    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; claims: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
+    const rulings = (r.value as { rulings: { index: number; publish: boolean; reason: string; materialChange?: boolean; claims: { claim: number; factIds: string[]; entailed: boolean; why: string }[] }[] }).rulings;
     // A COMPONENT THE REVIEW DID NOT RULE ON IS NOT PUBLISHED: silence is never a pass. AND THE RETURNED MAPPING IS CHECKED, NOT TIDIED: a ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean-looking authorization from its OWN ids, which is self-authorization wearing a reviewer's name (Codex, 2026-08-28).
     // NOTHING THE REVIEWER RETURNED IS SILENTLY IGNORED. Every expected component was checked, and a ruling for a
     // component nobody asked about was simply dropped, so a response could carry anything alongside the real ones.
@@ -107,10 +107,10 @@ async function reviewComponents(tenantId: string, items: readonly ReviewItem[], 
               return g.length !== 1 ? `claim ${c.claimIndex} was ruled ${g.length} times`
                 : !g[0]!.factIds.every((f) => known.has(f)) ? `claim ${c.claimIndex} names evidence nobody banked`
                   : key(g[0]!.factIds) !== key(c.by) ? `claim ${c.claimIndex} was ruled against different evidence than it names`
-                    : !g[0]!.entailed ? g[0]!.why : null; }).find((x) => x != null) ?? (v.publish !== true ? v.reason : null);
+                    : !g[0]!.entailed ? g[0]!.why : null; }).find((x) => x != null) ?? (v!.publish !== true ? v!.reason : v!.materialChange === false ? "the reviewer ruled this rewording keeps the page's meaning" : null);
       if (bad != null) held.set(b + i, bad);
-      // THE REVIEWER'S OWN MAPPING IS WHAT IS BANKED, ordering normalized and values never regenerated.
-      else passed.set(b + i, got.map((x) => ({ i: x.claim, by: [...x.factIds].sort(), entailed: x.entailed })));
+      // THE REVIEWER'S OWN MAPPING IS WHAT IS BANKED, ordering normalized and values never regenerated; its materiality ruling rides along so the serving door can hold a suspected wording-only change on the reviewer's own word.
+      else passed.set(b + i, Object.assign(got.map((x) => ({ i: x.claim, by: [...x.factIds].sort(), entailed: x.entailed })), { materialChange: v!.materialChange }));
     }
     if (wiring.attempts && (r as { cached?: true }).cached) wiring.attempts.left += 1; // a cache hit cost nothing
   }
@@ -181,7 +181,7 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
   return cards.map((c, i) => unfit.has(i)
     ? { ...c, limitations: [`Held by Beacon's own review: ${unfit.get(i)}`, ...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not"))] }
     : { ...c, status: "ready" as const,
-      ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: cleared.get(i)! } } : {}), // THE REVIEWER'S OWN RULING, never one rebuilt from the producer's `supportedBy`
+      ...(cleared.has(i) ? { semanticReview: { of: copyKey(c), version: REVIEW_CONTRACT, claims: cleared.get(i)!, ...((cleared.get(i) as { materialChange?: boolean }).materialChange != null ? { materialChange: (cleared.get(i) as { materialChange?: boolean }).materialChange } : {}) } } : {}), // THE REVIEWER'S OWN RULING, never one rebuilt from the producer's `supportedBy`
       limitations: [...(c.limitations ?? []).filter((l) => !l.startsWith("Beacon's own sense review has not")),
         "Beacon's own reviewer read this correction for grammar, source fit and contradictions before it was offered."] });
 }
@@ -239,13 +239,12 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       // forty of the operator's best work died in one write. A correction is independently applicable, so it is
       // independently ranked, and NO BUNDLE is minted for it: the stale sweep only reaches rows carrying one, so
       // a point edit cannot be taken by a replan of the page it happens to sit on. No cap: the queue is unlimited.
-      // A WORDING SWAP THAT KEEPS THE MEANING IS NOT A CORRECTION (operator, 2026-08-30): "Hand of God" to "God's hand" reached Ready as work. Content tokens, possessives folded, connectors dropped; equal sets mint nothing and the row stands as it is. A REPAIR is exempt: same words differently punctuated is exactly what that treatment fixes.
-      const contentTokens = (t: string): string => [...new Set(t.toLowerCase().replace(/'s\b/g, "").replace(/[^\p{L}\p{N} ]+/gu, " ").split(/\s+/).filter((w) => w.length > 0 && !["of", "the", "a", "an", "meaning"].includes(w)))].sort().join(" ");
       for (const [i, c] of corrections.entries()) {
         const span0 = replacedSpanOf(c);
-        if (bareOf(span0) !== bareOf(composedReplacement(span0, c.proposed!)) && contentTokens(span0) === contentTokens(c.proposed ?? "")) {
-          log.info("[factual-defects] a proposed rewording keeps the page's meaning, so no card is minted", { tenantId, subject: c.subject });
-          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the proposed rewording keeps the page's meaning, so there is nothing to correct");
+        // ONLY THE LITERALLY IDENTICAL SKIPS DETERMINISTICALLY (operator, 2026-08-30): a bag of words is a SUSPICION, not a proof, because "fear of God" and "God's fear" reduce to the same tokens without meaning the same thing. A suspected wording-only change mints and is held until the ONE reviewer rules its materiality; the composed output equalling the span byte for byte is the only thing settled without asking.
+        if (composedReplacement(span0, c.proposed!) === span0) {
+          log.info("[factual-defects] the composed replacement is identical to the page's own line, so no card is minted", { tenantId, subject: c.subject });
+          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the composed replacement is identical to the page's own line, so there is nothing to change");
           continue;
         }
         // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every
