@@ -30,7 +30,7 @@ import { publishCustomerSurfaces } from "./warm-caches";
 import { chooseInvestigation, comparisonForFocus, focusReads, type ResearchFocus } from "./investigation-queries";
 import { dailyChecks, dueObservations, runAnswerAnalyses } from "./daily-observations";
 import { reportingDay } from "@/lib/reporting-day";
-import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_TARGET, readyStockFloor, type DuePhase, type DueWork } from "./due-work";
+import { accountBasis, dueWork, evidenceRowVersion, READY_STOCK_ALARM, readyStockFloor, type DuePhase, type DueWork } from "./due-work";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import type { EvidenceRequirement } from "@/domains/decision/producers/contract";
 import type { ResearchPhase } from "../research-run";
@@ -101,8 +101,7 @@ export type ResearchCycleSteps = {
   /** The research notes' row version for a basis, read at the moment the decision step concludes: the watermark this pass consumed. Read AFTER the pass's own
    *  writes, never before, or a pass would forever count its own discovery as new evidence and re-open itself. */
   evidenceVersion: (tenantId: string, basis: string) => Promise<number | null>;
-  /** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): count the finished changes on file and, under the target, finish the strongest stored opportunities through the ONE canonical producer before this cycle buys exploratory
-   *  evidence. Bounded per drive; null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
+  /** FINISH STORED OPPORTUNITIES THROUGH THE ONE CANONICAL PRODUCER before this cycle buys exploratory evidence. The count on the receipt is the LOW-STOCK ALARM ONLY (operator, 2026-08-30): `deficit` reports how far the stock sits under the alarm floor and sizes NOTHING; the buy runs the whole declared manifest to the pass's own money and time bounds, whatever the count. null = the count could not be read, which defers nothing and claims nothing. `seen` is the day's own memory: the manifest it was working through and the pages it has already spent on. */
   replenishReady: (tenantId: string, now: Date, seen?: { fingerprint: string | null; attempted: readonly string[]; tried?: readonly string[] },
     /** The wall-clock moment this drive must stop starting paid work. The pass returns normally at it, with receipts, instead of being cut off by a timer and reporting nothing. */ stopBy?: number) => Promise<{ ready: number; deficit: number; persisted: number;
     /** TRUE only when a post-pass re-read PROVES the stock is AT THE TARGET. */ satisfied: boolean;
@@ -116,13 +115,6 @@ export type ResearchCycleSteps = {
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-/** How many deliverables ONE drive may finish toward the target. Raised from two to the target itself (operator,
- *  2026-08-22, "no guardrails, unlimited money"): at two a drive could never reach five however much credit there
- *  was, so the stock crawled up across dispatches when it could have landed in one. The per-candidate prices below
- *  are what keep that honest, and they are untouched: five candidates, each still bounded to what its own
- *  deliverable costs, is more finished work rather than more retries on one stubborn page. */
-const REPLENISH_DRAFTS_PER_DRIVE = READY_STOCK_TARGET;
-
 /** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): three pages never multiply it. */
 const PAGES_PER_PASS = 3;
 
@@ -203,22 +195,14 @@ export const defaultSteps: ResearchCycleSteps = {
     // A COUNT I COULD NOT READ SETTLES NOTHING: the pass stays owed and the next drive asks again.
     if (before == null) return null;
     // THE DAY'S MEMORY IS KEPT PER MANIFEST. A different basis is a different set of candidates, so what an earlier manifest already tried says nothing about this one and the attempted list starts empty.
-    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : []; const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_TARGET); // the tenant's own pace, never a universal five
+    const held = seen?.fingerprint != null && seen.fingerprint.startsWith(`${stamp}::`) ? [...seen.attempted] : []; const floor = await readyStockFloor(tenantId).catch(() => READY_STOCK_ALARM); // the low-stock alarm level: it colors the receipt and nothing else
     const mark = (reason: "made_progress" | "retryable_blocked" | "candidates_exhausted", ready: number, persisted: number, fingerprint: string, attempted: string[],
       outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[] }, tried?: string[], evidenceOwed?: readonly OwedReading[]) =>
       ({ ready, deficit: Math.max(0, floor - ready), persisted, satisfied: reason === "candidates_exhausted", reason, fingerprint, attempted, ...(tried && tried.length > 0 ? { tried } : {}), ...(evidenceOwed && evidenceOwed.length > 0 ? { evidenceOwed } : {}), ...(outcomes ? { outcomes } : {}) });
-    // ALREADY STOCKED IS THE ONE SUCCESS THAT COSTS NOTHING, and it drafts nothing at all. WHAT IT MAY NOT DO IS BELIEVE THE COUNT WITHOUT LOOKING. A stocked count is a claim that five rows pass the rules that stand today, and the rows were judged by the rules that stood when they were written: live, a keyword-stuffed answer sat Ready, held its slot, closed the day, and stopped the very pass that would have caught it. The producer's free re-read answers that in full and buys nothing, so it runs first and the count is taken afterwards. Whichever way rows moved, the number below is today's.
-    let proven = before;
-    if (floor - before <= 0) { const { runWithoutSpending } = await import("@/lib/spend-scope");
-      // ZERO SPEND IS ASSERTED ON THE STACK, not just asked for in the options. `zeroSpend` closes the producer's own doors; the ambient scope closes any door a future caller adds underneath it, and this path now runs on EVERY drive, which is the last place to rely on one flag being read.
-      await runWithoutSpending(() => d.produceProposalsForTenant(tenantId, { now, maxDrafts: 0, zeroSpend: true })).catch(() => null);
-      proven = (await read()) ?? before; // and the count the day closes on is the one just proven, never the one it opened with
-    }
-    // THE STOCK TARGET IS A FLOOR, NEVER A CEILING. A drive that reached five returned `target_reached` and drafted nothing, so the queue stopped at an arbitrary quantity while real evidenced work stood unwritten and the operator was told the day was finished. Short of the floor the shortfall drives the pass; at or above it the drive still produces one bounded batch. The day ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` once the manifest it declared is fully settled.
-    const short = Math.max(0, floor - proven), deficit = short > 0 ? short : REPLENISH_DRAFTS_PER_DRIVE;
+    // THE COUNT SIZES NOTHING (operator, 2026-08-30). The old drive computed a shortfall here and handed it down as the number of rows this pass might buy, so a full-enough queue closed every family's spending while evidenced work stood unwritten. The pass now walks the whole declared manifest bounded by its own call ceiling and time box; the day still ends on CANDIDATES, not a count: `attempted` accumulates every settled key and the pass closes as `candidates_exhausted` only once the manifest it declared is fully settled. The paid pass itself re-judges every stored row first (its deterministic families are rewritten in full), so the count the day reports is proven, not believed.
     // A SPENT PROVIDER BALANCE MAKES NO CALL AND CLAIMS NOTHING: nothing was tried, so nothing is written off as tried, and the day stays open for the moment the credit is back. This is the PURE read of the stop: the probe a cooldown grants is spent by the provider call itself, one door down, never by this guard.
     if (await creditBreakerHeld(tenantId).catch(() => true)) {
-      log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, deficit });
+      log.warn("[research-run] the provider's own credit is spent, so the ready inventory was not topped up and this stays owed", { tenantId, ready: before, floor });
       return mark("retryable_blocked", before, 0, seen?.fingerprint ?? `${stamp}::held`, held);
     }
     // THE SAME CANONICAL PRODUCER, stored evidence only: it posts no provider task by construction, and its paid work is planned, priced and funded once before it spends. Pages this day already reached a TERMINAL answer for are declared but not funded again, so each drive walks further down the one ranking instead of buying the same settled refusal twice.
@@ -227,8 +211,8 @@ export const defaultSteps: ResearchCycleSteps = {
     // A hit returns `drafted` at $0 BEFORE the budget gate and the editor REFUNDS the attempt, so every drive replayed drafts written before today's gates existed, failed the same gates in the same way, spent nothing, and left the queue on zero. A stall with no cost signal at all: the 22:00Z drive funded five candidates and made not one OpenAI call.
     const { getTenantSpentThisMonthUsd } = await import("@/lib/cost/budget-ledger-supabase");
     const ledgerBefore = await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null);
-        // THE SHORTFALL IS WHAT THE PASS MUST LAND, NEVER WHAT IT MAY TRY. Asking for `min(deficit, 5)` candidates meant a queue one row short attempted exactly ONE page: two dispatches spent everything on whichever two ranked highest and never reached the work that had just gained its evidence. The walk is the drive's whole allowance; the buying stops the moment the shortfall is filled. THE TOP-UP NEVER SERVES A CACHED DRAFT, so it always pays for a fresh take.
-    const out = await d.produceProposalsForTenant(tenantId, { now, maxDrafts: REPLENISH_DRAFTS_PER_DRIVE, readyTarget: deficit, skipKeys: held, retryKeys: seen?.tried ?? [], bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
+        // THE WALK IS THE DRIVE'S WHOLE ALLOWANCE, and nothing counts it down but money and time: no shortfall, no target, no "enough". THE TOP-UP NEVER SERVES A CACHED DRAFT, so it always pays for a fresh take.
+    const out = await d.produceProposalsForTenant(tenantId, { now, produce: true, skipKeys: held, retryKeys: seen?.tried ?? [], bypassCache: true, ...(stopBy != null ? { stopBy } : {}) }).catch(() => null);
     const ledgerAfter = out ? await getTenantSpentThisMonthUsd(tenantId, now, "adjudicator-openai").catch(() => null) : null;
     if (out && out.held.length > 0) log.info("[research-run] candidates the replenish pass could not finish, each with its reason", { tenantId, held: out.held.slice(0, 6) });
     // A PASS THAT COULD NOT RUN, COULD NOT READ ITS EVIDENCE, OR COULD NOT SAVE WHAT IT MADE HAS SETTLED NOTHING. It tried nothing it can prove, so nothing is written off and the day stays open.

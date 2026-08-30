@@ -36,8 +36,8 @@ type PaidJob = { key: string; family: string; impact: number; calls: number; tre
 type DeclinedJob = { key: string; family: string; calls: number; reason: string };
 
 /** THE ONE RANKING, AND THE ONE SELECTION. Ranked by what each job is worth PER CHARGED CALL, not by worth alone: ranking on impact by itself let one twelve-call bundle swallow a pass that could have finished four changes worth more together, which is the starvation the operator saw as "239 calls, nothing ready". Impact breaks ties so two jobs at the same price still order by value, and the key breaks the last tie so the same manifest always plans the same way. Then a single walk: take a job when a candidate slot and its full price are both left, otherwise record why and keep walking, so a cheap strong job behind an unaffordable bundle is still funded. */
+/** THERE IS NO INVENTORY TARGET IN THIS PLAN (operator, 2026-08-30). A `readyTarget` used to close every family's `take()` the moment that many Ready rows landed, which made a full-enough queue a reason to stop buying work the evidence had already earned. Deleted whole: what bounds a pass is the money above, the caller's time box, and each candidate's own typed settlement. Nothing here may ever read how much finished work already exists. */
 function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: number; breakerOpen?: boolean; quiet?: boolean;
-  /** HOW MANY FINISHED CHANGES THIS PASS IS SHORT, counted down only by `land()` when the STORE accepted a Ready row. Reached, and no family draws again. Absent = walk the whole funded manifest. */ readyTarget?: number;
   /** Pages a previous pass TODAY already spent real calls on and got nothing from. They stay DECLARED, so the caller can still tell a manifest that is finished from one that is not, and they are not funded again: the money moves down the ranking instead of buying the same refusal twice. */ skip?: readonly string[];
   /** Pages this day ALREADY SPENT REAL CALLS ON that came back transiently blocked. They are still owed and still
    *  fundable, but they rank behind work nobody has tried, because a candidate that fails the same way every time
@@ -77,7 +77,7 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   const ranked = [...byKey.values()].sort((a, b) =>
     Number(tried.has(a.key)) - Number(tried.has(b.key)) || finishes(b) - finishes(a) || b.impact - a.impact || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
-  let slots = Math.max(0, input.candidates), callsLeft = ceiling, owed = input.readyTarget ?? null;
+  let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
@@ -116,16 +116,8 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     /** The funded set, best first, as the pass's own receipt of what it decided to buy before it bought anything. */
     funded: ranked.filter((j) => funded.has(j.key)).map((j) => ({ key: j.key, family: j.family, calls: funded.get(j.key)!, impact: j.impact, fallbacks: j.fallbacks ?? [], ...(j.treatment ? { treatment: j.treatment } : {}), ...(j.workKey ? { workKey: j.workKey } : {}) })),
     declined: declined as readonly DeclinedJob[],
-    /** WHAT THIS PASS IS STILL SHORT, and the ONLY way it goes down: a Ready row the STORE accepted. Copy that was
-     *  generated, held for review, refused, banked as evidence, or written and then lost to a failed save counts zero,
-     *  because none of them puts a finished change in front of the operator. Every family draws through `take` below,
-     *  so recording the shortfall here closes all six of them at once: once the target is met the next family asking
-     *  for money is told there is none, whatever it was going to write. Absent target means walk the whole manifest. */
-    land() { if (owed != null && owed > 0) owed -= 1; },
-    owed() { return owed; },
-    /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. */
+    /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. NO COUNT OF LANDED WORK EVER CLOSES THIS DOOR: the walk runs the whole funded manifest however many rows have already landed (operator, 2026-08-30). */
     take(key: string) {
-      if (owed != null && owed <= 0) return null; // the shortfall is filled: nothing further is bought, by any family
       const open = held.get(key);
       if (open) return open.left > 0 ? open : null;
       const price = funded.get(key);

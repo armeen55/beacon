@@ -853,7 +853,8 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   it("keeps asking for work above the stock floor, and stops only on a proven exhaustion", async () => {
     const closed = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a", attempted: [], closed: "candidates_exhausted" as const } } }) }); expect([(await dueWork(T, new Date(NOW), closed(5))).due, (await dueWork(T, new Date(NOW), closed(4))).due]).toEqual([[], []]); // a SETTLED manifest holds the day shut at any count
     const open = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) });
-    expect([(await dueWork(T, new Date(NOW), open(4))).due, (await dueWork(T, new Date(NOW), open(5))).due, (await dueWork(T, new Date(NOW), open(14))).due]).toEqual([["replenish_ready"], ["replenish_ready"], ["replenish_ready"]]); });
+    // THE OPERATOR'S ACCEPTANCE COUNTS (2026-08-30): at 0, at the old floor, and far past it, eligibility is identical.
+    for (const n of [0, 4, 5, 14, 40, 100, 500]) expect((await dueWork(T, new Date(NOW), open(n))).due, `at ${n} Ready rows the work is still due`).toEqual(["replenish_ready"]); });
   it("reopens an exhausted day the moment the evidence behind it moves, without waiting for tomorrow", async () => {
     const shut = { ...base, readyStock: async () => 0, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a|/b", attempted: ["/a", "/b"], closed: "candidates_exhausted" as const } } }) };
     expect((await dueWork(T, new Date(NOW), shut)).due).toEqual([]); // exhausted under version 7, and it stays shut while that is the question
@@ -865,7 +866,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
     for (const k of ["staleSources", "basis", "evidenceVersion", "surfaceStale", "debt", "pagesToCrawl", "answersToAnalyze", "analysisFingerprint", "consumedAnalyses", "factDebt", "readyStock", "creditHeld"] as const) expect([k, (await dueWork(T, new Date(NOW), { ...base, [k]: down })).readable]).toEqual([k, false]);
     expect((await dueWork(T, new Date(NOW), base)).readable).toBe(true); expect((await dueWork("", new Date(NOW), base)).readable).toBe(false); }); // no tenant, no answer, no I/O
 });
-/** READY INVENTORY BEFORE ACQUISITION (operator, 2026-08-22): the drive checks the finished-change stock in front of the first exploratory-evidence phase and finishes stored opportunities first, exactly once per drive; a stock at target checks and buys without drafting. The same count-driven check is what replenishes the deficit on the cycle after the operator marks a change implemented. */
+/** FINISHING BEFORE ACQUISITION (operator, 2026-08-22; count semantics deleted 2026-08-30): the drive runs the finishing step in front of the first exploratory-evidence phase, exactly once per drive. The count on its receipt is the low-stock alarm; it sizes and closes nothing. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
   const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "candidates_exhausted" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
   it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
@@ -890,23 +891,22 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     for (const answer of [null, { ready: 0, deficit: 5, persisted: 0, satisfied: false, reason: "retryable_blocked" as const, fingerprint: "b1::v1::x", attempted: ["/a", "/b"] },
       { ready: 2, deficit: 3, persisted: 2, satisfied: false, reason: "made_progress" as const, fingerprint: "b1::v1::x", attempted: ["/a"] }]) {
       const rows = withRun({ current_phase: "keyword_discovery" }); await run({ ...healthySteps([]), replenishReady: async () => answer }); expect(rows.at(-1)!.progress?.replenish?.closed, `closed on ${JSON.stringify(answer)}`).toBeUndefined();}});
-  /** A STOCKED COUNT IS A CLAIM, AND IT IS PROVEN BEFORE IT IS BELIEVED. Live on the account: a keyword-stuffed  answer sat Ready, made the count five, closed the day and returned before the producer ran, which is the only  thing that re-reads stored rows against the rules that stand today. The bad row held its own slot shut and  stopped the pass that would have caught it. The free re-read runs first now and buys nothing, and the count is  no longer a ceiling either: the drive goes on to draft the row the bad one was hiding. */
-  it("proves a stocked count against today's rules before it closes the day", async () => {
+  /** A STOCKED COUNT CHANGES NOTHING (operator, 2026-08-30). The drive used to size its buy off "floor minus ready" and a separate $0 pre-pass existed to prove the count before a day could close at the target; both are deleted, because no count opens, sizes, or closes production. The paid pass itself re-judges stored rows (its deterministic families are rewritten in full), and the day still closes only on a fully settled manifest. */
+  it("a stocked count buys exactly like an empty one: the drive walks its manifest and closes only on candidates", async () => {
     vi.resetModules();
-    const M = { ready: 5, calls: [] as { maxDrafts?: number; zeroSpend?: boolean }[] }; vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
+    const M = { ready: 5, calls: [] as Record<string, unknown>[] }; vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => 0 }));
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
     vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length,
       loadProposalQueue: async () => ({ ready: Array.from({ length: M.ready }, () => ({})) }),
-      produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; zeroSpend?: boolean }) => { M.calls.push(o);
-        // the free re-read finds the stuffed row and holds it back, so the stock is really four
-        if (o.zeroSpend === true) { M.ready = 4; return { persisted: 0, held: [], outcome: "proposals_persisted", paid: { declared: [], funded: [], attemptUnitsSpent: 0, receipts: [] } }; }
-        M.ready = 5; return { persisted: 1, held: [], outcome: "proposals_persisted", paid: { declared: ["/x"], funded: ["/x"], attemptUnitsSpent: 3, receipts: [{ key: "/x", funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: 0, providerAttempted: true, outcome: "produced" as const }] } }; } }));
+      produceProposalsForTenant: async (_t: string, o: Record<string, unknown>) => { M.calls.push(o);
+        return { persisted: 1, held: [], outcome: "proposals_persisted", paid: { declared: ["/x"], funded: ["/x"], attemptUnitsSpent: 3, receipts: [{ key: "/x", funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: 0, providerAttempted: true, outcome: "produced" as const }] } }; } }));
     try {
       const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps");
       const r = await live.replenishReady(T, new Date(NOW), { fingerprint: null, attempted: [] });
-      expect(M.calls[0]).toMatchObject({ maxDrafts: 0, zeroSpend: true });   // the free re-read ran FIRST, and bought nothing
-      expect(M.calls.length).toBeGreaterThan(1);                             // the day did not close on a count it had not checked
-      expect(r!.reason).toBe("candidates_exhausted");                        // it drafts the row the bad one was hiding and then closes on its CANDIDATES, never on a count
+      expect(M.calls.length).toBe(1);                                            // no count check gates the buy: the one call IS the pass
+      expect(M.calls[0]).toMatchObject({ produce: true, bypassCache: true });    // dispatched to produce, at full stock
+      expect("maxDrafts" in M.calls[0]! || "readyTarget" in M.calls[0]!).toBe(false); // and NOTHING inventory-shaped rides the call
+      expect(r!.reason).toBe("candidates_exhausted");                            // it closes on its CANDIDATES, never on a count
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.resetModules(); } });
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
   it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
@@ -916,7 +916,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
     vi.doMock("@/domains/decision", () => ({ resolveCurrentBasis: async () => "b", stockOf: (rows: unknown[]) => rows.length, loadProposalQueue: async () => (M.ready < 0 ? Promise.reject(new Error("queue unreadable")) : { ready: Array.from({ length: M.ready }, () => ({})) }),
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; skipKeys?: readonly string[] }) => { if (M.throws) throw new Error("the provider fell over");
-        const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)).slice(0, o.maxDrafts ?? 0);
+        const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)); // the whole manifest funds now: nothing inventory-shaped shrinks the walk
         const receipts = funded.map((key) => { const hit = M.out.find((r) => r.key === key); return { key, funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: hit?.cost ?? 0, providerAttempted: true, outcome: (hit?.outcome ?? "not_reached") as never, ...(hit?.why ? { why: hit.why } : {}) }; });
         M.ready += receipts.filter((r) => r.outcome === "produced").length;
         return { persisted: 0, held: [], outcome: M.outcome, paid: { declared: M.declared, funded, attemptUnitsSpent: funded.length * 3, receipts } }; } }));

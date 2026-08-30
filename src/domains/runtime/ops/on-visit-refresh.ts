@@ -235,7 +235,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
         r = raced?.v ?? null;
         answered = raced != null;
         log.info("[research-run] ready inventory checked before buying evidence", { tenantId, ...(r ?? { answered, boxed: !answered }) });
-        // TWO ANSWERS MAY END THE DAY'S OBLIGATION AND NO OTHERS: the stock reached the target, or every candidate on the current manifest was spent on and not one produced. A quota failure, a provider failure, a boxed drive, an unreadable read and a bounded batch that simply came up empty all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
+        // ONE ANSWER MAY END THE DAY'S OBLIGATION AND NO OTHER: every candidate on the current manifest was spent on and settled. A count is never that answer (operator, 2026-08-30). A quota failure, a provider failure, a boxed drive and an unreadable read all leave it OPEN, because none of them proves the next candidate would fail too. What the drive did learn is kept either way, so the following pass walks further down the ranking rather than paying for the same refusal again.
         if (r) {
           const closed = r.reason === "candidates_exhausted" ? r.reason : undefined;
           progress = { ...progress, replenish: { day, fingerprint: r.fingerprint, attempted: r.attempted, ...(r.tried && r.tried.length > 0 ? { tried: r.tried } : {}), ...(closed ? { closed } : {}), ...(r.outcomes ? { outcomes: r.outcomes } : {}) } };
@@ -247,17 +247,12 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
       if (!answered && shortStock) {
         log.warn("[research-run] no room to check the finished-change stock, so this drive buys no evidence and leaves the phase for the next one", { tenantId, phase, runway });
         return pause(); }
-      // AND A STOCK STILL SHORT ENDS THE DISPATCH HERE, whatever else was owed. Beacon exists to keep five finished changes in front of the operator; while it cannot, buying broad keyword, results-page or AI-answer evidence outranks the work the customer is actually waiting on. Live on 22 August: 51 of 140 answers collected, about ninety cents spent, and Ready still zero. The receipts of the attempt are already persisted above, so nothing is lost: the next dispatch resumes this phase and tries the stock again before it buys anything.
-      // A SHORT STOCK STOPS BROAD EXPLORATION, NEVER THE EVIDENCE A REFUSAL JUST NAMED (Codex, 2026-08-23). The
-      // deadlock this closes: the writer is refused because a page's own claims are unreliable, the refusal names
-      // the facts it needs, and the stock shortfall then ends the dispatch BEFORE the phase that would fetch them,
-      // so the next drive hands the writer the same contradicted page and earns the same refusal forever. Buying
-      // unrelated keywords while five changes are owed is still wrong; going and getting the exact facts a funded
-      // candidate was refused for is the work itself.
+      // AN OPEN REPLENISH OBLIGATION NO LONGER ENDS THE DISPATCH (operator, 2026-08-30). The pause that lived here
+      // ended every drive whose manifest had not exhausted before the discovery phases could run, so production's own
+      // open queue starved the search for NEW opportunities, and while the drafting provider was out of credit it
+      // starved the $0 work too. Finishing still outranks starting, by phase ORDER: this phase runs first and may
+      // spend the whole drive; whatever runway survives it flows on to discovery instead of being handed back.
       const owedFacts = (r?.evidenceOwed ?? []).length > 0; // TYPED, never a regex over English (Codex, 2026-08-23): "No results page for X is on file" matched no phrase the old pattern knew, so the one reading that finishes the account's strongest page was never fetched.
-      if (shortStock && r != null && r.reason !== "candidates_exhausted" && !owedFacts) {
-        log.warn("[research-run] the finished-change stock is still short, so this dispatch ends here rather than buying unrelated evidence", { tenantId, phase, ready: r.ready, deficit: r.deficit, reason: r.reason });
-        return pause(); }
       // AND THE DISPATCH GOES AND GETS IT (Codex, 2026-08-23). Storing the requirement, logging it and checking it as a boolean is not acquisition: the reading was never bought, so the next drive drafted from the same missing evidence. The exact search a funded candidate named is fetched HERE, through the transport the funnel already uses, whatever phase set this dispatch opened with. A reading that lands leaves the work resumable; one that does not stays owed with its own receipt and is never called settled.
       let remaining = [...(r?.evidenceOwed ?? [])]; // the persisted remainder shrinks as needs land: recomputing it from the pre-loop list re-listed the first landed need whenever a pass acquired two
       for (const need of (r?.evidenceOwed ?? []).slice(0, 2)) {
@@ -289,10 +284,7 @@ async function driveRun(run: ResearchRun, ownerToken: string, nowFn: () => Date,
             if (!await advancePhase(tenantId, run.id, ownerToken, { phase, progress, cursor: attemptCursor })) return "lost_lease";
             log.info("[research-run] the reading landed, so the work that asked for it was drafted in the same turn", { tenantId, key: need.key, ready: again.ready, reason: again.reason }); } }
       }
-      // AND A READING THAT DID NOT LAND BUYS NOTHING ELSE. Going on to broad keyword or answer work because a
-      // requirement happened to be owed is exactly the unrelated spending the stock shortfall exists to prevent.
-      if ((progress.evidenceOwed ?? []).length > 0 && shortStock) { log.warn("[research-run] the exact reading a funded candidate needs did not land, so this dispatch ends rather than buying anything else", { tenantId, phase });
-        return pause(); }
+      // A reading still owed stays first in line next dispatch; it no longer ends this one (operator, 2026-08-30).
       // A DRIVE THAT OPENED ONLY FOR THE STOCK BUYS NO NEW RESEARCH EVIDENCE: no results page, no crawl, no answer. It DOES spend the bounded drafting allowance, which is the whole point of it. THE OBLIGATION OUTLIVES THE RUN: a stock still short stays owed in due-work, and a later dispatch that finds this run closed opens ANOTHER pass on that same due list, bounded by the day's own runaway ceiling.
       // A STOCK-ONLY RUN STILL EXECUTES THE READING A FUNDED CANDIDATE NAMED. Skipping straight on was the second half
       // of the deadlock: the requirement was raised, persisted, and then jumped over, so the next drive drafted from

@@ -792,7 +792,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect((whole.operatorSteps ?? []).join(" ")).toContain("Delete the sections below for Pedar Sag, Topoli, Gooz");
       bodyStore.map = null; });
     /** THE DEFICIT IS FINISHED CHANGES OWED, NEVER CANDIDATES ALLOWED, AND ONLY THE STORE SAYS WHAT LANDED. Funding `min(deficit, 5)` meant a queue one row short attempted exactly ONE page, whatever it turned out to be. Counting what the pass WROTE was the next mistake: a Ready row the store then refuses, holds or loses puts nothing in front of an operator, so a drive that stopped for it spent money and added no change. The editor counts nothing of its own now; it settles each finished card through the caller and asks the shared budget whether anything is still owed. */
-    it("walks past work the store would not keep, and stops only once a Ready row durably landed", async () => {
+    it("walks the whole funded manifest however many rows land: no count of finished work closes production", async () => {
       const { canonicalUrlKey: ck4 } = await import("@/domains/evidence/snapshot");
       const PATHS = ["/a", "/b", "/c"], URL_OF = (x: string) => `https://www.iranopedia.com${x}`;
       const body = (x: string) => ({ url: URL_OF(x), title: `Phrases ${x}`, h1: `Phrases ${x}`, metaDescription: null, vocabulary: "", headings: ["Overview"], passages: ["Overview", P1] });
@@ -803,20 +803,19 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the overview." } }));
       const snap = { ownedPages: PATHS.map((x) => ({ url: URL_OF(x), content: { wordCount: 400, title: `Phrases ${x}`, h1: `Phrases ${x}`, outline: ["Overview"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT } };
       const SUMMARY = "Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.";
-      const run = async (readyTarget: number, settled: boolean) => { const asked: string[] = [];
-        const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90, readyTarget });
+      // The plan carried a `readyTarget` until 2026-08-30, and this test proved the editor asked NOTHING once "enough" rows existed.
+      // That gate is deleted: only money, time, and each candidate's own settlement bound a pass, however many rows land.
+      const run = async (settled: boolean) => { const asked: string[] = [];
+        const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90 });
         const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
-          judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, settle: async () => { if (settled) budget.land(); return settled; }, // the settlement is the ONE lander, exactly as persistAndFile lands in production
+          judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, settle: async () => settled,
           budget,
           complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
         return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
-      expect((await run(0, true)).asked).toBe(0);
-      const landed = await run(1, true);
-      expect(landed.asked).toBe(1);
-      expect((await run(2, true)).asked).toBe(2);
-      const lost = await run(1, false);
-      expect(lost.asked).toBe(3);
-      expect(lost.ready).toBe(3); // it really did write finished copy each time; what it never got was a row the store kept
+      const landed = await run(true);
+      expect([landed.asked, landed.ready]).toEqual([3, 3]); // every landing accepted, and the third candidate was still drafted after two were already in
+      const lost = await run(false);
+      expect([lost.asked, lost.ready]).toEqual([3, 3]); // it really did write finished copy each time; what it never got was a row the store kept
       bodyStore.map = null; });
     /** THE SYNTHESIS QUESTION IS ASKED AFTER THE SECTION IS FOUND, AND A REPLACEMENT MAY NOT RESTATE WHAT STAYS BELOW IT. The structural_synthesis assignment sat ABOVE the block that computes `rewrite`, reading a variable still initialised to null, so the condition was false on every card ever drafted and the instruction reached the evaluator exactly ZERO times: a correctly targeted rewrite was then judged by the standard written for a brand-new section. And once it does arrive, "the page already holds this" stops being a refusal, so the copy has to be held to something else: only the named passage goes, and repeating the detail still printed underneath hands the reader the same thing twice. Live, /funny-farsi-phrases replaced a content-free intro with six definitions that all remain in their own sections directly below. */
     it("tells the evaluator this is a synthesis, and refuses copy that repeats what stays below", async () => {
@@ -1465,13 +1464,13 @@ describe("typed refusal contract", () => {
 /** THE DAY THE EDITOR NEVER OPENED. `acted` is the CTR ladder's verdict and it returns `act_existing_page` for exactly ONE cause, a title deficit, so on every day no page had one, `quietDay` was true, the editor declared NO work, and the AI-answer cards already minted for /cities, /persian-rugs and the rest were persisted as research and never drafted. Live 2026-08-26: "nothing earned an action this pass, judged 225, watching 69" while six substantive cards sat on file. */
 describe("a day holding writable AI work is not a quiet day", () => {
   const card = (treatment: string | null) => ({ treatment });
-  it("opens the editor when a writable AI card exists and the operator is owed finished work", async () => {
+  it("opens the editor on any dispatched pass that holds a writable card: consent decides, never a queue count", async () => {
     const { isQuietDay } = await import("@/domains/decision/produce-proposals");
-    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 1)).toBe(false);
-    expect(isQuietDay(0, 0, [card("technical_reachability"), card("rewrite_existing_section")], 1)).toBe(false);
-    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], 0)).toBe(true); // a free refresh nobody asked finished work from still buys nothing
-    expect(isQuietDay(0, 0, [card("technical_reachability"), card("new_page")], 5)).toBe(true); // a DECISION treatment is not writing work
-    expect([isQuietDay(0, 0, [], 5), isQuietDay(1, 0, []), isQuietDay(0, 1, [])]).toEqual([true, false, false]); });});
+    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], true)).toBe(false);
+    expect(isQuietDay(0, 0, [card("technical_reachability"), card("rewrite_existing_section")], true)).toBe(false);
+    expect(isQuietDay(0, 0, [card("rewrite_existing_section")], false)).toBe(true); // a free refresh nobody asked finished work from still buys nothing
+    expect(isQuietDay(0, 0, [card("technical_reachability"), card("new_page")], true)).toBe(true); // a DECISION treatment is not writing work
+    expect([isQuietDay(0, 0, [], true), isQuietDay(1, 0, []), isQuietDay(0, 1, [])]).toEqual([true, false, false]); });});
 
 /** AN AEO CARD WITHOUT AN AUTHORIZING DIAGNOSIS NEVER HIRES THE WRITER (operator, 2026-08-28): the assignment is proven before the writer is paid, or the card waits as research. The hold rides extra's own return. */
 describe("the writer-hire gate on undiagnosed AEO cards", () => {
@@ -1488,7 +1487,7 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
     vi.doMock("@/domains/decision/producers/extra", () => ({ extraQueuePass: async () => ({ run: { cards: [held, cleared], complete: true, held: [], needsOwnPage: [], families: ["ai_answer_gap"], aeoHold: new Set([held.id]) }, unitLoad: null }) }));
     const { produceProposalsForTenant: run } = await import("@/domains/decision/produce-proposals");
     env.snap = snapshot();
-    const out = await run(TENANT, { complete: seam, ...OPTS, readyTarget: 3 });
+    const out = await run(TENANT, { complete: seam, ...OPTS, produce: true });
     expect(new Set(out.paid.receipts.filter((r) => r.providerCalls > 0 || r.ops > 0).map((r) => r.key)).has("/held-case"), "the undiagnosed card bought nothing").toBe(false);
     expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]);
     // THE COST OF READING PAGES RIDES THE CANONICAL RECEIPT, never only a log: a caller reads it here or nowhere.

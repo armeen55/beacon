@@ -248,16 +248,16 @@ type DueWorkDeps = {
   creditHeld?: (tenantId: string) => Promise<boolean>;
 };
 
-/** THE FINISHED-CHANGE STOCK THE SCHEDULER KEEPS AHEAD OF ACQUISITION, and the one place it is written down. It is
- *  owed work like any other debt: without that, a drive could take the queue from nothing to two, finish, and the
- *  account would sit there three changes short until some UNRELATED debt happened to open the next run (Codex,
- *  2026-08-22). Internal: never a customer setting, never UI. */
-export const READY_STOCK_TARGET = 5;
+/** THE LOW-STOCK ALARM MINIMUM, and the one place it is written down. AN ALARM, NEVER A TARGET (operator,
+ *  2026-08-30): no number of Ready rows is success, a ceiling, or a stopping condition. This level colors
+ *  receipts and urgency only; production runs to typed candidate exhaustion whatever the count. Internal:
+ *  never a customer setting, never UI. */
+export const READY_STOCK_ALARM = 5;
 
-/** THE FLOOR ADAPTS TO THE OPERATOR'S OWN PACE (operator ruling, 2026-08-29): the universal five stranded a tenant who applies dozens of
- *  changes a week on a queue sized for a browser tab. Roughly TWO DAYS of recent applied pace, read off the shipment ledger at $0, clamped
- *  so a new account gets a small clear queue and none gets an unbounded promise. A FLOOR, never a ceiling: no gate weakens to hit it. */
-export const READY_FLOOR_MIN = READY_STOCK_TARGET, READY_FLOOR_MAX = 40; export async function readyStockFloor(tenantId: string): Promise<number> {
+/** THE ALARM LEVEL ADAPTS TO THE OPERATOR'S OWN PACE (operator ruling, 2026-08-29): roughly TWO DAYS of recent applied pace, read off the
+ *  shipment ledger at $0, clamped so the urgency signal stays legible. REPORTING ONLY (operator, 2026-08-30): it sizes no batch, closes no
+ *  day, funds no manifest, and no gate weakens to reach it. Consumed by receipts and logs alone. */
+export const READY_FLOOR_MIN = READY_STOCK_ALARM, READY_FLOOR_MAX = 40; export async function readyStockFloor(tenantId: string): Promise<number> {
   const applied = await (async () => { const { loadShippedChangesForTenant } = await import("@/domains/measurement"); const weekAgo = Date.now() - 7 * 86_400_000;
     return (await loadShippedChangesForTenant(tenantId)).filter((r) => { const at = Date.parse(r.implementedAt ?? r.shippedAt ?? ""); return Number.isFinite(at) && at >= weekAgo; }).length; })().catch(() => 0);
   return Math.min(READY_FLOOR_MAX, Math.max(READY_FLOOR_MIN, Math.ceil((applied / 7) * 2))); }

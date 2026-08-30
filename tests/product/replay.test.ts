@@ -185,7 +185,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     expect(res.proposals.filter((p) => p !== landed).every((p) => p.status === "needs_review")).toBe(true); // and nothing else claims Ready
   });
   it("made ZERO network calls for the whole replay", () => { expect(net).toEqual([]); });
-  /** THE SHORTFALL IS FINISHED WORK THE STORE TOOK, proven END TO END on the real chain: the producer funds the page, drafted-copy writes the owed description and its evaluator reads it, the store takes the row, and the ONE settlement (`persistAndFile` -> `budget.land`) is the only thing that moves the shared Ready shortfall. A second fundable page sits on the same manifest so the stop is observable: filled means the later candidate is never bought. */
+  /** NO COUNT OF FINISHED WORK EVER STOPS PRODUCTION (operator, 2026-08-30), proven END TO END on the real chain: the producer funds the pages, drafted-copy writes each owed description and its evaluator reads it, and the store takes the rows. A second fundable page sits on the same manifest so continuation is observable: the first landing must NOT close the second purchase, and a Ready inventory already far above the old alarm floor must change nothing about what the pass buys. */
   const SECOND_URL = `${SITE}/lantern-release-guide`, SECOND_QUERY = "lantern release walkthrough";
   const twoGapWorld = (evidence: FunnelResearchEvidence): ReturnType<typeof fx.replaySnapshot> => {
     const s2 = parsed("serp_organic", fx.serpOrganic({ keyword: SECOND_QUERY, ownedUrl: SECOND_URL, ownedTitle: "Lantern Release" }));
@@ -194,39 +194,40 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(SECOND_URL, "Lantern Release", { outline: ["When the lanterns go up", "How the release works"] })],
       research: { ...evidence, serpEvidence: [...evidence.serpEvidence,
         { query: SECOND_QUERY, observedAt: fx.OBSERVED_AT, organic: s2.organic.map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })), aiOverview: [], aiMode: [], paa: [], related: [] }] } });};
-  const drive = async (evidence: FunnelResearchEvidence, readyTarget: number | undefined, refuse: string[], seedFrom?: Map<string, ChangeProposal>) => {
+  const drive = async (evidence: FunnelResearchEvidence, refuse: string[], seedFrom?: Map<string, ChangeProposal>) => {
     env.snap = twoGapWorld(evidence); env.saved = []; env.store = new Map(seedFrom ?? []); env.refuseSave = new Set(refuse);
     const seam = drafter();
-    const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, ...(readyTarget != null ? { readyTarget } : {}) });
+    const res = await produceProposalsForTenant(TENANT, { complete: seam.complete, now: NOW, bypassCache: true, produce: true });
     return { res, calls: seam.calls(), asked: seam.asked(), store: env.store,
       landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
-  it("lands one real Ready change through the store, the settled shortfall stops every later purchase, and a failed save stops nothing", async () => {
+  it("lands every fundable change through the store in one pass: a landing never closes the manifest, and a failed save stops nothing", async () => {
     const { evidence } = await replayFunnel();
-    // NOTHING OWED, NOTHING BOUGHT: a pass with its stock already full makes no drafting call at all.
-    const full = await drive(evidence, 0, []);
-    expect([full.calls, full.res.proposals.every((p) => p.status !== "ready")]).toEqual([0, true]);
-    // THE LANDING, on the real chain: the store answered saved, the row on file is customer-actionable Ready, and the ONE settlement moved the shared shortfall to zero. The receipt carries the store's own word, never the drafter's.
-    const ok = await drive(evidence, 1, []);
+    // THE LANDINGS, on the real chain: the store answered saved, the rows on file are customer-actionable Ready, and the FIRST landing did not close the second purchase. Until 2026-08-30 a readyTarget of 1 made the second receipt read "the queue's shortfall was already filled": that sentence is deleted from the codebase.
+    const ok = await drive(evidence, []);
     const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
-    expect([ok.res.paid.readyShortfall, ok.landed.length, row.status, row.researchOnly ?? false]).toEqual([0, 1, "ready", false]);
+    expect([ok.landed.length >= 2, row.status, row.researchOnly ?? false]).toEqual([true, "ready", false]);
     expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide")).toMatchObject({ outcome: "produced", persistence: "saved" });
     // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
     expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()]));
-    // FILLED MEANS CLOSED FOR EVERY FAMILY: the second fundable page is told the queue is full and no drafting call names it.
-    expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.why).toEqual("the queue's shortfall was already filled, so this work waits for the next short day");
-    expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(false);
-    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING. The shortfall stands, no receipt claims produced, and the pass keeps walking to the second page rather than closing on copy nobody can act on.
-    const lost = await drive(evidence, 1, [TENANT]);
-    expect([lost.landed, lost.res.paid.readyShortfall, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], 1, false]);
+    expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.outcome).toBe("produced");
+    expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the first landing left the walk running
+    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING, and still walks the whole manifest.
+    const lost = await drive(evidence, [TENANT]);
+    expect([lost.landed, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], false]);
     expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true);
     expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the failed save shortened nothing
-    expect(lost.calls).toBeGreaterThan(ok.calls); // the landing is what stopped the spend, nothing else did
   });
-  it("Ready stock on file confirms and never lands, so the pass still buys the new work it owes", async () => {
+  it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => {
     const { evidence } = await replayFunnel();
-    // Seed the exact Ready row a prior pass landed. The caller's deficit already subtracted rows Ready on file, so this row may only CONFIRM: if the pass landed it again, owed would hit zero here and the second page would never be bought.
-    const prior = await drive(evidence, 1, []);
-    const seeded = await drive(evidence, 1, [], prior.store);
-    expect([seeded.res.paid.readyShortfall, seeded.landed.length]).toEqual([0, 2]); // one confirmed, one NEW landing, and the shortfall was filled by the new work
-    expect(seeded.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the confirm did not close the day; the pass walked on and bought the owed page
+    // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory
+    // far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
+    const prior = await drive(evidence, []);
+    const base = prior.landed[0]!;
+    const flood = (n: number) => new Map([...Array(n)].map((_, i) => [`flood-${i}`, { ...base, id: `flood-${i}`, pagePath: `/flood-${i}`, pageUrl: `${SITE}/flood-${i}` }] as const));
+    for (const n of [14, 40, 100, 500]) {
+      const out = await drive(evidence, [], flood(n));
+      // The seeds sit on pages this site does not have, so the sweep retires them as obsolete: a TYPED per-candidate reason, which stays legal. Quantity acting on the real work below is what must never happen.
+      expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide")?.outcome, `at ${n} the strongest page was still bought`).toBe("produced");
+      expect(out.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.outcome, `at ${n} the weaker page was still bought too`).toBe("produced");
+      expect(out.asked.some((a) => a.includes(SECOND_QUERY)), `at ${n} the second page's draft was really asked for`).toBe(true); }
   }); });
