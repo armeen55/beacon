@@ -49,7 +49,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   // the server says so and the list restarts from the fresh first page.
   const [more, setMore] = useState<ChangeProposal[]>([]);
   const [moreLanes, setMoreLanes] = useState<Record<string, Lane>>({});
-  const [at, setAt] = useState<number>(view.queueCursor?.all ?? view.proposals.length);
+  const [at, setAt] = useState<number>(view.queueCursor?.ready ?? view.queueCursor?.all ?? view.proposals.length); // the finished lane's own cursor: its Show more continues the READY lane, never the global page
   const [release, setRelease] = useState<string | null>(view.surfaceVersion ?? null);
   // READY PAGES ALONE. The one load-more control belongs to the finished lane: it starts at the global
   // first page's cursor (every ready row at or before it is already on screen, so nothing is skipped and

@@ -74,8 +74,8 @@ export type ChangesView = {
   queuedPages?: string[];
   /** Where each lane's NEXT page resumes: the last RANK on this screen, never its row count. A change put aside since the ranking was
    *  stamped leaves a hole, and counting rows through it repeats one change. */
-  queueCursor?: { all: number };
-  queueMore?: { all: boolean };
+  queueCursor?: { all: number; ready?: number };
+  queueMore?: { all: boolean; ready?: boolean };
   /** The database's own count of every nonterminal row in the live ranking, behind the one Show more. */
   queueTotal?: number;
   /** The STAMPED lane per row id: the one source of which controls a card carries. */
@@ -172,12 +172,20 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has
   // nothing behind it.
   if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
-  const lane = (l: "ready" | "todo" | "research") => page.rows.filter((p) => page.laneById[p.id] === l);
+  // FINISHED WORK CAN NEVER FALL OFF THE FIRST PAGE (operator, 2026-08-30). The global page is the window onto
+  // internal work; the ready lane is fetched by ITSELF, because this page's contract is finished changes first
+  // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
+  // the Ready section served empty under a headline of seven, with the finished work behind a button.
+  const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE);
+  const seen = new Set(readyPage.rows.map((r) => r.id));
+  const rows = [...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
+  const laneById = { ...page.laneById, ...readyPage.laneById };
+  const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
   const counts = await queueLaneCounts(tenantId, page.release, basis);
-  return { ...view, proposals: page.rows, laneById: page.laneById,
+  return { ...view, proposals: rows, laneById,
     ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
     summary: { ...view.summary, ready: counts.ready, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
-    queueCursor: { all: page.nextRank }, queueMore: { all: page.more }, queueTotal: page.total };
+    queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
 }
 
 /** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry

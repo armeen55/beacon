@@ -303,8 +303,8 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
             falsifier: `If the next check run finds ${path} already carries the corrected wording, this retires itself.` },
           diagnosisCause: "factual_error",
           evidence: { query: `${path} factual accuracy`, hints: support.map((s) => s.fact), evidenceRefCount: support.length },
-          // The measured demand for THIS entry funds and explains the card; a subject nobody searches falls back to the page figure with no per-change claim.
-          impactScore: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) / 100 : null, upsidePerMonth: null, demandImpressions90d: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) : (page.search?.impressions90d ?? null),
+          // The measured demand for THIS entry FUNDS the card (impactScore); the display figure stays the page's own impressions because the card's sentence names the page, and overriding it made the sentence lie (live, 2026-08-30).
+          impactScore: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) / 100 : null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,
           publish: "manual", createdAt: now.toISOString(),
         });
       }
@@ -330,12 +330,25 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       for (const r of rows) { if (r.state !== "checked" || r.rulesVersion !== VERIFICATION_RULES_VERSION) continue;
         const reason = unauthorizedReason(r) ?? supportShortfall(r, tenantId); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
     const { loadChangeProposals, withdrawChangeProposal } = await import("@/domains/decision/proposal-store");
+    // A LIVE CHECKED ROW UNDER CURRENT RULES, per subject slug: the one state in which the generic "evidence no
+    // longer current" sentence is provably FALSE. Seven authorized corrections were withdrawn through that exact
+    // branch at 03:32Z on 2026-08-30 while their checked rows stood confirmed, by a pass nothing could later
+    // reconstruct. A card may now be withdrawn only WITH a named reason, or when its claim genuinely has no
+    // current checked row left; an unexplained miss keeps the card and says so out loud, because silently
+    // destroying finished work is the one failure this producer has already committed twice.
+    const liveChecked = new Set<string>();
+    for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
+      for (const r of rows) if (r.state === "checked" && r.rulesVersion === VERIFICATION_RULES_VERSION) liveChecked.add(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`); }
     for (const p of (await loadChangeProposals(tenantId).catch(() => null))?.values() ?? []) {
       const id = p.id.split("::");
       // A PAGE WHOSE BODY DID NOT LOAD IS NOT A PAGE WHOSE CORRECTIONS DIED. `authorizedCorrections` compares a
       // page hash, so without one every correction on the site reads as unauthorized at once.
       if (!id[3]?.startsWith("fact-") || emitted.has(p.id) || !judged.has(id[1] ?? "")) continue;
-      const said = why.get(`${id[1] ?? ""}::${id[3] ?? ""}`);
+      const slug = `${id[1] ?? ""}::${id[3] ?? ""}`, said = why.get(slug);
+      if (!said && liveChecked.has(slug)) {
+        log.warn("[factual-defects] a correction went unminted with NO named reason while its checked row stands; the card is KEPT and this pass is the anomaly", { tenantId, id: p.id });
+        continue;
+      }
       await withdrawChangeProposal(p, said
         ? `Withdrawn: ${said}. The claim stays a finding until a source quote genuinely carries it.`
         : "The evidence behind this correction is no longer current, so the correction is withdrawn rather than left standing on it.").catch(() => false);
