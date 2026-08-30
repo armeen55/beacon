@@ -1,15 +1,8 @@
-/**
- * `DATA_SOURCE=supabase` implementation of `SeedDataRepository`.
- * Route-critical tables read from Postgres; supplementary + json-store-only domains
- * still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as
- * pre-cutover direct-file access, centralized here.
- */
+/** `DATA_SOURCE=supabase` implementation of `SeedDataRepository`. Route-critical tables read from Postgres; supplementary + json-store-only domains still hit disk (`readDotDataJson` / `readStore`) until migrated — same behavior as pre-cutover direct-file access, centralized here. */
 import { getSupabaseAdmin } from "../supabase";
 import type { SeedDataRepository } from "./types";
 
-// (Section 5 observation_runs → ProfoundImportRun mapper removed
-// 2026-07-21, CORE 100K Lane O: the getProfoundImportRuns read path lost
-// its last caller when the repeat-citation loader was deleted.)
+// (Section 5 observation_runs → ProfoundImportRun mapper removed 2026-07-21, CORE 100K Lane O: the getProfoundImportRuns read path lost its last caller when the repeat-citation loader was deleted.)
 
 import type { Result } from "@/domains/measurement/results/types";
 import type { ChangelogEntry } from "@/domains/measurement/changelog/types";
@@ -68,8 +61,7 @@ function logEgress(opts: {
 }): void {
   const debug = process.env.BEACON_SUPABASE_EGRESS_DEBUG === "1";
 
-  // Always-on alarm for anomalously large reads (no stringify cost — rows is
-  // already counted). This is the "never surprises us again" guard.
+  // Always-on alarm for anomalously large reads (no stringify cost — rows is already counted). This is the "never surprises us again" guard.
   if (!debug && opts.rows >= BIG_READ_WARN_ROWS) {
     console.warn(
       `[supabase-egress][LARGE READ] table=${opts.table} rows=${opts.rows} ms=${opts.durationMs}` +
@@ -86,8 +78,7 @@ function logEgress(opts: {
   } catch {
     approxBytes = -1;
   }
-  // Simple console line — keeps the logger dependency-free and avoids
-  // triggering the structured-logger code path during cold-start tests.
+  // Simple console line — keeps the logger dependency-free and avoids triggering the structured-logger code path during cold-start tests.
   console.log(
     `[supabase-egress] table=${opts.table} rows=${opts.rows} bytes≈${approxBytes} ms=${opts.durationMs}${opts.tenantId ? ` tenant=${opts.tenantId}` : ""}${opts.filter ? ` filter=${opts.filter}` : ""}`,
   );
@@ -105,13 +96,7 @@ async function query<T>(table: string): Promise<T[]> {
   return rows;
 }
 
-/**
- * Phase 3.5E (2026-04-22) — pages through a table in 1000-row batches. Use
- * this for tables that can exceed PostgREST's default `max-rows` limit
- * (prompt_answer_observations at 11,996 and daily_metric_snapshots at
- * 24,085 both do). One-shot per cold start; results held in-memory by the
- * canonical-store seed layer.
- */
+/** Phase 3.5E (2026-04-22) — pages through a table in 1000-row batches. Use this for tables that can exceed PostgREST's default `max-rows` limit (prompt_answer_observations at 11,996 and daily_metric_snapshots at 24,085 both do). One-shot per cold start; results held in-memory by the canonical-store seed layer. */
 async function queryAllPaged<T>(table: string): Promise<T[]> {
   const sb = getSupabaseAdmin();
   const PAGE = 1000;
@@ -134,9 +119,7 @@ async function queryAllPaged<T>(table: string): Promise<T[]> {
   return out;
 }
 
-// (PAGE_SUMMARY_COLUMNS / queryPageSummariesUnscoped /
-// queryPageSummariesScoped removed 2026-07-21, CORE 100K Lane O:
-// getPageSummaries had zero callers on either interface.)
+// (PAGE_SUMMARY_COLUMNS / queryPageSummariesUnscoped / queryPageSummariesScoped removed 2026-07-21, CORE 100K Lane O: getPageSummaries had zero callers on either interface.)
 
 async function queryMapped<T>(table: string): Promise<T[]> {
   const { data, error } = await getSupabaseAdmin()
@@ -185,17 +168,11 @@ async function selectScoped<T>(table: string, tenantId: string): Promise<T[]> {
 /**
  * E3 (operator audit, 2026-05-05) — windowed paginated reads.
  *
- * Adds an OPTIONAL date-window filter (`since` ISO string) and column
- * projection (`columns`) so callers that only need recent rows or a
- * subset of columns can avoid pulling the entire table.
+ * Adds an OPTIONAL date-window filter (`since` ISO string) and column projection (`columns`) so callers that only need recent rows or a subset of columns can avoid pulling the entire table.
  *
- * Default behavior unchanged: `since` undefined + `columns` undefined →
- * `select("*")` over all rows for the tenant. Existing scripts /
- * migration helpers keep their full-history reads.
+ * Default behavior unchanged: `since` undefined + `columns` undefined → `select("*")` over all rows for the tenant. Existing scripts / migration helpers keep their full-history reads.
  *
- * `since` filters on `observed_at` (observations) or `for_date`
- * (snapshots) — the column name varies by table, so the caller passes
- * the column name explicitly to avoid coupling.
+ * `since` filters on `observed_at` (observations) or `for_date` (snapshots) — the column name varies by table, so the caller passes the column name explicitly to avoid coupling.
  */
 async function queryAllPagedScoped<T>(
   table: string,
@@ -204,9 +181,7 @@ async function queryAllPagedScoped<T>(
     since?: string;
     sinceColumn?: string;
     columns?: string;
-    /** Emergency P0 (2026-05-12) — additional equality filter pushed
-     *  down to Postgres. Used by `/prompts/[id]` to limit
-     *  prompt_answer_observations to one prompt_id (15k rows → <500). */
+    /** Emergency P0 (2026-05-12) — additional equality filter pushed down to Postgres. Used by `/prompts/[id]` to limit prompt_answer_observations to one prompt_id (15k rows → <500). */
     eqColumn?: string;
     eqValue?: string;
   },
@@ -264,23 +239,13 @@ export const supabaseBackend: SeedDataRepository = {
   getChangelogEntries: () => query<ChangelogEntry>("changelog_entries"),
   getOpportunities: () => query<Opportunity>("opportunities"),
 
-  // Phase 1D
-  // (getEventDecisions / getCandidateLinks / getPageIssues removed
-  // 2026-07-21, CORE 100K Lane O: zero callers.)
+  // Phase 1D (getEventDecisions / getCandidateLinks / getPageIssues removed 2026-07-21, CORE 100K Lane O: zero callers.)
   getChangeContracts: () => queryMapped<ChangeContract>("change_contracts"),
 
-  // Phase 1E
-  // pages: 5929 rows as of 2026-04-24 — past PostgREST's 1000-row cap. Without
-  // pagination, buildPageInventory saw only ~3 owned rows on hosted and the
-  // resolver fell through to create_new_page for every blocker cluster.
+  // Phase 1E pages: 5929 rows as of 2026-04-24 — past PostgREST's 1000-row cap. Without pagination, buildPageInventory saw only ~3 owned rows on hosted and the resolver fell through to create_new_page for every blocker cluster.
   getPages: () => queryAllPaged<PageEntity>("pages"),
 
-  // Link-graph feed (2026-06-12 night shift): internal_links is
-  // DELIBERATELY absent from the lean snapshot projection (the
-  // egress pin) — this scoped read exists for the once-per-generation
-  // cross-page link triggers (orphan_page, internal_link_opportunity),
-  // which were silently emission-less on hosted/cron without it.
-  // Never called by the web surfaces the egress pin protects.
+  // Link-graph feed (2026-06-12 night shift): internal_links is DELIBERATELY absent from the lean snapshot projection (the egress pin) — this scoped read exists for the once-per-generation cross-page link triggers (orphan_page, internal_link_opportunity), which were silently emission-less on hosted/cron without it. Never called by the web surfaces the egress pin protects.
   getPageSnapshotLinkGraphs: async () => {
     const { data, error } = await getSupabaseAdmin()
       .from("page_snapshots")
@@ -305,9 +270,7 @@ export const supabaseBackend: SeedDataRepository = {
   },
 
   getPageSnapshots: async () => {
-    // Supabase accumulates snapshot history (35 rows per scan); routes expect only the latest per page, deduped
-    // here (PostgREST has no DISTINCT ON). THE SAME LEAN PROJECTION AND CAP THE TENANT PATH USES, for the same
-    // reason: select("*") now drags every page's whole 100,000-character body_text over the wire (/today 17MB).
+    // Supabase accumulates snapshot history (35 rows per scan); routes expect only the latest per page, deduped here (PostgREST has no DISTINCT ON). THE SAME LEAN PROJECTION AND CAP THE TENANT PATH USES, for the same reason: select("*") now drags every page's whole 100,000-character body_text over the wire (/today 17MB).
     const { data, error } = await getSupabaseAdmin()
       .from("page_snapshots")
       .select(SNAPSHOT_COLUMNS)
@@ -329,11 +292,7 @@ export const supabaseBackend: SeedDataRepository = {
   },
   getObservationRuns: () => query<ObservationRun>("observation_runs"),
 
-  // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel
-  // index reads, page-snapshot-diffs, render-checks, legacy-global
-  // sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/
-  // asset/outcome/truth-label reads, page summaries — zero callers. The
-  // tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
+  // (Dead columns removed 2026-07-21, CORE 100K Lane O: citation/answer-intel index reads, page-snapshot-diffs, render-checks, legacy-global sitemap-reconciliation, visibility runs, rollout/pattern/frontier/wave/ asset/outcome/truth-label reads, page summaries — zero callers. The tenant-scoped sitemap pair in forTenant below is LIVE and untouched.)
 
   // Phase 7 — scan findings via repository
   getScanFindings: async () => {
@@ -376,12 +335,7 @@ export const supabaseBackend: SeedDataRepository = {
   getTrackedPrompts: async () =>
     query<TrackedPrompt>("tracked_prompts"),
 
-  // Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade with
-  // push-down filters. Each method appends `.eq("tenant_id", tenantId)`
-  // (via selectScoped / queryAllPagedScoped) so Postgres can pick the
-  // tenant-prefixed indexes and we never fetch cross-tenant rows just to
-  // filter them out in JS. `buildTenantRepo` (in-memory filter) remains
-  // the file-backend pattern.
+  // Sprint 7 Phase 7.5b Commit 1C (2026-04-25) — tenant-bound facade with push-down filters. Each method appends `.eq("tenant_id", tenantId)` (via selectScoped / queryAllPagedScoped) so Postgres can pick the tenant-prefixed indexes and we never fetch cross-tenant rows just to filter them out in JS. `buildTenantRepo` (in-memory filter) remains the file-backend pattern.
   forTenant(tenantId: string) {
     return {
       // Plain selects (15 rows or fewer in single-tenant production today).
@@ -392,29 +346,16 @@ export const supabaseBackend: SeedDataRepository = {
         selectScoped<ObservationRun>("observation_runs", tenantId),
       getChangeContracts: () =>
         queryMappedScoped<ChangeContract>("change_contracts", tenantId),
-      // (Tenant-scoped getPageIssues / getEventDecisions /
-      // getCandidateLinks and the citation/answer-intel index reads
-      // removed 2026-07-21, CORE 100K Lane O: zero callers.)
+      // (Tenant-scoped getPageIssues / getEventDecisions / getCandidateLinks and the citation/answer-intel index reads removed 2026-07-21, CORE 100K Lane O: zero callers.)
       getOpportunities: () =>
         selectScoped<Opportunity>("opportunities", tenantId),
 
-      // Paged reads — defeats PostgREST's default 1000-row cap and keeps
-      // the tenant filter in every page request.
+      // Paged reads — defeats PostgREST's default 1000-row cap and keeps the tenant filter in every page request.
       getResults: () => queryAllPagedScoped<Result>("results", tenantId),
       getPages: () => queryAllPagedScoped<PageEntity>("pages", tenantId),
-      // E3 (operator audit, 2026-05-05) — accept optional `{ since }`
-      // window. Without it, behavior is unchanged (full history).
-      // /today + /prompts pass a 60-90-day window to avoid pulling
-      // the entire 14k-row observation table on every render.
-      // Emergency P0 (2026-05-12) — accept optional `{ promptId }`
-      // so `/prompts/[id]` pushes the predicate down to Postgres
-      // (`.eq("prompt_id", id)`) and the row count crossing the wire
-      // drops from ~15k to typically <500.
+      // E3 (operator audit, 2026-05-05) — accept optional `{ since }` window. Without it, behavior is unchanged (full history). /today + /prompts pass a 60-90-day window to avoid pulling the entire 14k-row observation table on every render. Emergency P0 (2026-05-12) — accept optional `{ promptId }` so `/prompts/[id]` pushes the predicate down to Postgres (`.eq("prompt_id", id)`) and the row count crossing the wire drops from ~15k to typically <500.
       getDailyMetricSnapshots: (options) => {
-        // Thread `since` (date-window, predicate pushdown) and `columns`
-        // (lean projection) independently — /today passes `columns` alone
-        // to fetch a date-only projection for its two count consumers
-        // without changing the window.
+        // Thread `since` (date-window, predicate pushdown) and `columns` (lean projection) independently — /today passes `columns` alone to fetch a date-only projection for its two count consumers without changing the window.
         const queryOpts =
           options?.since || options?.columns
             ? {
@@ -431,11 +372,7 @@ export const supabaseBackend: SeedDataRepository = {
         );
       },
 
-      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first), capped at 500 rows
-      // (EGRESS-P0, 2026-05-07: the heavy payload columns are 5-15KB each and dominated the wire
-      // cost of every surface read; nothing on /today, /changes or /results consumes them, and a
-      // consumer that needs one fetches it through its own scoped helper). schema_validation_warnings
-      // stays IN the projection: the invalid-schema trigger reads it, and it is a short string.
+      // page_snapshots: tenant-scoped + dedupe-by-page_id (latest first), capped at 500 rows (EGRESS-P0, 2026-05-07: the heavy payload columns are 5-15KB each and dominated the wire cost of every surface read; nothing on /today, /changes or /results consumes them, and a consumer that needs one fetches it through its own scoped helper). schema_validation_warnings stays IN the projection: the invalid-schema trigger reads it, and it is a short string.
       getPageSnapshots: async () => {
         const t0 = Date.now();
         const { data, error } = await getSupabaseAdmin()
@@ -467,11 +404,7 @@ export const supabaseBackend: SeedDataRepository = {
         return latest;
       },
 
-      // Link-graph feed (2026-06-12): tenant-scoped variant of the
-      // scoped internal_links read (see base impl note) — placed AFTER
-      // getPageSnapshots so the egress pin's block regex anchors on the
-      // lean projection above, not this deliberate heavy read. Once per
-      // generation run; web surfaces never call it.
+      // Link-graph feed (2026-06-12): tenant-scoped variant of the scoped internal_links read (see base impl note) — placed AFTER getPageSnapshots so the egress pin's block regex anchors on the lean projection above, not this deliberate heavy read. Once per generation run; web surfaces never call it.
       getPageSnapshotLinkGraphs: async () => {
         const { data, error } = await getSupabaseAdmin()
           .from("page_snapshots")
@@ -497,14 +430,9 @@ export const supabaseBackend: SeedDataRepository = {
       },
 
       // ─────────────────────────────────────────────────────────────
-      // Phase A.3 (post-A.3.5) — robots_state tenant-scoped read/write
-      // pair.
+      // Phase A.3 (post-A.3.5) — robots_state tenant-scoped read/write pair.
       //
-      // Sequencing model A (operator-locked): reads soft-fail to null
-      // when the migration hasn't applied yet, recognized by the
-      // PostgreSQL "undefined_table" error code 42P01. Writes
-      // fail-loud — daily-scan will surface the missing migration to
-      // the operator the next time it tries to UPSERT.
+      // Sequencing model A (operator-locked): reads soft-fail to null when the migration hasn't applied yet, recognized by the PostgreSQL "undefined_table" error code 42P01. Writes fail-loud — daily-scan will surface the missing migration to the operator the next time it tries to UPSERT.
       // ─────────────────────────────────────────────────────────────
       getRobotsState: async () => {
         const { data, error } = await getSupabaseAdmin()
@@ -594,22 +522,11 @@ export const supabaseBackend: SeedDataRepository = {
         })) as RecommendationResponse[];
       },
 
-      // Phase 1 Stage C (2026-05-09): tenant-scoped reads for
-      // `tracked_prompts` and `tracked_entities` now filter by
-      // `tenant_id` (the canonical scoping column).
+      // Phase 1 Stage C (2026-05-09): tenant-scoped reads for `tracked_prompts` and `tracked_entities` now filter by `tenant_id` (the canonical scoping column).
       //
-      // History: pre-2026-05-09 these tables had no `tenant_id` column;
-      // the 2026-05-06 customer-#2-isolation fix worked around this by
-      // resolving the tenant slug and filtering by `account_id`. The
-      // 2026-05-09 migration adds `tenant_id` additively, backfilled
-      // single-tenant to `tenant-ritz-founder`. Reads switch to the
-      // canonical column; writes stamp BOTH `tenant_id` (canonical)
-      // and `account_id` (compatibility) until a later cleanup phase
-      // deprecates `account_id`.
+      // History: pre-2026-05-09 these tables had no `tenant_id` column; the 2026-05-06 customer-#2-isolation fix worked around this by resolving the tenant slug and filtering by `account_id`. The 2026-05-09 migration adds `tenant_id` additively, backfilled single-tenant to `tenant-ritz-founder`. Reads switch to the canonical column; writes stamp BOTH `tenant_id` (canonical) and `account_id` (compatibility) until a later cleanup phase deprecates `account_id`.
       //
-      // The slug-via-tenants-registry path is no longer needed for the
-      // read; the column-level filter is more direct and scales to
-      // multi-tenant without touching `tenants` per call.
+      // The slug-via-tenants-registry path is no longer needed for the read; the column-level filter is more direct and scales to multi-tenant without touching `tenants` per call.
       getTrackedPrompts: async () => {
         const { data, error } = await getSupabaseAdmin()
           .from("tracked_prompts")
@@ -632,9 +549,7 @@ export const supabaseBackend: SeedDataRepository = {
           );
         return (data ?? []) as TrackedEntity[];
       },
-      // (getProfoundImportRuns removed 2026-07-21, CORE 100K Lane O:
-      // the Section 5 repeat-citation loader that consumed it was
-      // deleted in an earlier campaign.)
+      // (getProfoundImportRuns removed 2026-07-21, CORE 100K Lane O: the Section 5 repeat-citation loader that consumed it was deleted in an earlier campaign.)
     };
   },
 };

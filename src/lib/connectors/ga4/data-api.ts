@@ -81,24 +81,14 @@ const DATA_API_HOST = "https://analyticsdata.googleapis.com";
 /**
  * 2026-06-16 — expert audit #5/#62 (P0 data correctness).
  *
- * The GA4 Data API `runReport` endpoint caps a single response at
- * `GA4_PAGE_SIZE` rows. Before pagination, a property with more than
- * this many `(date × pagePath)` rows in the requested window SILENTLY
- * undercounted — the response returned the first 10k rows with NO
- * signal, corrupting ranking + proof for high-traffic tenants.
+ * The GA4 Data API `runReport` endpoint caps a single response at `GA4_PAGE_SIZE` rows. Before pagination, a property with more than this many `(date × pagePath)` rows in the requested window SILENTLY undercounted — the response returned the first 10k rows with NO signal, corrupting ranking + proof for high-traffic tenants.
  *
- * `runGa4UrlTrafficReport` now paginates via `offset` until the
- * GA4-reported `rowCount` is exhausted, bounded by `GA4_MAX_PAGES` so a
- * pathological property can never blow up memory / quota. The ceiling
- * is `GA4_PAGE_SIZE * GA4_MAX_PAGES` = 500k rows.
+ * `runGa4UrlTrafficReport` now paginates via `offset` until the GA4-reported `rowCount` is exhausted, bounded by `GA4_MAX_PAGES` so a pathological property can never blow up memory / quota. The ceiling is `GA4_PAGE_SIZE * GA4_MAX_PAGES` = 500k rows.
  */
 export const GA4_PAGE_SIZE = 10_000;
 export const GA4_MAX_PAGES = 50;
 
-/**
- * Build the `runReport` endpoint URL for a given property id.
- * Pure helper, exported for test inspection.
- */
+/** Build the `runReport` endpoint URL for a given property id. Pure helper, exported for test inspection. */
 function buildRunReportUrl(propertyId: string): string {
   return `${DATA_API_HOST}/v1beta/properties/${encodeURIComponent(
     propertyId,
@@ -108,15 +98,7 @@ function buildRunReportUrl(propertyId: string): string {
 /**
  * Build the `runReport` request body. Pure; exported for tests.
  *
- * Dimensions: `date` + `pagePath`.
- * Metrics: `sessions`, `engagedSessions`, `conversions`.
- * Date range: caller-supplied inclusive `[startDate, endDate]`.
- * Limit: `GA4_PAGE_SIZE` (10k) rows per call — the GA4 `runReport`
- *        per-response cap. Paired with `offset`, the caller paginates
- *        across the full result set (expert audit #5/#62).
- * Offset: zero-based row offset into the result set; defaults to 0 so
- *        page-0 bodies are unchanged except for the explicit
- *        `offset: 0`.
+ * Dimensions: `date` + `pagePath`. Metrics: `sessions`, `engagedSessions`, `conversions`. Date range: caller-supplied inclusive `[startDate, endDate]`. Limit: `GA4_PAGE_SIZE` (10k) rows per call — the GA4 `runReport` per-response cap. Paired with `offset`, the caller paginates across the full result set (expert audit #5/#62). Offset: zero-based row offset into the result set; defaults to 0 so page-0 bodies are unchanged except for the explicit `offset: 0`.
  */
 function buildRunReportBody(args: {
   startDate: string;
@@ -132,9 +114,7 @@ function buildRunReportBody(args: {
       { name: "engagedSessions" },
       { name: "conversions" },
     ],
-    // audit-wave7 #5: offset pagination is only exact under a TOTAL deterministic
-    // order. Without orderBys GA4 may return rows in an unstable order across
-    // pages → a high-traffic tenant silently under/over-counts at page seams.
+    // audit-wave7 #5: offset pagination is only exact under a TOTAL deterministic order. Without orderBys GA4 may return rows in an unstable order across pages → a high-traffic tenant silently under/over-counts at page seams.
     orderBys: [
       { dimension: { dimensionName: "date" } },
       { dimension: { dimensionName: "pagePath" } },
@@ -145,13 +125,9 @@ function buildRunReportBody(args: {
 }
 
 /**
- * Narrow the GA4 Data API `runReport` response body into the typed
- * `Ga4UrlTrafficRow[]` shape. Defensive: silently drops malformed
- * rows (missing dimensionValues / metricValues / wrong-shaped
- * date). Never throws.
+ * Narrow the GA4 Data API `runReport` response body into the typed `Ga4UrlTrafficRow[]` shape. Defensive: silently drops malformed rows (missing dimensionValues / metricValues / wrong-shaped date). Never throws.
  *
- * Date format from GA4: "YYYYMMDD" (no separators). This helper
- * normalizes to "YYYY-MM-DD" for the read model + migration table.
+ * Date format from GA4: "YYYYMMDD" (no separators). This helper normalizes to "YYYY-MM-DD" for the read model + migration table.
  *
  * Pure; exported for tests.
  */
@@ -188,13 +164,7 @@ function parseMetricInt(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/**
- * Defensively read GA4's top-level `rowCount` (total matching rows).
- * GA4 sometimes serializes it as a number, sometimes as a stringy
- * value; either way we coerce to a finite non-negative integer.
- * Returns `null` when absent/unparseable so the caller can fall back
- * to "page count is the total" (→ no extra pages). Pure; never throws.
- */
+/** Defensively read GA4's top-level `rowCount` (total matching rows). GA4 sometimes serializes it as a number, sometimes as a stringy value; either way we coerce to a finite non-negative integer. Returns `null` when absent/unparseable so the caller can fall back to "page count is the total" (→ no extra pages). Pure; never throws. */
 function parseRowCount(raw: unknown): number | null {
   if (raw == null) return null;
   const n =
@@ -212,37 +182,19 @@ function parseRowCount(raw: unknown): number | null {
 // ─────────────────────────────────────────────────────────────────────
 
 /**
- * Run the GA4 Data API `runReport` query against the operator's
- * connected `google_ga4` property. Returns narrowed
- * `Ga4UrlTrafficRow[]` on success; structured fail-soft otherwise.
+ * Run the GA4 Data API `runReport` query against the operator's connected `google_ga4` property. Returns narrowed `Ga4UrlTrafficRow[]` on success; structured fail-soft otherwise.
  *
- * Tenant-scoped: `tenantId` is REQUIRED; threaded explicitly. No
- * ambient context reads.
+ * Tenant-scoped: `tenantId` is REQUIRED; threaded explicitly. No ambient context reads.
  *
- * Soft-disconnect aware: when the `google_ga4` token has
- * `disconnected_at` set, returns `{ ok: false, reason:
- * "disconnected" }` without making an API call.
+ * Soft-disconnect aware: when the `google_ga4` token has `disconnected_at` set, returns `{ ok: false, reason: "disconnected" }` without making an API call.
  *
- * Expiry-aware via `evaluateExpiry`: `stale_over_7d` returns
- * `token_expired` without refresh; `stale_under_7d` triggers one
- * refresh attempt; on second 401 returns `token_expired`.
+ * Expiry-aware via `evaluateExpiry`: `stale_over_7d` returns `token_expired` without refresh; `stale_under_7d` triggers one refresh attempt; on second 401 returns `token_expired`.
  *
- * Non-2xx non-401 response → `log.warn` with bounded body (≤500
- * chars; never logs tokens) + structured `api_error` return.
+ * Non-2xx non-401 response → `log.warn` with bounded body (≤500 chars; never logs tokens) + structured `api_error` return.
  *
- * Paginated (2026-06-16 — expert audit #5/#62): GA4 caps a single
- * `runReport` response at `GA4_PAGE_SIZE` (10k) rows. Page 0 keeps the
- * EXACT prior behavior (token/refresh/401-retry/fail-soft returns). On
- * success we read GA4's top-level `rowCount` and loop additional pages
- * at `offset = GA4_PAGE_SIZE, 2*…` (reusing the already-valid access
- * token, no per-page re-refresh) until the total is exhausted or
- * `GA4_MAX_PAGES` is hit. A FAILED subsequent page (offset>0) does NOT
- * fail the whole report — we `log.warn` once, stop, and return the
- * rows gathered so far flagged `truncated: true` (partial > zero). The
- * MAX_PAGES ceiling likewise sets `truncated: true`.
+ * Paginated (2026-06-16 — expert audit #5/#62): GA4 caps a single `runReport` response at `GA4_PAGE_SIZE` (10k) rows. Page 0 keeps the EXACT prior behavior (token/refresh/401-retry/fail-soft returns). On success we read GA4's top-level `rowCount` and loop additional pages at `offset = GA4_PAGE_SIZE, 2*…` (reusing the already-valid access token, no per-page re-refresh) until the total is exhausted or `GA4_MAX_PAGES` is hit. A FAILED subsequent page (offset>0) does NOT fail the whole report — we `log.warn` once, stop, and return the rows gathered so far flagged `truncated: true` (partial > zero). The MAX_PAGES ceiling likewise sets `truncated: true`.
  *
- * NEVER throws on normal not-connected / not-scoped / disconnected
- * / expired / api_error states.
+ * NEVER throws on normal not-connected / not-scoped / disconnected / expired / api_error states.
  */
 export async function runGa4UrlTrafficReport(
   args: Ga4RunReportArgs,
@@ -284,8 +236,7 @@ export async function runGa4UrlTrafficReport(
         connectedAt: token.connected_at,
       });
       accessToken = refreshed.access_token;
-      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token
-      // best-effort so GA4 self-heals across rotation.
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): persist a rotated refresh token best-effort so GA4 self-heals across rotation.
       await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
     } catch (e) {
       log.warn("[ga4-data-api] token refresh failed; surfacing token_expired", {
@@ -298,14 +249,7 @@ export async function runGa4UrlTrafficReport(
 
   const url = buildRunReportUrl(propertyId);
 
-  /**
-   * Fetch a single `runReport` page at `offset` using the supplied
-   * (already-valid) access token. Returns the parsed body on success,
-   * or `{ error }` describing why the page could not be parsed. Never
-   * throws. Used for EVERY page — page 0 wraps the result in the full
-   * fail-soft/refresh ladder below; subsequent pages downgrade any
-   * `error` to a partial-but-non-fatal stop.
-   */
+  /** Fetch a single `runReport` page at `offset` using the supplied (already-valid) access token. Returns the parsed body on success, or `{ error }` describing why the page could not be parsed. Never throws. Used for EVERY page — page 0 wraps the result in the full fail-soft/refresh ladder below; subsequent pages downgrade any `error` to a partial-but-non-fatal stop. */
   async function fetchPage(
     pageToken: string,
     offset: number,
@@ -348,10 +292,7 @@ export async function runGa4UrlTrafficReport(
     return { ok: true, body: data };
   }
 
-  // ── Page 0 ── preserves the EXACT prior behavior: fetch-throw →
-  // api_error; 401 → one refresh + retry-once → token_expired on
-  // second 401; non-2xx → bounded-body log.warn + api_error;
-  // json-parse / empty → api_error.
+  // ── Page 0 ── preserves the EXACT prior behavior: fetch-throw → api_error; 401 → one refresh + retry-once → token_expired on second 401; non-2xx → bounded-body log.warn + api_error; json-parse / empty → api_error.
   let page0 = await fetchPage(accessToken, 0);
   if (!page0.ok && page0.kind === "fetch_threw") {
     log.warn("[ga4-data-api] fetch threw; surfacing api_error", { tenantId });
@@ -365,8 +306,7 @@ export async function runGa4UrlTrafficReport(
         connectedAt: token.connected_at,
       });
       accessToken = refreshed.access_token;
-      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): a mid-pull 401 refresh can rotate
-      // the refresh token — persist it best-effort.
+      // FIX 3 (OAUTH_ROOT_CAUSE_2026-07-09): a mid-pull 401 refresh can rotate the refresh token — persist it best-effort.
       await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
       const retry = await fetchPage(accessToken, 0);
       if (retry.ok) {
@@ -393,8 +333,7 @@ export async function runGa4UrlTrafficReport(
       return { ok: false, reason: "token_expired" };
     }
   } else if (!page0.ok && page0.kind === "non_2xx") {
-    // 9.A1β-deferred fix: capture Google's error body for operator
-    // triage. Bounded to 500 chars; never logs the token.
+    // 9.A1β-deferred fix: capture Google's error body for operator triage. Bounded to 500 chars; never logs the token.
     log.warn("[ga4-data-api] non-2xx response from GA4 Data API", {
       tenantId,
       status: page0.status,
@@ -420,17 +359,11 @@ export async function runGa4UrlTrafficReport(
   const rows: Ga4UrlTrafficRow[] = narrowRunReportRows(page0.body);
   const reportedRowCount = parseRowCount(page0.body.rowCount);
   const totalRowCount = reportedRowCount ?? rows.length;
-  // audit-4: RAW page-row count (pre-narrow). narrowRunReportRows drops
-  // malformed rows, so its length can be < the API page size even on a FULL
-  // page — using it for the fullness check would stop pagination early.
+  // audit-4: RAW page-row count (pre-narrow). narrowRunReportRows drops malformed rows, so its length can be < the API page size even on a FULL page — using it for the fullness check would stop pagination early.
   const rawPageRowCount = (body: Ga4RunReportResponseBody | null | undefined): number =>
     Array.isArray(body?.rows) ? body!.rows.length : 0;
 
-  // audit-4: when GA4 OMITS rowCount we cannot bound the loop by a total, and
-  // the old `offset < rows.length` stopped after page 0 — a silent undercount
-  // (>10k rows reported as complete) feeding the GA4 page-value weight low.
-  // Without a known total, paginate while the PREVIOUS page came back FULL
-  // (a short/empty page is the natural end); GA4_MAX_PAGES is the backstop.
+  // audit-4: when GA4 OMITS rowCount we cannot bound the loop by a total, and the old `offset < rows.length` stopped after page 0 — a silent undercount (>10k rows reported as complete) feeding the GA4 page-value weight low. Without a known total, paginate while the PREVIOUS page came back FULL (a short/empty page is the natural end); GA4_MAX_PAGES is the backstop.
   const haveTotal = reportedRowCount != null;
   let lastRawPageFull = rawPageRowCount(page0.body) >= GA4_PAGE_SIZE;
 
@@ -452,8 +385,7 @@ export async function runGa4UrlTrafficReport(
     const page = await fetchPage(accessToken, offset);
     pagesFetched += 1;
     if (!page.ok) {
-      // Partial data beats zero: stop the loop, flag truncated, keep
-      // the rows we already gathered. Single warn for operator triage.
+      // Partial data beats zero: stop the loop, flag truncated, keep the rows we already gathered. Single warn for operator triage.
       truncated = true;
       log.warn("[ga4-data-api] subsequent page failed; returning partial", {
         tenantId,
@@ -476,16 +408,13 @@ export async function runGa4UrlTrafficReport(
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// GA4 revenue report (2026-06-26, GA4 revenue migration) — SEPARATE from the
-// traffic report so a revenue-specific failure NEVER breaks the proven traffic
-// sync. Same (date, url) grain + same pagination/auth posture.
+// GA4 revenue report (2026-06-26, GA4 revenue migration) — SEPARATE from the traffic report so a revenue-specific failure NEVER breaks the proven traffic sync. Same (date, url) grain + same pagination/auth posture.
 // ─────────────────────────────────────────────────────────────────────
 
 /** Revenue metric names requested from GA4 (all standard GA4 metrics). */
 const GA4_REVENUE_METRICS = ["totalRevenue", "purchaseRevenue", "transactions"] as const;
 
-/** Build the revenue `runReport` body — date×pagePath dims + revenue metrics.
- *  Pure; exported for tests. */
+/** Build the revenue `runReport` body — date×pagePath dims + revenue metrics. Pure; exported for tests. */
 function buildRevenueReportBody(args: {
   startDate: string;
   endDate: string;
@@ -512,11 +441,7 @@ function parseMetricFloat(raw: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/**
- * Narrow a GA4 revenue `runReport` body into `Ga4RevenueRow[]`, mapping metric
- * values BY HEADER NAME (not index) so a reordered/partial metric set never
- * misassigns a value. Drops malformed rows. Pure; exported for tests.
- */
+/** Narrow a GA4 revenue `runReport` body into `Ga4RevenueRow[]`, mapping metric values BY HEADER NAME (not index) so a reordered/partial metric set never misassigns a value. Drops malformed rows. Pure; exported for tests. */
 export function narrowRevenueRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4RevenueRow[] {
@@ -553,8 +478,7 @@ export function narrowRevenueRows(
   return out;
 }
 
-/** True when a GA4 400 body indicates a revenue metric is unusable for this
- *  property (→ treat as revenue_unavailable, not a generic error). */
+/** True when a GA4 400 body indicates a revenue metric is unusable for this property (→ treat as revenue_unavailable, not a generic error). */
 function looksLikeRevenueUnavailable(status: number | undefined, body: string): boolean {
   if (status !== 400) return false;
   const b = body.toLowerCase();
@@ -567,12 +491,7 @@ function looksLikeRevenueUnavailable(status: number | undefined, body: string): 
   );
 }
 
-/**
- * Run the GA4 revenue `runReport`. Fail-soft discriminated union; NEVER throws.
- * Mirrors `runGa4UrlTrafficReport`'s auth/refresh/pagination, but on a 400 that
- * names a revenue metric returns `{ ok: false, reason: "revenue_unavailable" }`
- * so the caller marks revenue UNKNOWN without failing the traffic sync.
- */
+/** Run the GA4 revenue `runReport`. Fail-soft discriminated union; NEVER throws. Mirrors `runGa4UrlTrafficReport`'s auth/refresh/pagination, but on a 400 that names a revenue metric returns `{ ok: false, reason: "revenue_unavailable" }` so the caller marks revenue UNKNOWN without failing the traffic sync. */
 export async function runGa4RevenueReport(
   args: Ga4RunReportArgs,
 ): Promise<Ga4RevenueReportResult> {
@@ -662,10 +581,7 @@ export async function runGa4RevenueReport(
       await persistRefreshedGoogleToken("google_ga4", refreshed, tenantId);
       const retry = await fetchRevenuePage(accessToken, 0);
       if (retry.ok) page0 = retry;
-      // A 401 after refresh means the token is definitively dead → token_expired.
-      // Check the STATUS before the body, so a 401 whose error text happens to
-      // name a revenue metric is never misclassified as revenue_unavailable
-      // (which is a 400-only state — a property legitimately lacking revenue).
+      // A 401 after refresh means the token is definitively dead → token_expired. Check the STATUS before the body, so a 401 whose error text happens to name a revenue metric is never misclassified as revenue_unavailable (which is a 400-only state — a property legitimately lacking revenue).
       else if (retry.kind === "non_2xx" && retry.status === 401)
         return { ok: false, reason: "token_expired", status: retry.status, message: "401 after refresh" };
       else if (retry.kind === "non_2xx" && looksLikeRevenueUnavailable(retry.status, retry.errorBody ?? ""))
@@ -733,25 +649,15 @@ export async function runGa4RevenueReport(
 // ─────────────────────────────────────────────────────────────────────
 // GA4 sitewide sessions report (2026-07-10, Wave 2A) - the TRUE sitewide series.
 //
-// SEPARATE from the (date, pagePath) traffic report on purpose: this report has
-// ONLY a `date` dimension, so GA4 returns its OWN sitewide session count per day,
-// already aggregated across every page. That is the number Wave 1 could not get
-// by summing ga4_url_traffic (GA4 sessions are not additive across page paths).
+// SEPARATE from the (date, pagePath) traffic report on purpose: this report has ONLY a `date` dimension, so GA4 returns its OWN sitewide session count per day, already aggregated across every page. That is the number Wave 1 could not get by summing ga4_url_traffic (GA4 sessions are not additive across page paths).
 //
-// "visits" == GA4 sessions. We request `sessions` (+ `engagedSessions` for
-// context) and store the daily rows at (tenant, property, date) grain, where
-// summing across DISTINCT days IS additive-safe. Same auth/refresh/pagination
-// posture as the sibling reports so a sitewide failure is isolated and fail-soft.
+// "visits" == GA4 sessions. We request `sessions` (+ `engagedSessions` for context) and store the daily rows at (tenant, property, date) grain, where summing across DISTINCT days IS additive-safe. Same auth/refresh/pagination posture as the sibling reports so a sitewide failure is isolated and fail-soft.
 // ─────────────────────────────────────────────────────────────────────
 
 /** Sitewide daily metrics requested from GA4 (date dimension only). */
 const GA4_SITEWIDE_METRICS = ["sessions", "engagedSessions"] as const;
 
-/**
- * Build the sitewide `runReport` body: ONE `date` dimension (NO pagePath) so GA4
- * aggregates sessions across the whole property per day. Total deterministic
- * order for exact offset pagination. Pure; exported for tests.
- */
+/** Build the sitewide `runReport` body: ONE `date` dimension (NO pagePath) so GA4 aggregates sessions across the whole property per day. Total deterministic order for exact offset pagination. Pure; exported for tests. */
 function buildSitewideSessionsReportBody(args: {
   startDate: string;
   endDate: string;
@@ -768,12 +674,7 @@ function buildSitewideSessionsReportBody(args: {
   };
 }
 
-/**
- * Narrow a sitewide daily `runReport` body into `Ga4SitewideDailyRow[]`. Metric
- * values map BY HEADER NAME (never index) so a reordered metric set can't
- * misassign. GA4 date "YYYYMMDD" normalizes to "YYYY-MM-DD". Drops malformed
- * rows. Pure; exported for tests.
- */
+/** Narrow a sitewide daily `runReport` body into `Ga4SitewideDailyRow[]`. Metric values map BY HEADER NAME (never index) so a reordered metric set can't misassign. GA4 date "YYYYMMDD" normalizes to "YYYY-MM-DD". Drops malformed rows. Pure; exported for tests. */
 function narrowSitewideDailyRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4SitewideDailyRow[] {
@@ -801,21 +702,13 @@ function narrowSitewideDailyRows(
   return out;
 }
 
-/** Read GA4's response-metadata timeZone (the property's reporting timezone GA4
- *  bucketed the dates in). GA4 buckets `date`/`yearMonth` in this timezone BY
- *  DEFAULT. Returns null when absent. Pure. */
+/** Read GA4's response-metadata timeZone (the property's reporting timezone GA4 bucketed the dates in). GA4 buckets `date`/`yearMonth` in this timezone BY DEFAULT. Returns null when absent. Pure. */
 function parsePropertyTimezone(body: Ga4RunReportResponseBody | null | undefined): string | null {
   const tz = body?.metadata?.timeZone;
   return typeof tz === "string" && tz !== "" ? tz : null;
 }
 
-/**
- * Run the GA4 sitewide sessions `runReport` (date dimension only). Fail-soft
- * discriminated union; NEVER throws. Auth/refresh/401-retry/non-2xx-logging/
- * bounded-pagination posture mirrors `runGa4UrlTrafficReport` exactly. On
- * success returns the daily rows plus the property's reporting timezone from
- * response metadata.
- */
+/** Run the GA4 sitewide sessions `runReport` (date dimension only). Fail-soft discriminated union; NEVER throws. Auth/refresh/401-retry/non-2xx-logging/ bounded-pagination posture mirrors `runGa4UrlTrafficReport` exactly. On success returns the daily rows plus the property's reporting timezone from response metadata. */
 export async function runGa4SitewideSessionsReport(
   args: Ga4RunReportArgs,
 ): Promise<Ga4SitewideReportResult> {
@@ -961,15 +854,10 @@ export async function runGa4SitewideSessionsReport(
 // ─────────────────────────────────────────────────────────────────────
 // GA4 sitewide MONTHLY report (2026-07-10, Wave 2A) - the reconciliation truth.
 //
-// A DIRECT month-grain report using GA4's `yearMonth` dimension: GA4 returns its
-// OWN sitewide session total per calendar month. reconcileGa4MonthlySeries checks
-// this against the daily rollup month by month; the daily sum must match this
-// direct total within tolerance before the north-star card is allowed to show a
-// visits number. Same fail-soft posture; ~14 rows so no real pagination needed.
+// A DIRECT month-grain report using GA4's `yearMonth` dimension: GA4 returns its OWN sitewide session total per calendar month. reconcileGa4MonthlySeries checks this against the daily rollup month by month; the daily sum must match this direct total within tolerance before the north-star card is allowed to show a visits number. Same fail-soft posture; ~14 rows so no real pagination needed.
 // ─────────────────────────────────────────────────────────────────────
 
-/** Build the monthly `runReport` body: ONE `yearMonth` dimension + `sessions`.
- *  Pure; exported for tests. */
+/** Build the monthly `runReport` body: ONE `yearMonth` dimension + `sessions`. Pure; exported for tests. */
 function buildSitewideMonthlyReportBody(args: {
   startDate: string;
   endDate: string;
@@ -986,9 +874,7 @@ function buildSitewideMonthlyReportBody(args: {
   };
 }
 
-/** Narrow a monthly `runReport` body into `Ga4SitewideMonthlyRow[]`. GA4's
- *  `yearMonth` value is "YYYYMM"; normalizes to "YYYY-MM-01". Drops malformed
- *  rows. Pure; exported for tests. */
+/** Narrow a monthly `runReport` body into `Ga4SitewideMonthlyRow[]`. GA4's `yearMonth` value is "YYYYMM"; normalizes to "YYYY-MM-01". Drops malformed rows. Pure; exported for tests. */
 function narrowSitewideMonthlyRows(
   body: Ga4RunReportResponseBody | null | undefined,
 ): Ga4SitewideMonthlyRow[] {
@@ -1007,12 +893,7 @@ function narrowSitewideMonthlyRows(
   return out;
 }
 
-/**
- * Run the GA4 sitewide monthly `runReport` (yearMonth dimension). Fail-soft
- * discriminated union; NEVER throws. Mirrors the daily report's auth ladder.
- * A single page suffices for month-grain data; the same MAX_PAGES bound guards
- * against a pathological response.
- */
+/** Run the GA4 sitewide monthly `runReport` (yearMonth dimension). Fail-soft discriminated union; NEVER throws. Mirrors the daily report's auth ladder. A single page suffices for month-grain data; the same MAX_PAGES bound guards against a pathological response. */
 export async function runGa4SitewideMonthlyReport(
   args: Ga4RunReportArgs,
 ): Promise<Ga4SitewideMonthlyReportResult> {
