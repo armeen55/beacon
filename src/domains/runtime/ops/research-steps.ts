@@ -115,8 +115,7 @@ export type ResearchCycleSteps = {
     outcomes?: { readySaved: number; evidenceBanked: number; refused: number; blocked: number; unreached: number; stuck: string[];
       receipts?: unknown[]; ledger?: { before: number; after: number; delta: number; metered: number; unexplained?: number; reconciled: boolean } } } | null>;
 };
-/** How many pages one fact-check pass may open. The CLAIM bound is global and lives with the pass itself (ATTEMPTS_PER_PASS in fact-check-run): more pages never multiply it. Six covers every page currently holding owed claims, so no owed page waits on rotation (operator, 2026-08-30). */
-const PAGES_PER_PASS = 6;
+/** The page meter is DELETED (operator, 2026-08-30): the pass takes the WHOLE ranked inventory and walks it under its own global claim allowance and deadline, so no owed page ever waits on rotation. Bodies load lazily per page, so an unreached page costs nothing. */
 
 /** What this run still allows the ONE advisory reading. `mark` is the runner's own receipt: the reading is bounded per RUN, never per unit iteration. */
 type CaseReconcilePlan = { planKeys: string[]; maySynthesize: boolean; mark: () => void };
@@ -462,6 +461,11 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       const snapshot = await loadEvidenceSnapshot(tenantId);
       const pathOf = (u: string): string => { try { return new URL(u.startsWith("http") ? u : `https://${u}`).pathname.replace(/\/+$/, "") || "/"; } catch { return u; } };
       const held = await facts.readFactChecks(tenantId);
+      // CLAIMS ARE CHECKED IN THE ORDER PEOPLE SEARCH THEM (operator, 2026-08-30): inventory order walked obscure entries while the names the audience actually asks about waited. Measured off stored query rows; unsearched subjects keep inventory order behind the searched ones.
+      const qd = new Map<string, number>();
+      for (const p of snapshot.ownedPages) for (const q of p.search?.topQueries ?? []) for (const w of q.query.toLowerCase().split(/\s+/)) if (w.length > 2) qd.set(w, (qd.get(w) ?? 0) + q.impressions);
+      const sdm = (t: string): number => Math.max(0, ...t.toLowerCase().split(/\s+/).filter((w) => w.length > 2).map((w) => qd.get(w) ?? 0));
+      held.sort((a, b) => sdm(b.subject) - sdm(a.subject));
       const coverage = new Map<string, number>();
       for (const h of held) coverage.set(h.page, Math.min(coverage.get(h.page) ?? Infinity, Date.parse(h.checkedAt) || 0));
       // FINISH WHAT IS ALREADY BOUGHT FIRST: a page holding owed claims outranks an unopened one. THEN DEMAND OUTRANKS ROTATION (operator, 2026-08-30): the wave spent most of its $0.60 judging low-value claims because oldest-coverage rotation came before audience, so the audience the account actually has decides next and rotation only breaks the tie. Nothing is dropped: every owed claim stays owed and typed exhaustion still reaches the tail. A NAMED TARGET OUTRANKS EVERYTHING: an acquisition runs for one page's owed claims.
@@ -498,7 +502,7 @@ async function factCheckPass(tenantId: string, budgetMs: number, renew: (() => P
       };
       const out = await runFactCheckPass({
         tenantId, basis, deadlineAt, held, renew, read,
-        pages: ranked.slice(0, PAGES_PER_PASS).map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
+        pages: ranked.map((p) => ({ url: p.url, path: pathOf(p.url), loadBody: async () => {
           const bodies = await loadOwnedPageBodies(tenantId, [p.url]).catch(() => null);
           const b = bodies?.get?.(p.url);
           return b ? [b.title, b.h1, ...b.headings, ...b.passages].filter(Boolean).join("\n") : "";

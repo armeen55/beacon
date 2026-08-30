@@ -19,7 +19,7 @@ import { log } from "@/lib/logger";
  */
 const lastRunAt = new Map<string, number>();
 const MIN_GAP_MS = 10 * 60_000;
-const PER_RUN_CAP = 15;
+const PER_RUN_CAP = 60; // the meter is effectively gone (operator, 2026-08-30): a runaway stop over $0 reads
 
 /** Measure every due row, then make the result VISIBLE and USABLE: the Results surface is rebuilt when a reading
  *  actually landed, so the first view serves fresh truth instead of an old snapshot patched afterwards, and winner

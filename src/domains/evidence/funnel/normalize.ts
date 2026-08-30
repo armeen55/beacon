@@ -226,7 +226,7 @@ function stableTopics(phrases: string[]): string[] {
  *  is SKIPPED and named, never truncated: a truncated question is a different question. */
 const MAX_SERP_KEYWORD_CHARS = 700;
 /** A priority list answers "what is this run stuck on", never a second agenda. */
-const MAX_PRIORITY_QUERIES = 10; // 3 to 10 (operator, 2026-08-30): the priority list feeds exact-query SERP reads, and three per pass starved every diagnosis that needs one
+const MAX_PRIORITY_QUERIES = 40; // the meter is effectively gone (operator, 2026-08-30): the agenda cap and the provider budget bound the buy; 40 is a runaway stop
 /** THE PORTFOLIO STOPS SCALE WITH THE CAP. They were the flat numbers 12 / 22 / 32, tuned when the cap was 40, so raising the cap handed every new slot to plain volume exploration: an account with twenty two pages losing clicks got twelve first-party slots however wide the agenda grew, and the rest went to keywords none of its pages rank for. Each stop is now the same SHARE of the cap it was at forty (30% / 55% / 80%), floored at the old number so nothing narrows and every existing small-cap agenda is unchanged. Exploration stays a flat +8: widening the pipe must widen my OWN words. */
 const stopAt = (cap: number, floor: number, share: number) => Math.min(cap, Math.max(floor, Math.round(cap * share)));
 

@@ -68,7 +68,7 @@ type VerifyDeps = {
 
 /** How many live pages ONE pass may read for verification. A verification is one free read of a page the
  *  account owns, and three of them is a pass's worth: the rest are still due on the next visit. */
-const MAX_VERIFICATIONS_PER_PASS = 3, TARGET_SCAN_BOUND = 50; // the bounded window a targeted lookup may scan for its id
+const MAX_VERIFICATIONS_PER_PASS = 15, TARGET_SCAN_BOUND = 50; // verifications 3 to 15 (operator, 2026-08-30): 56 changes measuring drained at three a pass; the fetch itself is the only cost
 /** Under this many words at the proposed address, a new page is live but not yet a page. */
 const THIN_PAGE_WORDS = 120;
 /** The kinds a live page answers for on its own, with no wording needed to check them. */

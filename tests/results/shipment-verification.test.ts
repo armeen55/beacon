@@ -154,10 +154,10 @@ describe("the pass: what is due, how much of it runs, and what it writes", () =>
   it("owes a check on every change marked implemented that has never been checked, and on nothing else", async () => {
     ROWS.push(row({ id: "a" }), row({ id: "b", verification: { status: "verified", checkedAt: "x", components: [] } }), row({ id: "c", implementedAt: null }));
     expect((await shipmentsAwaitingVerification(T, 3)).map((s) => s.id)).toEqual(["a"]); expect(await shipmentsAwaitingVerification("", 3)).toEqual([]);});
-  it("reads at most three live pages in one pass, writes each answer exactly once, and never reads a page twice", async () => {
+  it("reads every due live page in one bounded pass, writes each answer exactly once, and never reads a page twice", async () => {
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-3${id === "a" ? 0 : 1}T09:00:00Z` }));
     const read: string[] = []; const written = await verifyDueShipments(T, { ...base, fetchPage: (async (u: string) => { read.push(u); return { ok: true as const, html: PAGE, status: 200 }; }) });
-    expect([written, read.length, WRITES.length]).toEqual([3, 3, 3]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified"]);});
+    expect([written, read.length, WRITES.length]).toEqual([5, 5, 5]); expect(WRITES.map((w) => w[2].status)).toEqual(["verified", "verified", "verified", "verified", "verified"]);});
   it("finds its target past the sweep cap, and rules nothing else in its place", async () => {
     for (const id of ["a", "b", "c", "d", "e"]) ROWS.push(row({ id, implementedAt: `2026-07-${id === "e" ? "31" : "30"}T09:00:00Z` }));
     const read: string[] = [];

@@ -218,8 +218,12 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
       // SEVERITY FIRST, never the alphabet: a wholly wrong statement with two agreeing sources and repeats elsewhere on the page is the one to fix, and it must never be the one the cap drops. ONLY FACTS CURRENT FOR THIS PAGE VERSION MAY BECOME WORK
       // (Codex, 2026-08-18): an older version, or a source nobody recorded reading, is a finding and never a live instruction.
       // A MISSING-INFORMATION ROW IS NOT A CORRECTION: it has no current wording, so "X stops stating a meaning its own sources contradict" would name words the page never carried. Those rows are the WRITER'S fact-* evidence; only rows that correct wording the page holds become correction components.
+      // WHAT PEOPLE ACTUALLY SEARCH FOR THIS SUBJECT, measured off the page's own query rows, never assumed (operator, 2026-08-30): one entry's correction is worth the demand for THAT entry, not the whole page it sits on, so severity orders equals and demand orders everything.
+      const qd = new Map<string, number>();
+      for (const q of page.search?.topQueries ?? []) for (const w of q.query.toLowerCase().split(/\s+/)) if (w.length > 2) qd.set(w, (qd.get(w) ?? 0) + q.impressions);
+      const subjectDemand = (t: string): number => Math.max(0, ...t.toLowerCase().split(/\s+/).filter((w) => w.length > 2).map((w) => qd.get(w) ?? 0));
       const corrections = authorizedCorrections(rows, { pageContentHash: pageHashes.get(key) ?? null }, tenantId).filter((c) => c.current.trim() !== "")
-        .sort((a, b) => correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
+        .sort((a, b) => subjectDemand(b.subject) - subjectDemand(a.subject) || correctionSeverity(b) - correctionSeverity(a) || a.subject.localeCompare(b.subject));
       const held = rows.filter((r) => !corrections.includes(r) && r.verdict !== "page_correct");
       const disputed = held.filter((r) => r.confidence === "disputed" || r.confidence === "likely");
       const unsupported = held.filter((r) => r.confidence === "unsupported");
@@ -299,7 +303,8 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
             falsifier: `If the next check run finds ${path} already carries the corrected wording, this retires itself.` },
           diagnosisCause: "factual_error",
           evidence: { query: `${path} factual accuracy`, hints: support.map((s) => s.fact), evidenceRefCount: support.length },
-          impactScore: null, upsidePerMonth: null, demandImpressions90d: page.search?.impressions90d ?? null,
+          // The measured demand for THIS entry funds and explains the card; a subject nobody searches falls back to the page figure with no per-change claim.
+          impactScore: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) / 100 : null, upsidePerMonth: null, demandImpressions90d: subjectDemand(c.subject) > 0 ? subjectDemand(c.subject) : (page.search?.impressions90d ?? null),
           publish: "manual", createdAt: now.toISOString(),
         });
       }
