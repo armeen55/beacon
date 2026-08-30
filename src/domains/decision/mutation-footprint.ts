@@ -12,6 +12,19 @@
  *  because they land on the same page. */
 import type { BundleComponent, BundleComponentKind, ChangeProposal } from "@/domains/decision/contracts";
 import { canonicalQueryKey } from "@/domains/evidence/relevance-gate";
+import type { TreatmentSignature } from "@/domains/measurement/proof-gsc/types";
+
+/** WHAT KIND OF WORK THIS CHANGE IS, in the four facts a shipment has to carry if this account is ever to learn which of its bets pay. It
+ *  lives beside the footprint because both answer an identity question about the change itself and neither reads anything outside the row.
+ *  IT IS BUILT HERE AND STAMPED AT THE PRESS, because the press is the last moment the proposal exists: a shipment keeps the coarse action
+ *  word and the copy, and by the time Results asks what treatment was chosen or what cause it was raised against, the card is gone. `family`
+ *  falls back to the proposal kind so a row can always be filed; the other three are null when the card never carried them, and the null is
+ *  the honest answer rather than a value read back out of the prose. */
+export function treatmentSignatureOf(p: ChangeProposal): TreatmentSignature {
+  const change = p.recommendedChange;
+  return { family: (p.changeFamily || p.kind || "").trim(), treatment: p.treatment ?? null,
+    field: change?.kind === "existing_edit" ? change.field : null, cause: p.diagnosisCause ?? null };
+}
 
 /** WHICH SLOT a piece writes. Kinds sharing a slot really would overwrite each other; kinds in different slots
  *  never can. `body` is deliberately broad: every way of writing prose into a page competes for the same words,

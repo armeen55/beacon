@@ -9,7 +9,7 @@ import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
 import { getRepository } from "@/lib/persistence/repositories";
 import { proposalDisposition, actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
-  loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented,
+  loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented, treatmentSignatureOf,
   type ChangeProposal } from "@/domains/decision";
 import { getTenant } from "@/domains/account";
 import { captureChangeMeta, loadShippedChanges, objectiveOfStage, recordShipment, verifyShipmentNow, type MeasurementState } from "@/domains/measurement";
@@ -47,6 +47,26 @@ function liveUrlFor(raw: string, domain: string): { url: string } | { error: str
   }
   if (parsed.search || parsed.hash) return { error: "Use the plain page address, with nothing after a ? or a #, so the page itself is read." };
   return { url: `${parsed.origin}${parsed.pathname}` };
+}
+
+/** The address as one comparable key: a full URL is cut down to its path, a trailing slash is nothing, and case never separates two spellings of one page. */
+const pageKeyOf = (raw: string): string => { const t = (raw ?? "").trim().toLowerCase(); let path = t;
+  if (/^https?:\/\//.test(t)) { try { path = new URL(t).pathname; } catch { path = t; } }
+  return path.replace(/\/+$/, "") || "/"; };
+
+/** HOW MANY OTHER CHANGES OF THEIRS WERE ALREADY BEING MEASURED ON THIS PAGE at the moment of the press. PURE, and read off rows the caller
+ *  already holds, so it costs nothing: a count per press, never a query per row. DISTINCT PROPOSALS, because one change applied over three
+ *  presses is one change and not three; and only inside the 28 day window that is the longest reading Beacon takes, so a change shipped last
+ *  spring never marks today's work as crowded. A page nothing can name counts zero rather than counting everything. */
+function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | null; path: string; page: string; implementedAt: string | null }>, p: ChangeProposal, pageRef: string): number {
+  const raw = (pageRef || p.pagePath || "").trim();
+  if (!raw) return 0;
+  const here = pageKeyOf(raw), since = Date.now() - 28 * 86_400_000, others = new Set<string>();
+  for (const r of ledger) {
+    if (r.proposalId === p.id || r.implementedAt == null || Date.parse(r.implementedAt) < since) continue;
+    if (pageKeyOf(r.path) === here || pageKeyOf(r.page) === here) others.add(r.proposalId ?? r.id);
+  }
+  return others.size;
 }
 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
@@ -119,6 +139,13 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // assistants and which follow-up searches its own result must be read on.
       aiScope: proposal.aiScope ?? null,
       componentsApplied,
+      // WHAT KIND OF WORK THIS IS, STAMPED WHERE THE CARD STILL EXISTS. A shipment keeps the coarse action word and the copy; the treatment
+      // the producer chose and the cause it was raised against live only on the proposal, and by the time Results asks which of this
+      // account's bets pay, the card is gone. Beside it, how many OTHER changes of theirs were already being measured on this same page at
+      // this moment, counted off the ledger THIS PRESS ALREADY READ so it costs no query: distinct proposals only, and only inside the 28 day
+      // window that is the longest reading Beacon takes, so a change shipped last spring never marks today's work as crowded. It is what
+      // lets a later reading say it was taken alongside other work instead of handing the whole movement to one edit.
+      treatmentStamp: { signature: treatmentSignatureOf(proposal), overlapAtShip: overlapAtShip(ledger, proposal, pageRef) },
       preChangeContentHash: meta?.contentHash ?? null,
       // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.
       operatorNote: opts.operatorNote ?? null,

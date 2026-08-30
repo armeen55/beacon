@@ -57,13 +57,11 @@ async function twoWindows(tenantId: string, now: Date | undefined): Promise<Wind
   if (!decay) return out;
   for (const [url, d] of decay) out.set(url, { positionNow: d.positionNow, positionPrior: d.positionPrior, clicksNow: d.clicksNow, clicksPrior: d.clicksPrior, sessionsNow: visits?.get(url)?.now ?? 0, sessionsPrior: visits?.get(url)?.prior ?? 0, impressionsNow: d.impressionsNow, impressionsPrior: d.impressionsPrior, windowEnd: d.windowNowEnd, lostClicks: Math.max(0, d.clicksPrior - d.clicksNow) });
   return out;}
-/** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed. Fail-soft to nothing. */
-async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> { const out = new Map<string, { readings: number; netLift: number }>();
-  const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null); if (!ledger) return out; const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
-  for (const r of ledger) {
-    if (/\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/.test(r.after ?? "")) continue; const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= 28).sort((a, b) => b.day - a.day)[0]; if (!read) continue; const cur = out.get(actionFamilyOf(r.actionType)) ?? { readings: 0, netLift: 0 };
-    out.set(actionFamilyOf(r.actionType), { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) }); }
-  return out;
+/** WHAT EACH KIND OF CHANGE HAS DONE ON THIS SITE, off its own ledger: how many readings finished, and the net clicks they moved against the pages nobody changed, shrunk hard towards nothing while the sample is thin. ONE FUNCTION, shared with the screen's own loader: this walk was copied into two files and either copy could have drifted on any change to what counts as a finished reading. Fail-soft to nothing. */
+async function familyHistoryOf(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
+  const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerPersisted(tenantId)).catch(() => null);
+  if (!ledger) return new Map();
+  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger);
 } /** WHAT ONE PASS MAY SPEND ON READING PAGES FOR AEO GAPS. Separate from the drafting plan on purpose: a diagnosis that REFUSES emits no card, so the card-output bound never notices it and an unmetered pass could buy readings all day. Raised 5 to 200, a runaway stop only (operator, 2026-08-30, "i dont want any limits"): the adjudicator ledger and the zero-spend scope are the brakes. A zero-spend pass funds none, and unread cases stay owed. */
 const AEO_DIAGNOSES_PER_PASS = 200;
 const NEEDS_DECISION: ReadonlySet<string> = new Set(["technical_reachability", "consolidate_or_differentiate", "new_page"]);

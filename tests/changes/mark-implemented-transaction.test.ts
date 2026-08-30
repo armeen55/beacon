@@ -1,7 +1,8 @@
 /** THE MARK-IMPLEMENTED TRANSACTION. There is no bare status flip on the decision facade: the record is written FIRST and the change is flipped SECOND, carrying that record's own id, so a crash between the two leaves a record the next press heals where the reverse would leave a change marked done that nothing on earth is measuring. A piece is named by its exact copy too, so a redraft is genuinely new work while pressing the SAME version twice stays one record. AN UNFINISHED DELIVERABLE IS NOT WORK SOMEBODY CAN HAVE DONE. The server asks the ONE completeness boundary, never the prose, so no stale tab opens a 28 day reading on work nobody wrote. THE BOUNDARY IS THE TYPED FACT: a producer that writes a brief instead of copy stamps it as it mints the card, and a blank nobody filled in is still a blank, whoever wrote it. THE ONE DOOR, standing in for the real one: it always writes and always answers with the row's id, it is idempotent on (proposal, version), and the row is durable the moment it lands, which is exactly what a retry after a crash finds. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ChangeProposal } from "@/domains/decision";
-const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Array<{ id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }>, breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
+type Rec = { id: string; proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }>; path: string; page: string; implementedAt: string | null; treatmentStamp: { signature: Record<string, string | null>; overlapAtShip: number } | null };
+const led = vi.hoisted(() => ({ verified: [] as string[], records: [] as Rec[], breakWrite: false, flip: vi.fn(async (..._a: unknown[]) => true) }));
 const stored = vi.hoisted(() => ({ proposal: null as unknown, disposition: null as string | null }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
@@ -16,11 +17,12 @@ vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, u
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   verifyShipmentNow: async (_t: string, id: string) => { led.verified.push(id); return 1; },
   loadShippedChanges: async () => led.records, captureChangeMeta: async () => null,
-  recordShipment: async (f: { proposalId: string; proposalVersion: string; componentsApplied: Array<{ id: string }> }) => {
+  recordShipment: async (f: Omit<Rec, "id"> & { path: string }) => {
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
     const held = led.records.find((r) => r.proposalVersion === f.proposalVersion);
     if (held) return { shipmentId: held.id, measurement: "measuring" };
-    led.records.push({ id: `rec-${led.records.length + 1}`, proposalId: f.proposalId, proposalVersion: f.proposalVersion, componentsApplied: f.componentsApplied });
+    // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
+    led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() });
     return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring" }; } }));
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const AFTER = "Iranian comedians: the 12 names people actually search for";
@@ -65,6 +67,16 @@ describe("nothing is marked done that no record stands behind", () => {
     const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] });
     expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]);
     expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); });
+  it("stamps what kind of work it was, and how much of theirs was already being measured on that page", async () => {
+    // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
+    const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal;
+    expect((await press(first)).success).toBe(true);
+    expect(led.records[0]!.treatmentStamp).toEqual({ signature: { family: "title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 0 });
+    const second = { ...change("A second change to the very same page"), id: "t::/famous-iranian-comedians::existing_edit::meta" } as ChangeProposal;
+    expect((await press(second)).success).toBe(true);
+    expect(led.records[1]!.treatmentStamp, "a different change of theirs is already being read on this page, and the card carried neither of the other two facts").toEqual({ signature: { family: "title", treatment: null, field: "title", cause: null }, overlapAtShip: 1 });
+    await press(change("Redrafted words for that very same change"));
+    expect(led.records[2]!.treatmentStamp!.overlapAtShip, "a redraft of their own change is not a second change crowding the page").toBe(1); });
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
     const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");
     expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });

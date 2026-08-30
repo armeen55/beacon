@@ -54,6 +54,9 @@ export type ProofWindowResult = {
 /** The baseline snapshot stored on a record (display + kernel input). */
 export type ProofBaseline = GscWindowMetrics & { windowDays: number };
 
+/** WHAT KIND OF WORK THIS WAS, in the four facts that are only all in hand at the press: the family the change belongs to, the treatment the producing pass chose, the field it lands on and the cause it was raised against. STRUCTURAL, four plain strings, because Measurement may never name a Decision type and because grouping readings by kind is exactly what nothing here could do before: the one place that asked what this account's own history said read the coarse action family alone, so an answer block added because assistants never read the page and an answer block added because the opening buried the answer counted as the same bet. Stamped at mark time and never re-derived; a row that predates the stamp has the little of it that its own stored fields can honestly carry, and never a guess. */
+export type TreatmentSignature = { family: string; treatment: string | null; field: string | null; cause: string | null };
+
 /**
  * WHETHER THIS SHIPMENT CAN BE FAIRLY COMPARED, stored on the row beside the implementation
  * itself. AN IMPLEMENTATION FACT IS A FACT: what the operator applied is recorded whatever the

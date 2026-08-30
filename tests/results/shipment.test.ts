@@ -1,33 +1,23 @@
 /** THE CANONICAL SHIPMENT (V1 Truth Convergence Phase 6). Protected here: ONE Shipment per (proposal, version applied) and a retry that heals instead of duplicating; a partial bundle stored as one; the stamp and the starting numbers written exactly once; pre-Phase-6 rows still decoding; a check naming another account's Shipment landing nothing; and the 28-day ranking window read from the stamp. Fixtures only: the fake Postgres below holds the rows. */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-const db = vi.hoisted(() => {
-  /** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
-  const state = {
-    rows: [] as Row[], file: [] as Row[], offline: false,
-    upsertError: null as Row | null, updateError: null as Row | null,};
-  return { state, client: {} as Record<string, unknown> };});
+/** `offline` = no Supabase configured at all (local dev). `upsertError`/`updateError` = the pre-migration window, where the table is there and the Shipment columns are not. `file` is the per-tenant ledger file both fallbacks write to. */
+const db = vi.hoisted(() => ({ state: { rows: [] as Row[], file: [] as Row[], offline: false, upsertError: null as Row | null, updateError: null as Row | null }, client: {} as Record<string, unknown> }));
 const gsc = vi.hoisted(() => ({ window: vi.fn(), lastFinal: vi.fn() }));
 const ai = vi.hoisted(() => ({ views: vi.fn(), records: vi.fn() }));
-vi.mock("@/lib/persistence/supabase", () => ({
-  getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; },}));
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => { if (db.state.offline) throw new Error("no Supabase configured"); return db.client; } }));
 vi.mock("@/lib/tenant-context", () => ({ currentTenantId: async () => "acct-a" }));
-vi.mock("@/lib/persistence/json-store", () => ({
-  readStore: async () => db.state.file,
-  writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; },}));
+vi.mock("@/lib/persistence/json-store", () => ({ readStore: async () => db.state.file, writeStore: async (_store: string, rows: Row[]) => { db.state.file = rows; } }));
 vi.mock("@/lib/tenant", () => ({ getDataDir: () => "/tmp/beacon-fixture" }));
 vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null }));
 const invalidations = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
-vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({
-  readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map(),}));
+vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({ readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map() }));
 /** The comparison set this account's site can offer, which the recording seam asks for and never depends on. */
 const ctl = vi.hoisted(() => ({ pages: [] as string[] }));
 vi.mock("@/domains/decision/recommendation-intelligence/page-surgeon/assemble-packet", () => ({
-  loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }),
-  assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,}));
-vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({
-  ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records,}));
+  loadPageSurgeonContext: async () => ({ gscByUrl: new Map(), snapshotByCanon: new Map() }), assemblePacketForUrl: () => ({ gsc: null }), topPagesByDemand: () => ctl.pages,}));
+vi.mock("@/domains/evidence/ai-visibility/ai-observations", async (orig) => ({ ...((await orig()) as object), readAiObservationViews: ai.views, readAiObservations: ai.records }));
 /** The settle pass's own three seams: what it measured, and the two things a fresh verdict is worthless without. */
 const settle = vi.hoisted(() => ({ pass: vi.fn(), rebuilt: [] as string[], harvested: [] as string[] }));
 vi.mock("@/domains/measurement/proof-gsc/auto-measure-pass", () => ({ autoMeasureDuePass: settle.pass }));
@@ -37,51 +27,37 @@ import { settleDueMeasurements } from "@/domains/measurement/proof-gsc/auto-meas
 import { measureRecord, recordShippedChange } from "@/domains/measurement/proof-gsc/measure-pass";
 import { recordRepairShipment, recordShipment } from "@/domains/measurement/proof-gsc/record-shipment";
 import { isDueForMeasure } from "@/domains/measurement/proof-gsc/measure-lifecycle";
-import {
-  loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification,
-  upsertShippedChange, type ShipmentVerification,
-} from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { loadShippedChangesForTenant, pagesUnderMeasurementFromShipments, recordVerification, upsertShippedChange, type ShipmentVerification } from "@/domains/measurement/proof-gsc/shipped-change-store";
+import { familyHistoryFromShipments, signatureOfShipment, treatmentLearning } from "@/domains/measurement/treatment-learning";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
-Object.assign(db.client, supabaseFake({ rows: () => db.state.rows,
-  error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null,
-  same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id }));
+Object.assign(db.client, supabaseFake({ rows: () => db.state.rows, same: (stored, sent) => stored.tenant_id === sent.tenant_id && stored.id === sent.id,
+  error: (_t, op) => (op === "update" ? db.state.updateError : op === "upsert" ? db.state.upsertError : null) as { message: string } | null }));
 const T = "acct-a", NOW = new Date("2026-07-31T12:00:00.000Z");
 const PAGE = "https://www.fixture-outdoors.example/nowruz-guide";
 const COMPONENTS = [{ kind: "title", label: "Page title" }, { kind: "opening_answer", label: "Opening answer" }];
 const origin = (over: Record<string, unknown> = {}) => ({
-  proposalId: `${T}::/nowruz-guide::existing_edit::bundle`, proposalVersion: "v-abc123",
-  basis: "basis_today::d6", caseId: null,
-  bundleHypothesis: "Say what the searcher asked for in the line Google shows.",
-  componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,});
+  proposalId: `${T}::/nowruz-guide::existing_edit::bundle`, proposalVersion: "v-abc123", basis: "basis_today::d6", caseId: null,
+  bundleHypothesis: "Say what the searcher asked for in the line Google shows.", componentsApplied: COMPONENTS, implementedAt: NOW.toISOString(), preChangeContentHash: "hash-before", ...over,});
 const ship = (over: Record<string, unknown> = {}) => recordShippedChange({
-  tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz",
-  after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"],
-  shippedAt: NOW.toISOString(), now: NOW, shipment: origin() as never, ...over });
+  tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", before: "Nowruz", shippedAt: NOW.toISOString(), now: NOW, shipment: origin() as never,
+  after: "Nowruz Traditions and the Haft-Seen Table", targetQueries: ["nowruz traditions"], controlPages: ["https://x.test/a", "https://x.test/b"], ...over });
 /** A pre-Phase-6 row: the manual "Record shipped change" path, no Shipment columns at all. */
 const legacyRow = (): Row => ({
-  tenant_id: T, id: "/cities::2026-06-20", page: "https://www.fixture-outdoors.example/cities", path: "/cities",
-  action_type: "meta", before_text: "old", after_text: "new", shipped_at: "2026-06-20T00:00:00.000Z",
-  baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 },
-  target_queries: [], control_pages: [], windows: [], verdict: "measuring", confidence: "low", measured_at: null,
-  notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null,
-  created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
-const verification = (status: ShipmentVerification["status"]): ShipmentVerification =>
-  ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
+  tenant_id: T, id: "/cities::2026-06-20", page: "https://www.fixture-outdoors.example/cities", path: "/cities", action_type: "meta", before_text: "old", after_text: "new",
+  shipped_at: "2026-06-20T00:00:00.000Z", baseline: { clicks: 5, impressions: 400, ctr: 0.0125, position: 12, windowDays: 28 }, target_queries: [], control_pages: [], windows: [],
+  verdict: "measuring", confidence: "low", measured_at: null, notes: null, verified_live: false, live_source_url: null, recrawl_requested_at: null, created_at: "2026-06-20T00:00:00.000Z", updated_at: "2026-06-20T00:00:00.000Z",});
+const verification = (status: ShipmentVerification["status"]): ShipmentVerification => ({ status, checkedAt: "2026-08-02T00:00:00.000Z", components: [{ kind: "title", state: "verified", note: null }] });
+/** ONE stored proof window, shared by every walk that needs one: three hand-rolled copies drifted apart on the fields none of them meant to vary. `controlsUsed` is the only one a caller ever has a reason to move, because zero comparison pages is what makes a window unreadable. */
+const ranWindow = (day: number, adjustedLift: number, controlsUsed = 3) => ({ day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift, treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0, controlPosDelta: 0, adjustedPosLift: 0, controlsUsed, treatedPostImpressions: 5000,});
 beforeEach(() => {
-  db.state.rows = [];
-  db.state.file = [];
-  db.state.offline = false;
-  db.state.upsertError = null;
-  db.state.updateError = null;
+  Object.assign(db.state, { rows: [], file: [], offline: false, upsertError: null, updateError: null });
   [gsc.window, gsc.lastFinal, ai.views, ai.records].forEach((m) => m.mockReset());
   ai.records.mockResolvedValue([]);
   gsc.window.mockResolvedValue(new Map([[PAGE, { clicks: 9, impressions: 1200, ctr: 0.0075, position: 14 }]]));
   gsc.lastFinal.mockResolvedValue("2026-07-30");
-  ai.views.mockResolvedValue([
-    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
-    { slot: 0, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: false } }, analysisHash: "x", answerHash: "x" },
-    { slot: 1, status: "observed", day: "2026-07-30", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },
-    { slot: 0, status: "observed", day: "2026-06-01", analysis: { ownedBrandMention: { mentioned: true } }, analysisHash: "x", answerHash: "x" },]);});
+  // Three answers on the latest day, two of them naming this site, and one older day nothing may count: the starting number is the LATEST day's, and it is the whole of that day.
+  const seen = (slot: number, day: string, mentioned: boolean) => ({ slot, day, status: "observed", analysis: { ownedBrandMention: { mentioned } }, analysisHash: "x", answerHash: "x" });
+  ai.views.mockResolvedValue([seen(0, "2026-07-30", true), seen(0, "2026-07-30", false), seen(1, "2026-07-30", true), seen(0, "2026-06-01", true)]);});
 describe("the canonical Shipment", () => {
   it("a measure loop invalidates the release once, never once per record", async () => {
     const { upsertShippedChange, invalidateResultsSurfaceSafe } = await import("@/domains/measurement/proof-gsc/shipped-change-store");
@@ -102,6 +78,10 @@ describe("the canonical Shipment", () => {
     expect(stored.shipmentBaseline?.search?.clicks).toBe(9);
     expect(stored.shipmentBaseline?.ai).toEqual({ day: "2026-07-30", checked: 2, analyzed: 2, mentioning: 1 });
     expect(stored.verification).toBeNull(); // nobody has checked it, and that null makes it due
+    db.state.rows = []; db.state.file = []; // AND THEIR OWN ACCOUNT OF IT IS A NOTE, NEVER AN ANSWER: it rides along and the live check is still owed
+    await upsertShippedChange(await ship({ shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
+    const [noted] = await loadShippedChangesForTenant(T);
+    expect([noted.operatorNote, noted.verification]).toEqual(["I pasted it into my site myself.", null]);
   });
   it("counts the AI starting number over the WHOLE day, and writes down how many of it were read closely", async () => {
     const DAY = "2026-07-30";
@@ -129,35 +109,24 @@ describe("the canonical Shipment", () => {
       shipmentBaseline: { search: { clicks: 400, impressions: 9000, ctr: 0.044, position: 3, windowDays: 28 }, ai: null, capturedAt: "2026-08-07T00:00:00.000Z" },});
     const [after] = await loadShippedChangesForTenant(T); expect(after.implementedAt).toBe(NOW.toISOString());
     expect(after.shipmentBaseline?.search?.clicks).toBe(9);});
-  it("keeps what the operator says they did as a note, and still owes the live check", async () => {
-    await upsertShippedChange(await ship({
-      shipment: origin({ operatorNote: "I pasted it into my site myself." }) as never }));
-    const [stored] = await loadShippedChangesForTenant(T); expect(stored.verification).toBeNull();
-    expect(stored.operatorNote).toBe("I pasted it into my site myself.");});
   it("still decodes a record written before there were Shipments", async () => {
     db.state.rows.push(legacyRow());
     const [stored] = await loadShippedChangesForTenant(T); expect(stored.path).toBe("/cities");
     expect(stored.baseline.clicks).toBe(5);
     expect([stored.proposalId, stored.implementedAt, stored.shipmentBaseline, stored.verification]) .toEqual([null, null, null, null]);});});
 /** THE FOURTH CHECKPOINT IS BOUGHT ONCE. A recompute rebuilds 7/14/28 from scratch, so a day-56 reading already taken and already judged on must be carried through it untouched. */
-describe("a day-56 reading already taken", () => {
-  const LATER = new Date("2026-10-01T00:00:00.000Z"), BEHIND_56 = "2026-09-05";
-  const ranWindow = (day: number, adjustedLift: number) => ({
-    day, checkOn: "2026-09-25", ran: true, treatedDelta: 0, controlDelta: 0, adjustedLift,
-    treatedCtrDelta: 0, controlCtrDelta: 0, adjustedCtrLift: 0.02, treatedPosDelta: 0,
-    controlPosDelta: 0, adjustedPosLift: 0, controlsUsed: 3, treatedPostImpressions: 5000,});
-  it("survives a recompute that could not ask for it again, and is never re-bought", async () => {
-    const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never }; const measured = await measureRecord(T, held, LATER, BEHIND_56, new Set());
+describe("recording what the live check found", () => {
+  it("carries a day-56 reading through a recompute that could not ask for it again, and never re-buys it", async () => {
+    const held = { ...(await ship()), verdict: "inconclusive" as const, windows: [ranWindow(56, 400)] as never };
+    const measured = await measureRecord(T, held, new Date("2026-10-01T00:00:00.000Z"), "2026-09-05", new Set());
     expect(measured.windows.map((w) => w.day)).toEqual([7, 14, 28, 56]); expect(measured.windows.find((w) => w.day === 56)?.adjustedLift).toBe(400);
     expect(gsc.window.mock.calls.some((c) => (c[0] as { end?: string }).end === "2026-09-25")).toBe(false);
-    expect(measured.verdict).toBe("won");});});
-describe("recording what the live check found", () => {
+    expect(measured.verdict).toBe("won");});
   it("writes the verdict without touching the stamp, and fails closed on a shipment that is not this account's", async () => {
     const record = await ship(); await upsertShippedChange(record);
     expect(await recordVerification("acct-b", record.id, verification("verified"))).toBe(false); expect(await recordVerification(T, "shp_nothing", verification("not_found"))).toBe(false);
     expect((await loadShippedChangesForTenant(T))[0].verification).toBeNull(); expect(await recordVerification(T, record.id, verification("verified"))).toBe(true);
-    const [stored] = await loadShippedChangesForTenant(T);
-    expect([stored.verification?.status, stored.implementedAt, stored.shipmentBaseline?.search?.clicks]) .toEqual(["verified", NOW.toISOString(), 9]);});});
+    expect([(await loadShippedChangesForTenant(T))[0]].map((s) => [s.verification?.status, s.implementedAt, s.shipmentBaseline?.search?.clicks])).toEqual([["verified", NOW.toISOString(), 9]]);});});
 /** THE PRE-MIGRATION WINDOW. The columns are not there yet, the table is, and production reads the table: a write that quietly lands in a file is a write nobody will ever read back. */
 describe("when the Shipment columns are not there yet", () => {
   const MISSING_COLUMN = { code: "PGRST204", message: "Could not find the 'implemented_at' column of 'shipped_change_proof' in the schema cache" };
@@ -288,22 +257,41 @@ describe("the AI baseline is frozen over the change's own scope (AEO reconstruct
   it("records the implementation with no AI starting numbers when the scope's answers are not on file", async () => {
     ai.records.mockResolvedValue([]);
     await upsertShippedChange(await ship({ shipment: origin({ aiScope: SCOPE }) as never })); const [stored] = await loadShippedChangesForTenant(T);
-    expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);});});
-describe("the typed AI scope survives the press whole (AEO reconstruction, 2026-08-19)", () => {
+    expect([stored.implementedAt, stored.shipmentBaseline?.ai]).toEqual([NOW.toISOString(), null]); expect(stored.shipmentBaseline?.search?.clicks).toBe(9);});
   it("stores prompt ids, assistants and the fan-out cluster typed, never flattened into targetQueries", async () => {
     const scope = { promptIds: ["p1"], engines: ["chatgpt", "gemini"], fanouts: ["haft seen table items list"], stage: "owned_retrieved_not_cited" };
-    await recordShipment({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family",
-      before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"], basis: null, caseId: null,
+    await recordShipment({ ...origin(), tenantId: T, page: PAGE, path: "/nowruz-guide", actionType: "title-family", basis: null, caseId: null,
+      before: "Nowruz", after: "Nowruz Traditions", targetQueries: ["nowruz traditions"],
       judgedMetric: "ai_mentions", aiScope: scope, now: new Date("2026-07-15T00:00:00.000Z") } as Parameters<typeof recordShipment>[0]);
     const row = (await loadShippedChangesForTenant(T))[0]!;
     expect(row.aiScope).toEqual(scope); // exactly what the card claimed, remeasurable
-    expect(row.targetQueries).toEqual(["nowruz traditions"]); // and the Google scope is untouched by it
-  });});
-/** THE TWO BASELINES FREEZE INDEPENDENTLY, AND ONE DECLARATION DRIVES BOTH (reviewer, 2026-08-19): the AI numbers were captured only where Google already had something to say, so a new or quiet page lost the baseline of exactly the change it existed for. */
-describe("an AI change on a page Google cannot see yet still measures", () => {
+    expect(row.targetQueries).toEqual(["nowruz traditions"]); }); // and the Google scope is untouched by it
+  /** ONE DECLARATION DRIVES BOTH HALVES (reviewer, 2026-08-19): the yardstick is read off the same scope the baseline is frozen over, never off the impact block, so a change raised to earn a citation is not graded on mentions it already had. */
   it("derives the judged metric from the scope the baseline is frozen over, not from the impact block", async () => {
     const { objectiveOfStage } = await import("@/domains/measurement/shipment-ai-outcome");
     expect(objectiveOfStage("rivals_cited_own_not_retrieved")).toBe("ai_retrieval"); expect(objectiveOfStage("owned_retrieved_not_cited")).toBe("ai_citation_conversion");
     expect(objectiveOfStage("owned_mentioned_not_cited")).toBe("ai_citation");
     expect(objectiveOfStage("citations_unreported")).toBe("ai_citation"); // a reporting gap is never a mention problem
     expect(objectiveOfStage(null)).toBe("ai_mentions");});});
+/** WHAT EACH KIND OF WORK HAS ACTUALLY RETURNED HERE. Pure: the rows handed in are the whole input and the counts are the whole output, which is exactly why the surface can be built on it without a database. */
+describe("the treatment record", () => {
+  const row = (over: Record<string, unknown> = {}) => ({ actionType: "edit_title", after: "Words really on the page", windows: [ranWindow(28, 10)], implementedAt: NOW.toISOString(), verification: verification("verified"), operatorVerdictOverride: null, pinnedRead: null, componentsApplied: null,
+    treatmentStamp: { signature: { family: "edit_title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 0 }, ...over } as Parameters<typeof treatmentLearning>[0][number]);
+  it("reads an old row's kind off its own stored fields, and never guesses the two that were never stored", () => {
+    expect(signatureOfShipment(row({ treatmentStamp: null, implementedAt: null, actionType: "meta", componentsApplied: [{ kind: "meta", label: "Description" }] })))
+      .toEqual({ family: "meta", treatment: null, field: "meta", cause: null }); // the treatment and the cause were never on that row, so they stay null
+    expect(signatureOfShipment(row({ treatmentStamp: null, componentsApplied: [{ kind: "title", label: "T" }, { kind: "meta", label: "M" }] }))?.field).toBeNull(); // two pieces name no one field
+    expect(signatureOfShipment(row({ treatmentStamp: null, actionType: "  " })), "a row that names no kind of work at all is unsigned, never filed under a guess").toBeNull(); });
+  it("counts every shipment, scores only the verified ones, flags a thin sample and says which readings shared a page", () => {
+    const [g] = treatmentLearning([row(), row({ windows: [ranWindow(28, 30)] }), row({ verification: verification("not_found"), windows: [ranWindow(28, 900)] }),
+      row({ windows: [ranWindow(28, 20)], treatmentStamp: { signature: { family: "edit_title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 2 } }),
+      row({ windows: [ranWindow(28, -40)] }), row({ windows: [ranWindow(7, 500)] }), row({ windows: [ranWindow(28, 60, 0)] }), row({ after: "Population of NUMBER as of YEAR", windows: [ranWindow(28, 700)] })]);
+    expect([g.key, g.shipped, g.verified, g.sampleSize], "eight marked done, seven found on the page, four with a finished reading").toEqual(["title::title_or_h1", 8, 7, 4]);
+    expect([g.ahead, g.behind, g.inconclusive, g.medianEffect, g.netEffect]).toEqual([3, 1, 0, 15, 20]);
+    expect([g.early, g.overlapping], "under five readings it is a story, and one of them shared its page").toEqual([true, 1]); });
+  it("hands the ranking a record shrunk hard towards nothing while the sample is thin", () => {
+    const one = familyHistoryFromShipments([row({ windows: [ranWindow(28, 120)] })]);
+    expect(one.get("title"), "one reading of 120 clicks hands over a sixth of itself").toEqual({ readings: 1, netLift: 20 });
+    const five = familyHistoryFromShipments(Array.from({ length: 5 }, () => row({ windows: [ranWindow(28, 120)] })));
+    expect(five.get("title"), "five hand over half").toEqual({ readings: 5, netLift: 300 });
+    expect(familyHistoryFromShipments([row({ verification: verification("differs") }), row({ windows: [] })]).size, "nothing verified and finished is no record at all").toBe(0); });});

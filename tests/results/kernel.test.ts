@@ -99,7 +99,7 @@ const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): 
   componentsApplied: [{ kind: "title", label: "Page title" }], implementedAt: stamp,
   preChangeContentHash: null, preChangeHashUnavailable: false, measurementState: null, shipmentBaseline: null,
   verification: { status: "verified", checkedAt: stamp, components: [] },
-  operatorNote: null, aiScope: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
+  operatorNote: null, aiScope: null, treatmentStamp: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
 describe("checkpoints count from the stamp", () => {
   it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {
     expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0]

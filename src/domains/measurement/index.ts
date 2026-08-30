@@ -51,6 +51,10 @@ export {
   type ControlReceipt,
 } from "./proof-gsc";
 
+// WHAT EACH KIND OF WORK HAS ACTUALLY RETURNED HERE, and the shrunk record the ranking eats. Pure.
+export { signatureOfShipment, treatmentLearning, familyHistoryFromShipments, type TreatmentGroup } from "./treatment-learning";
+export type { TreatmentSignature } from "./proof-gsc/types";
+
 // AI outcomes: the daily trend over stored answers, and what they did around one shipped change
 export {
   aiOutcomes,

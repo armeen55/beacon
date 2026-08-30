@@ -38,25 +38,11 @@ export async function resolveCurrentBasis(
  *  no longer measuring anything, so it may not discount the next change forever. */
 const MEASUREMENT_WINDOW_DAYS = 28;
 
-/** A reading only votes once its window has closed and it was read against pages nobody changed. */
-const SETTLED_WINDOW_DAYS = 28;
-
-/** WHAT EACH KIND OF CHANGE HAS ACTUALLY DONE ON THIS ACCOUNT, off its own finished readings: how many settled and the net clicks they moved against comparable pages. The producing pass has always handed this to the ranking and the SCREEN never did, so every card the operator actually read was ranked as though the account had no track record at all. Same ledger, same rule. THE REQUEST-CACHED READ, because this runs on every render of every queue surface and the uncached one would re-read the whole ledger each time. Fail-soft to nothing: "I could not read the ledger" is never "this kind of change has done nothing". */
+/** WHAT EACH KIND OF CHANGE HAS ACTUALLY DONE ON THIS ACCOUNT, off its own finished readings. The producing pass has always handed this to the ranking and the SCREEN never did, so every card the operator actually read was ranked as though the account had no track record at all. Same ledger, same rule, and now the SAME FUNCTION the producing pass calls: two copies of this walk lived in two files and could drift apart on any change to what counts as a reading. THE REQUEST-CACHED READ, because this runs on every render of every queue surface and the uncached one would re-read the whole ledger each time. Fail-soft to nothing: "I could not read the ledger" is never "this kind of change has done nothing". */
 async function familyHistoryFor(tenantId: string): Promise<Map<string, { readings: number; netLift: number }>> {
-  const out = new Map<string, { readings: number; netLift: number }>();
   const ledger = await import("@/domains/measurement/proof-gsc/load-ledger").then((m) => m.loadProofLedgerCached(tenantId)).catch(() => null);
-  if (!ledger) return out;
-  const { actionFamilyOf } = await import("@/domains/measurement/proof-gsc/change-family");
-  for (const r of ledger) {
-    if (/\[[^\]]*\]|_{3,}|\b(?:NUMBER|YEAR|SOURCE|TBD|XXX+)\b/.test(r.after ?? "")) continue; // A SHIPMENT WHOSE RECORDED WORDING STILL CARRIES BLANKS IS NOT WHAT WENT LIVE: /tabriz and /isfahan hold "population of NUMBER as of YEAR (SOURCE)" while the pages hold real figures the operator typed, so the ledger's copy is a template and it votes on nothing until the published wording is recorded
-    const read = [...r.windows].filter((w) => w.ran && (w.controlsUsed ?? 0) > 0 && w.adjustedLift != null && w.day >= SETTLED_WINDOW_DAYS)
-      .sort((a, b) => b.day - a.day)[0];
-    if (!read) continue;
-    const family = actionFamilyOf(r.actionType);
-    const cur = out.get(family) ?? { readings: 0, netLift: 0 };
-    out.set(family, { readings: cur.readings + 1, netLift: cur.netLift + Math.round(read.adjustedLift!) });
-  }
-  return out;
+  if (!ledger) return new Map();
+  return (await import("@/domains/measurement/treatment-learning")).familyHistoryFromShipments(ledger);
 }
 
 /**

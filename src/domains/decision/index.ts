@@ -27,6 +27,9 @@ export {
   sameComponentId,
 } from "./contracts";
 
+// WHAT KIND OF WORK A CHANGE IS, for the press that stamps it onto the shipment measuring it
+export { treatmentSignatureOf } from "./mutation-footprint";
+
 // Ranked queue load (surface data)
 export type { RankedProposalQueue } from "./load-proposals";
 export { loadProposalQueue,

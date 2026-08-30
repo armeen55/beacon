@@ -68,6 +68,8 @@ type ShipmentFacts = {
    *  answers the claim was minted from. Results remeasures exactly this, and the baseline is frozen over it.
    *  `models` and `modes` ride along RECORDED and never filter. */
   aiScope?: ShippedChangeRecord["aiScope"];
+  /** WHAT KIND OF WORK THIS IS, and what else was already being measured on this page at the press. Handed in whole because the caller is the only place the proposal still exists; this door carries it to the row and never reads inside it. */
+  treatmentStamp?: ShippedChangeRecord["treatmentStamp"];
   now?: Date;
 };
 
@@ -120,7 +122,7 @@ async function write(
       implementedAt: stamp, preChangeContentHash: f.preChangeContentHash ?? null,
       preChangeHashUnavailable: extra.preChangeHashUnavailable,
       operatorNote: f.operatorNote?.trim() || null,
-      aiScope: f.aiScope ?? null,
+      aiScope: f.aiScope ?? null, treatmentStamp: f.treatmentStamp ?? null,
     },
   });
   // A baseline nobody could capture is a baseline gap, said out loud rather than left as a zero, and the

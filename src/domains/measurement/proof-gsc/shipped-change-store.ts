@@ -13,7 +13,7 @@ import { log } from "@/lib/logger";
 import { getDataDir } from "@/lib/tenant";
 import { getTenant } from "@/domains/account/tenants/store";
 import type { ShipmentObjective } from "../shipment-ai-outcome";
-import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult } from "./types";
+import type { GscProofConfidence, GscProofVerdict, MeasurementState, ProofBaseline, ProofWindowResult, TreatmentSignature } from "./types";
 import type { PinnedRead } from "./pinned-read";
 import type { ControlReceipt } from "./contamination";
 
@@ -109,6 +109,8 @@ export type ShippedChangeRecord = {
   } | null;
   /** WHAT THIS SHIPMENT IS JUDGED ON, declared at record time and never re-derived: the one metric the change was made to move and the primary window it is read over. Both sat as NULL columns for months, leaving Results free to judge on whatever it read first, and the AI half was hard-coded to mentions, so a change raised to earn a CITATION was graded a win the moment it was named more often. Null only predates the write. */
   judgedMetric: ShipmentObjective | null; primaryWindowDays: number | null;
+  /** WHAT KIND OF WORK THIS WAS AND WHAT ELSE WAS ALREADY IN FLIGHT ON THE PAGE, both taken at the press and neither ever recomputed. `overlapAtShip` is how many OTHER changes of theirs were already being measured on this same page at that moment, which is the fact that lets a later reading say it was taken alongside other work instead of pretending the whole movement belongs to one edit. Null on every row written before the stamp existed; those get what their own stored fields can honestly carry, read lazily, never a guess. */
+  treatmentStamp: { signature: TreatmentSignature; overlapAtShip: number } | null;
   /** THE FINISHED READING, FROZEN. Written once the window closed and Google finalized the days behind it,
    *  so the background re-measure every fifteen minutes can no longer move a number the operator was already
    *  shown. Null while the reading can still legitimately change (see pinned-read.ts). */
@@ -147,6 +149,8 @@ type LedgerRow = {
   shipment_baseline?: ShipmentBaseline | null; verification?: ShipmentVerification | null;
   operator_override_reason?: string | null;
   ai_scope?: ShippedChangeRecord["aiScope"];
+  /** THE MARK-TIME STAMP LIVES IN A DEAD COLUMN, ON PURPOSE. `baseline_snapshot` was added for a pre-declaration design that was never built: it holds nothing on any of the 81 rows and no line of this codebase reads or writes it. The stamp is owed a home, a migration was not available for this work, and every other jsonb column on this table is either already spoken for or nulled out on exactly the rows that need the stamp most (`shipment_baseline` is null whenever neither Search nor AI had a starting point, which is every brand new page). So the empty column carries it, and this sentence is where anybody reading the row finds that out. */
+  baseline_snapshot?: ShippedChangeRecord["treatmentStamp"];
   pinned_read?: PinnedRead | null;
   created_at: string;
   updated_at: string;
@@ -188,7 +192,7 @@ function recordToRow(tid: string, r: ShippedChangeRecord): LedgerRow {
     implemented_at: r.implementedAt, pre_change_content_hash: r.preChangeContentHash,
     pre_change_hash_unavailable: r.preChangeHashUnavailable, measurement_state: r.measurementState,
     shipment_baseline: r.shipmentBaseline, verification: r.verification,
-    operator_override_reason: r.operatorNote, ai_scope: r.aiScope, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt, judged_metric: r.judgedMetric, primary_window_days: r.primaryWindowDays,
+    operator_override_reason: r.operatorNote, ai_scope: r.aiScope, baseline_snapshot: r.treatmentStamp, pinned_read: r.pinnedRead, created_at: r.createdAt, updated_at: r.updatedAt, judged_metric: r.judgedMetric, primary_window_days: r.primaryWindowDays,
   };
 }
 
@@ -212,7 +216,7 @@ function rowToRecord(row: LedgerRow): ShippedChangeRecord {
     preChangeHashUnavailable: row.pre_change_hash_unavailable === true,
     measurementState: VALID_MEASUREMENT_STATES.has(row.measurement_state ?? "") ? (row.measurement_state as MeasurementState) : null,
     shipmentBaseline: row.shipment_baseline ?? null, verification: row.verification ?? null,
-    operatorNote: row.operator_override_reason ?? null, aiScope: row.ai_scope ?? null, pinnedRead: row.pinned_read ?? null,
+    operatorNote: row.operator_override_reason ?? null, aiScope: row.ai_scope ?? null, treatmentStamp: row.baseline_snapshot ?? null, pinnedRead: row.pinned_read ?? null,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -373,13 +377,7 @@ async function upsertFile(record: ShippedChangeRecord): Promise<void> {
   await writeFile(next);
 }
 
-async function mirrorFile(record: ShippedChangeRecord): Promise<void> {
-  try {
-    await upsertFile(record);
-  } catch {
-    /* best-effort local parity */
-  }
-}
+const mirrorFile = async (record: ShippedChangeRecord): Promise<void> => { try { await upsertFile(record); } catch { /* best-effort local parity */ } };
 /** THE SEAM. Live verification calls this and nothing else: ONE column on ONE Shipment. The stamp and starting numbers are not in the
  *  update, so a later check can never move where the window starts. Fail-closed: false = nothing written, a foreign id matches no row. */
 export async function recordVerification(
@@ -493,6 +491,4 @@ export async function pagesUnderMeasurementFromShipments(
   }
 }
 
-function sortNewest(records: ShippedChangeRecord[]): ShippedChangeRecord[] {
-  return [...records].sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
-}
+const sortNewest = (records: ShippedChangeRecord[]): ShippedChangeRecord[] => [...records].sort((a, b) => (a.shippedAt < b.shippedAt ? 1 : -1));
