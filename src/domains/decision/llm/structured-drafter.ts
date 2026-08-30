@@ -34,7 +34,6 @@ import {
   type StructuredDraftKind,
   type AtomicEditDraft,
   type InternalLinkDraft,
-  type SectionDraft,
 } from "./schemas";
 
 /** llm/structured-drafter (2026-06-25, P4), the trustworthy drafting layer. It turns a grounded request into a SCHEMA-VALIDATED structured draft, or nothing: key/injected transport → cache ($0 on an identical repeat) → budget (fail-closed cap) → strict structured call → Zod validate → content firewalls (numeric-fidelity, placeholder, em-dash, superlative) → de-templating guard → RETRY ONCE on failure → FAIL CLOSED. It NEVER returns loose/unvalidated text as a product artifact. Slice 3 (2026- 07-23): the transport is the strict Responses gateway (openAIStructuredResponse) returning a PARSED, schema-shaped VALUE; the drafter still runs its own Zod safeParse as the second gate. A refusal/incomplete/non-retryable transport error FAILS CLOSED; only a schema-invalid value or a retryable error consumes the single retry. Spend is recorded per attempt. The completion fn is injectable so the flow runs with zero paid calls. Every call carries a registered promptId + version and is scoped to an EXPLICIT account (Slice 3): the cache key + storage, the budget check/record, and the gateway spend are all keyed by tenantId - a missing account fails closed before cache/budget/network, never a global call. / */
@@ -166,7 +165,6 @@ function primaryCustomerText(kind: StructuredDraftKind, value: unknown): string 
   switch (kind) {
     case "answer_block": return pick("answer");
     case "atomic_edit": return pick("after");
-    case "section_draft": return pick("body");
     case "outreach_pitch": return pick("body");
     case "internal_link": return pick("linkSentence");
     default: return null;
@@ -884,62 +882,6 @@ export async function draftAtomicEditStructured(
     return { ...result, value: { ...result.value, rationale: merged } };
   }
   return result;
-}
-
-// ── concrete drafter: SectionDraft (a section the winning pages all carry and mine does not) ── The cause ladder can prove a page is missing a subject its rivals agree on, and until this existed the only answer was a sentence saying so. GROUNDING IS THE WHOLE CONTRACT here: a section is long-form copy, so the prompt forbids everything the evidence does not carry and the caller's own gates (draft-quality, factual entailment, the numeric firewall above) read it again before it can reach an operator.
-
-type SectionStructuredInput = {
-  query: string;
-  pageLabel: string;
-  /** The section to write, when the reading named one. Null = write the heading too. */
-  heading: string | null;
-  /** One plain sentence saying what this section has to do. */
-  brief: string;
-  /** The page's existing sections, so the new one does not repeat one it already has. */
-  outline: string[];
-  evidenceHints?: string[];
-  tenantId: string;
-};
-
-const SECTION_SYSTEM =
-  "You write ONE section of an existing web page. Return ONLY a JSON object: " +
-  '"heading" (a short plain section heading), "body" (the section copy, 60 to 180 words), ' +
-  '"sources" (array of {"kind","detail"} with at least one entry, kind one of own_data|competitor_observation|fanout_question|keyword, ' +
-  "each naming the piece of evidence below that the sentence rests on), " +
-  '"containsNumber" (true only when your body actually states a figure). ' +
-  "GROUNDING IS THE RULE YOU MAY NOT BREAK: write only what the evidence, the brief and the page's own sections below already " +
-  "support. Never invent a statistic, a price, a date, a count, a person, a place, a company or a web address. If you cannot " +
-  "say something the evidence supports, write a shorter section rather than filling it in. " +
-  "Name the exact subject of the search in your first sentence, answer it plainly, and never repeat a section the page already has. " +
-  "No marketing language, no superlatives, no em-dashes and no en-dashes.";
-
-/** Draft ONE schema-valid section for a page that is missing it. Capped, budgeted, cached. */
-export async function draftSectionStructured(
-  input: SectionStructuredInput,
-  opts: { complete?: CompleteFn; now?: Date; bypassCache?: boolean; authoritativeSourceDomains?: readonly string[] } = {},
-): Promise<StructuredDraftResult<SectionDraft>> {
-  // Injection firewall: the brief, the outline and the hints are all built from crawled or observed text.
-  const heading = sanitizeNullableEvidence(input.heading);
-  const brief = sanitizeNullableEvidence(input.brief) ?? "";
-  const outline = sanitizeEvidenceTexts(input.outline);
-  const evidenceHints = sanitizeEvidenceTexts(input.evidenceHints ?? []);
-  const grounded = [input.query, heading ?? "", brief, outline.join(" "), evidenceHints.join(" ")].join(" ");
-  const user = [
-    `Search/topic: "${input.query}"`,
-    `Page: ${input.pageLabel}`,
-    heading ? `Section to write: ${heading}` : "Section to write: choose the heading yourself from the brief",
-    `What this section has to do: ${brief}`,
-    outline.length ? `Sections the page already has (never repeat one): ${outline.slice(0, 12).join("; ")}` : "",
-    evidenceHints.length ? `Evidence the team established: ${evidenceHints.join("; ")}` : "",
-    "",
-    "Return the JSON now.",
-  ].filter(Boolean).join("\n");
-
-  return callStructuredLLM({
-    kind: "section_draft", tenantId: input.tenantId, system: SECTION_SYSTEM, user, grounded,
-    projectedCostUsd: 0.02, complete: opts.complete, now: opts.now, bypassCache: opts.bypassCache,
-    authoritativeSourceDomains: opts.authoritativeSourceDomains,
-  });
 }
 
 // ── concrete drafter: InternalLinkDraft (where one page should point a reader next) ──

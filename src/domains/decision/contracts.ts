@@ -316,7 +316,8 @@ export type ChangeProposal = {
   /** THE TARGET PAGE AS IT READ WHEN THIS ROW'S COPY WAS WRITTEN: its stored title, heading, description and outline, banked beside the words. Finished copy is expensive and survives passes that never reach it, so something has to say when it stopped describing its page; this is that something (decision/completeness's `copyIdentity`). Absent on a row minted before the stamp existed, which is decided on everything else. */
   copyStamp?: string;
   /** WHAT THE COPY ASSERTS AND WHAT CARRIES EACH ASSERTION, banked with the words. Every claim was checked against this page's own evidence before the copy was accepted, and then thrown away, so nothing on the stored row could answer "what supports this line" afterwards. Ids point into the same page evidence the editor read. Absent on a row whose copy no editor wrote. */
-  claims?: readonly { text: string; supportedBy: readonly string[] }[];
+  /** `of` NAMES THE PIECE THIS CLAIM ANSWERS FOR, as `componentIdOf` names it, so a deep bundle's authorization is per component and never pooled: an authorized title could otherwise bless an unauthorized body section, and one section's ruling could be read as another's. Absent on every atomic row and every row banked before it existed, which is why decision/proof's copyKey folds it only where it is present: a stored reading must not be retired by a field its own row never carried. */
+  claims?: readonly { text: string; supportedBy: readonly string[]; of?: string }[];
   /** THE EXACT WORDS EACH SUPPORT ID CARRIES, banked with the claims that name it. A claim pointing at "page-copy-1" is a symbol, not a fact: the operator, and any later re-check, could not read what page-copy-1 says, so provenance was unreadable on the one screen where the copy gets pasted. These are the editor's own evidence map values, bounded per fact. Absent on a row banked before this existed. */
   supportFacts?: readonly { id: string; fact: string }[];
   /** THE OPERATOR'S OWN YES TO ONE EXACT VERSION of a change that moves or hides a page. Product Truth holds such a change behind two steps: it is minted `needs_review`, and it reaches `ready` only when a person has read its components, its addresses, its destination, its copy and its risks and confirmed THAT version (decision/completeness's `confirmedVersion`). Stored so the yes survives the request that gave it and so a later pass cannot inherit it: any edit to the copy, the pieces, the destination, the evidence or the basis mints a different version and this stamp stops matching, which refuses the stale confirmation. Absent on everything that never needed one. */
@@ -329,7 +330,8 @@ export type ChangeProposal = {
   previousCopy?: { after: string; retiredBecause: string; at: string };
   /** WHAT BEACON'S OWN PAID REVIEWER RULED, CLAIM BY CLAIM. An exact identity string stood here: it proved a receipt could not ride other words and proved NOTHING about whether the cited facts SUPPORT the claim, because the producer computed it about its own output and the store then approved that description, so "Noor means light" could stand on a fact reading "Tehran is the capital of Iran" (Codex, 2026-08-28). `of` is decision/proof's `copyKey`; `version` is the review contract it was made under. */
   semanticReview?: { of: string; version: number; claims: readonly { i: number; by: readonly string[]; entailed: boolean }[]; /** The reviewer's materiality ruling for a suspected wording-only change: false = the meaning did not move. Absent on rulings made before the question existed. */ materialChange?: boolean };
-  informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean };
+  /** WHAT A READER GAINS, AND THE PAGE STATE IT WAS JUDGED AGAINST. `bodyHash` is the normalized fingerprint of the owned body the evaluator actually read, and `pageWhole` is a claim ABOUT that whole body, so when the stored page moves under it the absence ruling is stale and the row goes back for a look; `targetHash` names the exact passage a replacement was aimed at, so an unrelated edit elsewhere on the page leaves it standing. Both optional so every stored row decodes byte for byte. */
+  informationGain?: { adds: string; by: readonly string[]; pageWhole: boolean; bodyHash?: string; targetHash?: string };
   preservation?: readonly { text: string; disposition: "kept" | "corrected" | "removed" | "moved"; why?: string; to?: string;
     basis?: "duplicate_of" | "replaced_by" | "unsupported" | "obsolete" | "owner_confirmed"; by?: readonly string[] }[];
   /** STRUCTURAL: this is a proposal. The kernel never writes a live page. */
@@ -442,13 +444,13 @@ const ChangeProposalSchema: z.ZodType<ChangeProposal> = z.object({
   whyRankedAboveNext: z.string().min(1).optional(),
   modeledOn: z.string().min(1).optional(),
   copyStamp: z.string().min(1).optional(),
-  claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)) })).optional(),
+  claims: z.array(z.object({ text: z.string().min(1), supportedBy: z.array(z.string().min(1)), of: z.string().min(1).optional() })).optional(),
   supportFacts: z.array(z.object({ id: z.string().min(1), fact: z.string().min(1) })).optional(),
   confirmedVersion: z.string().min(1).optional(),
   approval: z.object({ by: z.string().min(1), at: z.string().min(1) }).optional(),
   redraftRequested: z.string().min(1).optional(),
   previousCopy: z.object({ after: z.string().min(1), retiredBecause: z.string().min(1), at: z.string().min(1) }).optional(),
-  semanticReview: z.object({ of: z.string().min(1), version: z.number().int(), claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), materialChange: z.boolean().optional() }).optional(), informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean() }).optional(),
+  semanticReview: z.object({ of: z.string().min(1), version: z.number().int(), claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })), materialChange: z.boolean().optional() }).optional(), informationGain: z.object({ adds: z.string().min(1), by: z.array(z.string()), pageWhole: z.boolean(), bodyHash: z.string().min(1).optional(), targetHash: z.string().min(1).optional() }).optional(),
   preservation: z.array(z.object({ text: z.string().min(1), disposition: z.enum(["kept", "corrected", "removed", "moved"]), why: z.string().optional(), to: z.string().optional(),
     basis: z.enum(["duplicate_of", "replaced_by", "unsupported", "obsolete", "owner_confirmed"]).optional(), by: z.array(z.string()).optional() })).optional(),
   publish: z.literal("manual"),
@@ -482,9 +484,7 @@ export function proposalId(input: EvidenceInput): string {
   return `${input.tenantId}::${pageKey}::${input.opportunity.kind}::${isNew ? "new_page" : (input.opportunity.field ?? "edit")}`; }
 
 /** Coarse effort minutes by family (a real per-move figure overrides this). */
-export function effortForFamily(family: string): number {
-  if (family === "title" || family === "meta" || family === "h1") return 1;
-  return family === "answer" ? 3 : family === "new_page" ? 60 : 5; }
+export function effortForFamily(family: string): number { return family === "title" || family === "meta" || family === "h1" ? 1 : family === "answer" ? 3 : family === "new_page" ? 60 : 5; }
 /** WHAT A CHANGE WAS CHECKED AGAINST, in one countable line, readable before anybody opens the receipt. PURE; lives here rather than the bundle producer so a client card may import it without dragging server modules. */
 const CLASS_OF: Record<string, string> = {
   gsc_demand: "your search data", page_extract: "the page as last read", keyword: "monthly search counts",

@@ -100,10 +100,12 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // whatever a past generation decided. (1) A CLAIM ABOUT THE WORLD NEEDS A SOURCE and this page is not one: "Iran's national animal is the Asiatic cheetah" is a claim about a COUNTRY, authoritative sources
   // confirm the cheetah is critically endangered and survives only in Iran without establishing that, and a `fact-` id is the only support from outside the page. (2) A SPLIT MAY NOT PROMISE CLICKS: a modelled
   // CTR gap says what a page's positions usually earn, never what this wording recovers, so "about 176 clicks short" beside a title change is a promise the evidence never made.
-  const says = c.kind === "existing_edit" ? c.after : "";
+  // A BUNDLE THAT DECLARES CLAIMS ANSWERS ON THEM LIKE EVERY OTHER ROW (2026-08-30). The bypass below was written for a bundle whose proposal literal never set `claims`, so a claim rule could only ever fire vacuously on one and the honest fix was to stand down; a deep body bundle now carries the claims its own substantive pieces were authorized on, and the moment it declares one it is judged on it, over ALL its pieces' copy rather than the first piece the change happens to lead with. The bypass survives for exactly what still declares nothing: a link, a canonical, a redirect, a technical repair.
+  const declares = (p.claims ?? []).length > 0, bypass = !!p.bundle && !declares;
+  const says = c.kind === "existing_edit" ? [c.after, ...(declares ? (p.bundle?.components ?? []).map((x) => x.after) : [])].join(" ") : "";
   // A CLAIM RULE MAY NOT FIRE ON A ROW THAT CARRIES NO CLAIMS BY CONSTRUCTION. A bundle's proposal literal never sets `claims` (its provenance is the receipt), so `(p.claims ?? []).some(...)` was false unconditionally and this rule held EVERY bundle whose components[0] copy said "national flag" or "official", vacuously and forever: the flag bundle sat stored `ready` and rendered in review off exactly this. The rule judges rows that DECLARE claims; a bundle answers on its receipt, whose integrity gate already ran at mint. AND THE HOLD NAMES ITS OWN CURE, TYPED: "held until a source is on file" was a dead end the customer could not act on and nothing was fetching, so the verdict now carries the exact factual_source requirement the runtime's acquisition already executes.
   let need: { kind: "factual_source"; query: string; url?: string; reasonCode: string; missingTopic?: string } | null = null;
-  if (!p.bundle && /\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(says) && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-")))) {
+  if (!bypass && /\bnational (?:animal|flag|symbol|language|bird)\b|\bofficial\b/i.test(says) && !(p.claims ?? []).some((x) => x.supportedBy.some((id) => id.startsWith("fact-")))) {
     hard.push("It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.");
     need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsourced" };
   }
@@ -114,7 +116,7 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // from the sentence: an unpromoted section or answer whose external support is one distinct fact-* id mints
   // the factual_source requirement for THAT claim's own proposition, and the runtime's acquisition researches
   // it, banks the second source, and the next redraft clears the hold on evidence rather than on taste.
-  if (!need && !p.bundle && p.status === "needs_review" && c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) {
+  if (!need && !bypass && p.status === "needs_review" && c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) {
     const factBacked = (p.claims ?? []).filter((x) => x.supportedBy.some((id) => id.startsWith("fact-")));
     const distinctFacts = new Set(factBacked.flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-"))));
     if (distinctFacts.size === 1 && factBacked[0])
@@ -124,6 +126,9 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
   // THE PROOF BURDEN MATCHES THE PROMISE: what a change claims decides what it owes (decision/authorization's
   // evidenceShortfall). Asked here so every reader of the one servability verdict refuses together.
   const short = evidenceShortfall(p); if (short) hard.push(short);
+  // AND AN UNSUPPORTED CLAIM NAMES ITS OWN CURE rather than leaving the operator holding a refusal nobody is acting on: the same factual_source requirement the runtime's acquisition already executes, minted off the row's own first unsupported claim. Only for the two shapes that can carry one and reach here internal, a whole new page and a deep bundle; an atomic row already has its two mints above.
+  if (!need && short) { const unsupported = (p.claims ?? []).find((x) => !x.supportedBy.some((id) => /^fact-|^owned-page/.test(id)));
+    if (unsupported && (c.kind === "new_page" || !!p.bundle)) need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsupported", missingTopic: unsupported.text }; }
   // THE SAFETY HOLD LIFTS WHEN THE OPERATOR HAS ANSWERED IT, on the exact version they read: pushed unconditionally,
   // a confirmed redirect could never wear Ready anywhere, the next pass swept the hold back into status, and the card
   // told the operator to confirm the very thing they had just confirmed, forever (audit, 2026-08-26). The same

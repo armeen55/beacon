@@ -218,20 +218,6 @@ const StrategyReviewSchema = z.object({
 // heavier evidenceRefs/confidence/risks/operatorSteps shape) because it is one small unit in a sequential walk, not a standalone Move draft. `containsNumber` lets the assembler know at a glance which sections carry a
 // verified figure.
 
-const SectionSourceSchema = z.object({
-  kind: z.enum(["own_data", "competitor_observation", "fanout_question", "keyword"]),
-  detail: z.string().min(1).max(300),
-});
-
-const SectionDraftSchema = z.object({
-  heading: z.string().min(2).max(160),
-  body: z.string().min(40).max(1200),
-  /** At least one source, a section with zero grounding is rejected by validation. */
-  sources: z.array(SectionSourceSchema).min(1).max(6),
-  containsNumber: z.boolean(),
-});
-export type SectionDraft = z.infer<typeof SectionDraftSchema>;
-
 // ── outreach pitch (BEACON_500 item 57 - get-cited/link-reclaim pitches) ───── A cold-outreach email pitch for ONE lead. NOT part of the shared `base` set: an outreach pitch is a short email, not a Move draft, so it
 // skips proofPlan and operatorSteps but keeps evidenceRefs (the personalization must be real) and confidence. subject/body length caps keep it a real, sendable email.
 
@@ -364,7 +350,6 @@ export type StructuredDraftKind =
   | "experiment_plan"
   | "batch_adjudication"
   | "strategy_review"
-  | "section_draft"
   | "outreach_pitch"
   | "coverage_adjudication" | "new_page_brief" | "answer_analysis" | "answer_analysis_batch" | "case_synthesis" | "winning_pattern" | "page_job"
   | "business_profile_inference" | "business_profile_patch" | "prompt_candidates"
@@ -418,7 +403,7 @@ export const SCHEMA_BY_KIND = {
   factual_review: FactualReviewSchema,
   answer_block: AnswerBlockDraftSchema, atomic_edit: AtomicEditDraftSchema, tool_asset: ToolAssetSpecSchema,
   commerce_asset: CommerceAssetSpecSchema, internal_link: InternalLinkDraftSchema, experiment_plan: ExperimentPlanSchema,
-  batch_adjudication: BatchAdjudicationSchema, strategy_review: StrategyReviewSchema, section_draft: SectionDraftSchema,
+  batch_adjudication: BatchAdjudicationSchema, strategy_review: StrategyReviewSchema,
   outreach_pitch: OutreachPitchSchema, coverage_adjudication: CoverageAdjudicationSchema, new_page_brief: NewPageBriefSchema,
   answer_analysis: AnswerAnalysisSchema, answer_analysis_batch: AnswerAnalysisBatchSchema, case_synthesis: CaseSynthesisSchema, winning_pattern: WinningPatternSchema,
   page_job: PageJobSchema,

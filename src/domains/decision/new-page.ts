@@ -13,10 +13,11 @@ import { dayLabel } from "@/lib/presenter";
  * was supplied, and the WHOLE draft is refused when the model invents a number, an address, a publisher or a
  * question, turns one tracked question into the page, writes an outline that would fit any topic, skips why the account's own pages lost, or promises to put anything live.
  *
- * THEN THE PAGE ITSELF. A plan is not a page, so every planned section is drafted through the SAME section
- * drafter, firewall, budget, cache and gates an existing-page change uses, and a proposal reaches the operator
- * only when the title, the description, the opening and EVERY section landed. One section short is no proposal
- * this pass, and the next pass resumes free because an identical section is served from what I already bought.
+ * THEN THE PAGE ITSELF. A plan is not a page, so the opening and every planned section are written through the
+ * ONE canonical editor an existing page's section goes through: same firewall, budget, cache, deterministic
+ * contract and per-claim ruling, so each piece arrives having named the evidence id behind every assertion it
+ * makes. A proposal reaches the operator only when the title, the description, the opening and EVERY section
+ * landed; one section short is no proposal this pass, and the next resumes free off what was already bought.
  */
 
 import { log } from "@/lib/logger";
@@ -31,10 +32,13 @@ import { AUTOPUBLISH_RE, CODE_SUFFIX, HOST_RE, SPELLED_PROPORTION_RE } from "./c
 import { earnedNewPage, type CoverageDecision } from "./coverage-adjudication";
 import type { DecidedTopic } from "./coverage-pass";
 import type { OwnedCandidate } from "./owned-coverage";
-import { callStructuredLLM, draftSectionStructured } from "./llm/structured-drafter";
+import { callStructuredLLM } from "./llm/structured-drafter";
+import { draftFieldForPage } from "./drafted-copy";
+import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
+import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import type { NewPageBrief } from "./llm/schemas";
 import type { BundleComponent, BundleEvidenceItem, ChangeBundle, ChangeProposal } from "./contracts";
-import { effortForFamily } from "./contracts";
+import { componentIdOf, effortForFamily } from "./contracts";
 import { validateProposal } from "./validate-proposal";
 import type { ProposeOptions } from "./propose";
 
@@ -248,18 +252,31 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     return { status: "none", reason: `The page drafted for "${inv.label}" ${refusal}, so it was thrown away rather than handed over.` };
   }
 
-  // A LIST OF HEADINGS IS NOT A PAGE. Every planned section is bought through the one section drafter, in the
-  // planned order, so the operator pastes copy rather than a plan, and its numeric firewall rides on these facts.
+  // A LIST OF HEADINGS IS NOT A PAGE, AND A PAGE NOBODY CAN SOURCE IS NOT A PAGE EITHER (2026-08-30). Every planned
+  // section is written in the planned order through the ONE canonical editor every other change goes through, so it
+  // comes back having declared what it asserts, named the evidence id behind each assertion and been ruled on claim
+  // by claim. Coverage adjudication authorized the NEED and the results pages authorize the FORMAT; a competitor's
+  // page and an engine's answer are briefing here and may never carry a sentence, so the only ids that can support
+  // one are a checked fact and another page this account owns, read below and handed over under those exact ids.
+  const qualified = Object.fromEntries(owned.filter((c) => (c.openingSample ?? "").trim().length > 0).slice(0, 4).map((c, i) => [`owned-page-${i + 1}`, `${c.path}: ${c.openingSample}`]));
   const outline = v.sections.map((s) => s.heading);
-  const written: string[] = [];
+  const written: string[] = []; const pieces: NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>[] = [];
+  // THE PAGE AS IT STANDS SO FAR IS WHAT THE NEXT PIECE IS JUDGED AGAINST: a page that does not exist yet still has words once its title, its opening and its earlier sections are written, and asking "does this already say it" against them is the same question an existing page's editor answers.
+  const soFar = (): OwnedPageBody => ({ url: owned[0]?.url ?? `https://${inv.key}`, title: v.proposedTitle, h1: v.proposedTitle, metaDescription: v.metaDescription,
+    headings: [v.proposedTitle, ...outline], passages: [v.openingAnswer, ...written], openingSample: v.openingAnswer, vocabulary: "", cardTexts: [], faqs: [],
+    entityNames: [], internalLinks: [], fetchedAt: now.toISOString(), completeness: "complete", contentHash: null, heldNote: "This page does not exist yet; these are the words drafted for it so far." });
+  const write = (heading: string, covers: string): Promise<NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>> | null> =>
+    draftFieldForPage({ field: "answer_block", body: soFar(), query: inv.label, ownedPaths: owned.map((c) => c.path), minutes: 15, evidenceHints: facts, facts: qualified,
+      brief: `Write the section headed "${heading}". ${covers} Write no figure that is not in the evidence you were given, including a list length such as 5 or 10: name the items without counting them.` },
+    { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}) });
+  // THE OPENING IS A PIECE OF THIS PAGE LIKE ANY OTHER, and the first thing a reader and an assistant lift: a brief's own sentence is nobody's ruled claim, so it is written and read here rather than shipped on the strength of the plan that asked for it. No opening, no page.
+  const first = await write(v.proposedTitle, `Answer "${inv.label}" outright in the first lines a reader sees. The team already drafted this opening: "${v.openingAnswer}". Verify it against the evidence and refine it to fit.`);
+  if (first) { v.openingAnswer = first.after; pieces.push(first); }
   for (const s of v.sections) {
-    if (spent()) break; // an exhausted budget leaves a partial draft, which the shortfall check below refuses whole
-    const drafted = await draftSectionStructured({ tenantId, query: inv.label, pageLabel: v.proposedTitle,
-      heading: s.heading, brief: `${s.covers} Write no figure that is not in the evidence you were given, including a list length such as 5 or 10: name the items without counting them.`, outline, evidenceHints: facts },
-      { complete: opts.complete, now, bypassCache: opts.bypassCache });
-    opts.attempts?.record?.(drafted); // real requests and real dollars, onto this page's own allowance
-    if (drafted.status !== "drafted") break;
-    written.push(`${drafted.value.heading}\n\n${drafted.value.body}`.replace(/[–—]/g, " "));
+    if (!first) break; // ONE BUDGET LINE, NOT TWO: the canonical editor decrements the pass's own allowance before every charged call and refuses on it, so the extra bookkeeping decrement this loop used to make for the second drafter now just burns a call nobody spends. An exhausted budget leaves a partial draft, which the shortfall check below refuses whole.
+    const done = await write(s.heading, s.covers);
+    if (!done) break;
+    written.push(`${(done.heading ?? s.heading).trim()}\n\n${done.after}`.replace(/[–—]/g, " ")); pieces.push(done);
   }
   if (written.length < outline.length) {
     const owed = outline.slice(written.length);
@@ -295,6 +312,15 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
       after: v.internalLinks.map((l) => `${l.anchor} -> ${ownedByKey.get(canonicalUrlKey(l.url))!.path}`).join("\n"),
       evidenceKeys: [...core, ...[...keys].filter((k) => k.startsWith("owned"))], risk: "safe" });
   }
+  // WHAT THE PAGE ITSELF ASSERTS AND WHAT CARRIES IT, in the one authorization vocabulary. Every section's claims answer for the ONE piece that carries them, named by `componentIdOf` off that piece's exact words, so a reading taken over this page can never authorize different copy and the serving door asks a new page exactly what it asks a section: is each claim carried by the sources it names, and is any of it checked at all.
+  const at = (k: string): number => components.findIndex((c) => c.kind === k);
+  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const ruled: { i: number; by: string[]; entailed: boolean }[] = []; const banked = new Map<string, string>();
+  pieces.forEach((a, n) => { const i = n === 0 ? at("opening_answer") : at("section"); // the opening answers for the opening piece and every section for the section piece, so no piece is authorized by another's reading
+    for (const f of a.supportFacts) banked.set(f.id, f.fact);
+    a.claims.forEach((x, k) => { const r = a.review.find((z) => z.i === k); if (r) ruled.push({ i: claims.length, by: [...r.by], entailed: r.entailed });
+      claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(components[i]!, i) }); }); });
+  const gains = pieces.map((a) => a.gain).filter((g): g is NonNullable<typeof g> => !!g);
+  const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => [...g.by]))], pageWhole: gains.every((g) => g.pageWhole) };
   const shared = reading?.shared.length ?? 0;
   const dates = items.map((i) => i.observedAt).filter((d): d is string => !!d).sort();
   const bundle: ChangeBundle = {
@@ -342,6 +368,7 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
     // THE QUESTIONS TRAVEL WITH THE DRAFT: the last gate grounds every address in the copy against this text.
     evidence: { query: inv.label, hints: [...facts.slice(0, 5), ...[...questions.values()].slice(0, 8)], evidenceRefCount: items.length },
     impactScore: null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
+    ...(claims.length > 0 ? { claims, supportFacts: [...banked].map(([id, fact]) => ({ id, fact })) } : {}), ...(gain ? { informationGain: gain } : {}),
   };
   // THE QUESTIONS ARE EVIDENCE TOO: the facts alone never carried the list the prompt ordered it to copy.
   const verdict = validateProposal(proposal, { evidenceText: [...facts, ...questions.values()].join(" "), now });
@@ -352,9 +379,12 @@ export async function buildNewPageProposal(decided: DecidedTopic, tenantId: stri
         .filter((t) => /\b5\b/.test(t)).map((t) => t.slice(0, 220)).slice(0, 3) });
     return { status: "none", reason: `The page drafted for "${inv.label}" did not pass its own safety checks, so nothing is handed over rather than risk it.` };
   }
-  // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review.
-  return { status: "built", proposal: { ...proposal, status: unbacked || verdict.verdict !== "ready" ? "needs_review" : "ready",
+  // A PAGE RESTING ON "SOME SOURCE OF THIS KIND" IS NEVER READY: the honest place for it is review. AND THE ONE SERVING VERDICT DECIDES THE REST, so a page whose claims nothing checked carries stays internal here carrying the door's own sentence rather than being minted ready for the door to refuse a moment later.
+  const row: ChangeProposal = { ...proposal, ...(ruled.length > 0 ? { semanticReview: { of: copyKey(proposal), version: REVIEW_CONTRACT, claims: ruled } } : {}),
     limitations: [...new Set([...proposal.limitations, ...verdict.reasons, ...(!unbacked ? [] : [cited.length > 0
       ? "Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out."
-      : "No source of Beacon's own stands behind the claims on this page, so you pick every one of them before it goes out."])])] } };
+      : "No source of Beacon's own stands behind the claims on this page, so you pick every one of them before it goes out."])])] };
+  const short = evidenceShortfall(row);
+  return { status: "built", proposal: { ...row, status: unbacked || !!short || verdict.verdict !== "ready" ? "needs_review" : "ready",
+    ...(short ? { limitations: [...new Set([...row.limitations, short])] } : {}) } };
 }

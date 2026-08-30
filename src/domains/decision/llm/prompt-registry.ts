@@ -28,8 +28,9 @@ export const PROMPT_REGISTRY = {
   "draft.atomic_edit": 4, // v4 (2026-08-24): a meta carries META_SUBJECT_CLAUSE, which forbids the page's FAQ rail as its subject and requires it to open by naming the thing. No v2/v3 description can be served under wording that forbids what it did.
   "draft.editor_judgement": 3, // v3 (2026-08-28): the response contract changed. `claimsEntailed` is gone; the editor returns one entailment ruling per material claim ({i, by, entailed}) naming that claim's own evidence ids, and the overall claims result is derived from those rulings. No v2 verdict answers this contract.
   "draft.factual_review": 5, // v5 (2026-08-30): the ruling gains materialChange for suspected wording-only changes, so a cached v3 ruling never silently skips the question. v3 (2026-08-28): the prompt, the response schema, the reviewer packet, the mapping validation and what is persisted all changed, so a receipt banked under v2 is not the same promise and must fail closed as old
-  // draft.internal_link and draft.section_draft get their FIRST production wording at v1 (2026-08-01, V1 Closure): both kinds were registered schemas with no caller, so nothing is cached under either id and
-  // there is no stale answer a version could protect. Any change to the wording from here must bump them.
+  // draft.internal_link gets its FIRST production wording at v1 (2026-08-01, V1 Closure): it was a registered schema with no caller, so nothing is cached under that id and there is no stale answer a version could
+  // protect. Any change to its wording from here must bump it. `draft.section_draft` stood beside it and is GONE (2026-08-30): a bundle's and a new page's sections are written by the one canonical editor now, so a
+  // second drafter that declared no claim and named no evidence id had no work left and no id to keep.
   // The AEO gap reader (2026-08-28): compares a search, the complete stored owned page and the credited
   // passages, and returns what the page LACKS from a closed vocabulary. Judgment only; it drafts nothing.
   "draft.aeo_gap": 2, // v2 (2026-08-28): the reader's packet and instructions changed (it is told explicitly when no credited passage is on file, and the owned side is supplied as exact id/text tuples), so a v1 answer was given to a different question and must not be served from cache.
@@ -42,7 +43,6 @@ export const PROMPT_REGISTRY = {
   "draft.internal_link": 1,
   "draft.batch_adjudication": 1,
   "draft.strategy_review": 1,
-  "draft.section_draft": 1,
   "draft.outreach_pitch": 1,
   // The coverage verdict (N3b, 2026-07-28): does this account already have the right page for a researched topic. Judgment only; it drafts nothing.
   "draft.coverage_adjudication": 1,

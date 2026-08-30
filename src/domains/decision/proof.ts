@@ -1,5 +1,6 @@
 /** decision/proof - THE TWO ANSWERS A CUSTOMER NEEDS BEFORE PASTING ANYTHING, selected from typed fields and  nothing else. The card argued "Backed by 3 checks", which is a count wearing an evidence label: on the live  account five of seven finished cards said exactly that, and the one carrying real assistant evidence (three  answers, eight rival sites cited, this page read and passed over) said "Page-only" and "Backed by 6 checks".  A count cannot be read, argued with, or trusted, and it is the same sentence whether the evidence is a  90-day search record or one look at the page.  THE TWO ANSWERS ARE DISTINCT AND MAY NEVER BE TRADED FOR EACH OTHER. "Why this opportunity" is about the  SIZE AND CAUSE of a problem; "why these words" is about the WORDING. Search demand never proves a sentence  is the right sentence, and a source proving a fact never proves the change will earn traffic. Every clause  here is composed from a typed field, so a producer rewording its prose can never change what this says, and  an absent field prints NOTHING rather than a zero, a placeholder or a guess. */
 
+import { componentIdOf } from "./contracts";
 import type { BundleComponentKind, ChangeProposal } from "./contracts";
 import type { CauseFinding } from "./diagnosis";
 
@@ -194,7 +195,9 @@ const cut = (t: string, n = 60): string => (t.trim().length > n ? `${t.trim().sl
 
 export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
   return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
-    (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]), (p.claims ?? []).map((x) => [x.text, [...x.supportedBy].sort()]), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
+    (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]),
+    // AND WHICH PIECE EACH CLAIM ANSWERS FOR, folded ONLY where the row carries it: `of` is new, every banked reading was taken over a key that never had it, and appending a null to every claim would retire the paid review on every stored row at once.
+    (p.claims ?? []).map((x) => (x.of ? [x.text, [...x.supportedBy].sort(), x.of] : [x.text, [...x.supportedBy].sort()])), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
 /** WHY BEACON'S OWN PAID REVIEWER HAS NOT AUTHORIZED THIS, or null. It already reads the claims and the evidence, and was answering ONE publish boolean whose claim-level reasoning was then discarded, so nothing ever recorded whether the cited facts SUPPORT the claim and "Noor means light" could stand on a passage reading "Tehran is the capital of Iran" (Codex, 2026-08-28). Asked only where a material claim is made: a mechanical repair, and copy citing only the page's own words, are not sent to a model to be told what they already prove. Fails closed on a missing, stale, short or mismatched ruling, because silence is never a pass. `REVIEW_CONTRACT` mirrors llm/prompt-registry's `draft.factual_review`, so a verdict from an older contract is re-read rather than trusted. */
 export const REVIEW_CONTRACT = 4; // THE PERSISTED AUTHORIZATION CONTRACT, one number for every family that banks a reading. It read `draft.factual_review`, which is a prompt CACHE version and would have governed editor receipts by accident; bumped to 4 as the substantive editor joins it, so every earlier receipt is re-read.
 /** A WORDING-ONLY SUSPICION, NEVER A PROOF (operator, 2026-08-30): equal content tokens lose order, multiplicity and grammar, and "fear of God" versus "God's fear" reduces to the same bag. Suspicion routes the card to the ONE existing reviewer, whose banked `materialChange` ruling settles it; nothing is auto-retired on a bag of words. Same words in the same order (a punctuation repair) are not suspicious at all. */
@@ -220,11 +223,43 @@ export function unreviewed(p: ChangeProposal): string | null {
   return claims.every((c, i) => { const v = r.claims.find((x) => x.i === i); return !!v && v.entailed && key(v.by) === key(c.supportedBy); }) ? null : "a claim here was not shown to follow from the exact sources it names";
 }
 
+/** WHAT A CLAIM MAY NEVER STAND ON ALONE, and what counts as real authority for one. A rival's page, a winner read side by side and a results-page line say what OTHER sites cover and how the winning answer is shaped: that is why a piece of work is worth doing and it is never proof that a sentence is true. `fact-*` is a checked statement with a source that was actually read, and `owned-page-*` is another page of this account, which is the one comparison a page cannot make about itself. Ids, never prose, so no rewording of a briefing line can promote it to a source. */
+const BRIEFING = /^(?:rival|competitor)[-\d]|^win(?:\d|pattern)|^serp\d/;
+const QUALIFIED = /^fact-|^owned-page/;
+/** THE PIECES OF A BUNDLE THAT PUT WORDS ON THE PAGE, and therefore owe a claim-to-source authorization of their own. A link, a canonical, a redirect and a technical repair assert nothing about the world, so they are deliberately absent: the bypass in completeness stays for exactly them. */
+const SUBSTANTIVE: ReadonlySet<BundleComponentKind> = new Set<BundleComponentKind>(["section", "section_add", "section_rewrite", "opening_answer", "full_rewrite", "restructure", "entity_expansion", "table_or_list_add", "paragraph_correction", "factual_correction", "new_page"]);
+
+/** WHY THIS BUNDLE'S SUBSTANTIVE COPY IS NOT AUTHORIZED, or null. A LOCAL RECEIPT IS NOT AUTHORIZATION (Codex, 2026-08-30): a bundle's `evidenceKeys`, its plan summary and its component label say why the work was chosen and have never said that the words are carried by anything, so a deep body bundle could put paragraphs on a customer's page having answered no claim-to-source question at all. Every piece that writes words answers on ITS OWN claims now, named through `componentIdOf` so one authorized section can never lend its ruling to the next piece, and the bundle is servable only when every one of them stands. */
+function unauthorizedComponent(p: ChangeProposal): string | null {
+  const owed = (p.bundle?.components ?? []).map((c, i) => ({ c, id: componentIdOf(c, i) })).filter((x) => SUBSTANTIVE.has(x.c.kind));
+  if (owed.length === 0) return null;
+  const claims = p.claims ?? [], r = p.semanticReview, key = (xs: readonly string[]): string => [...xs].sort().join("|");
+  if (!r || r.of !== copyKey(p)) return "the words this change would put on the page have not been read against the sources they name, so it is held until Beacon's own reviewer has read them together";
+  if (r.version !== REVIEW_CONTRACT) return "the reading on file was made under an older review contract, so it is read again before these words are offered";
+  for (const { c, id } of owed) {
+    const own = claims.map((x, i) => ({ x, i })).filter((y) => y.x.of === id);
+    if (own.length === 0) return `one piece of this change ("${c.label}") states things on the page and names nothing that carries them, so it is held until it is read against its own sources`;
+    const bad = own.find(({ x, i }) => { const v = r.claims.find((z) => z.i === i); return !v || !v.entailed || key(v.by) !== key(x.supportedBy); });
+    if (bad) return `a claim in "${c.label}" was not shown to follow from the exact sources it names, and a piece of a change is authorized on its own evidence or not at all`;
+  }
+  return null;
+}
+
 export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUTHORIZATION VOCABULARY: a bundle's `plan.removes` and a component's `preserves.losses` are the customer-facing SUMMARY of a change and were pooled in as though they were the same verified record, so they are display only now; a ledger entry answers for ONE unit, because one entry quoting the whole passage claimed every unit had been considered while naming none (Codex, 2026-08-28)
   const c = p.recommendedChange;
   if (p.researchOnly === true) return null;
+  // A COMPETING PAGE EXPLAINS WHY THE WORK IS WORTH DOING AND NEVER WHETHER A SENTENCE IS TRUE. Asked of every row, before anything else, because rival and winner text reaches the writer as briefing on the deep-bundle and new-page paths and the only thing standing between it and a customer's page was a prompt asking the model not to use it (Codex, 2026-08-30).
+  const briefed = (p.claims ?? []).find((x) => x.supportedBy.length > 0 && x.supportedBy.every((id) => BRIEFING.test(id)));
+  if (briefed) return `it says "${cut(briefed.text)}" on the strength of a page that competes with this one, which says what rivals cover and never what is true, so it is held until a checked source carries it`;
   const unread = unreviewed(p); if (unread) return unread;
-  if (c.kind !== "existing_edit") return p.informationGain ? null : "a whole new page is proposed and nothing on file says what any of it stands on, so it is held until its claims, sources and plan are authorized like every other change"; // A NEW PAGE IS THE LARGEST THING BEACON PROPOSES AND IT LEFT BY THE FIRST LINE, facing no evidence question at all (Codex, 2026-08-28). No producer emits a page's authorization yet, so it stays internal rather than the door widening to let it out.
+  const unauthorized = unauthorizedComponent(p); if (unauthorized) return unauthorized;
+  // A NEW PAGE IS THE LARGEST THING BEACON PROPOSES AND IT LEFT BY THE FIRST LINE, facing no evidence question at all (Codex, 2026-08-28), and then faced only "is there a gain receipt" (2026-08-30), which a competitor teardown satisfies. Coverage adjudication authorizes the NEED and the results pages authorize the FORMAT; neither authorizes a sentence, so every material claim the finished page makes rests on a checked source or another page this account owns, or the page stays internal and its own evidence requirement is minted.
+  if (c.kind !== "existing_edit") {
+    const claims = p.claims ?? [];
+    if (!p.informationGain || claims.length === 0) return "a whole new page is proposed and nothing on file says what any of it stands on, so it is held until its claims, sources and plan are authorized like every other change";
+    const unsupported = claims.find((x) => !x.supportedBy.some((id) => QUALIFIED.test(id)));
+    return unsupported ? `a whole new page is proposed and "${cut(unsupported.text)}" rests on nothing checked, so it is held until a source on file or another page of yours carries it` : null;
+  }
   const before = c.before?.trim() ?? "";
   if (before && mechanicalRepair(before, c.after)) return null;
   // A CORRECTION PROVES ITS WORDS THROUGH THE QUOTE-BOUND CHAIN so it owes no gain receipt, and it is NOT a licence to discard the page around the mistake: it left the boundary entirely, so one could replace "Meaning: Bright, radiant, or glowing. Start your free lesson today." with "Meaning: Light." and delete the call to action in silence (Codex, 2026-08-28). It answers for preservation like every other replacement.

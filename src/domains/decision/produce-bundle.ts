@@ -5,8 +5,8 @@
 import "server-only";
 
 import type { EvidenceSnapshot, OwnedPageEvidence, OwnedQuerySignal } from "@/domains/evidence/snapshot"; import { canonicalUrlKey } from "@/domains/evidence/snapshot";
-import { draftAtomicEditStructured, draftInternalLinkStructured, draftSectionStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
-import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts";
+import { draftAtomicEditStructured, draftInternalLinkStructured } from "@/domains/decision/llm/structured-drafter"; import { defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
+import type { ActionDiagnosis, ChangeBundle, BundleComponent, BundleEvidenceItem, ChangeProposal, ComponentPlan, EvidenceReadiness, RecommendedChange } from "./contracts"; import { componentIdOf, confidenceFor, CTR_DEFICIT_SHARE, MIN_QUERY_IMPRESSIONS, MIN_RECOVERABLE_CLICKS, readyForAction, receiptComposition } from "./contracts"; import { copyKey, evidenceShortfall, REVIEW_CONTRACT } from "./proof";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { diagnoseCandidate, ownedResultOf, recurringPattern, RECEIPT, type DiagnosisInput } from "./diagnose";
 import { causeLabel, diagnoseCauses, type CauseFinding } from "./diagnosis";
@@ -45,15 +45,13 @@ const gapsOf = (p: OwnedPageEvidence, at: (position: number) => number = default
 }).sort((a, b) => b.recoverable - a.recoverable || byText(a.query, b.query));
 const totalRecoverable = (gaps: Gap[]): number => gaps.reduce((a, g) => a + g.recoverable, 0); const hasCurrentCopy = (p: OwnedPageEvidence): boolean => !!p.content && !!(p.content.title || p.content.h1 || p.content.outline.length > 0);
 
-function parseUrl(url: string): URL | null { try { return new URL(url.startsWith("http") ? url : `https://${url}`); } catch { return null; } }
-const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`); const MIN_ANCHOR_CORPUS = 10, MAX_INVENTORY = 200, MAX_AHEAD = 6;
+function parseUrl(url: string): URL | null { try { return new URL(url.startsWith("http") ? url : `https://${url}`); } catch { return null; } } const pathOf = (url: string): string => parseUrl(url)?.pathname || (url.startsWith("/") ? url : `/${url}`); const MIN_ANCHOR_CORPUS = 10, MAX_INVENTORY = 200, MAX_AHEAD = 6;
 
 /** WEAK ANCHORS: the words this account puts on everything fit anything, so alone they attach no evidence. Under MIN_ANCHOR_CORPUS phrases the set is empty. */
 function weakAnchorsOf(snapshot: EvidenceSnapshot): Set<string> {
   const r = snapshot.research; const phrases = [...new Set([...(r?.retainedKeywords ?? []).map((k) => k.query), ...(r?.aiObservations ?? []).map((o) => o.promptText),
     ...snapshot.ownedPages.map((p) => p.content?.title || p.content?.h1 || pathOf(p.url))].map((s) => (s ?? "").trim()).filter(Boolean))];
-  return phrases.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(phrases);
-}
+  return phrases.length < MIN_ANCHOR_CORPUS ? new Set<string>() : weakAnchorTokens(phrases); }
 
 const topicMatch = (a: string, b: string, weak: ReadonlySet<string>): boolean =>
   norm(a) === norm(b) || anchoredTopicMatch(a, b, weak).relevant;
@@ -201,8 +199,7 @@ function buildReceipt(snapshot: EvidenceSnapshot, page: OwnedPageEvidence, queri
     contextOnlyKeys: contextOnly, supportKeys, links: links.map((l) => ({ anchor: l.anchor, to: pathOf(l.toUrl) })) };
 }
 
-const gateShape = (tenantId: string, query: string, change: RecommendedChange): ChangeProposal => ({
-  id: "gate", tenantId, kind: change.kind, pagePath: null, pageUrl: null, pageLabel: "", primaryQuery: query, opportunityType: "", changeFamily: "bundle",
+const gateShape = (tenantId: string, query: string, change: RecommendedChange): ChangeProposal => ({ id: "gate", tenantId, kind: change.kind, pagePath: null, pageUrl: null, pageLabel: "", primaryQuery: query, opportunityType: "", changeFamily: "bundle",
   status: "needs_review", recommendedChange: change, whyItMatters: "", estimatedEffortMinutes: 0, riskLevel: "low", confidence: "medium", limitations: [],
   evidence: { query, hints: [], evidenceRefCount: 0 }, impactScore: null, upsidePerMonth: null, publish: "manual", createdAt: "" });
 
@@ -225,10 +222,8 @@ type DoorContext = { door: "ctr_gap" | "coverage_verdict" | "cannibalization" | 
   entry: string; evidence: { query: string | null; engine: string | null; promptText: string | null; competingUrls: readonly string[]; window: string | null } };
 
 /** THE GOAL when the door is not a click gap: a shortfall I cannot show is no objective. */
-const doorGoal = (d: DoorContext["door"], q: string): string =>
-  d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it, read side by side.`
-      : d === "cannibalization" ? `Put one page of yours in front of "${q}" instead of several, so the clicks stop splitting.`
-        : `Win back what this page has lost on "${q}".`;
+const doorGoal = (d: DoorContext["door"], q: string): string => d === "coverage_verdict" ? `Make this the page of yours that answers "${q}", off the pages winning it, read side by side.`
+  : d === "cannibalization" ? `Put one page of yours in front of "${q}" instead of several, so the clicks stop splitting.` : `Win back what this page has lost on "${q}".`;
 
 /** THIS DOOR'S OWN CASE, checked before a word is written. Null = on file. */
 function doorEvidenceMissing(d: DoorContext): string | null {
@@ -267,36 +262,34 @@ const oneComponent = (c: BundleComponent, items: readonly BundleEvidenceItem[]):
   receipt: { items: items.filter((i) => c.evidenceKeys.includes(i.key)), missing: [], freshestObservedAt: null },
   alternatives: [], risks: [], confidenceReasons: [], measurementPlan: "gate" });
 
-/** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. */
-function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[]): ProducerDraft {
+/** ONE AUTHORIZED PIECE, as the canonical editor hands it back: the copy, and the claim-to-source record the serving door reads. */
+type AuthorizedPiece = NonNullable<Awaited<ReturnType<typeof draftFieldForPage>>>;
+/** THE DRAFTERS a producer may buy, wired once for the same firewall, budget, cache and fail-closed posture. THE SUBSTANTIVE ONES ARE THE ONE CANONICAL EDITOR (2026-08-30): a bundle's sections and openings used to come from a second drafter that declared no claim, named no evidence id and was read for sense by nobody, so the only thing behind a paragraph on a customer's page was a receipt saying why the WORK was chosen. They go through the same drafter, deterministic contract, evaluator and per-claim ruling as every other word Beacon writes, and each piece's authorization is kept under its own exact copy so no piece can borrow another's. */
+function producerDrafts(tenantId: string, opts: ProduceBundleOptions, now: Date, ownedPaths: readonly string[], held: OwnedPageBody | null, siblings: ReadonlyMap<string, OwnedPageBody>, authed: Map<string, AuthorizedPiece>): ProducerDraft {
   const wire = { complete: opts.complete, now, bypassCache: opts.bypassCache, authoritativeSourceDomains: opts.authoritativeSourceDomains };
-  // EVERY CHARGED CALL COMES OFF THE PASS'S POOL, not only the ones an editor makes. The section, link and opening drafters below bought calls the budget never saw, so the pass's own count of what it spent was short by every piece a bundle wrote. Spent BEFORE the call, so a refusal costs what it cost.
+  // EVERY CHARGED CALL COMES OFF THE PASS'S POOL, not only the ones an editor makes. The link drafter below bought calls the budget never saw, so the pass's own count of what it spent was short by every piece a bundle wrote. Spent BEFORE the call, so a refusal costs what it cost.
   const spent = (): boolean => !!opts.attempts && (opts.attempts.left -= 1) < 0;
+  const editor = { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) };
+  // THE OTHER PAGES OF THIS ACCOUNT, under the one id a claim may cite: what a page cannot say about itself is what a sibling page carries, and it is the one route to information gain that costs nothing to read.
+  const facts = Object.fromEntries([...siblings.values()].filter((b) => canonicalUrlKey(b.url) !== canonicalUrlKey(held?.url ?? " ")).flatMap((b) => (b.passages ?? []).slice(0, 2).map((t) => `${pathOf(b.url)}: ${t}`)).slice(0, 6).map((t, i) => [`owned-page-${i + 1}`, t]));
+  const write = async (field: "answer_block", query: string, brief: string, evidenceHints: string[]): Promise<AuthorizedPiece | null> =>
+    !held ? null : draftFieldForPage({ field, body: held, query, brief, evidenceHints, ownedPaths, minutes: 15, facts }, editor);
   return {
     // THE EDITOR ITSELF, for a page this card does not sit on: same deterministic checks, same judge, that page's own words.
-    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, { tenantId, now, complete: opts.complete, bypassCache: opts.bypassCache, ...(opts.attempts ? { attempts: opts.attempts } : {}), ...(opts.bannedTerms ? { bannedTerms: opts.bannedTerms } : {}) }),
-    section: async (i) => {
-      if (spent()) return null;
-      const r = await draftSectionStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r);
-      return r.status === "drafted" ? { heading: r.value.heading, body: r.value.body, sources: r.value.sources.map((s) => ({ kind: s.kind, detail: s.detail })), containsNumber: r.value.containsNumber } : null;
-    },
+    pageField: (i) => draftFieldForPage({ ...i, ownedPaths }, editor),
+    section: async (i) => { const r = await write("answer_block", i.query, `${i.brief}${i.heading ? ` Write it under the heading "${i.heading}".` : ""}`, i.evidenceHints);
+      if (!r) return null; const heading = (r.heading ?? i.heading ?? "").trim(); authed.set(`${heading}\n\n${r.after}`, r); return { heading, body: r.after }; },
     internalLink: async (i) => {
       if (spent()) return null;
       const r = await draftInternalLinkStructured({ ...i, tenantId }, wire); opts.attempts?.record?.(r);
       return r.status === "drafted" ? { anchorText: r.value.anchorText, linkSentence: r.value.linkSentence, reason: r.value.reason } : null;
     },
-    openingAnswer: async (i) => {
-      if (spent()) return null;
-      const r = await draftAtomicEditStructured({ query: i.query, pageLabel: i.pageLabel, field: "answer_block",
-        currentValue: i.currentValue, outline: i.outline, evidenceHints: i.evidenceHints, tenantId }, wire); opts.attempts?.record?.(r);
-      return r.status === "drafted" ? r.value.after : null;
-    },
+    openingAnswer: async (i) => { const r = await write("answer_block", i.query, `Rewrite the first lines of this page so they answer "${i.query}" outright. It currently opens: "${(i.currentValue ?? "nothing on file").slice(0, 400)}".`, i.evidenceHints);
+      if (r) authed.set(r.after, r); return r?.after ?? null; },
   };
 }
 
-/** Produce at most ONE change for the existing page with the biggest PROVEN click gap. `none` with a structured
- *  reason when nothing is losing clicks, when the results page accuses no field, or when the draft fails a
- *  gate. Zero ready is a real answer, not a failure. */
+/** Produce at most ONE change for the existing page with the biggest PROVEN click gap. `none` with a structured reason when nothing is losing clicks, when the results page accuses no field, or when the draft fails a gate. Zero ready is a real answer, not a failure. */
 export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts: ProduceBundleOptions & { onlyPageUrl?: string | null; bodyByUrl?: ReadonlyMap<string, OwnedBody> } = {}): Promise<BundleOutcome> {
   const now = opts.now ?? new Date();
   const tenantId = snapshot.scope.tenantId;
@@ -364,7 +357,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   const alternatives = wording
     ? diagnosis.alternativesRuledOut.map((a) => ({ option: a.alternative, reason: a.reason }))
     : finding.competingExplanations.map((a) => ({ option: causeLabel(a.cause), reason: a.reason }));
-  const components: BundleComponent[] = []; let heldForReview = false;
+  const components: BundleComponent[] = []; let heldForReview = false; const authed = new Map<string, AuthorizedPiece>();
   /** WHAT TO DO WHEN THE CHANGE IS A JOB: a producer whose work cannot be pasted hands its instructions over
    *  here instead of writing them into the copy an operator clicks Copy on. Null means the copy IS the work. */
   let steps: string[] | null = null; let dispositions: ChangeBundle["dispositions"] | null = null;
@@ -408,7 +401,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
   } else {
       const slot = CORE_PRODUCERS[finding.cause];
     if (typeof slot !== "function") return { status: "none", reason: finding.cause === "no_problem" ? diagnosis.explanation : finding.explanation };
-    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)));
+    const drafters = producerDrafts(tenantId, opts, now, snapshot.ownedPages.map((p) => pathOf(p.url)), held, heldBodies, authed);
     const ctx: ProducerCtx = { finding, primary, tenantId,
       page: { url: page.url, title: content.title, h1: content.h1, outline: content.outline, internalLinkCount: content.internalLinks.length },
       body: held, ownedPages: inventory, pattern, ahead: receipt.ahead, receiptFacts: facts, readiness: receipt.readiness, draft: drafters, heldBodies, templateHeadings: templateHeadings([...heldBodies.values()].map((b) => b.headings ?? [])) }; // furniture is not content to move, and the set is computed from the SAME body headings the merge check reads: the canonical outline is stripped at the assembler now, so a set built from it would be empty and the defense would die silently
@@ -440,36 +433,38 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       .map((c) => ({ what: (c.before ?? "").trim(), why: c.objective ?? `${c.label} takes its place.` })) };
   const confidence = confidenceFor(receipt.readiness, diagnosis);
   // THE ONE-PURCHASE SENTENCE, BROKEN IN TWO: what happened, then what it costs. One idea per clause, both off the same row, and the position's usual take is stated rather than left as arithmetic to do.
-  const leadStatement = lead ? `${lead.impressions.toLocaleString()} people saw this page for "${primary}" in 90 days and ${lead.clicks.toLocaleString()} clicked. A page at position ${Math.round(lead.position)} usually earns about ${Math.round(lead.clicks + lead.over90).toLocaleString()}, so about ${Math.round(lead.over90).toLocaleString()} clicks are being left.`
-    : door!.entry;
+  const leadStatement = lead ? `${lead.impressions.toLocaleString()} people saw this page for "${primary}" in 90 days and ${lead.clicks.toLocaleString()} clicked. A page at position ${Math.round(lead.position)} usually earns about ${Math.round(lead.clicks + lead.over90).toLocaleString()}, so about ${Math.round(lead.over90).toLocaleString()} clicks are being left.` : door!.entry;
   // ONE SECTION, ONE SENTENCE: the same fact printed as the reason, the receipt line AND the paragraph is one fact three times, so anything already said elsewhere is dropped rather than repeated back.
   const alreadySaid = new Set([leadStatement.trim(), ...receipt.items.map((it) => it.fact.trim())]);
   const confidenceReasons = [biggerSearchesLine(page, primary, wording), classSentence(receipt),
-    receipt.freshestObservedAt ? `The newest evidence behind this was observed on ${receipt.freshestObservedAt.slice(0, 10)}.`
-      : "Every figure here is a 90 day total, so none of it carries a single observation date.",
+    receipt.freshestObservedAt ? `The newest evidence behind this was observed on ${receipt.freshestObservedAt.slice(0, 10)}.` : "Every figure here is a 90 day total, so none of it carries a single observation date.",
     wording ? diagnosis.explanation : finding.explanation].filter((r): r is string => !!r && !alreadySaid.has(r.trim()));
   const bundle: ChangeBundle = { // objective: Today renders it verbatim, so it is the MODELED shortfall, never a promise
-    objective: lead
-      ? `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`
-      // THE GOAL FOLLOWS THE CAUSE THAT WAS SERVED, NOT THE DOOR THAT KNOCKED: a page can enter on a fall and be diagnosed with a split, and the objective then promised to win back lost clicks over components that settle which page owns the search, so one card argued two different changes.
+    // THE GOAL FOLLOWS THE CAUSE THAT WAS SERVED, NOT THE DOOR THAT KNOCKED: a page can enter on a fall and be diagnosed with a split, and the objective then promised to win back lost clicks over components that settle which page owns the search, so one card argued two different changes.
+    objective: lead ? `Close the gap on the one search "${primary}", which earns this page about ${Math.round(lead.recoverable).toLocaleString()} fewer clicks than pages at position ${Math.round(lead.position)} usually get.`
       : doorGoal(finding.cause === "cannibalization" ? "cannibalization" : door!.door, primary),
     metric: `Clicks from search for "${primary}" over the next 28 days.`,
     scope: { queries: queries.map((q) => q.query), prompts: receipt.prompts },
     components, plan, ...(dispositions ? { dispositions } : {}),
     receipt: { items: receipt.items, missing: receipt.missing, freshestObservedAt: receipt.freshestObservedAt },
     alternatives,
-    risks: [
-      `Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
-      receipt.bodyText ? "These are this page's stored words, not today's live page, so read each line once against the page before you paste it."
-        : "This page's full body text is not on file, so read each line once before you paste it.",
-    ],
+    risks: [`Changing ${wording ? "a title moves where the page ranks" : "what a page says moves where it ranks"} while search engines re-read it, so give this the full 28 days before you judge it.`,
+      receipt.bodyText ? "These are this page's stored words, not today's live page, so read each line once against the page before you paste it." : "This page's full body text is not on file, so read each line once before you paste it."],
     confidenceReasons,
     measurementPlan: "Once you make the change, record it on Results with the page address, and clicks, views and average position for these searches get read at 7, 14 and 28 days, compared against pages you did not change.",
   };
-
-  const primaryComponent = components[0]!;
-  // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family
-  // read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
+  // WHAT EVERY PIECE OF THIS CHANGE STANDS ON, carried onto the row it is judged by. Each claim names the piece it answers for through `componentIdOf`, which folds that piece's exact words, so one authorized section can never lend its ruling to another piece and a receipt copied onto different copy stops matching; the rulings are re-indexed onto the merged list because the reviewer's answer is per claim and the row's claims are the union of the pieces'.
+  const claims: NonNullable<ChangeProposal["claims"]>[number][] = []; const review: { i: number; by: string[]; entailed: boolean }[] = [];
+  const banked = new Map<string, string>(); const preservation: NonNullable<ChangeProposal["preservation"]>[number][] = []; const gains: NonNullable<AuthorizedPiece["gain"]>[] = [];
+  components.forEach((c, i) => { const a = authed.get(c.after); if (!a) return;
+    for (const f of a.supportFacts) banked.set(f.id, f.fact);
+    a.claims.forEach((x, n) => { const v = a.review.find((z) => z.i === n); if (v) review.push({ i: claims.length, by: [...v.by], entailed: v.entailed });
+      claims.push({ text: x.text, supportedBy: [...x.supportedBy], of: componentIdOf(c, i) }); });
+    if (a.gain) gains.push(a.gain); if (a.preservation) preservation.push(...a.preservation); });
+  // ONE GAIN FOR THE ROW: what all the pieces add, the ids behind it, and whole-page ONLY where every piece really read the whole page. A target hash rides only where exactly one piece replaced a passage, because two replacements have two targets and one field cannot honestly name both.
+  const gain = gains.length === 0 ? null : { adds: gains.map((g) => g.adds).join(" "), by: [...new Set(gains.flatMap((g) => [...g.by]))], pageWhole: gains.every((g) => g.pageWhole),
+    ...(gains[0]!.bodyHash ? { bodyHash: gains[0]!.bodyHash } : {}), ...(gains.length === 1 && gains[0]!.targetHash ? { targetHash: gains[0]!.targetHash } : {}) };
+  const primaryComponent = components[0]!; // THE FAMILY THIS CHANGE BELONGS TO, worn by the id AND the stamp. The id ended in the literal word "bundle" and the family read "single", so a snippet rewrite and a body rebuild on one page fought over one id and every shipped bundle reached the proof ledger unclassifiable. Both read the store's own derivation now.
   const recommendedChange: RecommendedChange = { kind: "existing_edit", field: fieldForComponent(primaryComponent.kind), before: primaryComponent.before, after: primaryComponent.after };
   const family = actionFamilyOf({ kind: "existing_edit", bundle, recommendedChange });
   const proposal: ChangeProposal = {
@@ -479,8 +474,7 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       pageLabel: content.h1 ?? content.title ?? page.url, primaryQuery: primary,
       opportunityType: OPPORTUNITY_OF[finding.cause] ?? "Rewrite the page that already has the demand",
       status: heldForReview ? "needs_review" : "ready", // an investigation I cannot close never reaches here at all
-      recommendedChange,
-      whyItMatters: leadStatement,
+      recommendedChange, whyItMatters: leadStatement,
       // WHAT THIS COSTS AND WHAT IT RISKS, by the kind of change it is: a merge and a rebuild are not one price, and a lever that moves or hides a page carries the highest risk on the row.
       ...(steps ? { operatorSteps: steps } : {}),
       estimatedEffortMinutes: effortMinutesFor(primaryComponent.kind), confidence, limitations: receipt.missing,
@@ -490,10 +484,15 @@ export async function produceBundleForSnapshot(snapshot: EvidenceSnapshot, opts:
       evidence: { query: primary, hints: facts.slice(0, 5), evidenceRefCount: receipt.items.length },
       // A SIZE ONLY WHERE ONE IS PROVEN: an unproven door ranks as a direction, never as zero clicks.
       impactScore: pick.gap >= MIN_RECOVERABLE_CLICKS ? Math.round(pick.gap) : null, upsidePerMonth: null, bundle, createdAt: now.toISOString(),
+      ...(claims.length > 0 ? { claims, supportFacts: [...banked].map(([id, fact]) => ({ id, fact })) } : {}),
+      ...(gain ? { informationGain: gain } : {}), ...(preservation.length > 0 ? { preservation } : {}),
   };
-  // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so
-  // a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
-  const failed = receiptIntegrityFailures(proposal, now);
+  // THE READING IS STAMPED ON THE FINISHED ROW, never on a draft: copyKey folds the copy, every piece, every claim with the piece it answers for, and the words behind every id, and excludes the reading itself, so the identity comes from the completed proposal without a cycle.
+  const row: ChangeProposal = review.length > 0 ? { ...proposal, semanticReview: { of: copyKey(proposal), version: REVIEW_CONTRACT, claims: review } } : proposal;
+  // THE WHOLE ROW, GATED: the per-component gate reads a synthetic proposal carrying no cause and no notes, so a claim that resolves to nothing reached the operator through the gap between a piece and the whole change.
+  const failed = receiptIntegrityFailures(row, now);
   if (failed.length > 0) return { status: "none", reason: `Not everything this change claims can be shown, so it is held back. Research this page again and the finding comes back here.` };
-  return { status: "bundled", proposal };
+  // AND THE ONE SERVING VERDICT DECIDES THE STORED STATUS. A piece the door will refuse must never be minted `ready` for a screen to render and the sweep to demote a moment later: unsupported, unread or destructive copy stays internal here, carrying the door's own exact sentence.
+  const short = evidenceShortfall(row);
+  return { status: "bundled", proposal: short ? { ...row, status: "needs_review", limitations: [...new Set([...row.limitations, short])] } : row };
 }

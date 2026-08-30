@@ -36,7 +36,8 @@ export const effortMinutesFor = (kind: BundleComponentKind): number => EFFORT_MI
  *  returns null when the model refused, went over budget, or wrote something the gates would not pass:
  *  null is a complete answer and a producer refuses on it rather than shipping an empty component. */
 export type ProducerDraft = {
-  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[] }) => Promise<{ heading: string; body: string; sources: { kind: string; detail: string }[]; containsNumber: boolean } | null>;
+  /** A SECTION IS WRITTEN BY THE ONE CANONICAL EDITOR NOW (2026-08-30), so what comes back is copy that has already declared its claims, named the evidence id behind each one and been ruled on claim by claim; the caller keeps that authorization beside the piece. The old `sources` and `containsNumber` are gone with the second drafter that produced them: a self-declared source label is not provenance and nothing ever read it. */
+  section: (input: { query: string; pageLabel: string; heading: string | null; brief: string; outline: string[]; evidenceHints: string[] }) => Promise<{ heading: string; body: string } | null>;
   internalLink: (input: { query: string; sourcePage: string; targetPage: string; topic: string; evidenceHints: string[] }) => Promise<{ anchorText: string; linkSentence: string; reason: string } | null>;
   /** The page's first lines, written through the atomic-edit drafter under its `answer_block` field. OPTIONAL
    *  so a caller that cannot buy one is a refusal rather than a compile error. */

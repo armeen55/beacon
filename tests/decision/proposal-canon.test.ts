@@ -33,7 +33,7 @@ import { dismissChangeProposal, loadChangeProposal, loadChangeProposals, answerR
   transitionProposalToImplemented } from "@/domains/decision/proposal-store";
 import { confirmedVersion } from "@/domains/decision/completeness"; import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
 import { reconcileImplementedWithoutShipment } from "@/domains/decision/implemented-repair";
-import { deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
+import { componentIdOf, deserializeChangeProposal, serializeChangeProposal, type ChangeBundle, type ChangeProposal } from "@/domains/decision/contracts";
 import { supabaseFake, type Row } from "../helpers/supabase-fake";
 Object.assign(db.client, supabaseFake({
   rows: (t) => (t === "change_proposals" ? db.state.rows : db.state.legacy),
@@ -315,7 +315,10 @@ describe("promotion fails closed when it cannot check its own work", () => {
     expect(res.status).toBe("refused"); expect(res.refusal).toContain("the words this change lands on are not in hand"); }); });
 /** THE CANON'S OWN QUALITY STATUS GATES PROMOTION, NOT JUST ITS VERDICT: `needs_review` also covers real work still short of paste-ready (a claim with no source, a fresh number nobody confirmed), and that hold may not be waved through just because it is not the harsher `rejected`. */
 describe("promotion asks the canon's own quality status, not just its verdict", () => {
-  const held = (after: string) => deep({ status: "needs_review", diagnosisCause: "incomplete_coverage", bundle: bundle("section"), recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after } });
+  // AND A BUNDLE THAT PUTS WORDS ON THE PAGE CARRIES ITS OWN CLAIM-TO-SOURCE AUTHORIZATION NOW, named by the piece it belongs to: without it the door holds the row for that, and this block would be asking the canon a question the authorization already answered.
+  const held = (after: string) => { const b = bundle("section"); const row = deep({ status: "needs_review", diagnosisCause: "incomplete_coverage", bundle: b, recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after },
+    claims: [{ text: "Nowruz is the Persian new year.", supportedBy: ["fact-1"], of: componentIdOf(b.components[0]!, 0) }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: Nowruz is the Persian new year." }] });
+    return { ...row, semanticReview: { of: copyKey(row), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }; };
   it.each([["a specific fact with no cited source (missing_source)", "The official record of Nowruz traditions spans centuries."], ["a fresh count nobody confirmed yet (useful_but_needs_review)", "Nowruz customs span 150+ regional variations."]] as const)("refuses promotion on %s even though the verdict is only needs_review", async (_label, after) => { const row = held(after); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("refused"); });
   it("still promotes the sound row: needs_review only because a human look is owed, and the quality itself is ready", async () => { const row = held("Nowruz Traditions"); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("promoted"); }); });
 /** A SPLIT IS SETTLED BY THE PIECES, NOT BY THE FIELD THE FIRST ONE HAPPENS TO USE. A differentiation bundle is filed under its first component's field, so the two-page Iran flag bundle arrived as `title-family`, missed the ownership exception, and a FINISHED ready row was served from the research lane where nobody can act on it: the store said 3 ready and the customer queue showed 2. */

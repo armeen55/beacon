@@ -1,5 +1,5 @@
 /** GSC Proof ledger, server-action gating. Measurement mutations are ACCOUNT-OWNER-ONLY (2026-07-23 account-isolation contraction): the record / recompute actions must never run their heavy GSC reads or writes unless the authenticated user owns the current account, and no environment flag can grant it. The server-only deps are mocked so this is a fast behavioural test of the gate. */
-import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof";
+import { REVIEW_CONTRACT, copyKey } from "@/domains/decision/proof"; import { componentIdOf } from "@/domains/decision/contracts";
 vi.mock("next/server", async () => ({ ...(await vi.importActual<Record<string, unknown>>("next/server")), after: (fn: () => unknown) => { void fn(); } }));
 import { describe, it, expect, beforeEach, vi } from "vitest";
 const { ownerFlag, mocks } = vi.hoisted(() => ({
@@ -49,8 +49,15 @@ import { recordShippedChangeAction, recomputeProofLedgerAction } from "@/app/(sh
 import { markProposalImplementedAction } from "@/app/(shell)/changes/actions";
 const BASIS = "basis_today::d6";
 const PROPOSAL_ID = "tenant-test::/nowruz-guide::existing_edit::bundle";
+/** EVERY PIECE THAT PUTS WORDS ON THE PAGE CARRIES ITS OWN CLAIM-TO-SOURCE AUTHORIZATION (2026-08-30), named by the piece it belongs to, and the one serving verdict this door reads refuses a bundle without it. These fixtures are about the shipment transaction, so they carry what a real bundle now carries rather than testing a row no producer can mint. */
+const authorize = <T extends { bundle?: unknown }>(p: T): T => { const parts = ((p.bundle as { components?: { kind: string; label: string; after?: string | null }[] } | undefined)?.components ?? []);
+  const owed = parts.map((c, i) => ({ c, i })).filter((x) => x.c.kind !== "title" && x.c.kind !== "meta");
+  if (owed.length === 0) return p;
+  const claims = owed.map((x) => ({ text: `The ${x.c.label} copy rests on the source below.`, supportedBy: ["fact-1"], of: componentIdOf(x.c, x.i) }));
+  const row = { ...p, claims, supportFacts: [{ id: "fact-1", fact: "encyclopedia: the kite festival runs the first weekend of April." }] };
+  return { ...row, semanticReview: { of: copyKey(row as never), version: REVIEW_CONTRACT, claims: claims.map((_, i) => ({ i, by: ["fact-1"], entailed: true })) } }; };
 /** The change the operator is confirming: a two-component bundle on a page Beacon holds. */
-const proposal = (over: Record<string, unknown> = {}) => ({
+const proposal = (over: Record<string, unknown> = {}) => authorize({
   id: PROPOSAL_ID, tenantId: "tenant-test", kind: "existing_edit", pagePath: "/nowruz-guide",
   pageUrl: "https://x.test/nowruz-guide", pageLabel: "Nowruz guide", primaryQuery: "nowruz traditions",
   opportunityType: "Capture clicks", changeFamily: "title", status: "ready", riskLevel: "low", basis: BASIS, publish: "manual", limitations: [],
@@ -208,8 +215,8 @@ describe("markProposalImplementedAction, the shipment transaction", () => {
     expect((await markProposalImplementedAction({ ...PRESS })).success).toBe(false); expect([mocks.recordShipment.mock.calls.length, mocks.transitionProposalToImplemented.mock.calls.length]).toEqual([0, 0]);});});
 describe("a new page owes me the address it is live at", () => {
   const SECTIONS = ["When it runs", "Where to watch", "What to bring"], OPENS = "The kite festival runs the first weekend of April.";
-  const newPage = () => { const p = proposal({ kind: "new_page", informationGain: { adds: "the page answers a question no owned page covers", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, pageLabel: "Kite festival guide", recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "Everything the kite festival guide covers.", openingAnswer: OPENS, outline: SECTIONS, faqQuestions: [], schemaTypes: [] },
-    bundle: { ...proposal().bundle, components: SECTIONS.map((h) => ({ kind: "section_add", label: h, after: `${h}: ${OPENS}`, risk: "safe", evidenceKeys: ["k1"] })) } }); return { ...p, semanticReview: { of: copyKey(p as never), version: REVIEW_CONTRACT, claims: [] } }; };
+  const newPage = () => proposal({ kind: "new_page", informationGain: { adds: "the page answers a question no owned page covers", by: ["fact-1"], pageWhole: true }, pagePath: null, pageUrl: null, pageLabel: "Kite festival guide", recommendedChange: { kind: "new_page", proposedTitle: "Kite festival guide", metaDescription: "Everything the kite festival guide covers.", openingAnswer: OPENS, outline: SECTIONS, faqQuestions: [], schemaTypes: [] },
+    bundle: { ...proposal().bundle, components: SECTIONS.map((h) => ({ kind: "section_add", label: h, after: `${h}: ${OPENS}`, risk: "safe", evidenceKeys: ["k1"] })) } });
   it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
     mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ ...PRESS });
     const away = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://elsewhere.example/kite" });
