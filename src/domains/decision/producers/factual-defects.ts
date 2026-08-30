@@ -18,6 +18,7 @@ const slugOf = (s: string): string => s.toLowerCase().normalize("NFKD").replace(
 
 const pathOf = (url: string): string => {
   if (url.startsWith("/")) return url.split(/[?#]/)[0]!.replace(/\/+$/, "") || "/";
+  const noOpWhy = new Map<string, string>();
   try { return new URL(url.startsWith("http") ? url : `https://${url}`).pathname.replace(/\/+$/, "") || "/"; } catch { return url; } };
 const n = (x: number): string => x.toLocaleString("en-US");
 
@@ -188,6 +189,7 @@ async function reviewFactualCards(cards: readonly ChangeProposal[], wiring: { te
 /** Every page whose banked checks contradict it, as one card each, at $0. Guarded like every producer: a read that fails narrows the pass and sweeps nothing. Beacon's own sense review is a separate ranked candidate. */
 async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceSnapshot; now: Date }): Promise<FactualDefectRun> {
   const { tenantId, snapshot, now } = input;
+  const noOpWhy = new Map<string, string>();
   try {
     const checks = await readFactChecks(tenantId);
     if (checks.length === 0) return { cards: [], complete: true };
@@ -243,6 +245,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         const span0 = replacedSpanOf(c);
         if (bareOf(span0) !== bareOf(composedReplacement(span0, c.proposed!)) && contentTokens(span0) === contentTokens(c.proposed ?? "")) {
           log.info("[factual-defects] a proposed rewording keeps the page's meaning, so no card is minted", { tenantId, subject: c.subject });
+          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the proposed rewording keeps the page's meaning, so there is nothing to correct");
           continue;
         }
         // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every
@@ -337,7 +340,7 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
     // Jasmine card was withdrawn saying its quote did not carry the wording, when the quote carries it exactly
     // and the real refusal is that the proposal restates the quote. No receipt invents a cause, including a
     // true one belonging to a different reading.
-    const why = new Map<string, string>();
+    const why = noOpWhy; // seeded by the mint's own no-op skips, so the sweep withdraws them WITH the named reason instead of the fail-closed keep
     for (const [key, rows] of byPage) { const pg = owned.get(key); if (!pg) continue;
       for (const r of rows) { if (r.state !== "checked" || r.rulesVersion !== VERIFICATION_RULES_VERSION) continue;
         const reason = unauthorizedReason(r) ?? supportShortfall(r, tenantId); if (reason) why.set(`${pathOf(pg.url).toLowerCase()}::fact-${slugOf(r.subject) || ""}`, reason); } }
