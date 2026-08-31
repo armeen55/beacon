@@ -30,8 +30,7 @@ export default async function LoginPage({
           <p className="text-sm text-muted-foreground leading-relaxed">
             Beacon shows you the exact website changes that help more people
             find you on Google and in AI search. Nothing changes on your live
-            site unless you approve it. We&rsquo;ll email you a link to sign in,
-            no password needed.
+            site unless you approve it. Sign in with your email and password.
           </p>
         </div>
         <LoginForm
