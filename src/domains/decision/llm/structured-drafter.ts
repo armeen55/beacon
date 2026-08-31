@@ -927,7 +927,10 @@ const INTERNAL_LINK_SYSTEM =
   "The sentence tells the reader what they will find on the destination page, in the reader's terms. Never write about the link itself, the site's navigation or this edit: " +
   "sentences of the form \"this page now has a link to X\" or \"X also has an Explore More link\" are refused. Anything the sentence says the destination covers must come from the " +
   "owned-page-target-* evidence, which is that page's own title, headings and copy. The figures about impressions, positions and clicks explain WHY this link is worth adding and " +
-  "may never be repeated in the sentence or used to support what the destination is about.";
+  "may never be repeated in the sentence or used to support what the destination is about. " +
+  // THE MODEL STILL DESCRIBED THE MECHANISM (live, 2026-08-31): given the destination's own words it wrote "The Parthian and Sassanian Empires period includes a link to the parthian empire flag", which is a sentence about the edit wearing the destination's vocabulary. A worked pair is worth more than another prohibition.
+  "Write the sentence a good editor would add to that spot. GOOD: \"For the banner this era flew, see the Parthian Empire flag.\" GOOD: \"Compare this design with the late Safavid military flag.\" BAD: \"This page includes a link to the Parthian Empire flag.\" BAD: \"The Parthian and Sassanian Empires period includes a link to the parthian empire flag.\" BAD: \"Click here to learn more.\" " +
+  "The words link, page, section, article and site must not appear in the sentence describing what you are adding, and never claim in claims[] that a link now exists: claim only what the destination genuinely covers.";
 
 /** Draft ONE schema-valid internal link. Capped, budgeted, cached. */
 export async function draftInternalLinkStructured(
