@@ -31,7 +31,9 @@ describe("structured-drafter strict transport", () => {
   it("tells every prompt whose draft is grounding-checked what grounding means, so no attempt is spent learning it", async () => {
     let seen = ""; const capture: CompleteFn = async (r) => { seen = r.system; return { error: "refusal", retryable: false }; };
     await draftInternalLinkStructured({ query: "haft seen", topic: "the table", sourcePage: "https://own.com/a", targetPage: "https://own.com/b", tenantId: "t" }, { complete: capture });
-    expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); }); // the validator rejects the other answer
+    expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); // the validator rejects the other answer
+    // A LINK SENTENCE IS ABOUT THE DESTINATION (live, 2026-08-31): with no destination words in the packet the model wrote about its own edit ("Famous Iranian Singers also has an Explore More link to iranian horse") and claimed "The body includes a link labeled iranian horse", which no evidence can carry. The destination's own copy now travels as owned-page-target-* ids and the brief says so.
+    expect([seen.includes("owned-page-target-"), seen.includes("Never write about the link itself"), seen.includes("UNMARKED")], "the brief names the destination evidence, forbids writing about the link, and forbids marked-up anchors").toEqual([true, true, true]); });
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);

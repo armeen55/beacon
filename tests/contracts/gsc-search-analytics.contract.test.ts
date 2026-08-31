@@ -34,10 +34,8 @@ describe("GSC searchanalytics.query contract", () => {
       expect(Array.isArray(row.keys)).toBe(true); expect(row.keys).toHaveLength(2); // keys arrive in REQUEST dimension order: [page, query].
       expect(row.keys[0]).toMatch(/^https:\/\//); expect(typeof row.keys[1]).toBe("string");
       expect(typeof row.clicks).toBe("number"); expect(typeof row.impressions).toBe("number");
-      // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
-      expect(row.ctr).toBeGreaterThanOrEqual(0); expect(row.ctr).toBeLessThanOrEqual(1);
-      // position is a 1-based average.
-      expect(row.position).toBeGreaterThanOrEqual(1);}
+      expect(row.ctr).toBeGreaterThanOrEqual(0); expect(row.ctr).toBeLessThanOrEqual(1); // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
+      expect(row.position).toBeGreaterThanOrEqual(1);} // position is a 1-based average.
     // Our REQUEST contract: the body carries the fields Google documents.
     const sent = JSON.parse(String(calls[0]!.init?.body));
     expect(sent).toMatchObject({

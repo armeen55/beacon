@@ -133,7 +133,7 @@ type ProposalConfidence = "high" | "medium" | "low";
 
 /** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
-  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string; /** EXACTLY WHERE new copy lands, when it replaces no existing field. */ where?: string | null }
+  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string; /** EXACTLY WHERE new copy lands, when it replaces no existing field. */ where?: string | null; /** THE PAGE A LINK POINTS AT, TYPED. It lived only inside the instruction sentence and was recovered by a regex over that prose, so the destination's own words were never loaded because nothing downstream knew which page it was. The anchor is the card's `primaryQuery`. */ linkTo?: string | null }
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */

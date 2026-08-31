@@ -105,7 +105,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const held = inbound.get(to.toLowerCase()) ?? 0, support = held === 0 ? `No page of this site links to ${to} at all today`
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
-      page: from, slug: "internal_link", field: "section", query: target.query.query,
+      page: from, slug: "internal_link", field: "section", query: target.query.query, linkTo: to,
       headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
       // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell Google that page is for, and why this source page is the one being asked to give it.

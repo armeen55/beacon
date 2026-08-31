@@ -12,7 +12,7 @@ import type { CauseFinding } from "@/domains/decision/diagnosis";
 import { actionFamilyOf } from "../proposal-store";
 import { pageUnderstanding, sectionFit } from "./page-job";
 /** `headline` IS the card's action line: it names the page, the thing to do and the number behind it, so the queue reads as work without being opened. Never "update the section to sharpen it", which says nothing. */
-export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string;
+export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1" | "section"; headline: string; /** For an internal link: the destination path, typed rather than left inside the instruction prose. */ linkTo?: string;
   query: string; before: string | null; after: string; why: string; steps: string[]; hints: string[];
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
   /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */
@@ -107,7 +107,7 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     id: `${tenantId}::${path.toLowerCase()}::existing_edit::${d.slug}`, tenantId, kind: "existing_edit",
     pagePath: path, pageUrl: d.page.url, pageLabel: labelOf(d.page), primaryQuery: d.query,
     opportunityType: d.headline, changeFamily: d.field, status: "needs_review",
-    recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after },
+    recommendedChange: { kind: "existing_edit", field: d.field, before: d.before, after: d.after, ...(d.linkTo ? { linkTo: d.linkTo } : {}) },
     // EVERY CARD THIS FILE WRITES IS A BRIEF, so researchOnly is DERIVED from who minted it, never declared
     // per card: this producer names the work and the number behind it and writes no finished copy, and one
     // forgotten flag (the duplicate-heading card shipped "rewrite this heading" as if it were paste-ready)

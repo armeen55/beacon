@@ -919,7 +919,15 @@ const INTERNAL_LINK_SYSTEM =
   // read as something a person could paste with no editing at all.
   "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes. " +
   "Write linkSentence as an ordinary finished sentence a person could paste as-is: the anchor words appear in it verbatim and UNMARKED. Never wrap them in square brackets, " +
-  "parentheses, asterisks, quotes or markdown link syntax, and never write a placeholder of any kind: brackets in the copy are rejected outright.";
+  "parentheses, asterisks, quotes or markdown link syntax, and never write a placeholder of any kind: brackets in the copy are rejected outright. " +
+  // WRITE ABOUT THE DESTINATION, NOT ABOUT THE LINK (live, 2026-08-31): with no destination evidence in the
+  // packet the model had nothing true to say, so it described its own edit ("Famous Iranian Singers also has
+  // an Explore More link to iranian horse") and asserted claims like "The body includes a link labeled iranian
+  // horse", which no evidence can ever carry. The destination's own words now travel as owned-page-target-* ids.
+  "The sentence tells the reader what they will find on the destination page, in the reader's terms. Never write about the link itself, the site's navigation or this edit: " +
+  "sentences of the form \"this page now has a link to X\" or \"X also has an Explore More link\" are refused. Anything the sentence says the destination covers must come from the " +
+  "owned-page-target-* evidence, which is that page's own title, headings and copy. The figures about impressions, positions and clicks explain WHY this link is worth adding and " +
+  "may never be repeated in the sentence or used to support what the destination is about.";
 
 /** Draft ONE schema-valid internal link. Capped, budgeted, cached. */
 export async function draftInternalLinkStructured(
