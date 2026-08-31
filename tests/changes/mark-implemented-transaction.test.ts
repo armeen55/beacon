@@ -21,8 +21,7 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
     if (led.breakWrite) throw new Error("relation shipped_change_proof does not exist");
     const held = led.records.find((r) => r.proposalVersion === f.proposalVersion);
     if (held) return { shipmentId: held.id, measurement: "measuring" };
-    // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
-    led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() });
+    led.records.push({ ...f, id: `rec-${led.records.length + 1}`, implementedAt: new Date().toISOString() }); // THE REAL STORE STAMPS `implementedAt` AT THE PRESS, so the fixture does too: the next press reads this ledger back to count what is already being measured on the same page.
     return { shipmentId: led.records[led.records.length - 1]!.id, measurement: "measuring" }; } }));
 const SEEN = new Date(Date.now() - 2 * 86_400_000).toISOString();
 const AFTER = "Iranian comedians: the 12 names people actually search for";
@@ -68,8 +67,7 @@ describe("nothing is marked done that no record stands behind", () => {
     expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]);
     expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); });
   it("stamps what kind of work it was, and how much of theirs was already being measured on that page", async () => {
-    // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
-    const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal;
+    const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal; // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
     expect((await press(first)).success).toBe(true);
     expect(led.records[0]!.treatmentStamp).toEqual({ signature: { family: "title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 0 });
     const second = { ...change("A second change to the very same page"), id: "t::/famous-iranian-comedians::existing_edit::meta" } as ChangeProposal;

@@ -14,8 +14,7 @@ vi.mock("@/lib/tenant-context", async () => ({ ...(await vi.importActual<typeof 
   currentTenantId: vi.fn(async () => "t") }));
 vi.mock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
   loadProposalQueue: vi.fn(), loadChangeProposal: vi.fn(), resolveCurrentBasis: vi.fn() }));
-// ── Changes: the receipts reach the operator ─────────────────────────────────
-const ID = "t::/nowruz-guide::existing_edit::bundle";
+const ID = "t::/nowruz-guide::existing_edit::bundle"; // ── Changes: the receipts reach the operator ─────────────────────────────────
 /** Relative to now: a hard-coded reading date is a test that fails on a calendar day nobody chose. */
 const SEEN = new Date(Date.now() - 5 * 86_400_000).toISOString();
 const FINDING: CauseFinding = {
@@ -207,8 +206,7 @@ describe("a ranked card explains itself without being opened", () => {
     const meta = await renderList(viewOf([shape({ recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line.", after: "An onager is a wild ass native to Iran's deserts." } })]));
     for (const said of ["Replace meta description", "Copy meta description", "Only the meta description changes. Nothing on the page itself changes."]) expect(meta, said).toContain(said);
     expect(meta).not.toContain("Copy section");
-    // BULK MARK DONE offers a checkbox per Ready card (ticking claims nothing; the batch press records), and no bar until something is ticked.
-    expect([(meta.match(/data-pick-done="true"/g) ?? []).length, meta.includes('data-bulk-bar')], "one checkbox per ready card, no bar unticked").toEqual([1, false]);
+    expect([(meta.match(/data-pick-done="true"/g) ?? []).length, meta.includes('data-bulk-bar')], "one checkbox per ready card, no bar unticked").toEqual([1, false]); // BULK MARK DONE offers a checkbox per Ready card (ticking claims nothing; the batch press records), and no bar until something is ticked.
     const two = atomic(); two.id = "t::/nowruz-guide::existing_edit::title-family";
     two.bundle = { ...two.bundle!, components: [two.bundle!.components[0]!,
       { kind: "h1", label: "Page heading", risk: "safe", before: "Old H", after: "New H", evidenceKeys: ["k1"], where: "the page heading" }] };
@@ -234,16 +232,14 @@ describe("a change detail hands over the whole investigation and the controls to
       "so Google is choosing between them every time somebody searches it", "What else was considered and why it lost",
       "a sharper line cannot fix two of your own pages", "What would overturn this", "this is not the explanation",
       "What could not be tested, and why", "I do not hold this page&#x27;s indexing or canonical state."]) expect(html, s).toContain(s);
-    // Not one raw slug reaches the screen.
-    for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug); });
+    for (const slug of ["cannibalization", "ctr_snippet", "technical_indexability"]) expect(html, slug).not.toContain(slug); }); // Not one raw slug reaches the screen.
   it("the piece to paste says where it goes, why it works, and which sources are still owed", async () => {
     const html = await renderDetail(proposal());
     for (const s of ["Where it goes", "the page title itself", "What it does", "Why it works", "wins the click", "Sources to add before this goes out",
       "The date needs a source a reader can check.", "Check these lines against the source you pick", "Nowruz falls on the spring equinox."]) expect(html).toContain(s); });
   it("the ranking receipt names each input and how far it could ever move the order", async () => {
     const html = await renderDetail(proposal());
-    // A factor that changed nothing says so; it never prints a bare zero. NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
-    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (a strong push)",
+    for (const s of ["Why this one ranks where it does", "this draft passed every safety check (a strong push)", // A factor that changed nothing says so; it never prints a bare zero. NO RANKER ARITHMETIC ON THE SCREEN: how hard a factor pushed is the fact; "1.2 of a possible 3" is not.
       "this page already has a change under measurement (held it back)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
@@ -253,11 +249,9 @@ describe("a change detail hands over the whole investigation and the controls to
     for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
       "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);
     expect(html).not.toContain("do not check the page");
-    // Every piece starts ticked: applying all of them is the normal case.
-    expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2);
+    expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2); // Every piece starts ticked: applying all of them is the normal case.
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
-    // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
-    const review = await renderDetail(proposal()); expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); });
+    const review = await renderDetail(proposal()); expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); }); // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
   // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
   it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
     const b = proposal().bundle!;

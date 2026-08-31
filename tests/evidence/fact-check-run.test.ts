@@ -24,8 +24,7 @@ const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input:
   return (a == null ? { hold: "unavailable" } : { value: a }) as { value: Record<string, unknown> } | { hold: "unavailable" }; };
 const CLAIMS = { statements: [{ subject: "Afsaneh", current: "Goddess", locator: "Afsaneh" }] };
 const CONFIRMS = { verdict: "page_wrong", proposed: "Legend, myth, fable", confidence: "confirmed", note: "",
-  // THE FULL v2 RULING: the quote is the defining sentence, the subject its native-script headword, the relation the dictionary's own headword colon; the validator verifies every span.
-  supporting: [{ url: "https://en.wiktionary.org/x", quote: "Persian افسانه: tale, story, fable, legend, myth.",
+  supporting: [{ url: "https://en.wiktionary.org/x", quote: "Persian افسانه: tale, story, fable, legend, myth.", // THE FULL v2 RULING: the quote is the defining sentence, the subject its native-script headword, the relation the dictionary's own headword colon; the validator verifies every span.
     supported: true, supportSpan: "Persian افسانه: tale, story, fable, legend, myth.", subjectSpan: "افسانه",
     subjectFrom: "quote", relationSpan: "افسانه:", meaningSpans: ["legend", "myth", "fable"] }],
   subjects: [{ url: "https://en.wiktionary.org/x", sameEntity: true, language: "Persian", script: "افسانه", why: "the entry defines the Persian word" }] };
@@ -54,18 +53,15 @@ describe("the search is the proposition", () => {
 describe("the page slot is part of the proposition", () => {
   const NAMES = "Popular Persian Male(Boy) First Names and their Meanings";
   it("lets a heading break a tie, never overrule, and keeps two roles apart in one proposition identity", () => {
-    // THE LIVE LOSS. The male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry typed as a plain definition, the query asked about a warrior and returned a biography of a general.
-    expect(claimTypeOf("Afshin", "A warrior or conqueror."), "MUTATION: drop the locator and it is lost again").toBe("definition");
+    expect(claimTypeOf("Afshin", "A warrior or conqueror."), "MUTATION: drop the locator and it is lost again").toBe("definition"); // THE LIVE LOSS. The male names page writes "A warrior or conqueror." with no "Meaning:" prefix, so the entry typed as a plain definition, the query asked about a warrior and returned a biography of a general.
     expect(claimTypeOf("Afshin", "A warrior or conqueror.", NAMES), "the heading breaks the tie").toBe("word_meaning");
-    // EXPLICIT WORDING WINS. A heading may refine what the words leave open and may never overrule what they say.
-    expect([claimTypeOf("Tehran", "Capital of Iran", "Name meaning"), claimTypeOf("Ahvaz", "holds the record for hottest day at 54 C", "History of Ahvaz"),
+    expect([claimTypeOf("Tehran", "Capital of Iran", "Name meaning"), claimTypeOf("Ahvaz", "holds the record for hottest day at 54 C", "History of Ahvaz"), // EXPLICIT WORDING WINS. A heading may refine what the words leave open and may never overrule what they say.
       claimTypeOf("Noor", "Meaning: Light", "Persian female name Noor"), claimTypeOf("flag", "Meaning of the colors", "Name entry")],
     "MUTATION: let the locator win and the first two of these flip").toEqual(["geography", "quantity", "word_meaning", "word_meaning"]);
     expect([claimTypeOf("Casing", "Brushed aluminium", "Product specifications"), claimTypeOf("Tehran", "Tehran", "Geography of Iran"), // AND IT IS THE PAGE'S OWN WORDS, not a vocabulary written for one tenant.
       claimTypeOf("Revolution", "1979", "Historical timeline"), claimTypeOf("Widget", "A small tool", "About us")],
     "universal").toEqual(["specification", "geography", "date_or_event", "definition"]);
-    // THE NORMALIZED ROLE IS IN THE FINGERPRINT, and the heading's prose is not.
-    const meaning = tokenFingerprintOf("Afshin", "A warrior or conqueror.", "word_meaning");
+    const meaning = tokenFingerprintOf("Afshin", "A warrior or conqueror.", "word_meaning"); // THE NORMALIZED ROLE IS IN THE FINGERPRINT, and the heading's prose is not.
     expect(meaning, "same words, two roles, two propositions").not.toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
     expect(tokenFingerprintOf("Afshin", "conqueror or warrior A.", "word_meaning"), "one role, harmless reorder").toBe(meaning);
     expect(tokenFingerprintOf("Afshin", "A warrior or conqueror.", claimTypeOf("Afshin", "A warrior or conqueror.", "Boy names and their meanings")),
@@ -206,8 +202,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     await unit({ held: [row({ statementKey: "k1" })] }); // a dictionary quoting its own words may confirm
     const ok = db.rows[0] as FactCheck; expect([ok.confidence, ok.state]).toEqual(["confirmed", "checked"]);
     expect(ok.sourceReadAt).not.toBeNull();
-    // A FUTURE FACT EARNS ITS ARTIFACT INSIDE THE JUDGEMENT CALL IT ALREADY MAKES, and it survives the JSONB round trip it will live in: same identity, still valid, after JSON serialization.
-    const src = (JSON.parse(JSON.stringify(ok.sources)) as FactCheck["sources"])[0]!;
+    const src = (JSON.parse(JSON.stringify(ok.sources)) as FactCheck["sources"])[0]!; // A FUTURE FACT EARNS ITS ARTIFACT INSIDE THE JUDGEMENT CALL IT ALREADY MAKES, and it survives the JSONB round trip it will live in: same identity, still valid, after JSON serialization.
     expect([src.support?.supported, src.support?.version]).toEqual([true, SUPPORT_ARTIFACT_VERSION]);
     expect(supportFailure(src.support, { tenantId: "t", page: ok.page, statementKey: ok.statementKey, pageLocator: ok.pageLocator, subject: ok.subject, claimKind: "definition", current: ok.current,
       proposed: ok.proposed ?? "", url: src.url, kind: src.kind, quote: src.says, titleContext: src.titleContext ?? null })).toBeNull(); });
@@ -308,8 +303,7 @@ describe("what may authorize replacing published words", () => { beforeEach(rese
     expect(out.attempts).toBeGreaterThanOrEqual(3);
     expect(out.failure).not.toBe("lease_exhausted");
     expect(out.failure).toBe("fetch_refused");
-    // A POSTED SEARCH IS THE MOST SELF-RESOLVING PER-CLAIM CONDITION THERE IS: the provider takes the task and hands it back on a free follow-up, so ending the pass on it posts ONE task per pass and leaves every other owed claim untouched (live on /persian-male-names: 167 owed, one attempt per pass).
-    const waited: string[] = [];
+    const waited: string[] = []; // A POSTED SEARCH IS THE MOST SELF-RESOLVING PER-CLAIM CONDITION THERE IS: the provider takes the task and hands it back on a free follow-up, so ending the pass on it posts ONE task per pass and leaves every other owed claim untouched (live on /persian-male-names: 167 owed, one attempt per pass).
     const wait = await runFactCheckPass({ tenantId: "t", basis: "b1", deadlineAt: Date.now() + 600_000, held: owed, pages: [{ url: PAGE.url, path: PAGE.path, loadBody: async () => body }], refreshHeld: async () => null, readCoverage: async () => db.cov as never, writeCoverage: async () => true, read: reader({ claims: { statements: [] }, judge: CONFIRMS }), searchSources: async (query: string) => { waited.push(query); return { hold: "waiting" as const }; }, fetchSource: async () => ({ hold: "refused" as const }) } as never);
     expect([waited.length >= 3, wait.attempts >= 3], "a waiting search posts for the next claim too, instead of ending the pass").toEqual([true, true]); });
 
@@ -437,8 +431,7 @@ describe("a source supports a claim only when its own passage says so", () => {
       ["noor explicit", verdict(base)], // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
       ["mahsa says 'the name', never Mahsa", verdict(mahsaCtx, { supportSpan: MAHSA, subjectSpan: "The name", relationSpan: "meaning", meaningSpans: ["like the moon"] })],
       ["laila is not Leila, and edit distance is not evidence", verdict(leilaCtx, { supportSpan: LAILA, subjectSpan: "Laila", relationSpan: "means", meaningSpans: ["night", "dark"] })],
-      // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
-      ["mahsa with same source title", supportFailure(signed({ ...mahsaCtx, titleContext: "Mahsa" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Mahsa" })],
+      ["mahsa with same source title", supportFailure(signed({ ...mahsaCtx, titleContext: "Mahsa" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Mahsa" })], // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
       ["a title that never names the subject", supportFailure(signed({ ...mahsaCtx, titleContext: "Persian given names" }, { supportSpan: MAHSA, subjectSpan: "Mahsa", subjectFrom: "title", relationSpan: "meaning", meaningSpans: ["like the moon"] }), { ...mahsaCtx, titleContext: "Persian given names" })],
       ["a meaning span nobody wrote in this passage", verdict(base, { meaningSpans: ["moon"] })],
       ["spans real, but not the words the proposal needs", verdict(base, { meaningSpans: ["name"] })],

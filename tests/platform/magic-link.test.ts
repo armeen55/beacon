@@ -14,7 +14,7 @@ describe("magic link sending never shows provider text", () => {
     const limited = await sendMagicLink("a@b.com", TO);
     otp.mockResolvedValueOnce({ error: null });
     expect([thrown.error, returned.error, limited.error, (await sendMagicLink("a@b.com", TO)).error]).toEqual([
-      BUSY, BUSY, "Sign-in emails were requested too quickly. Wait a minute, then try once more.", null]);
+      BUSY, BUSY, "Sign-in email could not be sent right now. Use your password, or try the email option later.", null]); // a rate limit now points at the door that always answers, and never predicts when the email returns
     for (const r of [thrown, returned, limited]) expect(r.error).not.toMatch(/DOCTYPE|Unexpected token|AuthApiError|FATAL|[{<]/);
     expect(otp).toHaveBeenCalledTimes(4); // one provider call per request: no automatic retry, so never a duplicate sign-in email
   });});

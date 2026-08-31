@@ -8,7 +8,10 @@ import { getSupabaseServerClient } from "@/lib/auth/supabase-server";
 type MagicLinkSend = "success" | "rate_limited" | "temporarily_unavailable";
 
 const COPY: Record<Exclude<MagicLinkSend, "success">, string> = {
-  rate_limited: "Sign-in emails were requested too quickly. Wait a minute, then try once more.",
+  // "Wait a minute" was a promise nobody could keep: the provider's send window is its own and ran for
+  // hours, so the customer retried on Beacon's advice and was refused every time. The password is the
+  // door that always answers, so the honest sentence points there and never predicts the email's return.
+  rate_limited: "Sign-in email could not be sent right now. Use your password, or try the email option later.",
   temporarily_unavailable:
     "Sign-in email could not be sent just now. Nothing is wrong with your account. Try again in a few minutes.",
 };

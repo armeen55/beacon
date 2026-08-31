@@ -6,8 +6,7 @@ const SITE = "own.example";
 const obs = (over: Partial<FanoutSourceObservation> = {}): FanoutSourceObservation => ({
   observationId: `o-${Math.abs(JSON.stringify(over).split("").reduce((a, c) => a + c.charCodeAt(0), 0))}-${over.reportingDay ?? "d"}-${over.engine ?? "e"}-${over.promptId ?? "p"}`,
   promptId: "p1", promptText: "where to buy a haft seen set", engine: "chatgpt", reportingDay: "2026-08-01",
-  // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages and which reports what it retrieved, so claims about reading are legal on these rows.
-  observationMode: "consumer_search",
+  observationMode: "consumer_search", // The real instrument by default: the ChatGPT consumer-search scraper, whose sources are relied-on pages and which reports what it retrieved, so claims about reading are legal on these rows.
   fanOutQueries: ["haft seen set delivery"], citations: [{ url: "https://rival.example/a", domain: "rival.example" }], retrievedResults: null, ...over });
 describe("recurrence is distinct days and assistants, never row totals", () => {
   it("counts five same-day same-engine executions as ONE day and ONE assistant, and it is not material", () => {
@@ -22,11 +21,9 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.material).toBe(false); // one sighting is watched, never work
   });
   it("does not call one same-day sighting on two assistants material until it has already cost something", () => {
-    // THE COINCIDENCE. Two assistants ran the same search once, on one day, and nothing here was read for it.
-    const coincidence = ["chatgpt", "gemini"].map((e, i) => obs({ observationId: `e${i}`, engine: e })); const bare = buildFanoutEvidence(coincidence, SITE).rows[0]!;
+    const coincidence = ["chatgpt", "gemini"].map((e, i) => obs({ observationId: `e${i}`, engine: e })); const bare = buildFanoutEvidence(coincidence, SITE).rows[0]!; // THE COINCIDENCE. Two assistants ran the same search once, on one day, and nothing here was read for it.
     expect(bare.material).toBe(false); expect(bare.materialBecause).toContain("not a pattern yet");
-    // THE SAME SHAPE WITH A CONSEQUENCE: a page of this account was read for it and credited to somebody else.
-    const costly = coincidence.map((o) => ({ ...o, retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] })); const withCost = buildFanoutEvidence(costly, SITE).rows[0]!;
+    const costly = coincidence.map((o) => ({ ...o, retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] })); const withCost = buildFanoutEvidence(costly, SITE).rows[0]!; // THE SAME SHAPE WITH A CONSEQUENCE: a page of this account was read for it and credited to somebody else.
     expect(withCost.material).toBe(true); expect(withCost.materialBecause).toContain("read for it and passed over");});
   it("keeps every exact wording that collapsed onto one search, most executed first", () => {
     const rows = [obs({ observationId: "v1", fanOutQueries: ["haft seen set delivery"] }),
@@ -36,8 +33,7 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     expect(r.query).toBe("haft seen set delivery"); // the wording shown is the one the assistants typed most
   });
   it("divides recurrence by its own parent questions' answers, never by the whole account", () => {
-    // One loud question answered four times, one quiet question answered once, and the search rides the quiet one.
-    const loud = Array.from({ length: 4 }, (_, i) => obs({ observationId: `l${i}`, reportingDay: `2026-08-0${i + 1}`, promptId: "loud", promptText: "loud question", fanOutQueries: ["something else entirely"] }));
+    const loud = Array.from({ length: 4 }, (_, i) => obs({ observationId: `l${i}`, reportingDay: `2026-08-0${i + 1}`, promptId: "loud", promptText: "loud question", fanOutQueries: ["something else entirely"] })); // One loud question answered four times, one quiet question answered once, and the search rides the quiet one.
     const quiet = obs({ observationId: "q1", promptId: "quiet", promptText: "quiet question", fanOutQueries: ["haft seen set delivery"] }); const row = buildFanoutEvidence([...loud, quiet], SITE).rows.find((r) => r.key.includes("haft"))!;
     expect([row.parentExecutions, row.parentShare]).toEqual([1, 1]); // every answer to ITS parent ran it
     expect(row.windowShare).toBe(0.2); // one of the account's five reporting answers, and it is labelled as that
@@ -60,10 +56,8 @@ describe("where the site stood is five different worlds, with an honest denomina
   it("says cited, read and passed over, never you, not credited, or unreported, off the same rows Visibility renders", () => {
     const cited = obs({ citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([cited], SITE).rows[0]!.ownState).toBe("cited");
     const rnc = obs({ retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([rnc], SITE).rows[0]!.ownState).toBe("retrieved_not_cited");
-    // The scraper reports retrieval, so "never read this site" is a claim its rows can carry.
-    expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.ownState).toBe("not_retrieved");
-    // llm_responses shows absence from the credit, never absence from the reading (Codex, 2026-08-21).
-    const responses = obs({ engine: "claude", observationMode: "standardized_response" }); const [nc] = buildFanoutEvidence([responses], SITE).rows;
+    expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.ownState).toBe("not_retrieved"); // The scraper reports retrieval, so "never read this site" is a claim its rows can carry.
+    const responses = obs({ engine: "claude", observationMode: "standardized_response" }); const [nc] = buildFanoutEvidence([responses], SITE).rows; // llm_responses shows absence from the credit, never absence from the reading (Codex, 2026-08-21).
     expect([nc!.ownState, nc!.retrievalReportingAnswers, nc!.sourceSemantics]).toEqual(["not_credited", 0, "explicit_citation"]); const silent = obs({ citations: null });
     const [u] = buildFanoutEvidence([silent], SITE).rows;
     expect([u!.ownState, u!.reportingAnswers]).toEqual(["unreported", 0]); // missing reporting is a state, never a zero share
@@ -103,8 +97,7 @@ describe("the canonical outline arrives without site furniture", () => {
 
 describe("one job's evidence identity is order-free, as its own contract says", () => {
   it("hashes the same when the stored results pages arrive in a different order", () => {
-    // LIVE: the same job's workKey moved between two builds a minute apart with no evidence change, because
-    const page = { url: "https://x.example/a", content: null, search: null, engagement: null, friction: null, aiCitations: { count: 0 } };
+    const page = { url: "https://x.example/a", content: null, search: null, engagement: null, friction: null, aiCitations: { count: 0 } }; // LIVE: the same job's workKey moved between two builds a minute apart with no evidence change, because
     const serp = (query: string, urls: string[]) => ({ query, organic: urls.map((url, i) => ({ rank: i + 1, url })), aiOverview: [], aiMode: [] });
     const snap = (rows: unknown[]) => ({ ownedPages: [page], research: { serpEvidence: rows, winningPages: [] } } as never);
     const forward = [serp("persian rugs", ["https://r1.example/x", "https://r2.example/y"]), serp("persian rugs", ["https://r3.example/z"])];

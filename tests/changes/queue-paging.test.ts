@@ -70,8 +70,7 @@ beforeEach(async () => {
 describe("Today and Changes answer one question once", () => {
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
-    // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
-    budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true;
+    budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true; // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
     const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true;
     expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
 
@@ -103,11 +102,9 @@ describe("Today and Changes answer one question once", () => {
     releaseFails.value = false; }); });
 describe("one release identity, or no release at all", () => {
   it("serves the reasoning the rules that stand today produce, never the one banked when the row was saved", async () => {
-    // THE ORDER is recomputed at every release and stamped on the row; the RECEIPT beside it rode in the
-    const one = ALL[0]!;
+    const one = ALL[0]!; // THE ORDER is recomputed at every release and stamped on the row; the RECEIPT beside it rode in the
     db.rows = [seed(one)];
-    // The stale receipt lives in the STORED JSON, exactly as it does on the account: a row saved under the old
-    const payload = db.rows[0]!.payload as { proposal: Record<string, unknown> };
+    const payload = db.rows[0]!.payload as { proposal: Record<string, unknown> }; // The stale receipt lives in the STORED JSON, exactly as it does on the account: a row saved under the old
     payload.proposal.rankingReceipt = { score: -15.57, directional: true, basis: "banked under rules that no longer decide anything",
       factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] };
     payload.proposal.whyRankedAboveNext = "ranked here by a rule that is gone";

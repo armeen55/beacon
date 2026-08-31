@@ -20,13 +20,11 @@ describe("the day's heavy evidence is computed once per watermark", () => {
     expect(await read("2026-08-24", { payload: "monday", cacheable: true }, paid)).toBe("monday");
     expect(await read("2026-08-24", { payload: "recomputed", cacheable: true }, paid)).toBe("monday");
     expect(paid, "the second read paid nothing").toEqual(["monday"]);
-    // A sync lands new rows: the watermark moves, and only then is the aggregate paid again.
-    expect(await read("2026-08-25", { payload: "tuesday", cacheable: true }, paid)).toBe("tuesday");
+    expect(await read("2026-08-25", { payload: "tuesday", cacheable: true }, paid)).toBe("tuesday"); // A sync lands new rows: the watermark moves, and only then is the aggregate paid again.
     expect(paid).toEqual(["monday", "tuesday"]); });
 
   it("never banks a partial or failed read as the day's truth", async () => {
-    // Both GA4 readers fail SOFT to a partial map, indistinguishable from an account with no traffic. Cached,
-    const paid: string[] = [];
+    const paid: string[] = []; // Both GA4 readers fail SOFT to a partial map, indistinguishable from an account with no traffic. Cached,
     expect(await read("2026-08-24", { payload: "truncated", cacheable: false }, paid)).toBe("truncated");
     expect(await read("2026-08-24", { payload: "whole", cacheable: true }, paid)).toBe("whole");
     expect(paid, "the failed read was not banked, so the next read paid again").toEqual(["truncated", "whole"]); });
@@ -45,8 +43,7 @@ describe("a truncated read never banks as the day's truth", () => {
     store.rows = []; store.readFails = false;
     const read = (kind: string, complete: boolean, rows: number[]) => readThroughDaily<number[]>({
       tenantId: "t", kind, watermark: "w", compute: async () => { await new Promise((r) => setTimeout(r, complete ? 8 : 1)); return { payload: rows, cacheable: complete }; } });
-    // The partial read starts FIRST and finishes LAST, exactly the interleaving the shared flag lost.
-    const [partial, whole] = await Promise.all([read("partial", false, [1]), read("whole", true, [2])]);
+    const [partial, whole] = await Promise.all([read("partial", false, [1]), read("whole", true, [2])]); // The partial read starts FIRST and finishes LAST, exactly the interleaving the shared flag lost.
     expect([partial, whole]).toEqual([[1], [2]]);
     const banked = (store.rows as { kind?: string }[]).map((r) => r.kind).filter(Boolean);
     expect(banked, "only the complete read may be banked").toEqual(["whole"]); }); });
