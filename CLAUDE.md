@@ -26,7 +26,7 @@ before** destructive ops (file/branch deletion, `rm -rf`, force-push, `git reset
 deletion, hosted env-var changes, schema-dropping migrations, or over-budget paid runs. Report what was
 committed / pushed (SHAs) / deployed / verified; truth-up if a step could not run here.
 **Supabase:** agents own all Supabase work through the MCP / management connection (ref `vlxwevsdvwxvopkjsewo`);
-never print secrets; pause for a human only when Supabase itself needs a login the agent cannot perform.
+never print secrets; pause only for a required login. **Resource stewardship:** AGENTS.md applies literally; “max/unlimited/keep going” never authorizes quota exhaustion, retry/deploy loops, or unapproved recurring spend.
 
 **Documentation policy (lean):** a completed task normally edits ZERO docs. Update
 `HANDOFF_VERIFIED_STATE.md` only when verified current state changes. Never create task-specific summaries,

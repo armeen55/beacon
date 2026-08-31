@@ -25,26 +25,11 @@ This file is the **portable** project contract (use here, in Codex, or anywhere 
 
 ## Execution contract (Beacon override of base Codex rules)
 
-When the operator (Armeen) **accepts an execution plan** for a step or phase, that
-acceptance authorizes the full landing-strip — not just local edits. Concretely,
-"accepted execution plan" means I am authorized to:
+An accepted execution plan authorizes its full landing strip: edit, test, one logical commit per coherent
+step, push the agreed branch, deploy, and verify the exact hosted SHA. Local-only work is not done.
 
-- edit files
-- run tests
-- create logical commits (one per coherent step)
-- push to `origin/main` (or the agreed branch)
-- let Vercel auto-deploy
-- verify hosted production / preview rendering
-
-Rule: do NOT stop after local tests pass and call the work "done" if the product is
-not deployed. Continuous execution through deploy is the contract.
-
-**Always pause** before:
-- destructive operations (file deletion, branch deletion, `rm -rf`, force-push, `git reset --hard`)
-- data deletion in `.data/` or Supabase
-- modifying hosted environment variables (Vercel, Supabase config)
-- irreversible migrations (schema changes that drop data)
-- paid API runs that would exceed an agreed budget
+**Always pause** before destructive operations; deleting stored data; hosted environment changes;
+irreversible migrations; or paid work beyond its approved task budget.
 
 After every commit/push/deploy, **report exactly** what was committed (per-step summary),
 what was pushed (commit SHAs), what deployed (Vercel build status), and what was verified
@@ -53,6 +38,21 @@ what was pushed (commit SHAs), what deployed (Vercel build status), and what was
 when it's not.
 
 ---
+
+## Resource stewardship — permanent and binding
+
+- Optimize durable customer outcomes per dollar, CPU-minute, build, write, and provider call. Consuming available quota
+  is never progress. “Unlimited”, “maximum”, and “keep going” remove output quotas only, never resource boundaries.
+- Paid/external work defaults to $0 unless the task names a ceiling. Never buy/resize a subscription, database, compute
+  tier, add-on, recurring commitment, spend cap, or budget without fresh explicit approval; past approval is not standing authority.
+- Before consumption, reuse banked evidence/caches, inspect due work, estimate calls/builds/compute, name the ceiling and
+  kill condition, and choose the smallest proving run. Unchanged inputs mean zero calls, rewrites, and releases.
+- One zero-output paid pass, a repeated provider failure, an unexpected usage spike, or a reached ceiling stops more
+  consumption immediately: release leases, preserve receipts, diagnose at $0, and pivot to useful local work.
+- Batch edits; use focused tests during implementation, one full gate at landing, one deploy per coherent outcome, and
+  one exact-SHA smoke. One discovered defect may justify one repair deploy, never a retry loop or paid wait/poll/monitor.
+- Background work is bounded, idempotent, cached, and observable; visits never silently buy research. Report task spend,
+  calls, deploys, and material database/Vercel/CI use beside outputs. Trace drivers before recommending infrastructure.
 
 ## Documentation policy
 
