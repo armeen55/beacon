@@ -343,7 +343,7 @@ export type ChangeProposal = {
 
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
-    before: z.string().nullable(), after: z.string().min(1), where: z.string().nullable().optional() }),
+    before: z.string().nullable(), after: z.string().min(1), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional() }), // THE TYPED LINK DESTINATION MUST SURVIVE THE WRITE: Zod strips what it does not declare, so a field added to the TYPE alone is erased on every persist, and the row came back with no target, failing the standalone-link gain exemption that keys on exactly this field.
   z.object({ kind: z.literal("new_page"), proposedTitle: z.string().min(1), metaDescription: z.string().min(1),
     openingAnswer: z.string().min(1), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
     schemaTypes: z.array(z.string()) }),
