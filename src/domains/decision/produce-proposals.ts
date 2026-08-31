@@ -170,6 +170,13 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   // The editor's cards are declared for every one of them: which a page still NEEDS is decided further down, once the other families have either produced that page's row or failed to. A RESEARCH TREATMENT IS NOT PAID WRITING WORK (Codex acceptance run, 2026-08-23 03:30Z): /cities was minted technical_reachability, the drafter rightly refused to write for it, and the funded job then sat unfinished on the receipt as a mute retryable_blocked. A card whose treatment needs decisions or acquisition is never DECLARED as an editor job at all: it costs nothing, blocks nothing, and its card already says the real work.
   if (!quietDay) editorCards.push(...[...recovery.cards, ...extra.cards].filter((c) => !NEEDS_DECISION.has(c.treatment ?? "")
     && !extra.aeoHold?.has(c.id))); // AN AEO CARD WITHOUT AN AUTHORIZING DIAGNOSIS NEVER HIRES THE WRITER: the assignment is proven before the writer is paid, or the card waits as research
+  // A FOCUSED KEY'S STANDING CARDS RE-ENTER THE WALK (live, 2026-08-30): the editor works fresh mints only,
+  // and a standing card suppresses its own re-mint, so the one named card could fund and still file
+  // not_reached. Only for keys the caller aimed at; fact rows keep their own review door; the same
+  // treatment filter as fresh mints applies, and every downstream gate still reads the card itself.
+  for (const k of opts.focusKeys ?? []) for (const c of existing.values())
+    if (DRAFT_BUDGET.keyOf(c) === k && c.status === "needs_review" && c.researchOnly === false && !c.id.includes("::fact-")
+      && !NEEDS_DECISION.has(c.treatment ?? "") && !editorCards.some((e) => e.id === c.id)) editorCards.push(c);
   for (const c of editorCards) jobs.push({ key: page(c), family: "editor", impact: Math.max(c.impactScore ?? 0, worthOf(c.pageUrl ?? c.pagePath)), calls: DRAFT_BUDGET.DELIVERABLE_CALLS, ...(blockedFor(c) ? { blocked: blockedFor(c)! } : {}), ...(c.treatment ? { treatment: c.treatment } : {}) });
   // THE IDENTITY IS DECLARED ONCE, WITH THE JOB, and the BUNDLE path reads it back (Codex, 2026-08-23): a bundle saves under its own derived family, so recomputing its key from the saved row can never match the one the job declared. ONLY jobs that declare a key land here: the `?? j.key` fallback stored a BARE PAGE PATH as the work identity of every non-bundle row, an identity that never moves whatever happens to the evidence, so the finished-copy guard compared paths and protected nothing. A row without a declared key derives its identity from ITSELF, at the one stamping door.
   // A FOCUSED PAGE ALWAYS HAS A JOB (live, 2026-08-30): jobs are declared from FRESH producer mints, and a
