@@ -912,7 +912,14 @@ const INTERNAL_LINK_SYSTEM =
   '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
   "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Ground every word in " +
-  "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes.";
+  // THE SENTENCE IS FINISHED PROSE, NOT MARKED-UP COPY (live, 2026-08-30): the model wrote the anchor inside
+  // the sentence as "[iranian horse]", "[lion and sun flag]" and "[iran flags]", the placeholder firewall
+  // rightly refused copy containing brackets, and both attempts died the same way, so every link candidate
+  // failed twice and produced nothing. The anchor already travels as its own typed field; the sentence must
+  // read as something a person could paste with no editing at all.
+  "the evidence below, invent no fact, no figure and no web address, and never link a page to itself. No marketing language, no em-dashes and no en-dashes. " +
+  "Write linkSentence as an ordinary finished sentence a person could paste as-is: the anchor words appear in it verbatim and UNMARKED. Never wrap them in square brackets, " +
+  "parentheses, asterisks, quotes or markdown link syntax, and never write a placeholder of any kind: brackets in the copy are rejected outright.";
 
 /** Draft ONE schema-valid internal link. Capped, budgeted, cached. */
 export async function draftInternalLinkStructured(

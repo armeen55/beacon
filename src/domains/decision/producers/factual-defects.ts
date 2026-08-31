@@ -43,6 +43,18 @@ function replacedSpanOf(c: FactCheck): string {
  *  unchanged and only its spacing or punctuation moved, nothing about the meaning is being corrected at all. */
 type Treatment = "replace" | "narrow" | "repair";
 const bareOf = (t: string): string => t.toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "");
+/** WHETHER A REPLACEMENT ONLY TAKES WORDS AWAY. Content words only, so punctuation, casing and the
+ *  "Meaning:" label never decide it, and the small joining words a gloss cannot avoid are ignored. True
+ *  when the new wording introduces nothing the line did not already carry and drops at least one thing it
+ *  did: the page ends up saying strictly less. PURE. */
+const CONTENT_STOP = new Set(["a", "an", "the", "of", "or", "and", "in", "to", "is", "meaning", "means", "also"]);
+const contentWords = (s: string): Set<string> => new Set(s.toLowerCase().normalize("NFKD")
+  .replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter((w) => w.length > 1 && !CONTENT_STOP.has(w)));
+export function onlyRemovesContext(before: string, after: string): boolean {
+  const b = contentWords(before), a = contentWords(after);
+  if (b.size === 0 || a.size === 0) return false;
+  return [...a].every((w) => b.has(w)) && [...b].some((w) => !a.has(w));
+}
 function treatmentOf(verdict: string, before: string, after: string): Treatment {
   if (bareOf(before) === bareOf(after)) return "repair"; // the same words, differently punctuated
   return verdict === "page_imprecise" ? "narrow" : "replace";
@@ -257,6 +269,18 @@ async function factualDefectCards(input: { tenantId: string; snapshot: EvidenceS
         if (composedReplacement(span0, c.proposed!) === span0) {
           log.info("[factual-defects] the composed replacement is identical to the page's own line, so no card is minted", { tenantId, subject: c.subject });
           noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the composed replacement is identical to the page's own line, so there is nothing to change");
+          continue;
+        }
+        // A NARROWER SOURCE IS NOT A FALSE PAGE (operator, 2026-08-31). A `page_imprecise` verdict whose
+        // replacement only DELETES words the page already had, and adds none, is not a correction: it is the
+        // page saying less. Live it produced "Spring, symbolizing renewal and growth" -> "Spring", "Virtuous
+        // and knowledgeable" -> "Virtuous", "Hope and optimism" -> "Hope" and "Royal falcon or king of birds"
+        // -> "Royal falcon", four cards asking the operator to spend two minutes making a page thinner for a
+        // reader. A contradiction (`page_wrong`) still corrects, and anything that ADDS supported meaning
+        // still mints; only "the cited source happens to say less" stops being customer work.
+        if (onlyRemovesContext(span0, composedReplacement(span0, c.proposed!)) && c.verdict !== "page_wrong") {
+          log.info("[factual-defects] the replacement only removes context its source did not repeat, so no card is minted", { tenantId, subject: c.subject });
+          noOpWhy.set(`${path.toLowerCase()}::fact-${slugOf(c.subject) || ""}`, "the proposed wording only drops detail the page already carried, and nothing on file says that detail is wrong, so there is nothing worth changing");
           continue;
         }
         // A SECOND PLACE, OR NO SECOND PLACE. Live, `also_at` held exactly the row's own locator on every

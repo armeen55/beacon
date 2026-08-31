@@ -157,6 +157,13 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check({ subject: "Aaa", agreement: "single_source", alsoAt: [], sources: carry("Aaa") }), check({ subject: "Zzz", agreement: "multiple_agree", alsoAt: ["the FAQ"], sources: carry("Zzz") })];
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards[0]!.opportunityType).toContain("Zzz"); });
+  /** A NARROWER SOURCE IS NOT A FALSE PAGE (operator, 2026-08-31). Live this asked the operator to spend two minutes turning "Spring, symbolizing renewal and growth" into "Spring", plus three more like it: correct, sourced, and strictly worse for the reader. Only a contradiction may take words away now. */
+  it("a source that merely says less never asks the operator to make the page thinner", async () => {
+    const src = (n: string, says: string) => [{ url: `https://en.wiktionary.org/${n}`, kind: "dictionary", says }];
+    checks.rows = [check({ subject: "Bahar", statementKey: "bahar", current: "Meaning:Spring, symbolizing renewal and growth.", proposed: "Spring", verdict: "page_imprecise", sources: src("b", "the name Bahar means spring") }),
+      check({ subject: "Delnaz", statementKey: "delnaz", current: "Meaning:Blooming with creativity.", proposed: "Loved of the heart", verdict: "page_wrong", sources: src("d", "the name Delnaz means loved of the heart") })];
+    const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
+    expect(cards.map((c) => c.id.split("fact-")[1]), "the pure narrowing is dropped and the contradiction survives").toEqual(["delnaz"]); });
   it("mints nothing for a page this account does not own", async () => { checks.rows = [check({ page: "/not-ours" })];
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards).toHaveLength(0); });});
 describe("Beacon reviews its own corrections, one page at a time", () => {

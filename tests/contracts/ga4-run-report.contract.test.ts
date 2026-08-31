@@ -10,8 +10,7 @@ describe("GA4 runReport traffic contract", () => {
   const body = fixture<Ga4RunReportResponseBody>("ga4-run-report.json");
   it("parses (date, pagePath) dimensionValues + string metricValues into typed rows", () => {
     const rows = narrowRunReportRows(body);
-    // 4 raw rows -> 2 valid: the "2026-07-01" (dashed date, not GA4's YYYYMMDD) and the missing-pagePath row are DROPPED, never mis-parsed.
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(2); // 4 raw rows -> 2 valid: the "2026-07-01" (dashed date, not GA4's YYYYMMDD) and the missing-pagePath row are DROPPED, never mis-parsed.
     expect(rows[0]).toEqual({
       date: "2026-07-01", // normalized from GA4's "20260701"
       url: "/koobideh-kabob",
@@ -20,8 +19,7 @@ describe("GA4 runReport traffic contract", () => {
       conversions: 2,});
     expect(rows[1]!.url).toBe("/persian-cat");});
   it("carries the top-level fields the pagination loop depends on", () => {
-    // rowCount drives the offset loop; metricHeaders drive name-based mapping.
-    expect(typeof body.rowCount).toBe("number"); expect(Array.isArray(body.metricHeaders)).toBe(true);
+    expect(typeof body.rowCount).toBe("number"); expect(Array.isArray(body.metricHeaders)).toBe(true); // rowCount drives the offset loop; metricHeaders drive name-based mapping.
     expect(body.metricHeaders!.map((h) => h?.name)).toEqual([
       "sessions",
       "engagedSessions",
@@ -30,8 +28,7 @@ describe("GA4 runReport traffic contract", () => {
     expect(narrowRunReportRows(null)).toEqual([]); expect(narrowRunReportRows({} as Ga4RunReportResponseBody)).toEqual([]);});});
 describe("GA4 runReport revenue contract (name-mapped metrics)", () => {
   it("maps metrics BY HEADER NAME so a reordered metric set never misassigns", () => {
-    // The fixture deliberately orders headers [transactions, totalRevenue, purchaseRevenue] - not our request order - to pin name-based mapping.
-    const body = fixture<Ga4RunReportResponseBody>("ga4-revenue-report.json"); const rows = narrowRevenueRows(body);
+    const body = fixture<Ga4RunReportResponseBody>("ga4-revenue-report.json"); const rows = narrowRevenueRows(body); // The fixture deliberately orders headers [transactions, totalRevenue, purchaseRevenue] - not our request order - to pin name-based mapping.
     expect(rows).toHaveLength(1);
     expect(rows[0]).toEqual({
       date: "2026-07-01",

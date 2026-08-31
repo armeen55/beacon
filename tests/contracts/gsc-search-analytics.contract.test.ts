@@ -31,8 +31,7 @@ describe("GSC searchanalytics.query contract", () => {
       { fetchImpl },);
     expect(rows).not.toBeNull(); expect(rows).toHaveLength(3);
     for (const row of rows!) {
-      // keys arrive in REQUEST dimension order: [page, query].
-      expect(Array.isArray(row.keys)).toBe(true); expect(row.keys).toHaveLength(2);
+      expect(Array.isArray(row.keys)).toBe(true); expect(row.keys).toHaveLength(2); // keys arrive in REQUEST dimension order: [page, query].
       expect(row.keys[0]).toMatch(/^https:\/\//); expect(typeof row.keys[1]).toBe("string");
       expect(typeof row.clicks).toBe("number"); expect(typeof row.impressions).toBe("number");
       // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.

@@ -252,8 +252,7 @@ describe("a change detail hands over the whole investigation and the controls to
     expect(html.match(/type="checkbox" checked=""/g)?.length).toBe(2); // Every piece starts ticked: applying all of them is the normal case.
     expect(await renderDetail(atomic())).not.toContain("Which pieces did you apply?"); // one edit, nothing to pick
     const review = await renderDetail(proposal()); expect([review.includes("Which pieces did you apply?"), review.includes("still being reviewed")]).toEqual([false, true]); }); // AND A CARD STILL IN REVIEW HANDS OVER NOTHING TO PRESS, however complete its pieces are and whatever a direct link says: the lane is the rule, on this page exactly as in the list and in the mutation behind it.
-  // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
-  it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => {
+  it("a change that moves a page shows what moves, what survives, where it forwards, and how to undo it", async () => { // A MERGE IS THE ONE CHANGE THAT CANNOT BE TAKEN BACK BY RETYPING A SENTENCE. Everything it does to the page has to be on the screen before the operator confirms it, and confirming it has to be a real act.
     const b = proposal().bundle!;
     const html = await renderDetail(proposal({ bundle: { ...b, risks: ["The old address stops answering the moment you publish this."],
       components: [{ kind: "consolidation", label: "Merge the thin page into this one", risk: "dangerous", before: null,
@@ -263,10 +262,8 @@ describe("a change detail hands over the whole investigation and the controls to
     for (const s of ["Merge the thin page into this one", "retire /haft-seen", "https://site.example/nowruz-guide",
       "The sizing table", "The 2019 photo gallery", "nothing links to it", "The old address stops answering",
       "To undo it"]) expect(html, s).toContain(s);
-    // A piece that RETIRES a page is not a page that happens to have nothing today.
-    expect(html).not.toContain("This page has none today.");
-    // AND NOTHING TO CONFIRM WHILE IT IS IN REVIEW: a piece that moves or hides a page is graded dangerous, the canon refuses a dangerous piece in the ready lane, so this change can only ever be read here, never recorded.
-    expect([html.includes("Confirmed: this moves or hides a page"), html.includes("still being reviewed")]).toEqual([false, true]); });
+    expect(html).not.toContain("This page has none today."); // A piece that RETIRES a page is not a page that happens to have nothing today.
+    expect([html.includes("Confirmed: this moves or hides a page"), html.includes("still being reviewed")]).toEqual([false, true]); }); // AND NOTHING TO CONFIRM WHILE IT IS IN REVIEW: a piece that moves or hides a page is graded dangerous, the canon refuses a dangerous piece in the ready lane, so this change can only ever be read here, never recorded.
   it("opens the investigation only when it holds one, never onto a line the card above already said", async () => {
     expect(await renderDetail(proposal({ causeFinding: undefined, rankingReceipt: undefined }))).not.toContain("How this was worked out");
     expect(await renderDetail(proposal({ causeFinding: undefined }))).toContain("How this was worked out"); // a ranking receipt is reasoning too
