@@ -842,7 +842,8 @@ export async function draftAtomicEditStructured(
   ].join(" ");
   const dir = intentDirective(input.intent);
   const user = [
-    `Search/topic: "${input.query}"`,
+    // THE QUERY IS INTENT, NOT COPY (operator, 2026-08-31): labelled "Search/topic" and placed first, the model read it as the words to use and wrote the anchor "iran eagle", which is how somebody searches and not how anybody writes.
+    `What the reader is trying to find (this is INTENT, never wording to copy): "${input.query}"`,
     dir ? `What the searcher wants: ${dir}` : "",
     `Page: ${input.pageLabel}`,
     `Field to edit: ${input.field}`,
@@ -911,7 +912,7 @@ const INTERNAL_LINK_SYSTEM =
   // THE VALIDATOR REJECTS AN UNGROUNDED DRAFT (evidenceIsGrounded), so a prompt that never asked for the field, or never named the rule, spent a guaranteed-rejected attempt before the retry told the model what was owed.
   '"evidenceRefs" (array of {"source","detail"}, at least one, from the grounding; source one of gsc|ga4|clarity|dataforseo|competitor_teardown|owned_snapshot|fanout, and at least one ref must NOT be ga4 or clarity: those two say what people did once they arrived, never what anyone searched for), ' +
   '"confidence" ("high"|"medium"|"low"), "risks" (array of short strings), "operatorSteps" (array of concrete steps). ' +
-  "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Ground every word in " +
+  "The anchor text must describe the destination honestly and must never be a bare instruction like click here. Take the anchor from the destination's OWN name as its title and heading give it, in the most natural form a person would write mid-sentence: for a page titled \"Booted Eagle in Iran\" write \"booted eagle\" or \"Booted Eagle in Iran\", never the search phrase \"iran eagle\". A search phrase is how somebody types, not how anybody writes, and an anchor that reads like a query is refused. Ground every word in " +
   // THE SENTENCE IS FINISHED PROSE, NOT MARKED-UP COPY (live, 2026-08-30): the model wrote the anchor inside
   // the sentence as "[iranian horse]", "[lion and sun flag]" and "[iran flags]", the placeholder firewall
   // rightly refused copy containing brackets, and both attempts died the same way, so every link candidate

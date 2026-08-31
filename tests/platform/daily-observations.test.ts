@@ -103,8 +103,7 @@ describe("extra readings", () => {
     expect(await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 201 })).toEqual([]);
     expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => 200 })) ?? []).length).toBeGreaterThan(0);
     expect(((await dueObservations(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } })) ?? []).length).toBeGreaterThan(0);
-    // A BROKEN METER MUST NOT STOP THE CANONICAL DAY, and it may not grant the DISCRETIONARY extra either: both gates read a failed count as zero, so buying proceeded exactly when the protection could not be measured.
-    const blind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } });
+    const blind = await requestExtraSample(T, DAY, { ...world, unreadBacklog: async () => { throw new Error("meter down"); } }); // A BROKEN METER MUST NOT STOP THE CANONICAL DAY, and it may not grant the DISCRETIONARY extra either: both gates read a failed count as zero, so buying proceeded exactly when the protection could not be measured.
     expect([blind.granted, blind.reason?.includes("could not be read")]).toEqual([false, true]); });
 
   it("refuses honestly rather than guessing when it cannot read where today stands", async () => {

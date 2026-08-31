@@ -7,8 +7,7 @@ vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: a
   db.tables.push(fn);
   if (db.readError) return { data: null, error: db.readError };
   db.wrote.push(args); return { data: true, error: null }; },
-  // The daily gate reads today's rows through this same client, so the cap test exercises the real read path.
-  from: () => { const chain = { select: () => chain, eq: () => chain,
+  from: () => { const chain = { select: () => chain, eq: () => chain, // The daily gate reads today's rows through this same client, so the cap test exercises the real read path.
     then: (r: (v: unknown) => unknown) => r({ data: [{ spent_usd: db.spentToday }], error: null }) }; return chain; } }),
   isSupabaseConfigured: () => true }));
 const acct = vi.hoisted(() => ({ fail: false, budget: 1 as number | null }));
@@ -30,8 +29,7 @@ describe("the durable per-account LLM spend writer", () => {
 describe("one canonical day for money and research", () => {
   it("the ledger day IS the reporting day, including across the seven-hour gap where UTC has already rolled", async () => {
     const { ledgerDay } = await import("@/lib/cost/budget-ledger-supabase"); const { reportingDay } = await import("@/lib/reporting-day");
-    // 06:59Z is still YESTERDAY in Pacific; a UTC slice called it today and let the two budgets roll apart.
-    for (const at of ["2026-08-18T06:59:00.000Z", "2026-08-18T07:01:00.000Z", "2026-08-19T00:30:00.000Z", "2026-12-15T07:59:00.000Z", "2026-12-15T08:01:00.000Z"].map((i) => new Date(i))) expect(ledgerDay(at)).toBe(reportingDay(at));
+    for (const at of ["2026-08-18T06:59:00.000Z", "2026-08-18T07:01:00.000Z", "2026-08-19T00:30:00.000Z", "2026-12-15T07:59:00.000Z", "2026-12-15T08:01:00.000Z"].map((i) => new Date(i))) expect(ledgerDay(at)).toBe(reportingDay(at)); // 06:59Z is still YESTERDAY in Pacific; a UTC slice called it today and let the two budgets roll apart.
     expect(ledgerDay(new Date("2026-08-18T06:59:00.000Z"))).toBe("2026-08-17"); // not the UTC label
   });
   it("holds the fact reserve on BOTH doors and counts the call about to be made", async () => {

@@ -1,7 +1,6 @@
 /** Per-account LLM budget isolation (closure, 2026-07-24). The promise: one account's LLM spend can never change another account's remaining budget or cap it, on EITHER layer (per-account file backstop + per-account durable ledger), and no budget operation runs without an explicit account. */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-// Per-tenant in-memory json-store: rows keyed by the EXPLICIT tenantId option.
-const FILE_ROWS = new Map<string, unknown[]>();
+const FILE_ROWS = new Map<string, unknown[]>(); // Per-tenant in-memory json-store: rows keyed by the EXPLICIT tenantId option.
 const readCalls: Array<{ name: string; tenantId?: string }> = [];
 vi.mock("@/lib/persistence/json-store", () => ({
   readStore: vi.fn(async (name: string, _f?: unknown, opts?: { tenantId?: string }) => {
@@ -11,12 +10,10 @@ vi.mock("@/lib/persistence/json-store", () => ({
   writeStore: vi.fn(async (name: string, rows: unknown[], opts?: { tenantId?: string }) => {
     if (!opts?.tenantId) throw new Error("test: writeStore called without explicit tenantId");
     FILE_ROWS.set(opts.tenantId, rows);}),}));
-// Per-tenant durable ledger seam.
-const DURABLE = new Map<string, number>();
+const DURABLE = new Map<string, number>(); // Per-tenant durable ledger seam.
 const durableWrites: Array<{ tenantId: string; costUsd: number }> = [];
 vi.mock("@/lib/persistence/supabase", () => ({ isSupabaseConfigured: () => true }));
-// The operator's daily cap has its own module and its own tests; this suite is about per-account isolation.
-vi.mock("@/lib/cost/daily-cap", () => ({ dailyCapReason: vi.fn(async () => null),
+vi.mock("@/lib/cost/daily-cap", () => ({ dailyCapReason: vi.fn(async () => null), // The operator's daily cap has its own module and its own tests; this suite is about per-account isolation.
   shareFor: (_d: string, p: string) => (p === "fact_check" ? 1 : 0.92) }));
 vi.mock("@/lib/cost/budget-ledger-supabase", () => ({
   getTenantSpentThisMonthUsd: vi.fn(async (tenantId: string) => DURABLE.get(tenantId) ?? 0),
@@ -55,5 +52,4 @@ describe("per-account LLM budget isolation", () => {
   it("a missing account fails before any ledger I/O; every read carried the explicit account", async () => {
     await expect(checkBudget({ tenantId: "" })).rejects.toThrow(/tenantId is required/); await expect(recordSpend(1, { tenantId: "  " })).rejects.toThrow(/tenantId is required/);
     expect(readCalls.length).toBe(0);
-    // And the successful paths above always routed with the explicit account.
-    await checkBudget({ tenantId: A }); expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);});});
+    await checkBudget({ tenantId: A }); expect(readCalls.every((c) => c.name === "llm-budget" && (c.tenantId === A || c.tenantId === B))).toBe(true);});}); // And the successful paths above always routed with the explicit account.

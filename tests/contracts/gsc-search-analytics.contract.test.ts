@@ -36,8 +36,7 @@ describe("GSC searchanalytics.query contract", () => {
       expect(typeof row.clicks).toBe("number"); expect(typeof row.impressions).toBe("number");
       expect(row.ctr).toBeGreaterThanOrEqual(0); expect(row.ctr).toBeLessThanOrEqual(1); // ctr is a 0..1 FRACTION (not a percentage) per Google's contract.
       expect(row.position).toBeGreaterThanOrEqual(1);} // position is a 1-based average.
-    // Our REQUEST contract: the body carries the fields Google documents.
-    const sent = JSON.parse(String(calls[0]!.init?.body));
+    const sent = JSON.parse(String(calls[0]!.init?.body)); // Our REQUEST contract: the body carries the fields Google documents.
     expect(sent).toMatchObject({
       startDate: "2026-07-01",
       endDate: "2026-07-01",
@@ -60,10 +59,8 @@ describe("GSC searchanalytics.query contract", () => {
 describe("GSC sites.list contract", () => {
   it("parses siteEntry[] and property selection prefers the sc-domain property, skipping unverified", async () => {
     const fetchImpl = (async () => jsonResponse(fixture("gsc-sites-list.json"))) as typeof fetch; const sites = await gscListSites("test-token", { fetchImpl });
-    // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
-    expect(sites).toHaveLength(3);
+    expect(sites).toHaveLength(3); // The malformed entry (no siteUrl) is dropped; the rest keep their shape.
     for (const s of sites) {
       expect(typeof s.siteUrl).toBe("string"); expect(typeof s.permissionLevel).toBe("string");}
     expect(pickGscPropertyForDomain(sites, "fixture-content.example")).toBe("sc-domain:fixture-content.example");
-    // Unverified-only domains resolve to null (we cannot read their analytics).
-    expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();});});
+    expect(pickGscPropertyForDomain(sites, "unverified.example.com")).toBeNull();});}); // Unverified-only domains resolve to null (we cannot read their analytics).
