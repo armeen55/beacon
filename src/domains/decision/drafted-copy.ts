@@ -136,8 +136,7 @@ const evaluator = (tenantId: string, now: Date, meter?: Allowance, complete?: Co
 function rereadableRefusals(copy: string, p: SourcePacket, heading: string | null = null): string[] {
   const out: string[] = []; if (ENTITY.test(copy) || ENTITY.test(heading ?? "")) out.push("it carries a raw HTML entity, so what gets pasted is not what a reader sees");
   // A SHORT LINE MAY NOT SELL THE SITE TO A READER ALREADY STANDING ON IT, and this ran at draft time only, so
-  // it stopped new copy and left every banked row untouched: /discover-iran sat READY carrying "Discover Iran
-  const brand = urlKey(p.targetUrl).split("/")[0]?.split(".")[0] ?? "", short = copy.length <= 200; // a section of real prose may name its subject more than once and a title or description may not. // source." Both the draft gate and the $0 re-read of stored work come through here. Short copy only, because // on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the
+  const brand = urlKey(p.targetUrl).split("/")[0]?.split(".")[0] ?? "", short = copy.length <= 200; // a section of real prose may name its subject more than once and a title or description may not. // source." Both the draft gate and the $0 re-read of stored work come through here. Short copy only, because // on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the // it stopped new copy and left every banked row untouched: /discover-iran sat READY carrying "Discover Iran
   const names = brand.length > 3 && short ? copy.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w === brand).length : 0;
   if (names > 1) out.push(`it names ${brand} ${names} times, and a reader already looking at this site learns nothing from being told whose page it is`);
   const echo = copy.split("\n").map((l) => /^\s*[-*\u2022]?\s*([^:\n]{1,40}):\s*(\S.*?)\s*$/.exec(l)).find((m) => !!m && flat(m[1]!.replace(/[^\p{L}\p{N} ]/gu, "")) === flat(m[2]!.replace(/[^\p{L}\p{N} ]/gu, "")));
@@ -178,8 +177,7 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   for (const [what, text] of [["copy", d.finalCopy], ["placement", d.placementAnchor], ["measurement target", d.measurementTarget]] as const) {
     if (blankish(text)) out.push(`its ${what} is blank or still carries a placeholder`); }
   if (blankish(d.targetUrl) || urlKey(d.targetUrl) !== urlKey(p.targetUrl)) out.push("it names a page this evidence is not about");
-  // A REPLACEMENT MAY NOT RESTATE WHAT SURVIVES BELOW IT: only the named passage goes, so copy repeating the detail still printed underneath hands the reader the same thing twice. Both shapes count, because they are different failures: whole lines already printed below, and ENTRIES this copy defines that keep their own sections (draft-resolution's `absorption`, which is where the paraphrase escape and its live consequence are written down).
-  const dupe = GAIN.absorption(d.finalCopy, p.remains ?? "", p.headings), below = (p.remains ?? "").toLowerCase(), verbatim = below.length > 0 && d.finalCopy.split("\n").map((l) => l.trim()).filter((l) => l.length > 25)
+  const dupe = GAIN.absorption(d.finalCopy, p.remains ?? "", p.headings), below = (p.remains ?? "").toLowerCase(), verbatim = below.length > 0 && d.finalCopy.split("\n").map((l) => l.trim()).filter((l) => l.length > 25) // A REPLACEMENT MAY NOT RESTATE WHAT SURVIVES BELOW IT: only the named passage goes, so copy repeating the detail still printed underneath hands the reader the same thing twice. Both shapes count, because they are different failures: whole lines already printed below, and ENTRIES this copy defines that keep their own sections (draft-resolution's `absorption`, which is where the paraphrase escape and its live consequence are written down).
     .filter((l) => l.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 3).every((w) => below.includes(w))).length >= 3;
   if (verbatim || dupe.repeats.length >= GAIN.MIN_ABSORBED) out.push(GAIN.REPEATS_BELOW); // A SINGLETON ID WITH AN INDEX ON IT IS THE SAME ID: the writer cited `page-title-1` where the packet holds `page-title` and the whole of /funny-farsi-phrases was refused for it. Numbering a lone id is a slip, not a fabrication, so it resolves when stripping the index lands on an id the packet really has.
   const known = new Set(Object.keys(p.evidence)), fits = (id: string): boolean => known.has(id) || known.has(id.replace(/-\d+$/, ""));
@@ -604,6 +602,8 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
         claims: drafted.claims.map((c) => ({ text: c.text, supportedBy: [...c.supportedBy] })),
         supportFacts: drafted.supportFacts.map((f) => ({ id: f.id, fact: f.fact })), ...(drafted.gain ? { informationGain: drafted.gain } : {}), ...(drafted.preservation ? { preservation: drafted.preservation } : {}),
         recommendedChange: { kind: "existing_edit", field: meta ? "meta" : h1 ? "h1" : title ? "title" : "section",
+          // WRITING A LINK MUST NOT DESTROY ITS DESTINATION (live, 2026-08-31). The finished sentence replaces `after`, which on a legacy row was the ONLY place the destination was recorded, so the first successful draft erased the one fact the next pass needs and the row could never be worked again: eleven rows died this way and this acceptance run killed a twelfth. The destination is known right here, so it is written down typed.
+          ...(dest ? { linkTo: dest } : {}),
           before: drafted.beforeText, after: drafted.finalCopy,
           where: shape === "field" ? null : shape === "link"
             ? `One sentence placed after "${drafted.placementAnchor}", with "${card.primaryQuery}" linked to ${dest ?? "the page it names"}`
