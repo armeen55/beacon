@@ -111,6 +111,5 @@ describe("one job's evidence identity is order-free, as its own contract says", 
     const backward = [forward[1]!, forward[0]!];
     expect(jobEvidenceHash(snap(forward), ["https://x.example/a"], "persian rugs"))
       .toBe(jobEvidenceHash(snap(backward), ["https://x.example/a"], "persian rugs"));
-    // and a real change to the evidence still moves it
-    expect(jobEvidenceHash(snap(forward), ["https://x.example/a"], "persian rugs"))
+    expect(jobEvidenceHash(snap(forward), ["https://x.example/a"], "persian rugs")) // and a real change to the evidence still moves it
       .not.toBe(jobEvidenceHash(snap([...forward, serp("persian rugs", ["https://r4.example/w"])]), ["https://x.example/a"], "persian rugs")); }); });

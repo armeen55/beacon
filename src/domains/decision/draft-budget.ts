@@ -43,7 +43,11 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
    *  fundable, but they rank behind work nobody has tried, because a candidate that fails the same way every time
    *  must never re-consume a whole drive ahead of untried candidates (Codex, 2026-08-23). THIS IS NOT THE DEFERRAL
    *  THAT WAS DELETED: that one demoted work never STARTED, which sent the account's strongest page to the back
-   *  behind pages worth a hundredth of it. This demotes only work that was started and spent. */ retry?: readonly string[] }) {
+   *  behind pages worth a hundredth of it. This demotes only work that was started and spent. */ retry?: readonly string[];
+  /** Pages the CALLER NAMES to finish first. Live (2026-08-30): a standing card one review from Ready could not
+   *  be funded by any means, because fresh page candidates outrank it and skip only declines. A focused key funds
+   *  ahead of the impact order and is exempt from skip; everything else about the walk is unchanged, so this aims
+   *  the same money, never more of it. */ focus?: readonly string[] }) {
   const ceiling = Math.max(0, input.calls ?? MAX_PAID_CALLS);
   // ONE ENTRY PER PAGE, AND THE PAGE GETS THE TREATMENT WITH THE HIGHEST EXPECTED SITE IMPACT (Codex, 2026-08-23).
   // Two corrections carved into this line. Dearest-wins buried strong cheap work behind bundles; value-per-call then
@@ -73,14 +77,15 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
   // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
   // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
+  const focus = new Set(input.focus ?? []);
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(focus.has(b.key)) - Number(focus.has(a.key)) || Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
-    else if (skip.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    else if (skip.has(j.key) && !focus.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself.

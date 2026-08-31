@@ -61,8 +61,7 @@ describe("the page slot is part of the proposition", () => {
     expect([claimTypeOf("Tehran", "Capital of Iran", "Name meaning"), claimTypeOf("Ahvaz", "holds the record for hottest day at 54 C", "History of Ahvaz"),
       claimTypeOf("Noor", "Meaning: Light", "Persian female name Noor"), claimTypeOf("flag", "Meaning of the colors", "Name entry")],
     "MUTATION: let the locator win and the first two of these flip").toEqual(["geography", "quantity", "word_meaning", "word_meaning"]);
-    // AND IT IS THE PAGE'S OWN WORDS, not a vocabulary written for one tenant.
-    expect([claimTypeOf("Casing", "Brushed aluminium", "Product specifications"), claimTypeOf("Tehran", "Tehran", "Geography of Iran"),
+    expect([claimTypeOf("Casing", "Brushed aluminium", "Product specifications"), claimTypeOf("Tehran", "Tehran", "Geography of Iran"), // AND IT IS THE PAGE'S OWN WORDS, not a vocabulary written for one tenant.
       claimTypeOf("Revolution", "1979", "Historical timeline"), claimTypeOf("Widget", "A small tool", "About us")],
     "universal").toEqual(["specification", "geography", "date_or_event", "definition"]);
     // THE NORMALIZED ROLE IS IN THE FINGERPRINT, and the heading's prose is not.
@@ -72,8 +71,7 @@ describe("the page slot is part of the proposition", () => {
     expect(tokenFingerprintOf("Afshin", "A warrior or conqueror.", claimTypeOf("Afshin", "A warrior or conqueror.", "Boy names and their meanings")),
       "two headings that mean the same role are ONE proposition, so a heading edit mints nothing").toBe(meaning);
     expect(tokenFingerprintOf("Afshin", "A warrior or conqueror."), "MUTATION: without the role the two collide again").toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
-    // AND THE ROLE SHAPES THE QUERY WITHOUT ERASING THE PROPOSITION.
-    const q = (t: Parameters<typeof sourceQueryFor>[0], sub: string, cur: string) => sourceQueryFor(t, sub, cur);
+    const q = (t: Parameters<typeof sourceQueryFor>[0], sub: string, cur: string) => sourceQueryFor(t, sub, cur); // AND THE ROLE SHAPES THE QUERY WITHOUT ERASING THE PROPOSITION.
     const name = q("word_meaning", "Afshin", "A warrior or conqueror.");
     for (const must of ["Afshin", "warrior", "conqueror", "meaning", "origin", "etymology"]) expect(name).toContain(must);
     expect(q("geography", "Tehran", "Capital of Iran"), "geography asks where").toContain("location");
