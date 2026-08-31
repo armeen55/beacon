@@ -89,8 +89,9 @@ describe("stage copy is honest and the diagnosis owns the treatment", () => {
     const scattered = gateOf(dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-1", "own-4"] }));
     expect(scattered).toMatchObject({ emit: true, hire: true, treatment: "rewrite_existing_section", work: expect.stringContaining("structural synthesis of the page's own material") });
     expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the brief
-    // MISSING INFORMATION NEVER HIRES: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it.
+    // MISSING INFORMATION NEVER HIRES UNSOURCED: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it. ONCE AN AUTHORIZED FACT IS BANKED the binding exists, and acquisition-first stops being acquisition-forever (live, 2026-08-30: the wildlife case sat actionable 18 days with the next step written only as prose).
     expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
+    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }), true)).toMatchObject({ emit: true, hire: true, treatment: "add_answer_section", work: expect.stringContaining("citing it claim by claim") });
     expect(gateOf(null)).toMatchObject({ emit: true, hire: false, treatment: null, work: expect.stringContaining("no copy is ordered") }); }); });
 /** THE READER'S ANSWER IS CHECKED, ITS PACKET IS THE IDENTITY, AND EVERY UNCACHED ATTEMPT IS FUNDED. */
 describe("the gap reader is exact, fail-closed and metered", () => {

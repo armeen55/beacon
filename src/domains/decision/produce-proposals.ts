@@ -555,6 +555,16 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
         : p.treatment === "new_page" && !hasSerp ? { kind: "serp" as const, query: q, reasonCode: "new_page_comparison" } : null;
       if (need && !evidenceOwed.has(key)) { evidenceOwed.set(key, { ...need, reason: `the ${p.treatment} decision waits on this exact reading`, workKey: "" }); file(key, "evidence_required", false, need.reasonCode); } }
   }
+  // A MISSING-INFORMATION BRIEF NAMES ITS ACQUISITION AS DATA, NOT ONLY AS PROSE (live, 2026-08-30): the aeo gate rightly refuses the writer until an authoritative source is on file, and its "the fact pass acquires..." next step was a sentence no machine executed, so acquisition-first was acquisition-never (the wildlife case sat actionable 18 days with zero fact rows). The brief now files the same typed requirement the runtime already executes; once the fact banks, the gate hires.
+  if (!quietDay) for (const c of extra.cards ?? []) {
+    if (c.treatment !== "add_answer_section" || c.researchOnly !== true || !c.pageUrl || !c.pagePath) continue;
+    const key = DRAFT_BUDGET.keyOf(c); if (evidenceOwed.has(key)) continue;
+    const { readFactChecks } = await import("@/domains/evidence/pages/fact-checks");
+    const banked = (await readFactChecks(tenantId, c.pagePath).catch(() => [])).some((r) => r.current.trim() === "" && (r.state === "owed" || r.state === "checked"));
+    if (banked) continue; // the proposition is already inventoried; the fact pass owns it from here
+    evidenceOwed.set(key, { kind: "factual_source", query: c.primaryQuery, url: c.pageUrl, missingTopic: c.primaryQuery, reasonCode: "missing_proposition_unresearched", reason: "the section is written only after an authoritative source for the missing answer is on file, so that reading is owed first", workKey: "" });
+    file(key, "evidence_required", false, "missing_proposition_unresearched");
+  }
   for (let i = 0; i < proposals.length; i += 1) {
     const p = proposals[i]!, block = pageKeys(p.pageUrl).map((k) => blocked.get(k)).find(Boolean), notYet = block ? `Not yet, because ${block.reason}` : ""; if (!block || p.bundle || p.researchOnly !== true || (p.operatorSteps ?? []).includes(block.reason) || (p.limitations ?? []).includes(notYet)) continue;
     proposals[i] = existing.get(p.id) ?? { ...p, limitations: [...(p.limitations ?? []), notYet], evidence: { ...p.evidence, hints: [...p.evidence.hints, block.reason], evidenceRefCount: p.evidence.evidenceRefCount + 1 } }; }

@@ -157,7 +157,11 @@ async function diagnoseGap(c: { tenantId: string; caseKey: string; query: string
 type GapGate = { emit: false; state: AiCaseState; reason: string; diagnosis: AeoGapDiagnosis }
   | { emit: true; hire: boolean; treatment: "rewrite_existing_section" | "add_answer_section" | null; work: string; next?: string; diagnosis?: AeoGapDiagnosis };
 /** WHAT THE DIAGNOSIS AUTHORIZES, closed. `emit: false` files the verdict and mints no card; `hire: false` keeps the card visible while refusing the writer a call; a null treatment names no work at all, which is what an unruled case honestly is. MISSING INFORMATION NEVER HIRES (operator, 2026-08-28): the writer would have to STATE the missing proposition, and nothing on file binds that exact proposition to the facts that support it. A confirmed fact elsewhere on the same page is a page match, not claim support, and treating it as support is how "Tehran is in Iran" comes to authorize a claim about knot density. It stays acquisition-first, always. */
-function gateOf(d: AeoGapDiagnosis | null): GapGate {
+/** WHETHER AN AUTHORIZED MISSING-INFORMATION FACT STANDS ON THIS PAGE: a checked, confirmed row with no current wording whose authority and quote-bound wording clear the one authorization rule. This is the hire condition acquisition-first was always waiting on; the writer's packet and the acceptance reading still verify every claim at draft time, so this unlocks the door and proves nothing. */
+async function authorizedMissingFactOn(tenantId: string, path: string): Promise<boolean> {
+  const { readFactChecks, authorizedCorrections } = await import("@/domains/evidence/pages/fact-checks");
+  const rows = await readFactChecks(tenantId, path).catch(() => []); return authorizedCorrections(rows.filter((r) => r.current.trim() === ""), undefined, tenantId).length > 0; }
+function gateOf(d: AeoGapDiagnosis | null, factReady = false): GapGate {
   if (!d) return { emit: true, hire: false, treatment: null, work: OWED_WORK, next: OWED_NEXT };
   if (d.treatment == null) {
     const why = d.kind === "already_answered" ? `The page already answers this question, so no duplicate copy is recommended. ${d.explanation}`
@@ -166,6 +170,8 @@ function gateOf(d: AeoGapDiagnosis | null): GapGate {
           : `The evidence does not show why the assistants chose another source, so no content change is authorized yet.${d.limitation ? ` ${d.limitation}` : ""}`;
     return { emit: false, state: "monitoring", reason: why, diagnosis: d };
   }
+  // ACQUISITION-FIRST, NOT ACQUISITION-FOREVER (live, 2026-08-30): once an authorized fact with no current wording is banked on the page, the proposition IS bound to the source that supports it, the exact condition the refusal below names. The writer then drafts citing fact-* ids and the acceptance reading verifies each claim; without that banked fact the gate stays closed as before.
+  if (d.kind === "missing_information" && factReady) return { emit: true, hire: true, treatment: d.treatment, work: `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. An authoritative source for it is banked and checked, so the section is written from that evidence, citing it claim by claim.`, diagnosis: d };
   if (d.kind === "missing_information") return { emit: true, hire: false, treatment: d.treatment,
     work: `The complete page lacks one thing the credited answers carry: ${d.missing ?? "the named proposition"}. An authoritative source for it is acquired and checked against that exact statement first; the credited page's wording stays briefing and never becomes published copy.`,
     next: "The fact pass acquires an authoritative source for the missing proposition and checks it against that exact statement; the section is written only after that evidence is on file.", diagnosis: d };
@@ -288,9 +294,10 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const engines = engineList([...g.engines].sort()), inst = [...g.domains.keys()].filter((d) => /\.(edu|gov)$|\.ac\.[a-z]{2}$/.test(d));
     const obsIds = (windowObs ?? []).filter((o) => o.promptId === g.promptId).map((o) => o.observationId).slice(0, 40);
     // NO TREATMENT WITHOUT A DIAGNOSIS, INCLUDING THE DECISION ONES. "No stored answer reported retrieval" is missing instrumentation, never proof of an indexing defect, and zero title tokens is not proof that a consolidation is the right call: both are stage facts, so they ask for the evidence they lack instead.
-    const gate = gateOf(await diagnoseGap({ tenantId, caseKey: `prompt:${g.promptId}`, query: g.prompt, stage, pageUrl: match.page.url,
+    const d0 = await diagnoseGap({ tenantId, caseKey: `prompt:${g.promptId}`, query: g.prompt, stage, pageUrl: match.page.url,
       observationIds: obsIds, passages: journeys.filter((j) => j.citedPassage != null).slice(0, 3).map((j) => j.citedPassage!),
-      banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, meter, persist, now }));
+      banked: banked.get(`prompt:${g.promptId}`)?.diagnosis, meter, persist, now });
+    const gate = gateOf(d0, d0?.kind === "missing_information" ? await authorizedMissingFactOn(tenantId, path) : false); // the fact-bank read runs only for the one kind that hires on it
     if (gate && !gate.emit) { notePrompt(g, gate.state, gate.reason, { pageUrl: match.page.url, stage, diagnosis: gate.diagnosis }); continue; }
     const copy = caseCopy({ quoted: `"${g.prompt}"`, path, intent: intentOf(g.prompt), stage, domain, diagnosed: !!gate.diagnosis?.treatment });
     out.push({
@@ -421,8 +428,8 @@ export async function aiCaseCards(bank: { query: string; refusedPages?: string[]
     const rival = row.rivalPages[0] ?? null;
     // THE READER-FACING SUBJECT: the parent tracked question when one exists, else the search rendered as a subject. The raw fan-out stays quoted below as the search the assistants RAN; it is never the thing the copy is told to answer, because a retrieval trace is not a sentence a person publishes.
     const voice = parent && askable(plain(parent.promptText)) ? plain(parent.promptText) : readableSubject(subject);
-    const gateF = gateOf(await diagnoseGap({ tenantId, caseKey: `fanout:${row.key}`, query: subject, stage, pageUrl: fit.match.page.url,
-      observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, meter, persist, now }));
+    const dF = await diagnoseGap({ tenantId, caseKey: `fanout:${row.key}`, query: subject, stage, pageUrl: fit.match.page.url,
+      observationIds: row.observationIds, passages: [], banked: banked.get(`fanout:${row.key}`)?.diagnosis, meter, persist, now }); const gateF = gateOf(dF, dF?.kind === "missing_information" ? await authorizedMissingFactOn(tenantId, path) : false);
     if (!gateF.emit) {
       states.diagnosed = (states.diagnosed ?? 0) + 1;
       noteCase(row, gateF.state, gateF.reason, { pageUrl: fit.match.page.url, stage, diagnosis: gateF.diagnosis });

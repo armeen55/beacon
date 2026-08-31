@@ -434,8 +434,7 @@ describe("a source supports a claim only when its own passage says so", () => {
     const SCATTER: SupportContext = { ...base, quote: 'Noor Inayat Khan was an operator. Nur al-Din means "light".' }; const DELIGHT: SupportContext = { ...base, quote: 'The name Noor means "delight"' };
     const SEA: SupportContext = { ...base, subject: "Darya", statementKey: "darya", proposed: "Meaning: Sea.", quote: 'The name Darya means "sea"' }; const SEARCH: SupportContext = { ...SEA, quote: 'The name Darya means "search"' };
     const cases: Array<[string, UnsupportedReason | null]> = [
-      // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
-      ["noor explicit", verdict(base)],
+      ["noor explicit", verdict(base)], // THE LIVE THREE, as their own banked quotes actually read on 2026-08-29.
       ["mahsa says 'the name', never Mahsa", verdict(mahsaCtx, { supportSpan: MAHSA, subjectSpan: "The name", relationSpan: "meaning", meaningSpans: ["like the moon"] })],
       ["laila is not Leila, and edit distance is not evidence", verdict(leilaCtx, { supportSpan: LAILA, subjectSpan: "Laila", relationSpan: "means", meaningSpans: ["night", "dark"] })],
       // The same anaphoric passage DOES carry, when the same source read banked a title naming the subject.
