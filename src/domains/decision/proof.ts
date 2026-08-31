@@ -275,7 +275,8 @@ export function evidenceShortfall(p: ChangeProposal): string | null { // ONE AUT
     return null;
   }
   // BODY COPY OWES A RE-READABLE GAIN RECEIPT. A link carries its gain in the link and a correction in its quote, so neither is asked; every other body edit is AEO work and answers here.
-  const linkWork = (p.bundle?.components ?? []).some((x) => x.kind === "internal_link_add" || x.kind === "anchor_text" || x.kind === "internal_links");
+  // AND A LINK THAT CAME ALONE IS STILL LINK WORK (live, 2026-08-31): this recognised links only as BUNDLE COMPONENTS, so a standalone internal-link card, which is minted with no bundle exactly as a correction is, was asked for the information-gain receipt a link can never earn. Its value is the route, not a new fact. The typed destination is what says so.
+  const linkWork = (p.bundle?.components ?? []).some((x) => x.kind === "internal_link_add" || x.kind === "anchor_text" || x.kind === "internal_links") || (c.kind === "existing_edit" && !!c.linkTo);
   if ((c.field === "section" || c.field === "answer_block") && !linkWork && !correction) {
     const g = p.informationGain;
     if (!g) return "nothing on file says what a reader gains from it that the page does not already say, so it is held until an evaluator reads it against the page and names the gain";
