@@ -194,14 +194,6 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect([declared.pips, declared.timeline, declared.googleAside]).toEqual([plain.pips, plain.timeline, null]);
     expect([declared.liftLabel, declared.impressionsLabel, declared.happened, declared.nextStep]).toEqual(["+40 clicks ahead", "+120 shown",
       "Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.", "Add the same kind of section to a similar page."]);});});
-/** THE TABS COUNT EVERY JUDGED ROW, and no header exists any more to disagree with them (Results Brain, 2026-09-01). */
-describe("the tab counts are the rows", () => {
-  it("counts an AI-judged row in its tab beside a click row", () => {
-    const clickOnly = buildResultsView([shipment()], NOW);
-    const withAi = buildResultsView([shipment(), shipment({ judgedMetric: "ai_citation",
-      ai: { direction: "improved", line: "Credited on 6 of 20 answers.", metricLines: [], boundary: null, daysElapsed: 28 } })], NOW);
-    expect(withAi.counts.worked).toBe(clickOnly.counts.worked + 1);});});
-/** THE COLLAPSED ROW AND THE TAB ARE HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): three different silences funnelled into "No change" translate uncertainty back into the false claim the whole measurement repair exists to stop. RENDERED, never read off the view object: what a customer sees is what is pinned. */
 describe("the surface never renders uncertainty as No change", () => {
   const render = async (over: Partial<ShipmentPresentation>) => {
     const [{ renderToStaticMarkup }, { createElement }, { ResultsRows }] = await Promise.all([

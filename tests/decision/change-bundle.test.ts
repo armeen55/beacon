@@ -1693,3 +1693,13 @@ describe("a stored results page backs a replacement description, and its absence
     const bare = await drive({});
     expect([bare.modeledOn ?? null, (openHold(bare).blocking ?? "") .includes("demand evidence alone") || bare.researchOnly === true], "no results page, no stamp, same hold").toEqual([null, true]); });
 });
+/** ONE RANKING BEFORE MONEY (operator, 2026-09-01): funding follows the expected-value receipt and finishability, never producer order or family. */
+describe("candidates are funded in expected-value order", () => { it("a weak row arriving first, a nearly finished trifle, a deterministic meta, a fact-ready section and a placed link fund by worth", async () => {
+  const { DRAFT_BUDGET } = await import("@/domains/decision/draft-budget"); const { proposalValueScore } = await import("@/domains/decision/rank-proposals");
+  const rows = [prop({ id: "weak", pagePath: "/weak", researchOnly: true, impactScore: 4, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters." } }),
+    prop({ id: "fix", pagePath: "/fix", status: "needs_review", impactScore: 6, estimatedEffortMinutes: 1, changeFamily: "factual_correction", recommendedChange: { kind: "existing_edit", field: "section", before: "1979", after: "1978" } }),
+    prop({ id: "meta", pagePath: "/meta", impactScore: 60, estimatedEffortMinutes: 2, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Sizing a rain barrel for a 1,200 square foot roof, with the runoff math." } }),
+    prop({ id: "section", pagePath: "/section", impactScore: 400, estimatedEffortMinutes: 15, recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "" }, evidence: { query: "rain barrel sizing", hints: ["fact-1"], evidenceRefCount: 3 } }),
+    prop({ id: "link", pagePath: "/link", impactScore: 300, estimatedEffortMinutes: 5, changeFamily: "internal_link", recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Sized barrels are listed on the rain barrel sizing guide.", linkTo: "/section", where: "after the first paragraph" } })];
+  const plan = DRAFT_BUDGET.plan({ jobs: rows.map((r) => ({ key: DRAFT_BUDGET.keyOf(r), family: "editor", impact: proposalValueScore(r), calls: 6 })), candidates: 60, calls: 60 });
+  expect(plan.funded.map((f) => f.key.split("::")[0])).toEqual(["/section", "/link", "/meta", "/fix", "/weak"]); }); });
