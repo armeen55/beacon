@@ -7,8 +7,7 @@ import {
 } from "@/domains/decision/llm/gateway";
 import { decideCreditBreaker } from "@/lib/cost/credit-breaker";
 import { SCHEMA_BY_KIND } from "@/domains/decision/llm/schemas";
-// note = optional-not-nullable (provider null must be stripped); score = genuinely nullable (null kept).
-const SCHEMA = z.object({ title: z.string(), note: z.string().optional(), score: z.number().nullable() });
+const SCHEMA = z.object({ title: z.string(), note: z.string().optional(), score: z.number().nullable() }); // note = optional-not-nullable (provider null must be stripped); score = genuinely nullable (null kept).
 /** A completed Responses envelope carrying `structuredText` as the output_text. */
 function completedEnvelope(structuredText: string, over: Record<string, unknown> = {}) {
   return {
@@ -45,8 +44,7 @@ describe("openAIStructuredResponse — fails closed before any fetch", () => {
     for (const kind of Object.keys(SCHEMA_BY_KIND) as Array<keyof typeof SCHEMA_BY_KIND>) {
       const out = strictJsonSchemaFor(SCHEMA_BY_KIND[kind], kind); expect("unsupported" in out, `${kind}: ${(out as { unsupported?: string }).unsupported}`).toBe(false);
       if (!("unsupported" in out)) assertFullyStrict(out.schema as Record<string, unknown>, kind);}});
-  // Every pre-network refusal spends nothing, calls nobody, and SAYS WHY. One promise, so one test.
-  it.each([
+  it.each([ // Every pre-network refusal spends nothing, calls nobody, and SAYS WHY. One promise, so one test.
     ["a tripped global cost breaker", { budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: { check: async () => ({ tripped: true, reason: "ceiling reached" }) } }, "blocked_budget", "ceiling reached"],
     ["the per-platform budget cap", { budget: { mode: "gateway_check", projectedCostUsd: 0.01 }, costBreakerImpl: allowBreaker, budgetImpl: { check: async () => ({ allowed: false, reason: "cap reached" }), record: async () => {} } }, "blocked_budget", "cap reached"],
     ["a schema the provider cannot take", { zodSchema: z.object({ a: z.any() }) }, "invalid_response", "unsupported_schema"],
@@ -65,8 +63,7 @@ describe("openAIStructuredResponse — request body", () => {
     expect([body.text.format.type, body.text.format.name, body.text.format.strict]).toEqual(["json_schema", "test_schema", true]);
     expect(body.text.format.schema.additionalProperties).toBe(false); // reasoning model gets reasoning.effort default
     expect(body.reasoning).toEqual({ effort: "low" });
-    // Chat-Completions fields MUST be absent.
-    for (const k of ["messages", "max_completion_tokens", "reasoning_effort", "response_format"]) expect(body[k]).toBeUndefined(); }); });
+    for (const k of ["messages", "max_completion_tokens", "reasoning_effort", "response_format"]) expect(body[k]).toBeUndefined(); }); }); // Chat-Completions fields MUST be absent.
 describe("openAIStructuredResponse — envelope outcomes", () => {
   it("parses a completed valid response to ok with provenance and normalized nulls", async () => {
     const { impl } = fakeFetch(completedEnvelope(JSON.stringify({ title: "Hello", note: null, score: null }))); const res = await openAIStructuredResponse(baseArgs({ fetchImpl: impl }));
@@ -84,8 +81,7 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
   it("returns incomplete (no value) when status is incomplete", async () => {
     const env = completedEnvelope("partial", { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } }); const res = await openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(env).impl }));
     expect([res.kind, res.kind === "incomplete" && res.reason]).toEqual(["incomplete", "max_output_tokens"]); });
-  // Every answer that is NOT a usable value, named exactly, and never substring-hunted out of prose.
-  it.each([
+  it.each([ // Every answer that is NOT a usable value, named exactly, and never substring-hunted out of prose.
     ["a failed status", completedEnvelope("x", { status: "failed", output: [] }), {}, "invalid_response", "failed_status"],
     ["a completed answer with no structured output", completedEnvelope("x", { output: [], output_text: "" }), {}, "invalid_response", "no_structured_output"],
     ["prose where JSON was owed", completedEnvelope("this is prose, not json"), {}, "invalid_response", "structured output was not valid JSON"],
@@ -97,8 +93,7 @@ describe("openAIStructuredResponse — envelope outcomes", () => {
     else if (res.kind === "error") expect(res.reason).toContain(detail);
     else if (res.kind === "invalid_response") {
       expect(res.reason).toBe(detail);
-      // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
-      if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);}});
+      if (detail === "failed_status") expect([res.provenance?.tenantId, res.provenance?.costUsd]).toEqual(["tenant-fixture", estimateCost("gpt-5-mini", 1200, 300)]);}}); // A POST-network invalid supplied usage, so its cost is real spend and must not be discarded.
   it("calls a timeout a timeout by name only, never by wording, because my own deadline brings back no body and no usage receipt", async () => {
     const sig = AbortSignal.timeout(1); await new Promise((r) => setTimeout(r, 5)); // ONE IDENTITY: the NAME on AbortSignal.timeout's reason. Sniffing "abort" out of a message made every dead socket a deadline.
     const err = async (e: Error) => openAIStructuredResponse(baseArgs({ fetchImpl: fakeFetch(completedEnvelope("{}"), { throwErr: e }).impl }));
@@ -152,8 +147,7 @@ describe("a due probe is spent on the provider call itself, never on a guard in 
     try {
       ROW.creditBreaker = { trippedAt: new Date(Date.parse("2026-08-04T12:00:00.000Z")).toISOString(), probeAt: null };
       const g = await realBreaker(), probe = () => (ROW.creditBreaker as { probeAt: string | null }).probeAt;
-      // A DUE PROBE READS AS NOT HELD to every guard, however many times they ask, and none of them stamps it.
-      expect([await g.creditBreakerHeld(T), await g.creditBreakerHeld(T), probe()]).toEqual([false, false, null]); const wire = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null })));
+      expect([await g.creditBreakerHeld(T), await g.creditBreakerHeld(T), probe()]).toEqual([false, false, null]); const wire = fakeFetch(completedEnvelope(JSON.stringify({ title: "T", score: null }))); // A DUE PROBE READS AS NOT HELD to every guard, however many times they ask, and none of them stamps it.
       expect((await g.openAIStructuredResponse(baseArgs({ fetchImpl: wire.impl, costBreakerImpl: allowBreaker }))).kind).toBe("ok");
       expect([wire.capture.calls, ROW.creditBreaker]).toEqual([1, null]); // ONE real request received the probe, and the provider's answer cleared the stop outright
       ROW.creditBreaker = { trippedAt: new Date().toISOString(), probeAt: null }; // and inside the cooldown: zero network calls, whoever asks

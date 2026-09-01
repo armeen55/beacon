@@ -224,8 +224,7 @@ describe("what the AI answers did around one shipped change", () => {
       { scopeQueries: Q, implementedAt: "2026-07-05T10:00:00.000Z", shipmentBaseline: { ai: null } },
       { scopeQueries: Q, implementedAt: null },                                    // no stamp, no moment to measure from
     ]; const batch = await aiOutcomesForShipments(T, shipments, { readObservations, now: NOW }); expect(readObservations).toHaveBeenCalledTimes(1);
-    // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the identity, the day, the slot, the status, the stored verdict, the instrument and the journey the fan-out route needs. Never the answer text, never the whole verdict.
-    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "scoped" }); expect(batch).toHaveLength(3); expect(batch[2]).toBeNull();
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-06-07", toDay: "2026-07-31", slot: 0, projection: "scoped" }); expect(batch).toHaveLength(3); expect(batch[2]).toBeNull(); // ONE union window covering every stamped shipment, and the projection NAMES what it reads: the identity, the day, the slot, the status, the stored verdict, the instrument and the journey the fan-out route needs. Never the answer text, never the whole verdict.
     for (const [i, s] of shipments.entries()) { // And each change is still judged on ITS OWN 28 days, byte for byte what it got when it read alone.
       expect(batch[i]).toEqual(await aiOutcomeForShipment(T, s, { readObservations: reader(rows), now: NOW }));}});
   /** ONE OVERSIZED READ USED TO TAKE THE WHOLE LEDGER'S AI SIDE DOWN. The union window ran from the oldest shipment to the newest, and an account asking 35 questions of 4 engines writes 140 first readings a day, so a ledger spanning a year asked for about 51,000 rows and the store refuses anything past 40,000. Every change then showed no AI outcome at all, including the ones whose own answers read fine. */
@@ -307,8 +306,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     citationSample: 40, ownedCiting: 10, rankSum: 40, rankCount: 10, retrievalSample: 40, ownedRetrieved: 10, retrievedNotCited: 10,
     engines: ["chatgpt"], models: ["gpt-5"], modes: ["api"], scopeFingerprint: "fp", ...over } });
   it("reports the citation it was aimed at, not the mentions that rose beside it", async () => {
-    // Named on every answer since, up from 1 of 4. Credited on 1 of 4, exactly where it started.
-    const readObservations = reader(days("2026-07-21", "2026-07-31", (i) => ({ mentioned: true, journey: journeyOf(i === 0 ? ["fixture-outdoors.example"] : ["rival.example"], null) })));
+    const readObservations = reader(days("2026-07-21", "2026-07-31", (i) => ({ mentioned: true, journey: journeyOf(i === 0 ? ["fixture-outdoors.example"] : ["rival.example"], null) }))); // Named on every answer since, up from 1 of 4. Credited on 1 of 4, exactly where it started.
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("owned_mentioned_not_cited") },
       { readObservations, now: NOW }); expect(outcome?.objective).toBe("ai_citation");
     expect(outcome?.mentionDirection).toBe("improved");   // the mention line is still true

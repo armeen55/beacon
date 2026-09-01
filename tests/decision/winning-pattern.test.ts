@@ -50,14 +50,12 @@ describe("the one reading a case may buy", () => {
     const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });
     expect([out?.winners, out?.publishers, s.calls()]).toEqual([4, ["guide.example", "museum.example", "weavers.example", "atlas.example"], 1]);
     expect([out?.archetype, out?.commonHeadings[0]?.seenOn, out?.ownedGaps[0]?.gap, out?.fingerprint.length]).toEqual(["informational_guide", [0, 1, 2], "your page never explains how one is made", 16]);});
-  // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
-  it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => {
+  it("comes off the pass's attempt budget, and an empty budget reads nothing", async () => { // AND IT IS PAID FOR OUT OF THE PASS'S OWN POOL. This was the one charged Decision call the attempt budget never saw, so a pass that reached a verdict spent one more call than its own receipt could account for. Spent BEFORE the call, and an exhausted pool buys nothing at all.
     const pool = { left: 1 }, s = seam(reading()); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool });
     const second = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, attempts: pool, cacheImpl: memoryCache() });
     expect([first?.winners, Math.max(0, pool.left), second, s.calls()]).toEqual([4, 0, null, 1]); });
   it("throws the WHOLE reading away for a stranger, a quotation, or a claim no page it cited carries", async () => {
-    // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
-    const RUN = "a hand knotted floor covering woven in Iran";
+    const RUN = "a hand knotted floor covering woven in Iran"; // A pattern is an abstraction: it may cite only pages I showed it, it may not hand a line back word for word (in ANY field, including the four the run check never used to read), and it may not claim a section or a named thing is on a page that does not carry it. Eight words in a row IS that page's line.
     const swapped = MADE.replace("villages", "towns"); // one word swapped is still their line, and 65 chars
     expect(swapped.length).toBe(65); // under the old sixty-character bar this walked through untouched
     const bad: Partial<WinningPatternRead>[] = [
@@ -74,14 +72,11 @@ describe("the one reading a case may buy", () => {
       { commonHeadings: [{ heading: "shipping and returns", seenOn: [0, 1] }] },         // on no page it cited
       { commonEntities: [{ entity: "Isfahan", seenOn: [0] }] },];
     for (const one of bad) expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading(one)).complete }), JSON.stringify(one)).toBeNull();
-    // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
-    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete }); expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); });
+    const good = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete }); expect([good?.ownedGaps[0]?.seenOn, good?.commonHeadings[1]?.heading]).toEqual([[0, 1, 2], CARE]); }); // And an honest reading survives all of it, so every refusal above is about the defect and nothing else.
   it("never re-votes a shape the results already settled, and writes no gap about a page it was never shown", async () => {
-    // The reading says informational_guide; the results counted a list, and the deterministic count wins.
-    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull();
+    expect(await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "list" })).toBeNull(); // The reading says informational_guide; the results counted a list, and the deterministic count wins.
     const agreed = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: seam(reading()).complete, pageType: "informational_guide" }); expect([agreed?.archetype, agreed?.winners]).toEqual(["informational_guide", 4]);
-    // With no page of my own supplied, "your page has no care section" is about a page it never saw.
-    expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete });
+    expect(await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading()).complete })).toBeNull(); const quiet = await readWinningPattern(facts(), null, "t_fixture", { complete: seam(reading({ ownedGaps: [] })).complete }); // With no page of my own supplied, "your page has no care section" is about a page it never saw.
     expect([quiet?.ownedGaps, quiet?.winners]).toEqual([[], 4]); });
   it("asks the same question once: winners that did not move buy no second reading", async () => {
     const s = seam(reading()); const cacheImpl = memoryCache(); const first = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete, cacheImpl });
@@ -89,8 +84,7 @@ describe("the one reading a case may buy", () => {
   it("asks nothing at all under three publishers I could actually read", async () => {
     const s = seam(reading()); const twoRead = [...WINNERS.slice(0, 2), { url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }];
     expect(await readWinningPattern(extractPageFacts(twoRead), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
-    // Four pages from two sites are two sites' house style, and this file never calls that a pattern.
-    const twoSites = [WINNERS[0]!, page("guide.example", ["What a Persian rug is"]), WINNERS[1]!, page("museum.example", [CARE])];
+    const twoSites = [WINNERS[0]!, page("guide.example", ["What a Persian rug is"]), WINNERS[1]!, page("museum.example", [CARE])]; // Four pages from two sites are two sites' house style, and this file never calls that a pattern.
     expect(await readWinningPattern(extractPageFacts(twoSites), ownedFacts(), "t_fixture", { complete: s.complete })).toBeNull();
     expect(s.calls()).toBe(0); // and not one cent was spent reaching either answer
   }); });

@@ -187,7 +187,13 @@ export function preferFinished(incoming: ChangeProposal, prior: ChangeProposal |
     ? { ...row, semanticReview: prior.semanticReview } : row;
 }
 
-function decideFinished(incoming: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
+function decideFinished(incoming0: ChangeProposal, prior: ChangeProposal | null | undefined): ChangeProposal {
+  // A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). The re-mint of a $0 card
+  // arrives with no copyStamp, the finished prior carries the page as the drafting pass read it, and comparing
+  // null against that stamp broke identity: the template then replaced the finished description whole, copy to
+  // a receipt, backing and status gone. A stampless incoming inherits the prior's stamp; a producer that DID
+  // re-read the page and saw it change still breaks identity exactly as before, which is the honest trigger.
+  const incoming = incoming0.copyStamp == null && prior?.copyStamp ? { ...incoming0, copyStamp: prior.copyStamp } : incoming0;
   // THE RECEIPT OUTLIVES THE PASS THAT STAMPED IT (review, 2026-08-22): every return carries the newest retirement receipt available, so the retired words stay inspectable under whatever replaced them instead of living exactly one pass. A NEW receipt below outranks an inherited one.
   const inherited = prior?.previousCopy && !incoming.previousCopy ? { previousCopy: prior.previousCopy } : {};
   const priorAfter = prior?.recommendedChange.kind === "existing_edit" ? prior.recommendedChange.after.trim() : "";

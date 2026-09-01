@@ -847,3 +847,19 @@ describe("the canon refuses raw HTML in operator copy", () => {
     const demoted = env.store.get(standing.id)!;
     expect([demoted.status, demoted.limitations.some((l) => l.startsWith("Contains raw HTML markup"))], "demoted with the canon's own reason on the row").toEqual(["needs_review", true]); });
 });
+/** A PRODUCER THAT READ NOTHING CANNOT CLAIM THE PAGE MOVED (operator, 2026-08-31). Live, the $0 re-mint of a description card arrived with no copyStamp over a finished promoted meta carrying the page as the drafting pass read it; null against that stamp broke copy identity, and the template replaced the finished description whole, words to a receipt, backing and status gone. */
+describe("a stampless re-mint never replaces finished work", () => {
+  it("keeps the finished copy, the backing and the status under the re-minted template", async () => {
+    const { preferFinished } = await import("@/domains/decision/completeness");
+    const finished = baseProposal({ id: "fixture-tenant::/w::existing_edit::missing_description", pagePath: "/w", changeFamily: "meta", status: "ready", copyStamp: "T|H|D|O", workKey: "wk-meta-1", modeledOn: "the results page for \"persian wolf\": 3 ranked titles read",
+      claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], supportFacts: [{ id: "page-h1", fact: "Persian Wolf" }],
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Persian Wolf explained: habitat, diet and lifespan in plain language, from the page itself." } });
+    const remint = baseProposal({ id: finished.id, pagePath: "/w", changeFamily: "meta", status: "needs_review", researchOnly: true,
+      recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Write a description of about 150 characters." } });
+    const kept = preferFinished(remint, finished);
+    expect([kept.status, kept.researchOnly, (kept.recommendedChange as { after: string }).after, kept.modeledOn ?? null],
+      "the finished words, the earned backing and Ready all survive a template that read nothing").toEqual(["ready", false, (finished.recommendedChange as { after: string }).after, finished.modeledOn]);
+    const rewrite = { ...remint, copyStamp: "T2|H2|D2|O2" }; // a producer that DID re-read the page and saw it move still replaces, with the retirement receipt
+    const moved = preferFinished(rewrite, finished);
+    expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });
+});
