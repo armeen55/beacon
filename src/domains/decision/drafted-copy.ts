@@ -229,7 +229,9 @@ export function deliverableFailures(d: EditorDeliverable, p: SourcePacket): stri
   return [...new Set(out)];}
 /** A CLOSING SENTENCE THAT ASKS THE READER TO READ THE PAGE IS FILLER WHERE A FACT BELONGS: the description  equivalent of "click here". DETERMINISTIC and about the SHAPE of an imperative, never a vocabulary: the final  sentence, opening on an instruction to read, view, browse, visit or shop. Trimmed where what is left still fills  the field, and otherwise sent back for ONE redraft that is told not to write one. PURE. */
 const CTA_TAIL = /^(?:read|click|see|view|browse|visit|explore|discover|shop|learn|find|check)\b/i; const NO_CTA = "Write no closing call to action. Never end with an instruction to read, view, browse, visit or shop this page: the last sentence has to carry a fact about the page.";
-export function withoutCta(copy: string, type: EditorDeliverable["actionType"]): string | null {
+export function withoutCta(copy0: string, type: EditorDeliverable["actionType"]): string | null {
+  // MARKUP AROUND RIGHT WORDS IS THE WRITER'S PUNCTUATION, NOT THE COPY (operator, 2026-08-31, the bracketed-anchor rule again). Live, a real comedians section opened "### Iranian comedy names to know" and a numerals section arrived wrapped in <h2> and <p> tags: the canon rightly refused both, and the words were right. The heading already travels typed in naturalHeading, so a leading markdown or h-tag heading line comes off whole, simple block tags unwrap to their own lines, and nothing that is a word is ever touched. Here because every acceptance path already runs through this one normalizer, stored revalidation included.
+  const copy = copy0.replace(/^\s*(?:#{1,4}\s+[^\n]*|<h[1-4][^>]*>[^<]*<\/h[1-4]>)\s*\n/i, "").replace(/<\/(?:p|div|section|li|ul|ol)>/gi, "\n").replace(/<\/?(?:p|div|section|ul|ol|li|strong|em|b|i)[^>]*>/gi, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   if (copy.includes("\n")) { // LIST-SHAPED COPY IS READ BY ITS LINES (review, 2026-08-22): with line breaks preserved, the closing CTA is a whole last LINE and the space-suffixed boundaries below never see it, while the " - " boundary would amputate the meaning off an honest "phrase - meaning" list item. Multi-line copy therefore drops a CTA last line whole and keeps every list separator; the single-line path is byte for byte what it was.
     const lines = copy.trim().split("\n"); if (!CTA_TAIL.test(lines[lines.length - 1]!.trim().replace(/^[.;!?\s-]+/, ""))) return copy; const kept = lines.slice(0, -1).join("\n").trim(), [lo0, , unit0] = BAND[type];
     return kept && (unit0 === "c" ? kept.length : words(kept)) >= lo0 ? kept : null;}
@@ -463,8 +465,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   if (kind === "answer" && carriesMaterial && rewrite && card.treatment === "rewrite_existing_section") packet.treatment = "structural_synthesis"; // A PAGE THAT ALREADY HOLDS THE MATERIAL IS THE SYNTHESIS CASE: reorganise what the page already proves into the answer the search wanted. Where NO citable id exists at all the gate above cannot arm, so gain is decided by the evaluator on FORM, instructed below.
   if (rewrite) { packet.remains = rewrite.remains;
     // THE TARGET SECTION ALWAYS REACHES THE WRITER AND THE EVALUATOR, wherever it sits: the page-copy budget reads the
-    // page in document order, so a section past the budget's reach (a 30,000-character page is ordinary) fell out of
-    const ev = packet.evidence as Record<string, string>; // the passage that follows it, ride as their own named ids regardless of what the budget kept. // the packet and the writer was asked to replace words it had never seen. The exact passage being replaced, and
+    const ev = packet.evidence as Record<string, string>; // the passage that follows it, ride as their own named ids regardless of what the budget kept. // the packet and the writer was asked to replace words it had never seen. The exact passage being replaced, and // page in document order, so a section past the budget's reach (a 30,000-character page is ordinary) fell out of
     if (!Object.values(ev).some((t) => t.includes(rewrite!.replaces.slice(0, 80)))) ev["target-section"] = rewrite.replaces.slice(0, 2_400);
     if (rewrite.remains.trim()) ev["section-after"] = rewrite.remains.slice(0, 1_200); }
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : ""; // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
@@ -513,8 +514,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     if (gainSeen && !opts.unsettled?.has(key)) {
       // EVERY CHECKED ROW ANSWERS THE RUNG, whatever its confidence: "the sources cannot support a statement" is an
       // answer, and building `answered` from authorized (confirmed) rows alone re-minted an unsupportable topic on
-      // every drive for ever. Authorization still gates what a CLAIM may cite; it never gates what was researched.
-      const checkedAtVersion = checked.filter((f) => f.state === "checked" && f.pageContentHash === factHashOf(body));
+      const checkedAtVersion = checked.filter((f) => f.state === "checked" && f.pageContentHash === factHashOf(body)); // every drive for ever. Authorization still gates what a CLAIM may cite; it never gates what was researched.
       const step = GAIN.resolution(judgeStep, opts.snapshot, card, page, body, checkedAtVersion);
       opts.resolved?.set(key, { resolution: step.resolution, why: lessons.at(-1) ?? "refused" });
       if (step.need) opts.owe?.(key, { ...step.need, reason: lessons.at(-1) ?? step.need.reasonCode });

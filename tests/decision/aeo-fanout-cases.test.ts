@@ -25,8 +25,7 @@ describe("every material search the assistants ran terminates somewhere a person
     expect(c.caseKey).toMatch(/^fanout:/); // the canonical identity a Change is joined on, never the wording
     expect(c.reason).toContain("2 assistants");});
   it("holds a search that only repeated to monitoring: days alone are an assistant's habit, not demand", () => {
-    // The exact shape days>=3 used to mint work from (Codex, 2026-08-21): watched, missing dimension named.
-    const c = resolveFanoutCase(rowOf(recurring()), { pageUrl: "https://own.example/haft-seen", refused: false }); expect(c.state).toBe("monitoring");
+    const c = resolveFanoutCase(rowOf(recurring()), { pageUrl: "https://own.example/haft-seen", refused: false }); expect(c.state).toBe("monitoring"); // The exact shape days>=3 used to mint work from (Codex, 2026-08-21): watched, missing dimension named.
     expect(c.reason).toContain("one question and one assistant");});
   it("lets real Google demand corroborate the same repetition into work", () => {
     const c = resolveFanoutCase(rowOf(recurring()), { pageUrl: "https://own.example/haft-seen", refused: false }, { googleDemand: true }); expect(c.state).toBe("actionable");
@@ -63,8 +62,7 @@ describe("every material search the assistants ran terminates somewhere a person
       obs({ fanOutQueries: ["one off curiosity"] }),];
     const rows = buildFanoutEvidence(world, SITE).rows; const material = rows.filter((r) => r.material);
     expect(material.length).toBe(5); const states = material.map((r) => resolveFanoutCase(r, { pageUrl: OWN.url, refused: false }).state);
-    // Everything with a second dimension terminates in a verdict; the repeats-only cluster is watched.
-    expect(new Set(states)).toEqual(new Set(["actionable", "already_credited", "unreported", "monitoring"])); expect(states.filter((s) => s === "monitoring").length).toBe(1);
+    expect(new Set(states)).toEqual(new Set(["actionable", "already_credited", "unreported", "monitoring"])); expect(states.filter((s) => s === "monitoring").length).toBe(1); // Everything with a second dimension terminates in a verdict; the repeats-only cluster is watched.
     expect(resolveFanoutCase(rows.find((r) => !r.material)!).state).toBe("monitoring");});
   it("keys a case on identity, so a search that merely reads like another one is a different case", () => {
     const a = resolveFanoutCase(rowOf(recurring({ fanOutQueries: ["haft seen set delivery"] }))); const b = resolveFanoutCase(rowOf(recurring({ fanOutQueries: ["Haft Seen set delivery?"] })));
@@ -89,8 +87,7 @@ describe("stage copy is honest and the diagnosis owns the treatment", () => {
     const scattered = gateOf(dx({ kind: "scattered_answer", treatment: "rewrite_existing_section", ownedIds: ["own-1", "own-4"] }));
     expect(scattered).toMatchObject({ emit: true, hire: true, treatment: "rewrite_existing_section", work: expect.stringContaining("structural synthesis of the page's own material") });
     expect((scattered as { work: string }).work).toContain("call to action"); // the CTA stays protected in the brief
-    // MISSING INFORMATION NEVER HIRES UNSOURCED: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it. ONCE AN AUTHORIZED FACT IS BANKED the binding exists, and acquisition-first stops being acquisition-forever (live, 2026-08-30: the wildlife case sat actionable 18 days with the next step written only as prose).
-    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
+    expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") }); // MISSING INFORMATION NEVER HIRES UNSOURCED: the writer would have to STATE the proposition, and nothing binds that exact statement to the facts that support it. ONCE AN AUTHORIZED FACT IS BANKED the binding exists, and acquisition-first stops being acquisition-forever (live, 2026-08-30: the wildlife case sat actionable 18 days with the next step written only as prose).
     expect(gateOf(dx({ kind: "missing_information", treatment: "add_answer_section", evidenceIds: ["ans-1"], missing: "the date rule" }), true)).toMatchObject({ emit: true, hire: true, treatment: "add_answer_section", work: expect.stringContaining("citing it claim by claim") });
     expect(gateOf(null)).toMatchObject({ emit: true, hire: false, treatment: null, work: expect.stringContaining("no copy is ordered") }); }); });
 /** THE READER'S ANSWER IS CHECKED, ITS PACKET IS THE IDENTITY, AND EVERY UNCACHED ATTEMPT IS FUNDED. */
@@ -109,8 +106,7 @@ describe("the gap reader is exact, fail-closed and metered", () => {
     expect((await ask())!, "absence against a sample degrades to unknown").toMatchObject({ kind: "unknown", treatment: null, limitation: expect.stringContaining("incomplete") });
     net.body = page(); net.answer = drafted({ kind: "reachability_gap" });
     expect((await ask())!, "no technical evidence, no reachability diagnosis").toMatchObject({ kind: "unknown", treatment: null });
-    // FRESHNESS AUTHORIZES NOTHING FROM THIS PACKET. Two dates differing is not a conflict: "The museum opened in 2019" against "The rule changed in 2024" is two unrelated statements, and separating them needs semantics this evidence does not carry.
-    net.body = page({ passages: ["The museum opened in 2019.", "A second passage."] });
+    net.body = page({ passages: ["The museum opened in 2019.", "A second passage."] }); // FRESHNESS AUTHORIZES NOTHING FROM THIS PACKET. Two dates differing is not a conflict: "The museum opened in 2019" against "The rule changed in 2024" is two unrelated statements, and separating them needs semantics this evidence does not carry.
     net.answer = drafted({ kind: "freshness_gap", ownedIds: ["own-1"], evidenceIds: ["ans-1"], missing: "the rule changed in 2024" });
     const unrelated = (await ask({ passages: ["The rule changed in 2024."] }))!;
     net.answer = drafted({ kind: "freshness_gap", evidenceIds: ["ans-1"], missing: "the rival is newer" });
@@ -132,8 +128,7 @@ describe("the gap reader is exact, fail-closed and metered", () => {
       expect(net.calls, `${what} was re-earned`).toBe(1); }
     net.calls = 0;
     expect((await ask({ banked: { ...first, contentHash: "OLD", packet: "OLD" } }))!.decidedAt, "a moved page body is re-earned").toBe(NOW.toISOString());
-    // THE WORDS ARE PART OF THE IDENTITY, not only a hash the crawler may never have stored.
-    net.body = { ...page({ contentHash: null }) }; const noHashA = (await ask({ query: "hashless" }))!;
+    net.body = { ...page({ contentHash: null }) }; const noHashA = (await ask({ query: "hashless" }))!; // THE WORDS ARE PART OF THE IDENTITY, not only a hash the crawler may never have stored.
     net.body = { ...page({ contentHash: null }), passages: ["Entirely different words on the very same page.", "And a second different passage."] };
     expect((await ask({ query: "hashless" }))!.packet, "no content hash, changed words: a different packet").not.toBe(noHashA.packet);
     const meter = aeoMeter(5); net.answer = drafted({ kind: "already_answered", ownedIds: ["own-9"] }); // every one refuses

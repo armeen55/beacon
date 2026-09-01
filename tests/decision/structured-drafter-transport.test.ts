@@ -108,3 +108,13 @@ describe("a description names the subject, never the page's own furniture", () =
     expect(meta.system).toContain("DESCRIBE THE THING THE PAGE IS ABOUT, NEVER THE PAGE");
     expect(title.user).toContain("Does this ship internationally?"); // a title still reads the whole outline
     expect(title.system).not.toContain("DESCRIBE THE THING THE PAGE IS ABOUT"); });});
+/** MARKUP AROUND RIGHT WORDS IS THE WRITER'S PUNCTUATION (operator, 2026-08-31, the bracketed-anchor rule again). A real comedians section arrived opening "### Iranian comedy names to know" and a numerals section arrived wrapped in h2 and p tags; the canon rightly refused both, and the words were right. The heading travels typed in naturalHeading, so code takes the markup off in the ONE normalizer every acceptance path runs through, instead of paying for a redraft. */
+import { withoutCta } from "@/domains/decision/drafted-copy";
+describe("the writer's markdown and HTML come off finished copy", () => {
+  it("strips a leading heading line and block tags, and touches no words", () => {
+    expect(withoutCta("### Iranian comedy names to know\nIranian comedians include Max Amini and Omid Djalili.\nMax Amini is known for stand-up tours.", "section"), "the markdown heading goes, the sentences stay word for word")
+      .toBe("Iranian comedians include Max Amini and Omid Djalili.\nMax Amini is known for stand-up tours.");
+    expect(withoutCta("<h2>How Persian numerals work</h2>\n<p>Persian numbers use the same decimal system used worldwide.</p><p>The digits for 4, 5, and 6 have distinct Persian forms.</p>", "section"), "h2 and p wrapping goes, the prose stays with its line structure")
+      .toBe("Persian numbers use the same decimal system used worldwide.\nThe digits for 4, 5, and 6 have distinct Persian forms.");
+    expect(withoutCta("Plain copy stays exactly as written here today.", "section"), "clean copy is untouched").toBe("Plain copy stays exactly as written here today."); });
+});
