@@ -185,8 +185,7 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(deep({ basis: "basis_b" }))).toBe("refused"); expect(await saveChangeProposal(deep({ basis: "basis_c" }))).toBe("saved"); });
   it("repairs a handover whose successor never landed: the predecessor reads as current again until a real successor exists", async () => {
     await saveChangeProposal(proposal());
-    // The crash the in-process rollback cannot cover: the predecessor stepped aside, the insert never landed.
-    Object.assign(db.state.rows[0]!, { terminal_disposition: "superseded", superseded_by: deep().id });
+    Object.assign(db.state.rows[0]!, { terminal_disposition: "superseded", superseded_by: deep().id }); // The crash the in-process rollback cannot cover: the predecessor stepped aside, the insert never landed.
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([proposal().id]); // the hypothesis is not stranded
     await saveChangeProposal(deep()); // the successor lands for real
     expect([...(await loadChangeProposals(T)).keys()]).toEqual([deep().id]); }); // and the repair stops applying
@@ -200,8 +199,7 @@ describe("canonical proposal persistence", () => {
       db.state.rows.push(canonRow(id, { terminal_disposition: "superseded", superseded_by: live[i % 5]! })); }
     seedLegacy(proposal({ id: `${T}::/old-7::existing_edit::title` })); // the old store still holds a copy of a retired row
     expect([...(await loadChangeProposals(T)).keys()].sort()).toEqual([...live].sort()); }); // five current rows, and not one resurrection
-  // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced in under another account after the guard read. Either way the predecessor keeps its place and its queue.
-  it.each([["a write that landed no row", () => { db.state.breakWrite = true; }],
+  it.each([["a write that landed no row", () => { db.state.breakWrite = true; }], // A HANDOVER THAT DID NOT LAND IS A FAILURE, whether the write simply landed no row or a successor id raced in under another account after the guard read. Either way the predecessor keeps its place and its queue.
     ["a successor id racing in under another account", () => { db.state.raceForeign = "acct-b"; }],
   ] as const)("%s is a FAILURE, and the predecessor keeps its place", async (_name, arrange) => {
     await saveChangeProposal(proposal());
@@ -210,8 +208,7 @@ describe("canonical proposal persistence", () => {
     expect(current().filter((r) => r.tenant_id === T).map((r) => [r.id, r.terminal_disposition, r.superseded_by])) .toEqual([[proposal().id, null, null]]);
     expect((await loadChangeProposals(T)).size).toBe(1); // one proposal, still current, still this account's
   });
-  // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
-  it("anchorAfter and redirectTo survive the persistence round trip", () => {
+  it("anchorAfter and redirectTo survive the persistence round trip", () => { // PIN: the schema keeps every word a check reads later. A renamed link is verified on anchorAfter and a forward on redirectTo; a schema that strips either sends the check out wordless and it grades nothing.
     const b = bundle("anchor_text");
     b.components[0] = { ...b.components[0]!, anchorAfter: "Read the Haft-Seen guide", redirectTo: "https://own.com/haft-seen" };
     const back = deserializeChangeProposal(serializeChangeProposal(deep({ bundle: b })));
@@ -240,8 +237,7 @@ describe("done is only ever reached with a record behind it", () => {
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set<string>())).toEqual([SENTENCE]);
     expect([row.status, row.queue_lane, row.queue_rank]).toEqual(["needs_review", null, null]); // back in the queue, and it earns its position again
     expect([storedNow(row)?.status, storedNow(row)?.limitations[0]]).toEqual(["needs_review", SENTENCE]); });
-  // A FINISHED READING RETIRES THE ROW IT MEASURED. Eight rows sat "pending verification" forever after their readings settled: counted as in-flight, holding their pages against fresh work, waiting on nothing. The verdict stays on the ledger; this closes the queue's side, with the receipt on the row.
-  it("retires a done row whose reading settled, keeps its stage, and says what the reading said", async () => {
+  it("retires a done row whose reading settled, keeps its stage, and says what the reading said", async () => { // A FINISHED READING RETIRES THE ROW IT MEASURED. Eight rows sat "pending verification" forever after their readings settled: counted as in-flight, holding their pages against fresh work, waiting on nothing. The verdict stays on the ledger; this closes the queue's side, with the receipt on the row.
     const row = done(); expect(await reconcileImplementedWithoutShipment(T, new Set([DONE_ID]), 50, new Map([[DONE_ID, "won"]]))).toEqual([]);
     expect([row.status, row.terminal_disposition, row.withdrawn_reason])
       .toEqual(["implemented_pending_verification", "settled", "The reading finished and the result is on Results: this change won."]); });
@@ -266,8 +262,7 @@ describe("the operator's yes lands on the exact version they read, or on nothing
     return [r.status, r.proposal_version, (deserializeChangeProposal(JSON.stringify(r.payload))!.recommendedChange as { after: string }).after]; };
   it("refuses a confirmation whose row was rewritten between the read that validated it and the write that lands it", async () => {
     const held = mover();
-    // THE DEFECT, kept as the reason this exists: read, check, unconditional write, and the rewrite that landed underneath is gone.
-    expect(await saveChangeProposal(held)).toBe("saved");
+    expect(await saveChangeProposal(held)).toBe("saved"); // THE DEFECT, kept as the reason this exists: read, check, unconditional write, and the rewrite that landed underneath is gone.
     db.state.race = rewriting(held);
     await saveChangeProposal({ ...held, status: "ready", confirmedVersion: confirmedVersion(held) }); expect(landed(held)).toEqual(["ready", 2, "Nowruz Traditions and the Haft-Seen Table"]);
     // THE SAME INTERLEAVING through the one door a confirmation walks now: nothing is written, the rewrite stands, and the change stays behind the hold.

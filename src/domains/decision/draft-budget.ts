@@ -5,12 +5,41 @@ import "server-only";
 /** EVERY CHARGED CALL ONE PASS MAY MAKE, drafts and judgings together, failures counted the same as successes. It is a RUNAWAY STOP, not a spending policy: what the money buys is decided by the ranked manifest below, and this only says how far one pass may go before it stops and lets the next one continue. Raised from thirty to sixty (operator, 2026-08-22, "no guardrails, unlimited money") so a drive that may now finish five candidates can actually afford five, bundles included, instead of running out at two of them. The 2026-08-21 raise to ninety is NOT what this is: back then nothing capped a single candidate, so the extra ceiling bought 239 retries on the same few pages and nothing finished. Every candidate is priced and bounded now, so the ceiling buys candidates. */
 const MAX_PAID_CALLS = 60;
 
-/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE PAGE, reduced to its path, and never the family working on it. Both halves were learned the hard way. Keying on whichever string was to hand (the deep door knows a page by its full address, every other family by its path) funded ONE page twice, at three calls and then at twelve. Keying by family did the same thing in daylight: a page with a rewrite AND an editor card took two candidate slots and two allowances, so a successful rewrite left the editor's slot funded and unused, and a failed one let the same page spend twelve calls and then three more. One page is ONE candidate, with ONE allowance, and the families working on it draw from that one allowance in turn. One account is one site here, so a path identifies a page. */
-const keyOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string => {
+/** THE KEY ONE PAID JOB IS FUNDED UNDER: THE MUTATION, when the object in hand says which one, and the page when
+ *  it does not. ONE PAGE IS NOT ONE OPPORTUNITY (Product Truth; operator, 2026-08-31): keying the money by page
+ *  meant two rows on one address spent one allowance, and whichever was reached first took it, which is how
+ *  /famous-iranian-comedians at 324 words under 22,509 impressions bought a link out to another page instead of
+ *  its own copy. The suffix mirrors mutation-footprint's slots, so what funds separately is exactly what can land
+ *  together: a title, a description, a heading, each distinct body topic, each link destination. The OLD failures
+ *  stay fixed: two spellings of one page still collapse (path normalization), and two families wanting the SAME
+ *  mutation still collapse to one job in `plan` exactly as two families wanting one page used to. A bare
+ *  `{pagePath}` with no change on it still keys the page alone, and `take` below lets a mutation-keyed draw fall
+ *  back to a page-keyed allowance so a job declared before its card exists is still reachable. */
+const pageOf = (p: { pagePath?: string | null; pageUrl?: string | null }): string => {
   const raw = (p.pagePath ?? p.pageUrl ?? "").trim().toLowerCase();
   if (!raw) return "unknown-page";
   if (raw.startsWith("/")) return raw.replace(/\/+$/, "") || "/";
   try { return new URL(raw.startsWith("http") ? raw : `https://${raw}`).pathname.replace(/\/+$/, "") || "/"; } catch { return raw; }
+};
+type Keyable = { pagePath?: string | null; pageUrl?: string | null; changeFamily?: string; primaryQuery?: string | null; id?: string;
+  recommendedChange?: { kind: string; field?: string; linkTo?: string | null } };
+const bareQuery = (q: string | null | undefined): string => (q ?? "").trim().toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 60);
+const keyOf = (p: Keyable): string => {
+  const page = pageOf(p), c = p.recommendedChange;
+  if (!c) return page;
+  if (p.changeFamily === "factual_correction") return `${page}::corrections`; // the whole batch rides one job, exactly as it grouped by page before
+  if (c.kind === "new_page") return `${page}::new_page::${bareQuery(p.primaryQuery) || (p.id ?? "").split("::").at(-1) || "topic"}`;
+  const f = c.field ?? "";
+  if (f === "title" || f === "meta" || f === "h1") return `${page}::${f}`;
+  if (c.linkTo || (p.id ?? "").endsWith("::internal_link")) return `${page}::link::${(c.linkTo ?? "").trim().toLowerCase() || bareQuery(p.primaryQuery)}`;
+  if (f === "section" || f === "answer_block") return `${page}::body::${bareQuery(p.primaryQuery)}`;
+  return page;
+};
+/** Whether a focus entry names this job: exactly, or as the page every mutation on it extends. */
+const focusHits = (focus: ReadonlySet<string>, key: string): boolean => {
+  if (focus.has(key)) return true;
+  for (const f of focus) if (key.startsWith(`${f}::`)) return true;
+  return false;
 };
 
 /** THE DRAFTING POLICY, AS ONE CONTRACT THE LOOP AND THE PRICE BOTH READ. They diverged twice, and each time the allowance ran out mid-deliverable and the card was refused with "this pass has spent its whole attempt budget" (live receipts, 2026-08-22 22:30Z and 2026-08-23 00:32Z). So the retry count is stated ONCE and the price is DERIVED from it rather than written down separately: one writing round is a draft and its judge, the editor may make the first attempt plus EDITOR_RETRIES more, and one mandatory adversarial review reads the survivor before it may wear Ready. Change the retry count and the price follows; they cannot drift apart again. */
@@ -73,19 +102,43 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
   // worth 0.22 and a category page worth 0.13, and it stayed unattempted for a third dispatch running. A
   // candidate that was selected and not reached is not owed less; it is owed FIRST, which this ordering gives
   // it for free because settled keys are the only ones the caller skips.
+  // A PAGE-GENERIC JOB IS NOT A SECOND JOB BESIDE A MUTATION ON THAT PAGE. The legacy field families declare
+  // "some best change on this page" before any card exists, and the editor declares the exact mutation. Left
+  // separate they both fund and the generic one buys a duplicate the gates then refuse (proved by replay: the
+  // editor's meta produced and the page job bought a safety-gate refusal beside it). The generic job collapses
+  // into the page's STRONGEST mutation job exactly as two families on one page always collapsed, the alias lets
+  // its family draw from the surviving allowance, and every OTHER mutation on the page stays its own funded job.
+  const alias = new Map<string, string>();
+  {
+    const perPage = new Map<string, PaidJob[]>();
+    for (const j of byKey.values()) if (j.key.includes("::")) { const pg = j.key.slice(0, j.key.indexOf("::")); const at = perPage.get(pg); if (at) at.push(j); else perPage.set(pg, [j]); }
+    for (const j of [...byKey.values()]) {
+      if (j.key.includes("::")) continue;
+      const sibs = perPage.get(j.key); if (!sibs || sibs.length === 0) continue;
+      const strongest = sibs.reduce((a, b) => (b.blocked && !a.blocked ? a : a.blocked && !b.blocked ? b : b.impact > a.impact ? b : a));
+      // THE PRECISE KEY ALWAYS SURVIVES: the slot wears the mutation's name whichever side scored higher, so a
+      // receipt names real work and a retry key from one pass still matches the next. The page job's strength and
+      // liveness still count: its impact lifts the slot, and a live page job unblocks a slot only a blocked
+      // mutation held.
+      const live = !j.blocked && !!strongest.blocked;
+      byKey.delete(j.key); alias.set(j.key, strongest.key);
+      byKey.set(strongest.key, { ...strongest, impact: Math.max(strongest.impact, j.impact), ...(live ? { blocked: undefined, family: j.family, calls: j.calls } : {}),
+        fallbacks: [...new Set([...(strongest.fallbacks ?? []), ...(j.fallbacks ?? []), live ? strongest.family : j.family])].filter((f) => f !== (live ? j.family : strongest.family)) });
+    }
+  }
   const tried = new Set(input.retry ?? []);
   // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put
   // every one-cent finish above every new section, answer, link, and page whatever their traffic was worth,
   // which is the names-only queue. Expected value orders everything; a cheap finish wins only when values tie.
-  const focus = new Set(input.focus ?? []);
+  const focus = new Set(input.focus ?? []); // a focus entry may name a page, and then it names every mutation on it
   const ranked = [...byKey.values()].sort((a, b) =>
-    Number(focus.has(b.key)) - Number(focus.has(a.key)) || Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
+    Number(focusHits(focus, b.key)) - Number(focusHits(focus, a.key)) || Number(tried.has(a.key)) - Number(tried.has(b.key)) || b.impact - a.impact || finishes(b) - finishes(a) || a.calls - b.calls || a.key.localeCompare(b.key));
   const funded = new Map<string, number>(), declined: DeclinedJob[] = [], skip = new Set(input.skip ?? []);
   let slots = Math.max(0, input.candidates), callsLeft = ceiling;
   for (const j of ranked) {
     const price = Math.max(1, Math.round(j.calls));
     if (j.blocked) declined.push({ key: j.key, family: j.family, calls: price, reason: j.blocked });
-    else if (skip.has(j.key) && !focus.has(j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
+    else if (skip.has(j.key) && !focusHits(focus, j.key)) declined.push({ key: j.key, family: j.family, calls: price, reason: "a pass today already spent on this page and it finished nothing, so the money moves to the next ranked one" });
     // TWO DIFFERENT THINGS, TWO DIFFERENT SENTENCES. A pass Beacon was ASKED not to spend on used to report the
     // provider's credit as exhausted, which is a cause the receipt invented: nothing had run out, and an
     // operator reading it would go looking at a billing page for a decision Beacon had made itself.
@@ -96,6 +149,12 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     else { funded.set(j.key, price); slots -= 1; callsLeft -= price; }
   }
   const held = new Map<string, { left: number }>();
+  const resolveKey = (key: string): string => {
+    if (funded.has(key)) return key;
+    if (alias.has(key) && funded.has(alias.get(key)!)) return alias.get(key)!;
+    if (key.includes("::")) { const page = key.slice(0, key.indexOf("::")); if (funded.has(page)) return page; }
+    return key;
+  };
   /** WHAT EACH PAGE ACTUALLY CONSUMED, kept BY THE MONEY SURFACE ITSELF (Codex, 2026-08-23). It used to be a
    *  separate map the caller handed to one family, so five of the six families spent real dollars that no
    *  receipt could name. Every family already draws its allowance here, so this is the one place that sees
@@ -122,12 +181,15 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
     declined: declined as readonly DeclinedJob[],
     /** COLLECT THE PAGE'S ALLOWANCE. An unfunded key gets null, and so does an UNKNOWN one: a family that never declared its job on the manifest cannot spend, whenever it asks. One allowance per page, handed out once. NO COUNT OF LANDED WORK EVER CLOSES THIS DOOR: the walk runs the whole funded manifest however many rows have already landed (operator, 2026-08-30). */
     take(key: string) {
-      const open = held.get(key);
+      // Every shape of the same work resolves to its one funded name first: the alias for a collapsed page job, the
+      // page for a job declared before its card existed, so declaration shape can never strand funded money.
+      const at = resolveKey(key);
+      const open = held.get(at);
       if (open) return open.left > 0 ? open : null;
-      const price = funded.get(key);
+      const price = funded.get(at);
       if (price == null) return null;
-      const slice = { left: price, record: (r: unknown) => recordOn(key, r) };
-      held.set(key, slice);
+      const slice = { left: price, record: (r: unknown) => recordOn(at, r) };
+      held.set(at, slice);
       return slice;
     },
     /** WHAT ONE PAGE SPENT, off the records above: real operations, real requests, real dollars, or null when
@@ -139,15 +201,18 @@ function plan(input: { jobs: readonly PaidJob[]; candidates: number; calls?: num
       if (!open || open.left <= 0) return null;
       let cap = Math.max(0, Math.min(Math.round(price), open.left));
       if (cap <= 0) return null;
+      const at = resolveKey(key);
       return {
         get left() { return Math.min(cap, open.left); },
         set left(v: number) { const now = Math.min(cap, open.left), spent = now - v; // NEGATIVE IS A REFUND, and it must actually land: a cache hit reached no provider, and clamping the give-back at zero let twelve cached refusals eat a pass (Codex, 2026-08-23, proved by execution)
           if (spent >= 0) { open.left -= spent; cap = Math.max(0, cap - spent); } else { const back = Math.min(-spent, price - cap); open.left += back; cap += back; } },
         /** ONE completed provider result, onto this page's own record. Every family calls it where its result
          *  comes back, so the receipt reports what the pass really did rather than what it was allowed to do. */
-        record: (r: unknown) => recordOn(key, r),
+        record: (r: unknown) => recordOn(at, r),
       };
     },
+    /** The one funded name this key answers to: itself, its alias target, or its page's funded entry. Receipts and filings resolve through this so a branch that knows the work by another shape still lands its record on the funded row. */
+    resolve: resolveKey,
     /** WHAT WAS ACTUALLY SPENT, off the allowances themselves: arithmetic, never a claim. */
     spent() {
       let used = 0; for (const [k, slice] of held) used += (funded.get(k) ?? 0) - Math.max(0, slice.left);

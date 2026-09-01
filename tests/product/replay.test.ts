@@ -206,10 +206,10 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const ok = await drive(evidence, []);
     const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
     expect([ok.landed.length >= 2, row.status, row.researchOnly ?? false]).toEqual([true, "ready", false]);
-    expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide")).toMatchObject({ outcome: "produced", persistence: "saved" });
+    expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))).toMatchObject({ outcome: "produced", persistence: "saved" }); // the money keys by mutation now, and the page-generic job collapses into it rather than buying a duplicate beside it
     // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
     expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()]));
-    expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.outcome).toBe("produced");
+    expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome).toBe("produced");
     expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the first landing left the walk running
     // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING, and still walks the whole manifest.
     const lost = await drive(evidence, [TENANT]);
@@ -226,7 +226,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     for (const n of [14, 40, 100, 500]) {
       const out = await drive(evidence, [], flood(n));
       // The seeds sit on pages this site does not have, so the sweep retires them as obsolete: a TYPED per-candidate reason, which stays legal. Quantity acting on the real work below is what must never happen.
-      expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide")?.outcome, `at ${n} the strongest page was still bought`).toBe("produced");
-      expect(out.res.paid.receipts.find((r) => r.key === "/lantern-release-guide")?.outcome, `at ${n} the weaker page was still bought too`).toBe("produced");
+      expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))?.outcome, `at ${n} the strongest page was still bought`).toBe("produced");
+      expect(out.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome, `at ${n} the weaker page was still bought too`).toBe("produced");
       expect(out.asked.some((a) => a.includes(SECOND_QUERY)), `at ${n} the second page's draft was really asked for`).toBe(true); }
   }); });

@@ -21,6 +21,7 @@ import { proposeExistingPageChange } from "@/domains/decision/propose";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
+import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { fitTenantCtrCurve, defaultExpectedCtrAt } from "@/domains/evidence/forecast/tenant-ctr-curve";
 import { compileCandidates, snapshotToEvidenceInputs } from "@/domains/decision/opportunities"; import { suggestedEdits } from "@/domains/decision/suggested-edits";
 import { produceProposalsForTenant } from "@/domains/decision/produce-proposals";
@@ -173,7 +174,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => { reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
     const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
-    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]);
+    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined || r.why.includes("already on file")), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]); // produced carries no refusal words; the one why it MAY carry is its own reuse sentence, never an inherited gate
     expect(unreached.every((r) => /time box|still stands|before this page was reached/.test(r.why ?? ""))).toBe(true); // and it is one of the three things that are actually true here
     reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
@@ -185,7 +186,8 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     const first = plain.paid.funded[0]!;
     const after = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, retryKeys: [first] });
     expect(after.paid.funded[0]).not.toBe(first);            // the tried page stepped aside for untried work
-    expect(after.paid.declared).toContain(first); });        // and is still declared, still owed
+    const page = first.split("::")[0]!, finishedOnFile = [...env.store.values()].some((p) => p.status === "ready" && p.researchOnly !== true && DRAFT_BUDGET.keyOf(p) === first);
+    expect(after.paid.declared.some((k) => k === first || k === page || k.startsWith(`${page}::`)) || finishedOnFile).toBe(true); }); // still owed: declared again in whatever shape the next pass knows that page's work by, unless the first run genuinely FINISHED the exact mutation, the one honest reason it stops being owed
   it("never lets another diagnosis's bundle stand in for a newly selected job, and files an outcome when it truly is the same work", async () => { reset(BOTH());
     const other = baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::bundle", pagePath: "/nowruz-guide", pageUrl: GAP_URL, basis: "basis_today", status: "needs_review", diagnosisCause: "factual_error", bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] }, confidenceReasons: [], alternatives: [], risks: [],
         components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }], receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: NOW.toISOString() }], missing: [], freshestObservedAt: NOW.toISOString() } } });
@@ -233,9 +235,9 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     env.store = new Map([[measured.id, measured]]);
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
     const guide = "/nowruz-guide", food = "/nowruz-food";
-    expect(out.paid.funded).not.toContain(guide);                     // the answer was knowable before a cent moved
-    expect(out.paid.receipts.some((r) => r.key === guide)).toBe(false); // so it took no slot and owns no funded receipt
-    expect(out.paid.funded).toContain(food);                          // the one slot went to work that can finish
+    expect(out.paid.funded.some((k: string) => k === guide || k.startsWith(`${guide}::`))).toBe(false); // the answer was knowable before a cent moved
+    expect(out.paid.receipts.some((r) => r.key === guide || r.key.startsWith(`${guide}::`))).toBe(false); // so it took no slot and owns no funded receipt
+    expect(out.paid.funded.some((k: string) => k === food || k.startsWith(`${food}::`))).toBe(true); // the one slot went to work that can finish, under its own mutation key
     expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); });
   /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
   it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => {
@@ -253,7 +255,7 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
       expect(["produced", "evidence_banked", "deterministic_refusal", "retryable_blocked", "not_reached"]).toContain(r.outcome);}
     const worked = out.paid.receipts.filter((r) => r.outcome === "produced");
     expect(worked.length).toBeGreaterThan(0);
-    expect(worked.every((r) => r.ops > 0 && ["saved", "unchanged", "not_persisted"].includes(r.persistence ?? ""))).toBe(true); // produced means the store took it
+    expect(worked.every((r) => (r.ops > 0 && ["saved", "unchanged", "not_persisted"].includes(r.persistence ?? "")) || (r.why ?? "").includes("already on file"))).toBe(true); // produced means the store took it, this pass or a previous one whose finished row still covers the mutation
     expect(worked.every((r) => r.providerCalls === 0 && r.costUsd === 0 && r.providerAttempted === false)).toBe(true);
     reset(SEEN()); const before2 = await run(counting().complete);
     reset(SEEN()); env.refuseIds = new Set(before2.proposals.map((p) => p.id));
@@ -279,11 +281,11 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
   it("calls a pass that saved nothing a FAILURE, and a real gap with no trusted draft exactly that", async () => {
     reset(SEEN()); env.failWrites = true; const failed = await run(counting().complete);
     expect([failed.outcome, failed.persisted, env.saved.length]).toEqual(["persistence_failed", 0, 1]); // it tried, and it says so
-    expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal" && r.outcome !== "produced")).toBe(true);
+    expect(failed.paid.receipts.every((r) => r.outcome !== "deterministic_refusal" && (r.outcome !== "produced" || (r.why ?? "").includes("already on file")))).toBe(true); // a failing-writes pass produced nothing NEW; a mutation a stored Ready row already covers is still honestly reported finished
     reset(SEEN()); const first = await run(counting().complete);
     const landed = first.paid.receipts.filter((r) => r.outcome === "produced").map((r) => r.key); expect(landed.length).toBeGreaterThan(0);
     reset(SEEN()); env.failIds = new Set([...env.store.keys(), ...first.proposals.map((x) => x.id)]); const mixed = await run(counting().complete);
-    expect(mixed.paid.receipts.filter((r) => landed.includes(r.key)).every((r) => r.outcome === "retryable_blocked")).toBe(true);
+    expect(mixed.paid.receipts.filter((r) => landed.includes(r.key) && !(r.why ?? "").includes("already on file")).every((r) => r.outcome === "retryable_blocked")).toBe(true); // a stored Ready row that still covers its mutation is not something the store refused, and stays reported finished
     expect(env.store.size).toBe(0); // and nothing the store refused is remembered as if it had landed
     reset(SEEN()); const thin = await run(async () => ({ error: "the drafter is off", retryable: false })); expect([thin.outcome, thin.actionable, thin.noDraft, thin.proposals.every((p) => p.status === "needs_review")]).toEqual(["proposals_persisted", 1, 1, true]);
     expect(thin.paid.funded.length > 0 && thin.paid.receipts.every((r) => r.outcome === "retryable_blocked" || r.outcome === "not_reached")).toBe(true); }); // the strict draft failed and the $0 producers still fill the queue, every row at needs_review
@@ -404,8 +406,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     expect(seam.kinds).not.toContain("section_draft"); // the second drafter that declared no claim and named no evidence id is gone
     const pages = res.proposals.filter((p) => p.kind === "new_page"); expect(pages).toHaveLength(1);
     const page = pages[0]!; expect(page.recommendedChange).toEqual({ kind: "new_page", proposedTitle: BRIEF.proposedTitle, metaDescription: BRIEF.metaDescription,
-      // THE OPENING IS WRITTEN AND READ LIKE EVERY OTHER PIECE: the brief's own sentence is nobody's ruled claim, so what ships is the editor's copy, not the plan that asked for it.
-      openingAnswer: expect.stringContaining("a haft seen table is the spread"), outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet
+      openingAnswer: expect.stringContaining("a haft seen table is the spread"), outline: BRIEF.sections.map((s) => s.heading), faqQuestions: [], schemaTypes: [] }); // no markup is guessed for a page that does not exist yet // THE OPENING IS WRITTEN AND READ LIKE EVERY OTHER PIECE: the brief's own sentence is nobody's ruled claim, so what ships is the editor's copy, not the plan that asked for it.
     expect([page.status, page.pagePath, page.publish, validateProposal(page).verdict]).toEqual(["needs_review", null, "manual", "ready"]);
     expect(page.bundle!.plan).toBeUndefined(); expect(page.bundle!.receipt.items.some((i) => i.key === "verdict")).toBe(true); // a page that does not exist yet has nothing to keep, change or remove, and the verdict itself is on the receipt
     expect([page.bundle!.receipt.items.find((i) => i.key === "asked")!.fact, page.bundle!.receipt.items.find((i) => i.key === "asked")!.observationId]).toEqual(['No AI engine has shown a search of its own here. What is on file is a question people ask, like "haft seen table".', undefined]); // derived from a question I track, not from any stored answer, so it borrows no answer's identity expect(page.bundle!.components.map((c) => c.kind)).toEqual(["title", "meta", "opening_answer", "section", "source_pack", "internal_links"]);
@@ -414,8 +415,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     const pack = page.bundle!.components.find((c) => c.kind === "source_pack")!.after; expect(pack).toContain(`${RIVAL(1)}, published by r1.example, read on Jul 25: it is one of the pages that win "${HAFT}"`);
     expect(pack).toContain("Cite a cultural reference for what each item stands for. You pick the exact source for this one");
     expect(page.limitations).toContain("Some of what this page claims still rests on the kind of source it needs rather than a source on file, so you pick those before it goes out.");
-    // A PAGE BUILT ONLY FROM WHAT WINS THIS SEARCH STAYS INTERNAL AND LEAVES NAMED DEBT: coverage adjudication authorized the NEED and the results pages the FORMAT, and neither carries a sentence, so its own words are the only thing under its claims and the door says so and mints the source it is missing.
-    expect([page.claims!.every((c) => c.supportedBy.every((id) => id.startsWith("page-"))), page.informationGain?.pageWhole]).toEqual([true, true]);
+    expect([page.claims!.every((c) => c.supportedBy.every((id) => id.startsWith("page-"))), page.informationGain?.pageWhole]).toEqual([true, true]); // A PAGE BUILT ONLY FROM WHAT WINS THIS SEARCH STAYS INTERNAL AND LEAVES NAMED DEBT: coverage adjudication authorized the NEED and the results pages the FORMAT, and neither carries a sentence, so its own words are the only thing under its claims and the door says so and mints the source it is missing.
     expect([openHold(page).blocking, openHold(page).need?.reasonCode]).toEqual([expect.stringContaining("rests on nothing checked"), "claim_unsupported"]);
     const queue = await loadProposalQueue("fixture-tenant", { currentBasis: page.basis!, now: NOW }); expect(queue.toDo.map((p) => p.id)).toContain(page.id); // held for a look, never shown ready. THE CLOCK IS A SEAM AND A FIXED-CLOCK FIXTURE MUST USE IT: without `now` the queue judges this row's receipt against the REAL day, so every "current claim" item read as stale the moment UTC rolled over and the row vanished from every lane. The gate went red at 00:00 on code that had passed all day, which is a date bomb and not a regression.
     const again = await produceProposalsForTenant("fixture-tenant", { complete: briefSeam().complete, now: NOW }); expect(again.reused).toBe(1); // a refresh re-pays nothing
@@ -809,7 +809,7 @@ describe("the unruled review pass", () => {
     const kept = env.store.get(reviewed.id)!;
     // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
     expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]);
-    expect(out.paid.receipts.find((r) => r.key === "/x")?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
+    expect(out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::"))?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
     // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
     reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards;
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });

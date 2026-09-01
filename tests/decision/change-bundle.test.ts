@@ -32,8 +32,7 @@ const COMPOST = { clicks90d: 5, impressions90d: 1200, ctr90d: 0.004, position90d
   aiObservations: [canonObs({ promptId: "p1", promptText: "what size rain barrel do I need", citations: [{ url: WIN1, domain: "gardenguide.example", title: "A" }], fanOutQueries: ["what size rain barrel do I need", "rain barrel sizing"], observedAt: "2026-07-22T00:00:00.000Z" }),
   canonObs({ promptId: "p2", promptText: "rain barrel sizing rule of thumb", engine: "gemini", observationMode: "standardized_response", webSearchReported: null, observedAt: "2026-07-21T00:00:00.000Z" })],
   winningPages: [{ url: WIN1, domain: "gardenguide.example", engines: ["chatgpt"], examplePrompts: ["what size rain barrel do I need"], appearances: [{ kind: "ai_answer" as const, query: null, promptId: "p1", promptText: "what size rain barrel do I need", engine: "chatgpt", rank: null, citedUrl: WIN1, observedAt: "2026-07-22T00:00:00.000Z", modelServed: null }], extract: { title: "A", h1: "A", wordCount: 1400, headings: ["Sizing", "Overflow"], faqCount: 2 } }] };
-// ── a topic the account owns NO page for, researched to the hilt ───────────────
-const TOPIC = "rainwater harvesting permits"; const URL2 = "https://waterwise.example/permits"; const PROMPT2 = "rainwater harvesting permits by state"; const COMPETITOR = { url: URL2, domain: "waterwise.example", citationCount: 9, distinctPrompts: 4, engines: ["chatgpt"], examplePrompts: [PROMPT2] };
+const TOPIC = "rainwater harvesting permits"; const URL2 = "https://waterwise.example/permits"; const PROMPT2 = "rainwater harvesting permits by state"; const COMPETITOR = { url: URL2, domain: "waterwise.example", citationCount: 9, distinctPrompts: 4, engines: ["chatgpt"], examplePrompts: [PROMPT2] }; // ── a topic the account owns NO page for, researched to the hilt ───────────────
 const TOPIC_RESEARCH = { ...RESEARCH, retainedKeywords: [...RESEARCH.retainedKeywords, { query: TOPIC, searchVolume: 1600, competition: 0.3, competitionLevel: "low" as const, difficulty: null, intent: "informational" }],
   serpEvidence: [...RESEARCH.serpEvidence, { observedAt: null, query: TOPIC, organic: [{ rank: 1, domain: "waterwise.example", url: URL2, title: "P" }], aiOverview: [], aiMode: [], paa: [], related: [] }],
   aiObservations: [...RESEARCH.aiObservations, canonObs({ promptId: "p3", promptText: PROMPT2, citations: [{ url: URL2, domain: "waterwise.example", title: "P" }], observedAt: "2026-07-23T00:00:00.000Z" })],
@@ -53,8 +52,7 @@ beforeEach(() => { process.env.OPENAI_API_KEY = "test-key"; store.rows.clear(); 
     expect(bundle.alternatives[0]).toEqual({ option: "Google is already showing the words people search for", reason: 'Google shows this page as "Rain Barrels", and that line does not say "sizing".' }); expect(bundle.receipt.freshestObservedAt).toBe("2026-07-22T00:00:00.000Z"); expectKeysResolve(bundle); expectCleanCopy(p); expect(bundle.scope).toEqual({ queries: ["rain barrel sizing", "how many gallons rain barrel"], prompts: ["what size rain barrel do I need"] }); // the answer whose own fan-out ran this page's search, and no other expect(bundle.alternatives.some((a) => a.option.includes("/compost"))).toBe(true); expect(p.evidence.evidenceRefCount).toBe(bundle.receipt.items.length); // the count IS the receipt
     expect(p.diagnosisCause).toBe("ctr_snippet"); }); // the named cause rides to the ranker, so cause and lever are judged together on a real change
   it("refuses an assembled row whose receipt cites evidence it cannot show", async () => {
-    // THE COMPOSED INTEGRITY PIN (operator, 2026-08-30): the real bundle path stamps its reading on the FINISHED row, and a later tamper toward evidence the receipt cannot show is refused on read, never served on the old receipt. The copy-tamper half of this promise is pinned on the claim-bearing rows below, which run the same door this assembly stores under.
-    const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change");
+    const out = await produceBundleForSnapshot(snapshot(), { complete: seam, ...OPTS }); if (out.status !== "bundled") throw new Error("expected a change"); // THE COMPOSED INTEGRITY PIN (operator, 2026-08-30): the real bundle path stamps its reading on the FINISHED row, and a later tamper toward evidence the receipt cannot show is refused on read, never served on the old receipt. The copy-tamper half of this promise is pinned on the claim-bearing rows below, which run the same door this assembly stores under.
     const p = out.proposal, comps = p.bundle!.components;
     const otherEvidence = { ...p, bundle: { ...p.bundle!, components: comps.map((c, i) => (i === 0 ? { ...c, evidenceKeys: [...(c.evidenceKeys ?? []), "never-banked-key"] } : c)) } };
     expect(receiptIntegrityFailures(otherEvidence, NOW).some((f) => f.includes("evidence I cannot show you")), "a component citing evidence the receipt cannot show is held").toBe(true); });
@@ -227,8 +225,7 @@ describe("a release publishes only on a real production result", () => { it("let
     expect([blind.swept.length, blind.published.length]).toEqual([0, 1]); // the release still publishes; nothing was reverted on a blind read
     ledger.read = async () => []; const empty = await release(pass); await empty.refreshCustomerSurface(TENANT); // an EMPTY ledger sweeps nothing either: a schema-cache blip reads as empty without throwing
     expect([empty.swept.length, empty.published.length]).toEqual([0, 1]); }); });
-// ── the coverage verdict: has this account already got the right page? ────────
-const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [{ kind: "serp_organic" as const, query: "rain barrel sizing", promptId: null, promptText: null, engine: null, observationMode: null, rank: 1, observedAt: "2026-07-24T00:00:00.000Z", viaUrl: null }], readOutcome: null }));
+const WIN = ["gardenguide.example", "waterwise.example", "downspout.example"].map((domain): TopicInvestigation["winners"][number] => ({ url: `https://${domain}/a`, domain, extractState: "current", wordCount: 1400, headings: 4, fetchedAt: "2026-07-24T00:00:00.000Z", appearances: [{ kind: "serp_organic" as const, query: "rain barrel sizing", promptId: null, promptText: null, engine: null, observationMode: null, rank: 1, observedAt: "2026-07-24T00:00:00.000Z", viaUrl: null }], readOutcome: null })); // ── the coverage verdict: has this account already got the right page? ────────
 /** The rows ON that results page are what a winner read can ever bank, so they decide whether asking again could work. */
 const ROWS = WIN.map((w, i) => ({ rank: i + 1, url: w.url, domain: w.domain, title: "Sizing a rain barrel" }));
 const LOOK: TopicInvestigation["exactSerps"] = [{ query: "rain barrel sizing", observedAt: "2026-07-24T00:00:00.000Z", freshness: "current", organicResults: 9, distinctDomains: 8, aiOverviewCitations: 0, aiModeCitations: 0, paaQuestions: 0, organicRows: ROWS, aiOverviewRows: [], aiModeRows: [] }];
@@ -552,8 +549,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([naturalAnchorOf({ h1: "Explore More", title: "Iranopedia" }), naturalAnchorOf(null)], "furniture and a missing body name nothing, which is a refusal and not a guess").toEqual([null, null]);
     expect(naturalAnchorOf({ h1: "Safavid Lion and Sun Flag (1576-1732)", title: null }), "a catalogue date range is not how anyone links, and it carries a dash this product never publishes").toBe("Safavid Lion and Sun Flag");
     expect([naturalAnchorOf({ h1: "Mercury (planet)", title: null }), naturalAnchorOf({ h1: "Georgia (country)", title: null })], "a disambiguator is part of the name and only catalogue dates come off").toEqual(["Mercury (planet)", "Georgia (country)"]);
-    // COINCIDENCE IS NOT COPYING (operator, 2026-08-31): the query may never authorize the anchor, but a destination that genuinely carries that name yields it independently, and refusing the match would be superstition rather than judgement.
-    expect(naturalAnchorOf({ h1: "Caspian Horse", title: "Caspian Horse: The Ancient Iranian Breed | Iranopedia" }), "the anchor is resolved from the destination and stays valid when it happens to match the search").toBe("Caspian Horse");
+    expect(naturalAnchorOf({ h1: "Caspian Horse", title: "Caspian Horse: The Ancient Iranian Breed | Iranopedia" }), "the anchor is resolved from the destination and stays valid when it happens to match the search").toBe("Caspian Horse"); // COINCIDENCE IS NOT COPYING (operator, 2026-08-31): the query may never authorize the anchor, but a destination that genuinely carries that name yields it independently, and refusing the match would be superstition rather than judgement.
     const base = { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'after "Habitat"', linkTo: "/iran-animals/booted-eagle", anchorText: "booted eagle" };
     const of = (rc: typeof base) => copyKey(prop({ id: `${TENANT}::/a::existing_edit::internal_link`, pagePath: "/a", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, recommendedChange: rc }));
     expect(of({ ...base, linkTo: "/iran-animals/persian-wolf" }), "a different destination is different work").not.toBe(of(base));
@@ -796,8 +792,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the overview." } }));
       const snap = { ownedPages: PATHS.map((x) => ({ url: URL_OF(x), content: { wordCount: 400, title: `Phrases ${x}`, h1: `Phrases ${x}`, outline: ["Overview"] }, search: null })), research: {}, sources: [], scope: { tenantId: TENANT } };
       const SUMMARY = "Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.";
-      // The plan carried a `readyTarget` until 2026-08-30 and this very test proved the editor asked NOTHING once "enough" rows existed. That gate is deleted: only money, time, and each candidate's own settlement bound a pass, however many rows land.
-      const run = async (settled: boolean) => { const asked: string[] = [];
+      const run = async (settled: boolean) => { const asked: string[] = []; // The plan carried a `readyTarget` until 2026-08-30 and this very test proved the editor asked NOTHING once "enough" rows existed. That gate is deleted: only money, time, and each candidate's own settlement bound a pass, however many rows land.
         const budget = DRAFT_BUDGET.plan({ jobs: PATHS.map((x) => ({ key: x, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: 3, calls: 90 });
         const out = await applyDraftedCopy(cards, { tenantId: TENANT, snapshot: snap as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
           judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, settle: async () => settled,
@@ -1060,8 +1055,7 @@ describe("substantive copy earns the one canonical authorization, or stays inter
     const busy = prop({ id: "busy", impactScore: 300, pagePath: "/measuring", bundle: bundleOf([comp({ kind: "title" })]) }); const ranked = rankProposals([risky, busy, safe], { measuringPagePaths: ["/measuring"] });
     const held = ranked.find((p) => p.id === "risky")!; expect(factorOf(held, "risk")).toBeLessThan(0); // it still ranks, it just ranks with its discount
     expect(validateProposal(held).reasons.some((r) => r.includes("confirm it before you make the change"))).toBe(true);
-    // RECORDED, NEVER A DISCOUNT (operator, 2026-08-29): busy stands equal to safe on rank, and the receipt still names the overlap for the reading.
-    expect([Math.abs(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")), Math.abs(factorOf(ranked.find((p) => p.id === "safe")!, "overlap"))]).toEqual([0, 0]);
+    expect([Math.abs(factorOf(ranked.find((p) => p.id === "busy")!, "overlap")), Math.abs(factorOf(ranked.find((p) => p.id === "safe")!, "overlap"))]).toEqual([0, 0]); // RECORDED, NEVER A DISCOUNT (operator, 2026-08-29): busy stands equal to safe on rank, and the receipt still names the overlap for the reading.
     expect(ranked.find((p) => p.id === "busy")!.rankingReceipt!.factors.find((f) => f.name === "overlap")!.input).toContain("noted for the reading");
     for (const p of ranked) for (const f of p.rankingReceipt!.factors) expect(Math.abs(f.contribution)).toBeLessThanOrEqual(f.max); }); // every factor stays inside its own ceiling, so no single input can quietly decide the order
   it("holds every factor on its own floor, and never punishes a stored change for the age of its vocabulary", () => {
@@ -1325,8 +1319,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     expect(plan(jobs, { candidates: 2 }).funded.map((f) => f.key)).toEqual(["/strong", "/tiny"]);
     expect(plan(jobs, { candidates: 1, skip: ["/strong"] }).funded.map((f) => f.key)).toEqual(["/tiny"]); });
   it("orders every paid job by expected value, with a finish breaking only a genuine tie", () => {
-    // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put every one-cent finish above every new section whatever the traffic said, which is the names-only queue. A finish still wins any true tie, at the manifest and at the page's one slot alike.
-    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)], { candidates: 3 });
+    const b = plan([job("topic:wildlife", "new_page", 4, DRAFT_BUDGET.BUNDLE_CALLS), job("/rugs", "correction_review", 3), job("/best", "field_draft", 90)], { candidates: 3 }); // FINISHING IS A TIE-BREAK, NEVER A BAND (operator, 2026-08-30): the absolute correction-first order put every one-cent finish above every new section whatever the traffic said, which is the names-only queue. A finish still wins any true tie, at the manifest and at the page's one slot alike.
     expect(b.funded.map((f) => f.key), "value first: the 90-click draft beats the 3-click finish, and the finish funds LAST").toEqual(["/best", "topic:wildlife", "/rugs"]);
     expect(plan([job("/a", "field_draft", 5), job("/b", "correction_review", 5)]).funded.map((f) => f.key), "equal value: the finish goes first").toEqual(["/b", "/a"]);
     expect(plan([job("/p", "field_draft", 90), job("/p", "correction_review", 3)]).funded.map((f) => [f.key, f.family, [...f.fallbacks]]), "the page's one slot goes to value, with the finish as fallback").toEqual([["/p", "field_draft", ["correction_review"]]]);
@@ -1364,8 +1357,7 @@ describe("the paid line is compiled, priced and funded ONCE, before a cent is sp
     const first = b.take("/best")!; expect(first.left).toBe(DRAFT_BUDGET.DELIVERABLE_CALLS); // a draft, its judge, and the retries the editor is built to make
     first.left = 0;                                   // the candidate spent its whole allowance and finished nothing
     expect([b.take("/best"), b.take("/second") != null, b.spent().calls]).toEqual([null, true, DRAFT_BUDGET.DELIVERABLE_CALLS]);});});
-// ── the typed refusal contract: faults ride preserved copy, and a gain refusal mints the reading it needs ─
-describe("typed refusal contract", () => {
+describe("typed refusal contract", () => { // ── the typed refusal contract: faults ride preserved copy, and a gain refusal mints the reading it needs ─
   it("preservation carries the typed faults with the banked copy it keeps", () => {
     const FAULT = "it repeats what stays on the page below it, so a reader gets the same thing twice";
     const banked = prop({ status: "ready", workKey: "wk-1", copyStamp: "the page as it read", faults: [FAULT], limitations: [FAULT],
@@ -1408,7 +1400,7 @@ describe("typed refusal contract", () => {
       owe: (key: string, need: { kind: string; reasonCode: string; reason: string }) => owed.push({ key, kind: need.kind, reasonCode: need.reasonCode }),
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async () => ({ value: draft }) } as never);
-    expect(owed).toEqual([{ key: "/funny-farsi-phrases", kind: "serp", reasonCode: "no_exact_serp" }]); // the smallest correct step, as DATA the runtime executes, never a sentence it parses
+    expect(owed).toEqual([{ key: "/funny-farsi-phrases::body::funny-persian-phrases", kind: "serp", reasonCode: "no_exact_serp" }]); // the smallest correct step, as DATA the runtime executes, keyed to the MUTATION that owes it (the money keys by mutation now, so two changes on one page each carry their own debt)
     expect(out[0]!.status).toBe("needs_review"); }); // and the card stays visible, owed, unsettled: acquisition reopens it, never a blind retry
   /** THE MISSING-INFORMATION LOOP, END TO END AT THE DECISION BOUNDARY. The deadlock: a rival identifies what is missing, rival copy may support nothing, the fact check re-checked only claims the page already makes, so the writer never received one new authorized fact and restated the page forever. Now: with every winner read, the refusal resolves to the MISSING TOPIC as a typed factual_source requirement carrying the proposition to research; an UNRELATED stored fact does not satisfy it; and once a fact for that topic is banked, the packet hands it to the writer as fact-* evidence a claim may cite, and the draft that uses it lands Ready. */
   it("a gain refusal resolves to the rival-identified missing topic, an unrelated fact never satisfies it, and the banked fact reaches the next draft as citable evidence", async () => {
@@ -1453,8 +1445,7 @@ describe("typed refusal contract", () => {
     expect(seen.join(" ")).toContain("fact-1: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
     expect(out2[0]!.status).toBe("ready");
-    // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
-    const done = out2[0]!;
+    const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
     expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
     expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
     expect(done.semanticReview!.claims).toEqual(done.claims!.map((c, i) => ({ i, by: [...c.supportedBy].sort(), entailed: true })));
@@ -1525,8 +1516,7 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
   it("no undiagnosed card is drafted, no missing-information diagnosis hires, and an authorized sibling still is", async () => {
     const { AI_CASE_COPY } = await import("@/domains/decision/producers/ai-cases");
     const dx = (kind: string) => ({ kind, treatment: kind === "missing_information" ? "add_answer_section" : "rewrite_existing_section", explanation: "e", ownedIds: ["own-1", "own-2"], evidenceIds: ["ans-1"], missing: "the 1979 rule", packet: "pk", contentHash: "h", completeness: "complete", observationIds: ["o1"], version: 3, decidedAt: "2026-08-28T00:00:00.000Z" }) as never;
-    // A CONFIRMED FACT ELSEWHERE ON THE PAGE IS A PAGE MATCH, NEVER SUPPORT FOR THIS PROPOSITION: the gate takes no fact argument at all any more, so no arrangement of the page's fact bank can hire the writer for a claim nothing binds to its evidence.
-    expect(AI_CASE_COPY.gateOf.length, "the gate reads the diagnosis and nothing else").toBe(1);
+    expect(AI_CASE_COPY.gateOf.length, "the gate reads the diagnosis and nothing else").toBe(1); // A CONFIRMED FACT ELSEWHERE ON THE PAGE IS A PAGE MATCH, NEVER SUPPORT FOR THIS PROPOSITION: the gate takes no fact argument at all any more, so no arrangement of the page's fact bank can hire the writer for a claim nothing binds to its evidence.
     expect(AI_CASE_COPY.gateOf(dx("missing_information"))).toMatchObject({ emit: true, hire: false, next: expect.stringContaining("acquires an authoritative source") });
     expect(AI_CASE_COPY.gateOf(dx("scattered_answer")), "scatter still hires on the page's own passages").toMatchObject({ emit: true, hire: true });
     vi.resetModules(); sent.length = 0; kinds.length = 0;
@@ -1536,11 +1526,9 @@ describe("the writer-hire gate on undiagnosed AEO cards", () => {
     env.snap = snapshot();
     const out = await run(TENANT, { complete: seam, ...OPTS, produce: true });
     expect(new Set(out.paid.receipts.filter((r) => r.providerCalls > 0 || r.ops > 0).map((r) => r.key)).has("/held-case"), "the undiagnosed card bought nothing").toBe(false);
-    expect([out.paid.declared.includes("/held-case"), out.paid.declared.includes("/cleared-case")], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]);
-    // THE COST OF READING PAGES RIDES THE CANONICAL RECEIPT, never only a log: a caller reads it here or nowhere.
-    expect(out.paid.aeo, "a pass that funded no reading says so in all four numbers").toEqual({ funded: 0, attempted: 0, cached: 0, left: 0 });
-    // EVERY ENDING CARRIES THE RECEIPT, including the one that never reached a producer at all.
-    const snap = snapshot() as unknown as { sources: { source: string; status: string }[] };
+    expect([out.paid.declared.some((k: string) => k.startsWith("/held-case")), out.paid.declared.some((k: string) => k.startsWith("/cleared-case"))], "never declared as editor work; the authorized sibling is real work").toEqual([false, true]);
+    expect(out.paid.aeo, "a pass that funded no reading says so in all four numbers").toEqual({ funded: 0, attempted: 0, cached: 0, left: 0 }); // THE COST OF READING PAGES RIDES THE CANONICAL RECEIPT, never only a log: a caller reads it here or nowhere.
+    const snap = snapshot() as unknown as { sources: { source: string; status: string }[] }; // EVERY ENDING CARRIES THE RECEIPT, including the one that never reached a producer at all.
     env.snap = { ...snap, sources: [...snap.sources.filter((x) => x.source !== "gsc"), { source: "gsc", status: "failed" }] };
     const dark = await run(TENANT, { complete: seam, ...OPTS }); const n = dark.paid.aeo;
     expect([dark.outcome, n, n.attempted + n.cached + n.left], "an unreadable pass still accounts for the reading it did not buy, and the four numbers reconcile").toEqual(["evidence_unreadable", { funded: 0, attempted: 0, cached: 0, left: 0 }, n.funded]);
@@ -1606,4 +1594,28 @@ describe("an unfinished change may not hide a finished one", () => {
     const disjoint = await seat([atomic("t", "title"), atomic("m", "meta")]);
     expect(disjoint.ranked.map((p) => p.id).sort()).toEqual(["m", "t"]); // different mutations, both stand
   });
+});
+/** ONE PAGE IS NOT ONE OPPORTUNITY, AT THE MONEY DOOR TOO (operator, 2026-08-31). Funding keyed by page meant two rows on one address shared one allowance and whichever was reached first took it: live, a 324-word page under 22,509 impressions bought a link out to another page instead of its own copy. The money now keys by MUTATION, mirroring the footprint: a description and a body section on one page are two jobs, funded and settled separately, while a bare page focus still reaches every mutation on it and a job declared page-level is still drawable by its later card. */
+describe("the money funds mutations, not pages", () => {
+  const at = "https://www.iranopedia.com/comedians";
+  const card = (slug: string, field: "meta" | "section", q: string) => prop({ id: `${TENANT}::/comedians::existing_edit::${slug}`, pagePath: "/comedians", pageUrl: at, changeFamily: field === "meta" ? "meta" : "section",
+    status: "needs_review" as const, researchOnly: true as const, primaryQuery: q, limitations: [],
+    recommendedChange: { kind: "existing_edit" as const, field, before: null, after: "Write it." } });
+  it("keys a description, a body topic and a link on one page apart, and a bare object to the page alone", () => {
+    const [m, b, l] = [card("missing_description", "meta", "iranian comedians"), card("thin_page", "section", "iranian comedians"),
+      prop({ id: `${TENANT}::/comedians::existing_edit::internal_link`, pagePath: "/comedians", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, primaryQuery: "x", recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Link.", linkTo: "/directors" } })];
+    expect([DRAFT_BUDGET.keyOf(m!), DRAFT_BUDGET.keyOf(b!), DRAFT_BUDGET.keyOf(l!), DRAFT_BUDGET.keyOf({ pagePath: "/comedians" })])
+      .toEqual(["/comedians::meta", "/comedians::body::iranian-comedians", "/comedians::link::/directors", "/comedians"]); });
+  it("funds both mutations on one page, drafts both in one pass, and a page-level job is still drawable by its card", async () => {
+    const meta = card("missing_description", "meta", "iranian comedians"), body = card("thin_page", "section", "iranian comedians");
+    const jobs = [meta, body].map((c) => ({ key: DRAFT_BUDGET.keyOf(c), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }));
+    const budget = DRAFT_BUDGET.plan({ jobs, candidates: 8, calls: 30, focus: ["/comedians"] }); // the PAGE focus reaches both mutations
+    expect(budget.funded.map((f) => f.key).sort(), "two mutations on one page are two funded jobs").toEqual(["/comedians::body::iranian-comedians", "/comedians::meta"]);
+    const asked: string[] = [];
+    await applyDraftedCopy([meta, body], { tenantId: TENANT, budget, now: NOW, refusals: new Map<string, string>(),
+      snapshot: { ownedPages: [{ url: at, content: { wordCount: 324, title: "Iranian comedians", h1: "Iranian comedians", outline: [] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } } as never,
+      complete: async ({ user }: { user: string }) => (asked.push(user), { value: {} }) } as never);
+    expect([budget.spent().candidates, asked.length >= 2], "TWO allowances were held and both bought drafts in the same pass, the money surface's own receipt").toEqual([2, true]);
+    const pageLevel = DRAFT_BUDGET.plan({ jobs: [{ key: "/comedians", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
+    expect(pageLevel.draw(DRAFT_BUDGET.keyOf(meta), 2), "a job declared before its card exists is funded under the page, and the card's mutation key still reaches that allowance").not.toBeNull(); });
 });
