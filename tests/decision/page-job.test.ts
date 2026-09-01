@@ -32,21 +32,18 @@ describe("what one page is for, held durably", () => {
     const first = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); expect([first.reason, first.job?.pageType, first.job?.topics, s.calls(), db.rows.size]).toEqual(["read", "city", ["tabriz", "iran travel", "city guide"], 1, 1]);
     const again = await pageJobFor("t_fixture", extract("/tabriz"), { complete: s.complete, store: db }); // the row IS the answer: nothing is bought twice
     expect([again.reason, again.job?.job, s.calls()]).toEqual(["read", READING.job, 1]);
-    // A page that CHANGED under its reading is still answered, labelled stale, until a pass can afford a fresh one.
-    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);});
+    const changed = await pageJobFor("t_fixture", extract("/tabriz", "Tabriz, Iran: 2026 update"), { store: db, buy: false }); expect([changed.reason, changed.job?.job]).toEqual(["stale", READING.job]);}); // A page that CHANGED under its reading is still answered, labelled stale, until a pass can afford a fresh one.
   it("says WHY a page has no job instead of answering null five different ways", async () => {
     budget.allowed = true; const db = store();
     expect((await pageJobFor("t_fixture", { url: "https://mysite.example/unread" }, { store: db })).reason).toBe("unreadable"); expect((await pageJobFor("t_fixture", extract("/a"), { store: db })).reason).toBe("not_asked");
-    // Two subject words is below the schema's floor of three, so the whole reading is refused rather than half kept.
-    expect((await pageJobFor("t_fixture", extract("/b"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete, store: db })).reason).toBe("refused");
+    expect((await pageJobFor("t_fixture", extract("/b"), { complete: seam({ ...READING, topics: ["tabriz", "iran"] }).complete, store: db })).reason).toBe("refused"); // Two subject words is below the schema's floor of three, so the whole reading is refused rather than half kept.
     budget.allowed = false; expect((await pageJobFor("t_fixture", extract("/c"), { complete: seam(READING).complete, store: db })).reason).toBe("unaffordable"); budget.allowed = true;
     expect([(await pageJobFor("t_fixture", extract("/d"), { store: db, buy: false })).reason, db.rows.size]).toEqual(["unaffordable", 0]);});
   it("buys what one pass is allowed, then resumes the rotation where it stopped and wraps around the site", async () => {
     budget.allowed = true; const db = store(false); const six = Array.from({ length: 6 }, (_, i) => extract(`/page-${i}`));
     const pass = async (): Promise<[number, string | null]> => { const s = seam(READING); await loadPageJobs("t_fixture", six, { complete: s.complete, store: db, maxNewReads: 2, priority: 0 }); return [s.calls(), db.at()]; };
     const [bought, first] = await pass(), [, second] = await pass(), [, third] = await pass();
-    // Two readings a pass, starting at the page after the last one paid for. Six pages, three passes, back to the beginning.
-    expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);});});
+    expect([bought, first, second, third]).toEqual([2, "mysite.example/page-2", "mysite.example/page-4", "mysite.example/page-0"]);});}); // Two readings a pass, starting at the page after the last one paid for. Six pages, three passes, back to the beginning.
 describe("what a job changes, and what a missing one may never change", () => {
   it("keeps a section off a page that is not for it and off a rail an essay never goes on", () => {
     // THE SHAPES, none named in the code: one word this whole site carries is not a tie, a shop rail is no place for an essay, and NO VERDICT WITHOUT A READING (what "unknown" licenses is the caller's decision, made on the typed reason). A PAGE ABOUT ONE THING IS NOT THE ANSWER ABOUT EVERYTHING AROUND IT either (a city page covers landmarks, so overlap alone handed it a whole country's), and a page answers for its SUBJECTS, never the prose around them, so a history timeline is not a famous-people page.
@@ -56,8 +53,7 @@ describe("what a job changes, and what a missing one may never change", () => {
       sectionFit(POPULATION, ["beautiful", "city", "iran"], CORPUS), sectionFit(null, ["tabriz"]), sectionFit(undefined, ["tabriz"]),
       sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in iran"), sectionFit(CITY, ["landmark"], CORPUS, "what are the most famous landmarks in tabriz"),
       sectionFit(TIMELINE, ["famous", "people", "history"], CORPUS, "who are some famous iranian people in history")])
-      // TIMELINE reads wrong_type now: a GUIDE is scoped to its own name like a city is (the /karaj travel guide walked past the city rule on its model-assigned type), and this fixture's bare "/timeline" address shares no word with the ask. Refused for scope instead of coverage; still never minted.
-      .toEqual(["fits", "fits", "off_topic", "off_topic", "wrong_type", "off_topic", "off_topic", "unknown", "unknown", "wrong_type", "fits", "wrong_type"]);
+      .toEqual(["fits", "fits", "off_topic", "off_topic", "wrong_type", "off_topic", "off_topic", "unknown", "unknown", "wrong_type", "fits", "wrong_type"]); // TIMELINE reads wrong_type now: a GUIDE is scoped to its own name like a city is (the /karaj travel guide walked past the city rule on its model-assigned type), and this fixture's bare "/timeline" address shares no word with the ask. Refused for scope instead of coverage; still never minted.
     // THE LIVE 2026-08-16 CASE, exactly as stored: /karaj typed "guide" with a landmarks topic may not answer a country-wide landmarks question, and still answers one that names Karaj.
     const KARAJ = page("karaj", "guide", "Provide travelers with essential information about Karaj's history, tourist attractions, climate, population, things to do, outdoor activities, festivals, and FAQs before they go.", "travelers", ["karaj history", "population", "climate", "tourist attractions and landmarks", "things to do"]);
     expect([sectionFit(KARAJ, ["landmark"], CORPUS, "What are the most famous landmarks in Iran?"),

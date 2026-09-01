@@ -21,13 +21,10 @@ describe("one audience need across every stream", () => {
         { promptId: "p1", promptText: "What are popular Persian girl names?", creditedOwn: true, citations: [{ domain: "x.example", url: "https://x.example/girl-names" }], fanOutQueries: null }],
       winning: [{ url: "https://rival.example/names", domain: "rival.example", queries: ["persian girl names"], promptIds: [] }] };
     const [u] = canonicalDemandUnits(input); expect([u!.label, u!.pages, u!.queries.length]).toEqual(["persian girl names", ["https://x.example/girl-names", "https://x.example/names"], 2]);
-    // History: per-day loss over the named windows, and the swap said out loud as a tension.
-    expect([u!.history!.lostClicksPerMonth, u!.history!.pageSwapped]).toEqual([Math.round((9000 / 300 - 1200 / 90) * 30), true]); expect(u!.tensions.some((t) => t.includes("Google moved this audience"))).toBe(true);
+    expect([u!.history!.lostClicksPerMonth, u!.history!.pageSwapped]).toEqual([Math.round((9000 / 300 - 1200 / 90) * 30), true]); expect(u!.tensions.some((t) => t.includes("Google moved this audience"))).toBe(true); // History: per-day loss over the named windows, and the swap said out loud as a tension.
     expect(u!.tensions.some((t) => t.includes("split this audience"))).toBe(true);
-    // The keyword provider disagrees with the question form, and the unit says so instead of averaging.
-    expect(u!.tensions.some((t) => t.includes("grades this commercial"))).toBe(true); expect([u!.volume!.searchVolume, u!.serp!.winners[0]!.domain]).toEqual([8100, "rival.example"]);
-    // The prompt joined on shared subject tokens; its answers, credits, rivals and fan-outs ride the unit.
-    expect([u!.prompts[0]!.answers, u!.prompts[0]!.credited, u!.prompts[0]!.citedRivals[0]!.domain, u!.fanouts]).toEqual([2, 1, "rival.example", ["persian baby girl names 2026"]]); expect(u!.winningPages[0]!.domain).toBe("rival.example");
+    expect(u!.tensions.some((t) => t.includes("grades this commercial"))).toBe(true); expect([u!.volume!.searchVolume, u!.serp!.winners[0]!.domain]).toEqual([8100, "rival.example"]); // The keyword provider disagrees with the question form, and the unit says so instead of averaging.
+    expect([u!.prompts[0]!.answers, u!.prompts[0]!.credited, u!.prompts[0]!.citedRivals[0]!.domain, u!.fanouts]).toEqual([2, 1, "rival.example", ["persian baby girl names 2026"]]); expect(u!.winningPages[0]!.domain).toBe("rival.example"); // The prompt joined on shared subject tokens; its answers, credits, rivals and fan-outs ride the unit.
     expect(u!.vocabulary).toContain("What are popular Persian girl names?");});
   it("seeds a unit from history alone when the audience vanished, and claims nothing on absent streams", () => {
     const [u] = canonicalDemandUnits({ ...base,
@@ -57,8 +54,7 @@ describe("AI can seed demand, and only exact identity ever joins it (AEO reconst
     expect(fan).toBeDefined(); // two assistants across two days: recurring demand no Google row reports
     expect([fan!.seededBy, fan!.audience.impressions90d]).toEqual(["ai", 0]);});
   it("carries the parent questions the search was issued from, so the AEO path can join it at all", () => {
-    // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
-    const runs = ["2026-08-01", "2026-08-02", "2026-08-03"].map((day) => (
+    const runs = ["2026-08-01", "2026-08-02", "2026-08-03"].map((day) => ( // A UNIT WITH AN EMPTY `prompts` LIST IS UNREACHABLE: every consumer joins by prompt identity, so the strongest recurring search in the account sat in the demand layer and never reached a page or a refusal.
       { promptId: "p9", promptText: "Where do families buy a haft seen set?", creditedOwn: false,
         citations: [{ domain: "rival.example", url: "https://rival.example/h" }], fanOutQueries: ["haft seen set delivery"], engine: "chatgpt", day }));
     const fan = canonicalDemandUnits({ ...base, observations: runs }).find((u) => u.label === "haft seen set delivery")!; expect(fan.prompts.map((p) => [p.promptId, p.answers, p.credited])).toEqual([["p9", 3, 0]]);

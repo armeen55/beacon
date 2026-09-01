@@ -1619,3 +1619,25 @@ describe("the money funds mutations, not pages", () => {
     const pageLevel = DRAFT_BUDGET.plan({ jobs: [{ key: "/comedians", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
     expect(pageLevel.draw(DRAFT_BUDGET.keyOf(meta), 2), "a job declared before its card exists is funded under the page, and the card's mutation key still reaches that allowance").not.toBeNull(); });
 });
+/** THE GATE'S SECOND ARM HAS A WRITER (operator, 2026-08-31). proof.ts holds a field replacement "until a diagnosis names what is wrong or a stored results page backs this shape", and nothing ever stamped that backing for the editor's drafts: eight finished descriptions with positive readings sat behind an arm no code could satisfy. The stamp is EARNED, never asserted: three ranked titles for this exact search, two front-loading its first word, and the drafted line following that shape. */
+describe("a stored results page backs a replacement description, and its absence holds the gate exactly as before", () => {
+  const at = "https://www.iranopedia.com/iran-animals/persian-wolf";
+  const wolfCard = () => prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::missing_description`, pagePath: "/iran-animals/persian-wolf", pageUrl: at, changeFamily: "meta", status: "needs_review" as const, researchOnly: true as const, primaryQuery: "persian wolf", limitations: [],
+    recommendedChange: { kind: "existing_edit" as const, field: "meta" as const, before: "Learn about the wolf.", after: "Write a description of about 150 characters." } });
+  const serp = { serpEvidence: [{ observedAt: null, query: "persian wolf", aiOverview: [], aiMode: [], paa: [], related: [], organic: [
+    { rank: 1, domain: "a.example", url: "https://a.example/1", title: "Persian Wolf: Habitat and Diet" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Persian Wolf Facts" }, { rank: 3, domain: "c.example", url: "https://c.example/3", title: "Wolves of Iran" }] }] };
+  const drive = async (research: unknown) => { const out = await applyDraftedCopy([wolfCard()], { tenantId: TENANT, now: NOW, refusals: new Map<string, string>(),
+      snapshot: { ownedPages: [{ url: at, content: { wordCount: 300, title: "Persian Wolf", metaDescription: "Learn about the wolf.", h1: "Persian Wolf", outline: [] }, search: null }], research, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } } as never,
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf::meta", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      reviewer: async () => ({ notes: "fine" }) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "A clean summary in the searcher's words.", resolution: "none", claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) })) as never,
+      complete: async () => ({ value: { field: "meta", before: "Learn about the wolf.", after: "Persian Wolf explained: the habitat, diet, lifespan and conservation basics of this wolf, described in plain language.", rationale: "The current line says nothing the searcher asked.", placementAnchor: "Persian Wolf", claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], ...TAIL } }) } as never);
+    return out[0]!; };
+  it("stamps the earned backing, and the finished description clears the replacement gate", async () => {
+    const row = await drive(serp);
+    expect([!!row.modeledOn, row.modeledOn?.includes('the results page for "persian wolf"') ?? false], "the backing is stamped with its own arithmetic").toEqual([true, true]);
+    expect(openHold(row).blocking ?? "none", "and the gate's second arm is satisfied by it").not.toContain("demand evidence alone"); });
+  it("stamps nothing without the results page, and the same draft stays held exactly as before", async () => {
+    const bare = await drive({});
+    expect([bare.modeledOn ?? null, (openHold(bare).blocking ?? "") .includes("demand evidence alone") || bare.researchOnly === true], "no results page, no stamp, same hold").toEqual([null, true]); });
+});

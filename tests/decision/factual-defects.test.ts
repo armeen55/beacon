@@ -237,36 +237,28 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       "ruled against one of the two passages the claim names").toEqual([]);
     const both = (await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-2", "fact-1"]) })).filter((c) => c.status === "ready");
     expect(both[0]!.semanticReview!.claims, "and both, in any order, is what it banks").toEqual([{ i: 0, by: ["fact-1", "fact-2"], entailed: true }]);
-    // AND THE REVIEWER WAS ACTUALLY SHOWN WHAT IT RULED ON: the canonical claim, its own fact ids, and the exact passage behind each.
-    let shown = ""; await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 },
+    let shown = ""; await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, // AND THE REVIEWER WAS ACTUALLY SHOWN WHAT IT RULED ON: the canonical claim, its own fact ids, and the exact passage behind each.
       complete: async (i: { user: string }) => { shown = i.user; return { status: "drafted" as const, value: { rulings: [{ index: 0, publish: false, reason: "n", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "n" }] }] } }; } });
     expect(shown).toContain("claim 0:");
     expect(shown).toContain("must be entailed by exactly these fact ids: fact-1");
     expect(shown, "the exact passage, not an anonymous source blob").toMatch(/fact-1: "[^"]{10,}/);
-    // AND THE PRODUCTION DOOR AGREES AFTER A REAL SAVE AND RELOAD, not a serializer round trip: the mapping the reviewer returned is what comes back, the row is still Ready, and the one servability verdict holds nothing.
-    const roundTrip = async (p: ChangeProposal) => { db.rows = []; await saveChangeProposal(p);
+    const roundTrip = async (p: ChangeProposal) => { db.rows = []; await saveChangeProposal(p); // AND THE PRODUCTION DOOR AGREES AFTER A REAL SAVE AND RELOAD, not a serializer round trip: the mapping the reviewer returned is what comes back, the row is still Ready, and the one servability verdict holds nothing.
       return (await loadChangeProposal("t", p.id))!; };
-    // THE PERSISTED AUTHORIZATION CONTRACT IS ITS OWN NUMBER, not a prompt cache version: it read draft.factual_review, which would have governed the substantive editor's receipts by accident.
-    const { PROMPT_REGISTRY } = await import("@/domains/decision/llm/prompt-registry");
+    const { PROMPT_REGISTRY } = await import("@/domains/decision/llm/prompt-registry"); // THE PERSISTED AUTHORIZATION CONTRACT IS ITS OWN NUMBER, not a prompt cache version: it read draft.factual_review, which would have governed the substantive editor's receipts by accident.
     expect(REVIEW_CONTRACT).not.toBe(PROMPT_REGISTRY["draft.factual_review"]);
-    // AND A PROMPT WHOSE RESPONSE CONTRACT CHANGED CARRIES A NEW VERSION, or an answer shaped for the old one is served from cache and refused on arrival: the editor stopped returning `claimsEntailed` at v3.
-    expect([PROMPT_REGISTRY["draft.editor_judgement"] >= 3, PROMPT_REGISTRY["draft.aeo_gap"] >= 2], "a changed reader packet may not serve its old cached answers").toEqual([true, true]);
+    expect([PROMPT_REGISTRY["draft.editor_judgement"] >= 3, PROMPT_REGISTRY["draft.aeo_gap"] >= 2], "a changed reader packet may not serve its old cached answers").toEqual([true, true]); // AND A PROMPT WHOSE RESPONSE CONTRACT CHANGED CARRIES A NEW VERSION, or an answer shaped for the old one is served from cache and refused on arrival: the editor stopped returning `claimsEntailed` at v3.
     const live = await roundTrip(earned[0]!);
     expect(live.semanticReview!.claims, "the reviewer's own mapping survived the store").toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
     expect([live.status, openHold(live).blocking], "and it is still offered").toEqual(["ready", null]);
-    // The same path refuses each defective receipt, and the store will not keep `ready` on any of them.
-    for (const [what, broken] of [
-      // LITERALLY 2: the prompt, schema, packet, validation and persistence all changed after v2, so a receipt banked under the broken implementation must not be able to look current.
-      ["a receipt banked under an earlier contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 3 } }],
+    for (const [what, broken] of [ // The same path refuses each defective receipt, and the store will not keep `ready` on any of them.
+      ["a receipt banked under an earlier contract", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, version: 3 } }], // LITERALLY 2: the prompt, schema, packet, validation and persistence all changed after v2, so a receipt banked under the broken implementation must not be able to look current.
       ["a mapping naming evidence the claim does not", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, claims: [{ i: 0, by: ["fact-9"], entailed: true }] } }],
       ["a reading written for other words", { ...earned[0]!, semanticReview: { ...earned[0]!.semanticReview!, of: `${copyKey(earned[0]!)}x` } }]] as const) {
       const held2 = await roundTrip(broken as ChangeProposal);
       expect([held2.status !== "ready", openHold(held2).blocking != null], what).toEqual([true, true]);}
-    // A REVIEW THAT DID NOT COME BACK DRAFTED (refused, failed, thrown: one branch answers them all) BANKS NOTHING, fabricates no receipt, and loses no card.
-    const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) });
+    const dead = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: async () => ({ status: "refused" as const }) }); // A REVIEW THAT DID NOT COME BACK DRAFTED (refused, failed, thrown: one branch answers them all) BANKS NOTHING, fabricates no receipt, and loses no card.
     expect(dead.filter((c) => c.status === "ready" || c.semanticReview), "no reading, no receipt").toEqual([]);
-    // AND THE SAME ARRAY COMES BACK: a fresh copy read as "moved" upstream, so a failing pass persisted these unreviewed copies over a banked paid review and erased it. Identity is the no-rewrite receipt.
-    expect(dead, "no reading moves nothing").toBe(cards);
+    expect(dead, "no reading moves nothing").toBe(cards); // AND THE SAME ARRAY COMES BACK: a fresh copy read as "moved" upstream, so a failing pass persisted these unreviewed copies over a banked paid review and erased it. Identity is the no-rewrite receipt.
     const out = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete });
     expect(out.map((c) => c.status)).toEqual(["ready", "needs_review", "ready"]);
     expect(out[1]!.limitations[0]).toContain("Held by Beacon's own review");
@@ -282,16 +274,14 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const rc = (k: string) => by.get(k)!.recommendedChange as { before: string; after: string };
-    // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the label to its value; the replacement keeps the label, terminology and sentence shape, and puts the one space there rather than reproducing the page's mistake.
-    expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning: Light." });
+    expect(rc("noor")).toMatchObject({ before: "Meaning:Bright, radiant, or glowing.", after: "Meaning: Light." }); // THE PAGE IS AUTHORITATIVE FOR ITS VOICE, NEVER FOR ITS TYPOS (operator, 2026-08-28). The crawled span glues the label to its value; the replacement keeps the label, terminology and sentence shape, and puts the one space there rather than reproducing the page's mistake.
     checks.rows = [check({ subject: "Azadeh", current: "AzadehMeaning:Free, independent, or liberated.", proposed: "free, free-minded; also noble", sources: q1('Azadeh is a Persian female given name meaning free, free-minded also means someone noble') })]; // THE GLUED HEADING, no newline at all (render audit, 2026-08-30): the name is cut off the span exactly as the multi-line case cuts it
     const glued = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!.recommendedChange as { before: string; after: string }; expect([glued.before, glued.after.startsWith("Meaning: ")]).toEqual(["Meaning:Free, independent, or liberated.", true]);
     expect(rc("mahsa").after).toBe("Meaning: Like the moon.");
     expect(rc("leila").after, "two glosses read as a person writes them").toBe("Meaning: Night or dark.");
     expect(rc("shab").after, "three or more keep the list, and only its punctuation is Beacon's").toBe("Meaning: Night, dusk, or evening.");
     expect(rc("alborz")).toMatchObject({ before: "Meaning:Shining like a heavenly flower.", after: "Meaning: Mountain Rampart." });
-    // THE LABEL ITSELF IS THE PAGE'S, whatever it says: nothing here knows the word "Meaning".
-    expect(rc("roya").after, "any ordinary label, not a hardcoded one").toBe("Definition: A dream.");
+    expect(rc("roya").after, "any ordinary label, not a hardcoded one").toBe("Definition: A dream."); // THE LABEL ITSELF IS THE PAGE'S, whatever it says: nothing here knows the word "Meaning".
     expect(by.get("noor")!.limitations[0], "nothing deterministic holds a composed line").toContain("has not read this correction yet");
     const { staleCopyReasons } = await import("@/domains/decision/drafted-copy");
     expect(staleCopyReasons(by.get("noor")!, new Map(), []).filter((r) => r.includes("its copy is"))).toEqual([]);
@@ -311,10 +301,8 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     const by = new Map(cards.map((c) => [c.id.split("fact-")[1], c]));
     const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
-    // An address is not a label, a clock time never opens one, another script keeps its own spacing, and a colon the page already spaced is left alone.
-    expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]);
-    // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
-    const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal;
+    expect(["link", "clock", "parsi", "prose"].map(after)).toEqual(["Light", "Light.", "\u0645\u0639\u0646\u06cc:Light", "One meaning here: Light."]); // An address is not a label, a clock time never opens one, another script keeps its own spacing, and a colon the page already spaced is left alone.
+    const glued = { ...by.get("noor")!, recommendedChange: { ...by.get("noor")!.recommendedChange, after: "Meaning:Light." } } as ChangeProposal; // AND THE READY GATE HOLDS A GLUED LINE EVEN IF A FUTURE PRODUCER BYPASSES THE COMPOSER ENTIRELY.
     const ok = async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "reads cleanly", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the passage carries it" }] }] } });
     const seen = async (c: ChangeProposal) => (await reviewFactualBundle([c], { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: ok }))[0]!;
     const [held, clean] = [await seen(glued), await seen(by.get("noor")!)];

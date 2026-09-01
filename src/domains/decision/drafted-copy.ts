@@ -464,8 +464,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
   }
   if (kind === "answer" && carriesMaterial && rewrite && card.treatment === "rewrite_existing_section") packet.treatment = "structural_synthesis"; // A PAGE THAT ALREADY HOLDS THE MATERIAL IS THE SYNTHESIS CASE: reorganise what the page already proves into the answer the search wanted. Where NO citable id exists at all the gate above cannot arm, so gain is decided by the evaluator on FORM, instructed below.
   if (rewrite) { packet.remains = rewrite.remains;
-    // THE TARGET SECTION ALWAYS REACHES THE WRITER AND THE EVALUATOR, wherever it sits: the page-copy budget reads the
-    const ev = packet.evidence as Record<string, string>; // the passage that follows it, ride as their own named ids regardless of what the budget kept. // the packet and the writer was asked to replace words it had never seen. The exact passage being replaced, and // page in document order, so a section past the budget's reach (a 30,000-character page is ordinary) fell out of
+    const ev = packet.evidence as Record<string, string>; // the passage that follows it, ride as their own named ids regardless of what the budget kept. // the packet and the writer was asked to replace words it had never seen. The exact passage being replaced, and // page in document order, so a section past the budget's reach (a 30,000-character page is ordinary) fell out of // THE TARGET SECTION ALWAYS REACHES THE WRITER AND THE EVALUATOR, wherever it sits: the page-copy budget reads the
     if (!Object.values(ev).some((t) => t.includes(rewrite!.replaces.slice(0, 80)))) ev["target-section"] = rewrite.replaces.slice(0, 2_400);
     if (rewrite.remains.trim()) ev["section-after"] = rewrite.remains.slice(0, 1_200); }
   const spec = card.recommendedChange.kind === "existing_edit" ? card.recommendedChange.after.trim() : ""; // THE BRIEF'S OWN TARGET COPY IS THE STARTING POINT, NOT A PROMPT TO OUTDO. A producer that already carries an agreed spec (the exact title or opening the evidence lane settled) hands it over to be VERIFIED against the stored page and refined to fit, so the model checks work rather than replacing it with an idea of its own. A RESEARCH BRIEF IS NOT A SPEC: its `after` is an instruction about the work, and telling the model to refine an instruction ships the instruction as copy, so a brief is framed as the job and never as the words.
@@ -513,32 +512,25 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     const key = DRAFT_BUDGET.keyOf(card); // THE REFUSAL RESOLVES OR IT SETTLES, and only the INFORMATION-GAIN class resolves to evidence: a wrong anchor or a transport failure is mechanical and mints no requirement. The smallest correct step is chosen deterministically, cheapest defensible first, from what is actually on file for THIS search; the evaluator's own typed step is honored where the ladder cannot see the gap (its rungs all present and the judge naming the acquisition). `no_valid_treatment` is typed debt: it files the deterministic refusal that settles this candidate for the day, and the day fingerprint reopens it when the evidence version or the drafting policy moves.
     if (gainSeen && !opts.unsettled?.has(key)) {
       // EVERY CHECKED ROW ANSWERS THE RUNG, whatever its confidence: "the sources cannot support a statement" is an
-      // answer, and building `answered` from authorized (confirmed) rows alone re-minted an unsupportable topic on
-      const checkedAtVersion = checked.filter((f) => f.state === "checked" && f.pageContentHash === factHashOf(body)); // every drive for ever. Authorization still gates what a CLAIM may cite; it never gates what was researched.
+      const checkedAtVersion = checked.filter((f) => f.state === "checked" && f.pageContentHash === factHashOf(body)); // every drive for ever. Authorization still gates what a CLAIM may cite; it never gates what was researched. // answer, and building `answered` from authorized (confirmed) rows alone re-minted an unsupportable topic on
       const step = GAIN.resolution(judgeStep, opts.snapshot, card, page, body, checkedAtVersion);
       opts.resolved?.set(key, { resolution: step.resolution, why: lessons.at(-1) ?? "refused" });
       if (step.need) opts.owe?.(key, { ...step.need, reason: lessons.at(-1) ?? step.need.reasonCode });
       log.info("[drafted-copy] the refusal resolved to a typed next step", { tenantId: opts.tenantId, path: card.pagePath, resolution: step.resolution, ...(step.need ? { kind: step.need.kind, url: step.need.url } : {}) });}
     return null;}
-  // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
-  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section",
+  const verdict = validateProposal({ ...card, recommendedChange: { kind: "existing_edit", field: kind === "description" ? "meta" : kind === "h1" ? "h1" : kind === "title" ? "title" : "section", // THE ONE CANON VALIDATOR, last and unchanged: dashes, ungrounded figures and destructive replacements are house rules about any copy Beacon ships, not opinions about this deliverable, so they stay their own gate.
     before: deliverable.beforeText, after: deliverable.finalCopy } },
-  // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
-  { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now,
-    // THE SOURCE IS THE SOURCE, NEVER THE SITE ITSELF. This passed each owned URL as `verified: true` with the whole proposed paragraph as that page's claim, which says "this new copy is supported because another Iranopedia page exists" and would carry an existing error across the site. Owned pages are context for differentiation and linking. Only a checked fact whose own source was read may authorize an assertion, and it comes with that source's real URL and quotation.
-    sources: verifiedFacts.flatMap((f, i) => deliverable.claims.some((c) => c.supportedBy.includes(`fact-${i + 1}`))
+  { pageBodyText: packet.bodyText, evidenceText: [...outline, ...hints, packet.title ?? ""].filter(Boolean).join(" "), now: opts.now, // THE PAGE'S OWN WORDS GO IN. The canon validator's entailment half was handed the card's hints and the outline and never the stored body, so it judged copy about a page against everything except that page.
+    sources: verifiedFacts.flatMap((f, i) => deliverable.claims.some((c) => c.supportedBy.includes(`fact-${i + 1}`)) // THE SOURCE IS THE SOURCE, NEVER THE SITE ITSELF. This passed each owned URL as `verified: true` with the whole proposed paragraph as that page's claim, which says "this new copy is supported because another Iranopedia page exists" and would carry an existing error across the site. Owned pages are context for differentiation and linking. Only a checked fact whose own source was read may authorize an assertion, and it comes with that source's real URL and quotation.
       ? f.sources.filter((x) => AUTHORITATIVE_KIND.has(x.kind)).map((x) => ({ url: x.url, verified: true, claim: f.proposed ?? f.current, excerpt: x.says }))
       : []) });
   if (verdict.verdict === "rejected") return refuse(verdict.reasons[0] ?? "canon refused it");
   const ready = verdict.verdict === "ready" && !deliverable.softFailures?.length, key = DRAFT_BUDGET.keyOf(card);
   if (deliverable.softFailures?.length) {
-    // COMPLETE COPY THAT FAILED ONLY SOFT RULES IS REVIEW WORK, and the objection rides with it so the next pass corrects instead of re-buying the identical draft.
-    opts.note?.(key, "review_saved", deliverable.softFailures[0]);
+    opts.note?.(key, "review_saved", deliverable.softFailures[0]); // COMPLETE COPY THAT FAILED ONLY SOFT RULES IS REVIEW WORK, and the objection rides with it so the next pass corrects instead of re-buying the identical draft.
   } else if (!ready) {
-    // THE CANON HOLDING COMPLETE COPY IS A LOOK OWED, NOT A REFUSAL: `needs_review` is not `rejected`, so this is review work carrying the canon's own quality reason.
-    opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);}
-  // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
-  return { d: deliverable, ready };}
+    opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);} // THE CANON HOLDING COMPLETE COPY IS A LOOK OWED, NOT A REFUSAL: `needs_review` is not `rejected`, so this is review work carrying the canon's own quality reason.
+  return { d: deliverable, ready };} // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
 function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query; const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null; if (!row) return [];
@@ -562,15 +554,16 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
   // cards and seven addresses TOTAL for the pass (operator, 2026-08-31, "remove the first-five writer slice"): the
   // walk below visits every funded mutation, so a pass of forty descriptions drafted thirty-five of them against no
   // stored body at all. The reader's own per-call bound still holds; what changed is that the pass makes as many
-  // bounded calls as the work needs instead of one.
-  const drafting = cards.filter((c) => kindFor(c) != null)
+  const drafting = cards.filter((c) => kindFor(c) != null) // bounded calls as the work needs instead of one.
     .map((c) => pageFor(opts.snapshot, c)?.url).filter((u): u is string => !!u);
   for (const c of cards.filter((c) => kindFor(c) != null)) {
-    const q = new Set(topicTokens(c.primaryQuery)), self = pageFor(opts.snapshot, c)?.url;
-    for (const o of opts.snapshot.ownedPages.filter((o) => o.url !== self)
-      .map((o) => ({ o, n: topicTokens([o.content?.title ?? "", o.content?.h1 ?? "", ...(o.content?.outline ?? [])].join(" ")).filter((w) => q.has(w)).length }))
-      .filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 2).map((x) => x.o.url))
-      if (!drafting.includes(o)) drafting.push(o); }
+    const q = new Set(topicTokens(c.primaryQuery)), me = pageFor(opts.snapshot, c), self = me?.url;
+    // A HUB'S SIBLINGS ARE THE PAGES IT ALREADY LINKS TO (operator, 2026-08-31). Word overlap alone found nothing for /cities under "biggest cities in iran", because /isfahan and /tabriz share no token with that search, so the one page class whose whole value is its children could never cite them and every hub section died on the gain gate. The page's own stored links name its children exactly; word overlap stays for pages that link to nothing.
+    const linked = new Set((me?.content?.internalLinks ?? []).map((l) => { try { return canonicalUrlKey(new URL(l.href, self ?? undefined).toString()); } catch { return ""; } }).filter(Boolean));
+    const scored = opts.snapshot.ownedPages.filter((o) => o.url !== self)
+      .map((o) => ({ o, n: topicTokens([o.content?.title ?? "", o.content?.h1 ?? "", ...(o.content?.outline ?? [])].join(" ")).filter((w) => q.has(w)).length + (linked.has(canonicalUrlKey(o.url)) ? 2 : 0) }))
+      .filter((x) => x.n >= 2).sort((a, b) => b.n - a.n).slice(0, 3).map((x) => x.o.url);
+    for (const o of scored) if (!drafting.includes(o)) drafting.push(o); }
   // A LINK'S DESTINATION IS NAMED, NOT GUESSED (live, 2026-08-31). The loop above collects pages that merely SHARE WORDS with the card's query, so the page a link actually points at was almost never loaded: the writer had nothing true to say about it and every link draft invented a claim about itself ("The body includes a link labeled iranian horse"), which no evidence can carry.
   for (const c of cards) { if (kindFor(c) !== "link") continue; const dest = linkDestOf(c); if (!dest) continue;
     // AND THE DESTINATION NEED NOT BE IN THE SNAPSHOT'S OWN PAGE LIST. Live, /iran-flags/late-safavid-military-flag is a real page with a stored body and is absent from `ownedPages`, so looking it up there found nothing and the writer reached for a rival page instead. The path is resolved against the source page's own origin, and the body read is the same bounded one.
@@ -596,7 +589,14 @@ export async function applyDraftedCopy(cards: readonly ChangeProposal[], opts0: 
       const dest = link ? linkDestOf(card) : null;
       const shape = meta || h1 || title ? "field" : link ? "link" : card.treatment === "rewrite_existing_section" && drafted.beforeText != null ? "replace" : "add"; // THE ONE PLACE A TREATMENT BECOMES A PLACEMENT: `where` and the operator steps were two hand-copied ternaries keyed on the same boolean twenty lines apart, honest only while they agreed by hand.
       const absorbs = shape === "replace" ? done!.d.absorbs ?? [] : [], dup = (done!.d.softFailures ?? []).includes(GAIN.REPEATS_BELOW), consolidate = shape === "replace" && (absorbs.length > 0 || dup);
-      const finished: ChangeProposal = { ...card, researchOnly: false,
+      // THE GATE'S OWN SECOND ARM FINALLY HAS A WRITER (operator, 2026-08-31). proof.ts holds a field replacement "until a diagnosis names what is wrong or a stored results page backs this shape", and nothing ever stamped that backing for the editor's drafts, so eight finished descriptions with positive readings sat behind an arm no code could satisfy. The claim is checked before it is made, the same way suggested-edits earns it: at least three ranked titles on file for this exact search, at least two of them front-loading its first word, and the drafted line following that shape. No results page, or a draft that ignores the shape, stamps nothing and the gate holds exactly as before.
+      const shapeBacking = ((): string | null => { if (!(meta || title || h1)) return null; const q = (card.primaryQuery ?? "").trim(); const k = canonicalQueryKey(q); if (!k) return null;
+        const row = (opts.snapshot.research?.serpEvidence ?? []).find((x) => canonicalQueryKey(x.query) === k); if (!row) return null;
+        const titles = [...row.organic].sort((a, b) => a.rank - b.rank).map((o) => (o.title ?? "").trim()).filter(Boolean).slice(0, 5); if (titles.length < 3) return null;
+        const first = topicTokens(q)[0]; if (!first) return null;
+        const front = titles.filter((t) => topicTokens(t).slice(0, 4).includes(first)).length;
+        return front >= 2 && topicTokens(drafted.finalCopy).slice(0, 6).includes(first) ? `the results page for "${q}": ${titles.length} ranked titles read, ${front} of them leading with "${first}", and this line leads with it too` : null; })();
+      const finished: ChangeProposal = { ...card, researchOnly: false, ...(shapeBacking ? { modeledOn: shapeBacking } : {}),
         status: done!.ready ? "ready" : card.status,
         claims: drafted.claims.map((c) => ({ text: c.text, supportedBy: [...c.supportedBy] })),
         supportFacts: drafted.supportFacts.map((f) => ({ id: f.id, fact: f.fact })), ...(drafted.gain ? { informationGain: drafted.gain } : {}), ...(drafted.preservation ? { preservation: drafted.preservation } : {}),
