@@ -654,6 +654,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
+    if (req.kind === "internal_link") result.data = unmarkAnchor(result.data);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
       skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null,
@@ -904,6 +905,15 @@ type InternalLinkStructuredInput = {
   tenantId: string;
 };
 
+/** MARKUP AROUND THE RIGHT WORDS IS PUNCTUATION, NOT A PLACEHOLDER (live, 2026-08-31). Told in the plainest terms not to mark the anchor, the writer still returns "[Zanjan Rug]", and the placeholder firewall rightly refuses brackets, so every link candidate dies twice and buys nothing. Instructing harder was already tried and already failed. What the model got WRONG is the punctuation it wrapped around words that are otherwise exactly correct, so code unwraps it, the way the page's own typos are repaired rather than reproduced. It fires ONLY on a run that equals the model's own anchor: a real placeholder like "[insert year]" matches nothing and is still refused outright. PURE. */
+function unmarkAnchor<T>(data: T): T {
+  const d = data as { anchorText?: unknown; linkSentence?: unknown };
+  const a = typeof d.anchorText === "string" ? d.anchorText.trim() : "", s = typeof d.linkSentence === "string" ? d.linkSentence : "";
+  if (a.length < 2 || !s) return data;
+  const q = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const out = s.replace(new RegExp(`\\[(${q})\\]\\([^)]*\\)|\\[(${q})\\]|\\*\\*(${q})\\*\\*|\\*(${q})\\*`, "gi"), (_m, ...g) => g.slice(0, 4).find((x) => typeof x === "string") ?? a);
+  return out === s ? data : { ...data, linkSentence: out };
+}
 const INTERNAL_LINK_SYSTEM =
   "You place ONE link from a page to another page on the SAME site. Return ONLY a JSON object: " +
   '"sourcePage", "targetPage" (echo both exactly as given), "anchorText" (the exact words to link, 2 to 8 words), ' +

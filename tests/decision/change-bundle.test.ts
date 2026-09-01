@@ -560,7 +560,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(of({ ...base, anchorText: "iran eagle" }), "a different anchor is different work").not.toBe(of(base)); });
   /** PLACEMENT IS SELECTED FROM WHAT EXISTS, NEVER PROPOSED (operator, 2026-08-31). Free text is how a link came to be offered after "Explore More", a related-content rail nobody reads from and which often is not editable at all. */
   it("only real editable spots are offered, and furniture and ambiguity never are", () => {
-    const body = { headings: ["Baluchistan Black Bear", "Explore More", "Iranopedia", "Iran Lion and Sun Persian Hoodie", "Conservation Status: Vulnerable", "Conservation Status: Vulnerable"],
+    const body = { headings: ["Baluchistan Black Bear", "Explore More", "Table of Contents", "Iranopedia", "Iran Lion and Sun Persian Hoodie", "Conservation Status: Vulnerable", "Conservation Status: Vulnerable"],
       passages: ["This species is a crucial part of Iran wildlife, often dwelling in mountainous areas. Recognized by its V-shaped chest marking, it is elusive.", "top of page< BackBaluchistan Black BearScientific Name"] };
     const ids = placementCandidatesOf(body);
     const texts = ids.map((c) => c.exactText);

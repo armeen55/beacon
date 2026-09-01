@@ -23,37 +23,29 @@ const bind = (p: ChangeProposal): ChangeProposal => ({ ...p, semanticReview: { o
 
 describe("the proof burden matches the promise, at the one door every surface reads", () => {
   it("scales the evidence each treatment owes, and refuses the promise the evidence never made", async () => {
-    // 1. A MARK-ONLY REPAIR IS ITS OWN EVIDENCE: no diagnosis, no results page, and the receipt certifies the marks alone, never the sentence around them.
-    const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where it's from.", "Learn all about the Kerman Rug, where it's from."));
+    const typo = row("typo", edit("meta", "Learn all about the Kerman Rug , where it's from.", "Learn all about the Kerman Rug, where it's from.")); // 1. A MARK-ONLY REPAIR IS ITS OWN EVIDENCE: no diagnosis, no results page, and the receipt certifies the marks alone, never the sentence around them.
     expect(evidenceShortfall(typo)).toBeNull(); expect(openHold(typo).blocking).toBeNull(); expect(proofOf(typo).limits.join(" ")).toContain("not certified as the best copy");
-    // ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF. Same-letter anagrams self-authorized, and then so did anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
-    for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"],
+    for (const [b, a] of [["form", "from"], ["angel", "glean"], ["trial", "trail"], ["there", "three"], ["teh", "the"], ["founded 1979", "founded 1980"], // ONLY RENDERING A READER CANNOT SEE MAY PROVE ITSELF. Same-letter anagrams self-authorized, and then so did anything whose letters matched once spaces and marks were stripped: word boundaries and marks ARE meaning.
       ["nowhere", "now here"], ["resign", "re-sign"], ["well", "we'll"], ["therapist", "the rapist"], ["learn more", "learnmore"], ["lets eat grandma", "let's eat, Grandma"], ["its history", "it's history"],
       ["Polish culture", "polish culture"], ["US policy", "us policy"], ["March 5", "march 5"], ["Alice defeated Bob", "Bob defeated Alice"],
       ["The man\u2014eating shark", "The man-eating shark"], ["a \u2013 b", "a - b"]])
       expect(mechanicalRepair(b!, a!), `${b} to ${a} is not a self-proving repair`).toBe(false);
     for (const [b, a] of [["Rug , where", "Rug, where"], ["a  b", "a b"], [" hi ", "hi"], ['say \u201chi\u201d', 'say "hi"']])
       expect(mechanicalRepair(b!, a!), `${b} to ${a} is rendering only`).toBe(true);
-    // 2. A FACTUAL CORRECTION MAY NARROW, AND SAYS SO: shorter survives when only the source-carried meaning does, and the receipt discloses the narrowing instead of posing as traffic copy.
-    const noor = bind(row("fact", { ...edit("section", "Meaning:Bright, radiant, or glowing.", "Meaning:Light."), changeFamily: "factual_correction",
+    const noor = bind(row("fact", { ...edit("section", "Meaning:Bright, radiant, or glowing.", "Meaning:Light."), changeFamily: "factual_correction", // 2. A FACTUAL CORRECTION MAY NARROW, AND SAYS SO: shorter survives when only the source-carried meaning does, and the receipt discloses the narrowing instead of posing as traffic copy.
       preservation: [{ text: "Meaning:Bright, radiant, or glowing.", disposition: "corrected", by: ["fact-1"], why: "the source of record says Noor means light" }], claims: [{ text: "Noor means light", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: 'encyclopedia says: "The name Noor means light"' }] }));
     expect(evidenceShortfall(noor)).toBeNull(); expect(proofOf(noor).limits.join(" ")).toContain("the unsupported wording was narrowed");
-    // 3. RICHER FACTUAL CONTEXT WITHOUT EVIDENCE STAYS REFUSED, by the quote-bound authority chain itself.
-    expect(unauthorizedReason({ subject: "Noor", current: "Meaning:Light.", proposed: "radiant and glowing",
+    expect(unauthorizedReason({ subject: "Noor", current: "Meaning:Light.", proposed: "radiant and glowing", // 3. RICHER FACTUAL CONTEXT WITHOUT EVIDENCE STAYS REFUSED, by the quote-bound authority chain itself.
       sources: [{ kind: "encyclopedia", says: 'The name Noor means "light"' }] } as never)).toContain("do not carry every word");
-    // 4. DEMAND NEVER CHOOSES WORDS: replacing a title that exists, on impressions and a page claim alone, is held until a diagnosis names the defect or a stored results page backs the shape.
-    const creative = row("title", { ...edit("title", "Persian Onager (Asiatic Wild Ass): Facts & Habitat", "Onager (Persian Wild Ass): What It Is and Where It Lives"),
+    const creative = row("title", { ...edit("title", "Persian Onager (Asiatic Wild Ass): Facts & Habitat", "Onager (Persian Wild Ass): What It Is and Where It Lives"), // 4. DEMAND NEVER CHOOSES WORDS: replacing a title that exists, on impressions and a page claim alone, is held until a diagnosis names the defect or a stored results page backs the shape.
       changeFamily: "title-family", demandImpressions90d: 8112, claims: [{ text: "about the onager", supportedBy: ["page-copy-1"] }] });
     expect(evidenceShortfall(creative)).toContain("demand evidence alone");
-    // 5. A MISSING FIELD FILLED WITH BANKED CLAIMS SURVIVES WITHOUT A RESULTS PAGE; with no claims it does not.
-    const fill = row("meta", { ...edit("meta", null, "Iran adopted a new flag in 1979 and redesigned it in 1980."),
+    const fill = row("meta", { ...edit("meta", null, "Iran adopted a new flag in 1979 and redesigned it in 1980."), // 5. A MISSING FIELD FILLED WITH BANKED CLAIMS SURVIVES WITHOUT A RESULTS PAGE; with no claims it does not.
       claims: [{ text: "covers both versions", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "the page covers both" }] });
     expect(evidenceShortfall(fill)).toBeNull();
     expect(evidenceShortfall(row("meta2", edit("meta", null, "Everything you need to know.")))).toContain("none of its own sources carry");
-    // 6. A PATTERN CLAIM RIDES A STORED SHAPE: the same creative replacement passes once a stored results page backs it, and the shape is named on the receipt rather than implied.
-    expect(evidenceShortfall({ ...creative, modeledOn: "the stored results page for onager, whose top titles share this shape" } as ChangeProposal)).toBeNull();
-    // 7. GAIN IS NOT SOURCING. Citing an outside id proved only that a source exists: it can perfectly well confirm what the page already says, and that copy adds nothing. Body copy answers to a re-readable receipt the evaluator wrote, so recurrence across any number of days still authorizes no copy.
-    const aeo = (over: Record<string, unknown>) => bind(row("ans", { recommendedChange: { kind: "existing_edit", field: "answer_block", before: null,
+    expect(evidenceShortfall({ ...creative, modeledOn: "the stored results page for onager, whose top titles share this shape" } as ChangeProposal)).toBeNull(); // 6. A PATTERN CLAIM RIDES A STORED SHAPE: the same creative replacement passes once a stored results page backs it, and the shape is named on the receipt rather than implied.
+    const aeo = (over: Record<string, unknown>) => bind(row("ans", { recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, // 7. GAIN IS NOT SOURCING. Citing an outside id proved only that a source exists: it can perfectly well confirm what the page already says, and that copy adds nothing. Body copy answers to a re-readable receipt the evaluator wrote, so recurrence across any number of days still authorizes no copy.
       after: "The four phrases are salam, khodahafez, merci and bale.", where: "Add as a single new paragraph at the top of the body on /p." },
       aiImpact: { answers: 3, mentionRate: 0, citedRivals: 1, audienceWeight: null, days: 3, stage: "owned_retrieved_not_cited" },
       claims: [{ text: "salam is the standard greeting", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "dictionary: salam" }], ...over }));
@@ -64,8 +56,7 @@ describe("the proof burden matches the promise, at the one door every surface re
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, pageWhole: false } })), "judged against part of the page").toContain("only part of this page");
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, by: ["fact-9"] } })), "an id no claim cites").toContain("belongs to a different reading");
     expect(evidenceShortfall(aeo({ informationGain: { ...GAIN, by: [] }, claims: [{ text: "what rivals cover", supportedBy: ["rival-2"] }] })), "briefing is not a source").toContain("a page that competes with this one");
-    // 8. A REPLACEMENT ACCOUNTS FOR EVERY UNIT OF THE PASSAGE IT REPLACES, not only the links, figures and Capitalized Phrases a lexical detector sees: a lowercase call to action, a qualifier, one list member and a dropped example all vanished in silence.
-    const body = (before: string, after: string, over: Record<string, unknown> = {}) => bind(row("sec", { recommendedChange: { kind: "existing_edit", field: "section", before, after, where: 'Replaces the existing passage under "Greetings"' },
+    const body = (before: string, after: string, over: Record<string, unknown> = {}) => bind(row("sec", { recommendedChange: { kind: "existing_edit", field: "section", before, after, where: 'Replaces the existing passage under "Greetings"' }, // 8. A REPLACEMENT ACCOUNTS FOR EVERY UNIT OF THE PASSAGE IT REPLACES, not only the links, figures and Capitalized Phrases a lexical detector sees: a lowercase call to action, a qualifier, one list member and a dropped example all vanished in silence.
       informationGain: { adds: "gives the literal meaning of salam, which the page never states", by: ["fact-1"], pageWhole: true },
       claims: [{ text: "salam means peace", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "dictionary: salam" }], ...over }));
     const KEEP = "Salam means peace and is the standard Persian greeting used everywhere.";
@@ -73,12 +64,10 @@ describe("the proof burden matches the promise, at the one door every surface re
       ["a qualifier", "it is among the oldest greetings still in daily use"], ["one list member", "khodahafez means goodbye in everyday speech"],
       ["a worked example", "for example a shopkeeper greets a customer with salam first"]] as const)
       expect(evidenceShortfall(body(`${KEEP} ${lost}`, KEEP)), `${label} may not vanish in silence`).toContain("neither says it nor accounts for it");
-    // A REVERSAL IS NOT A PRESERVATION: one token IS the claim, and four neighbours outvoted it at 60 percent.
-    for (const [b, a] of [["This treatment is safe for children.", "This treatment is unsafe for children."], ["Smoking causes lung damage in adults.", "Smoking prevents lung damage in adults."],
+    for (const [b, a] of [["This treatment is safe for children.", "This treatment is unsafe for children."], ["Smoking causes lung damage in adults.", "Smoking prevents lung damage in adults."], // A REVERSAL IS NOT A PRESERVATION: one token IS the claim, and four neighbours outvoted it at 60 percent.
       ["The rule is permitted for all residents.", "The rule is prohibited for all residents."], ["This method increases the yield reliably.", "This method decreases the yield reliably."], ["Topoli means chubby in playful speech.", "Topoli means skinny in playful speech."]])
       expect(evidenceShortfall(body(b!, a!)), `${a} does not preserve ${b}`).toContain("neither says it nor accounts for it");
-    // AND LEXICAL LOGIC MAY NOT AUTHORIZE EITHER: a faithful paraphrase is held too, until a banked semantic verdict bound to these exact words can say it survived. Refusing is the only thing words alone may do.
-    expect(evidenceShortfall(body("This treatment is safe for children.", "Children can safely take this treatment.")), "even a paraphrase owes a typed disposition").toContain("neither says it nor accounts for it");
+    expect(evidenceShortfall(body("This treatment is safe for children.", "Children can safely take this treatment.")), "even a paraphrase owes a typed disposition").toContain("neither says it nor accounts for it"); // AND LEXICAL LOGIC MAY NOT AUTHORIZE EITHER: a faithful paraphrase is held too, until a banked semantic verdict bound to these exact words can say it survived. Refusing is the only thing words alone may do.
     const CTA = "start your free lesson today with no sign up";
     // A DISPOSITION IS A CHECKED CLAIM, NOT A LABEL: nothing read the disposition at all, so these three passed.
     for (const [u, why] of [[{ text: CTA, disposition: "removed", why: "because reasons" }, "without a basis this door can check"], [{ text: CTA, disposition: "removed", basis: "obsolete", why: "because reasons" }, "without a basis this door can check"], [{ text: CTA, disposition: "removed", basis: "duplicate_of", why: "dup" }, "without a basis this door can check"], [{ text: CTA, disposition: "moved", to: "the moon" }, "a destination that does not carry it"], [{ text: CTA, disposition: "kept" }, "keeps material the new copy no longer carries"], [{ text: CTA, disposition: "corrected", why: "x" }, "without naming the banked facts"]] as const)
