@@ -194,7 +194,13 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
     return head != null && (snapshot.research?.serpEvidence ?? []).some((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head) && (s.organic ?? []).length > 0);
   };
-  const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < THIN_WORDS && impressions(p) > 0 && winnersOnFile(p)));
+  // THIN IS RELATIVE TO THE AUDIENCE, NEVER AN ABSOLUTE LINE (operator, 2026-08-31). A flat 200 words called
+  // /cities fine at 500 words on 28,847 impressions and /famous-iranian-comedians fine at 324 on 22,509: the
+  // two biggest content opportunities on the site, invisible because a constant said a stub is 200 words
+  // wherever it sits. What a page owes is set by what it is already being asked for, so a page carrying a
+  // heavy search load owes an article and a quiet one still only owes the old floor.
+  const owedWords = (p: OwnedPageEvidence): number => (impressions(p) >= HEAVY_IMPRESSIONS ? 3 * THIN_WORDS : THIN_WORDS);
+  const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < owedWords(p) && impressions(p) > 0 && winnersOnFile(p)));
   for (const p of thin.slice(0, TOP_PAGES_PER_CLASS)) {
     // THE TARGET IS THE AUDIENCE. Three hundred words on a page shown thirty thousand times is still a stub; what a page at that size of search has to become is an article.
     const target = impressions(p) > HEAVY_IMPRESSIONS ? "800 to 1,200" : "200 to 300";
@@ -207,7 +213,7 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
       after: `Add ${target} words to ${pathOf(p.url)} that answer its main question, in short sections with their own headings.`,
       why: `${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} and is still shown ${count(impressions(p), "time")} in 90 days, so people are being handed a page with almost nothing on it.`,
       steps: [`Open the site editor on ${pathOf(p.url)}`, `Add ${target} words that answer the question the page title asks`, "Break them into short sections with their own headings", ...(stores ? [shopStep] : []), "Mark it done here and the impressions get read again"],
-      hints: [`${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} of copy`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(thin.length, "page")} of the ${pages.length} stored pages are under ${THIN_WORDS} words and are being shown in search`],
+      hints: [`${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} of copy`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(thin.length, "page")} of the ${pages.length} stored pages hold less copy than the search they already earn asks for`],
       // This page's stored copy, its search row, and the stored results page the shape came from.
       minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
       limitation: "Word count is read off the last stored copy of the page, so copy added since that read is not counted here.",

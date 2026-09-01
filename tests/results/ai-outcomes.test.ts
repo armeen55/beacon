@@ -48,16 +48,14 @@ describe("the daily AI trend, over stored answers only", () => {
       row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: journey({ cited_sources: [link("rival.example"), link("other.example"), link(`www.${SITE}`)] }) }), // Credited third, behind two others.
       row({ day: "2026-07-20", prompt_id: "p2", mentioned: false, journey: journey({ cited_sources: [link("rival.example")], retrieved_results: [link(SITE)] }) }), // Read the page and credited someone else.
       row({ day: "2026-07-20", prompt_id: "p3", mentioned: false }), // The engine reported nothing about its sources at all: it joins neither sample.
-      // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash and a fragment. A page the engine cited was never a page it read and passed over.
-      row({ day: "2026-07-20", prompt_id: "p4", mentioned: true, journey: journey({
+      row({ day: "2026-07-20", prompt_id: "p4", mentioned: true, journey: journey({ // THE SAME page of yours, read and then CREDITED, differing only by www, scheme, a trailing slash and a fragment. A page the engine cited was never a page it read and passed over.
         cited_sources: [{ url: `https://www.${SITE}/guide/`, domain: `www.${SITE}`, title: null }],
         retrieved_results: [{ url: `http://${SITE}/guide#top`, domain: SITE, title: null }] }) }),
     ]); const [day] = allDays(await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-20", readObservations })); expect(day).toMatchObject({
       citationSample: 3, ownedCiting: 2, ownedCitationRate: 0.667, ownedCitationRank: 2,
       retrievalSample: 2, ownedRetrieved: 2, retrievedNotCited: 1, retrievedNotCitedRate: 0.5,});});
   it("counts a page of yours read and passed over even when the answer credited a DIFFERENT page of yours", async () => {
-    // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit anybody on this site" answers yes here and reports zero, so the page the engine actually read and then ignored disappears behind a neighbour of its own that happened to get the credit.
-    const readObservations = reader([row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: {
+    const readObservations = reader([row({ day: "2026-07-20", prompt_id: "p1", mentioned: true, journey: { // The subtraction is per PAGE, through the one canonical-url derivation. Asking only "did it credit anybody on this site" answers yes here and reports zero, so the page the engine actually read and then ignored disappears behind a neighbour of its own that happened to get the credit.
       fan_outs: null, brand_mentions: null, web_search_reported: null,
       retrieved_results: [{ url: `https://${SITE}/guide`, domain: SITE, title: null }],
       cited_sources: [{ url: `https://${SITE}/other`, domain: SITE, title: null }] } })]);
@@ -82,13 +80,11 @@ describe("the daily AI trend, over stored answers only", () => {
     ]); const report = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-22", readObservations }); const days = allDays(report);
     expect(days.map((d) => d.day)).toEqual(["2026-07-20", "2026-07-22"]); // the 21st is missing, not zero
     expect(report.daysObserved).toBe(2); expect(days[0].byEngine).toEqual([
-      // `analyzed` is each engine's OWN denominator, and it is smaller than what came back while a day is still being read: a per-engine share used to have no denominator at all and had to borrow the day's pooled one, which reports one fraction over four engines that are nothing like each other.
-      { engine: "chatgpt", modelServed: "gpt-5", mode: "api", asked: 3, observed: 2, analyzed: 1, mentioning: 1, citedOwned: 0 },
+      { engine: "chatgpt", modelServed: "gpt-5", mode: "api", asked: 3, observed: 2, analyzed: 1, mentioning: 1, citedOwned: 0 }, // `analyzed` is each engine's OWN denominator, and it is smaller than what came back while a day is still being read: a per-engine share used to have no denominator at all and had to borrow the day's pooled one, which reports one fraction over four engines that are nothing like each other.
       { engine: "claude", modelServed: "claude-4", mode: "api", asked: 1, observed: 1, analyzed: 1, mentioning: 0, citedOwned: 0 },]);});
   it("asks the store for the day range and the first readings, so nothing is narrowed after the read", async () => {
     const readObservations = reader([row({ day: "2026-07-20", mentioned: true })]); await aiOutcomes(T, { from: "2026-07-19", to: "2026-07-21", readObservations });
-    // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the newest days and on samples this trend then throws away, so the older half of the range vanishes. AND IT ASKS FOR WHAT IT READS: the overview projection, never the whole row, whose answer text and stored verdict are megabytes a trend never opens.
-    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0, projection: "overview" });});
+    expect(readObservations).toHaveBeenCalledWith(T, { fromDay: "2026-07-19", toDay: "2026-07-21", slot: 0, projection: "overview" });}); // Asking for the newest N rows and cutting to the range afterwards spends the whole read on the newest days and on samples this trend then throws away, so the older half of the range vanishes. AND IT ASKS FOR WHAT IT READS: the overview projection, never the whole row, whose answer text and stored verdict are megabytes a trend never opens.
   /** `prompts` questions x four engines x `days` days of first readings: the shape a real account stores. */
   const history = (days: number, prompts: number) =>
     Array.from({ length: days }).flatMap((_, d) => Array.from({ length: prompts }).flatMap((__, p) =>
@@ -176,8 +172,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.direction).toBe("no_clear_movement"); // Four before-answers can describe where things stood; they can never support a verdict.
   });
   it("counts the share over the answers it actually READ, so unfinished analysis is not a fall", async () => {
-    // Every answer read closely named the account; a quarter of them have not been read yet. Dividing by everything that came back would report that backlog as AI turning against the account.
-    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4)
+    const readObservations = reader(stretch("2026-07-21", "2026-07-31", 4) // Every answer read closely named the account; a quarter of them have not been read yet. Dividing by everything that came back would report that backlog as AI turning against the account.
       .map((r, i) => (i % 4 === 3 ? { ...r, analysis: null, analysis_hash: null } : r)));
     const outcome = await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 10, analyzed: 10, mentioning: 10 } }, }, { readObservations, now: NOW });
     expect(outcome?.after).toMatchObject({ checked: 44, analyzed: 33, mentioning: 33, rate: 1 });
@@ -224,8 +219,7 @@ describe("what the AI answers did around one shipped change", () => {
     expect(outcome?.after.to).toBe("2026-07-28"); expect(outcome?.coverage).toEqual({ daysObserved: 28, daysElapsed: 28 });
     expect(await aiOutcomeForShipment(T, { scopeQueries: Q, implementedAt: null }, { readObservations, now: NOW })).toBeNull();});
   it("reads the whole ledger's answers ONCE, on the lean projection, and still judges each change on its own window", async () => {
-    // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten shipments meant eighty round trips carrying every answer text and retrieval journey in the window, which is the exact shape that has timed a statement out on this table before.
-    const rows = stretch("2026-06-01", "2026-07-31", 3); const readObservations = reader(rows); const shipments = [
+    const rows = stretch("2026-06-01", "2026-07-31", 3); const readObservations = reader(rows); const shipments = [ // EVERY shipment used to open its own paged 56 day read of WHOLE rows, all of them at once: ten shipments meant eighty round trips carrying every answer text and retrieval journey in the window, which is the exact shape that has timed a statement out on this table before.
       { scopeQueries: Q, implementedAt: STAMP, shipmentBaseline: { ai: { day: "2026-07-20", checked: 4, analyzed: 4, mentioning: 1 } } },
       { scopeQueries: Q, implementedAt: "2026-07-05T10:00:00.000Z", shipmentBaseline: { ai: null } },
       { scopeQueries: Q, implementedAt: null },                                    // no stamp, no moment to measure from

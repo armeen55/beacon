@@ -230,3 +230,20 @@ describe("a page that slipped down the results", () => {
     const out = await fall({ coverage: decided(pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }] })) }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return;
     expect([out.proposal.diagnosisCause, out.proposal.bundle!.components.map((c) => c.kind)]).toEqual(["ranking_loss", ["section_add"]]);
     expect(out.proposal.bundle!.alternatives.map((a) => a.option)).toContain("A sharper title or description"); }); });
+/** THIN IS RELATIVE TO THE AUDIENCE (operator, 2026-08-31). A flat 200-word line called /cities fine at 500 words on 28,847 impressions and /famous-iranian-comedians fine at 324 on 22,509: the two biggest content opportunities on the site, invisible because a constant said a stub is 200 words wherever it sits. Nothing here loosens the evidence floors that keep "add 1,200 words" from being advice: the stored results page is still required, and a quiet page still owes only the old floor. */
+describe("a page owes the copy the search it already earns asks for, not a fixed word count", () => {
+  const short = (url: string, imps: number, query: string): OwnedPageEvidence => ({
+    url, content: { title: "Iranian comedians", metaDescription: null, h1: "Iranian comedians", h2: [], outline: ["Iranian comedians"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 324, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
+    search: { clicks90d: 10, impressions90d: imps, ctr90d: 0.01, position90d: 8, topQueries: [{ query, impressions: imps, clicks: 10, position: 8 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
+  const serpFor = (queries: string[]) => ({ ...emptyResearchEvidence(), serpEvidence: queries.map((query) => ({ observedAt: null, query, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Comedians" }] })) });
+  const run = async (over: Partial<EvidenceSnapshot>) => { vi.resetModules();
+    vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map() })); // an EMPTY queue, not an unreadable one: this producer emits nothing at all when it cannot see what the account already holds
+    return (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: TENANT, snapshot: snapshot(over) as never, now: NOW, reads: { left: 0 }, persist: false }); };
+  it("names the 324-word page a heavy search already found, leaves the quiet one alone, and still refuses both without a stored results page", async () => {
+    const heavy = short("https://fixture-content.example/comedians", 22_509, "iranian comedians"), quiet = short("https://fixture-content.example/philosophers", 400, "iranian philosophers");
+    const out = await run({ ownedPages: [heavy, quiet], research: serpFor(["iranian comedians", "iranian philosophers"]) as never });
+    const thin = out.cards.filter((c) => c.id.endsWith("thin_page")).map((c) => c.pagePath);
+    expect(thin, "324 words is a stub under a search seen 22,509 times and an ordinary page under one seen 400 times, and only the first is offered").toEqual(["/comedians"]);
+    const blind = await run({ ownedPages: [heavy, quiet], research: emptyResearchEvidence() as never });
+    expect(blind.cards.filter((c) => c.id.endsWith("thin_page")), "with no results page on file there is no shape to hand over, so the higher floor buys nothing: 'add more words' stays unsayable").toEqual([]); });
+});
