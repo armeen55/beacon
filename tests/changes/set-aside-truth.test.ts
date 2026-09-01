@@ -137,7 +137,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
     const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
     expect(html).toContain("Beacon is working on 2 more opportunities");
-    expect(html).toContain("Writing and checking the exact change. It appears above when it is finished.");
+    expect(html).toMatch(/being written and checked|waiting on evidence|being read and diagnosed/); // the lane speaks in kinds of work now, one tally line per kind, never a per-row narration
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);
     expect(html).not.toMatch(/Proven|Mark done|Still missing/);
     expect([today.readyTotal, today.toDoTotal, today.researchTotal, today.nextOpportunities.map((o) => o.lane), today.topEdit, today.headerSentence])
@@ -147,16 +147,14 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const ideas = Array.from({ length: 12 }, (_, i) => ({ ...bundled(NOW, `t::idea-${i}`), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `Internal essay for idea ${i}` } })) as ChangeProposal[];
     const view = { ...emptyView(0), proposals: ideas, ready: [], toDo: [], research: ideas, summary: { ...emptyView(0).summary, research: 12 } }; const html = await renderChanges(view);
-    expect([html.match(/data-preparing-row="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length, html.includes("Beacon is working on 12 more opportunities"),
-      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")]) .toEqual([12, 12, true, false, true, false]); });
+    expect([html.match(/data-preparing-kind="true"/g)?.length, html.match(/data-research-detail="true"/g)?.length ?? 0, html.includes("Beacon is working on 12 more opportunities"),
+      html.includes("Internal essay for idea"), html.includes("Ready now: 0 finished changes"), html.includes("What the evidence says")]) .toEqual([1, 0, true, false, true, false]); }); // TWELVE identical drafts are ONE tally line with the count, no per-row inventory and no detail links (Product Truth; operator, 2026-08-31): the operator is nobody's progress clerk, and no internal essay ever leaks
   it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
     const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
     const rows = [idea("t::/a::existing_edit::ownership"), idea("t::/b::existing_edit::missing_description"), idea("t::idea-typed")];
     const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } }; const html = await renderChanges(view);
-    expect([html.includes("Reading the competing pages before writing distinct titles and openings."),
-      html.includes("Writing a page-specific description from the stored page."),
-      html.includes("Preparing the exact change from stored evidence."), html.includes("internal brief text")]) .toEqual([true, true, true, false]); });
+    expect([html.includes("sections and answers waiting on evidence"), html.includes("internal brief text")], "the lane names each KIND of work in plain words, and never leaks a word of the internal draft").toEqual([true, false]); }); // per-family narration went with the per-row lane (operator, 2026-08-31): three research section drafts are one tally line
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
     const link = async (p: ChangeProposal) => { vi.mocked(resolveCurrentBasis).mockResolvedValue(NOW); vi.mocked(loadChangeProposal).mockResolvedValue(p); }; const soft = { ...bundled(NOW, "t::draft"), status: "needs_review" } as ChangeProposal;

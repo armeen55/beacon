@@ -86,8 +86,7 @@ vi.mock("@/domains/decision/proposal-store", async (orig) => {
     withdrawChangeProposal: async (p: ChangeProposal) => { env.withdrawn.push(p.id); return true; },
     publishCustomerRelease: async () => { env.wrote.push("publishCustomerRelease"); return true; },
     saveChangeProposal: async (p: ChangeProposal) => { env.wrote.push(`saveChangeProposal:${p.id}`); env.saved.set(p.id, p); return "unchanged" as const; } }; });
-// RECORDING, NEVER REPLACING: these two write elsewhere and the rest of this file depends on what they really do.
-vi.mock("@/domains/decision/ai-case-store", async (orig) => { const a = await orig() as { recordAiCaseDispositions: (...x: never[]) => Promise<unknown> };
+vi.mock("@/domains/decision/ai-case-store", async (orig) => { const a = await orig() as { recordAiCaseDispositions: (...x: never[]) => Promise<unknown> }; // RECORDING, NEVER REPLACING: these two write elsewhere and the rest of this file depends on what they really do.
   return { ...a, recordAiCaseDispositions: async (...x: never[]) => { env.wrote.push("recordAiCaseDispositions"); return a.recordAiCaseDispositions(...x); } }; });
 vi.mock("@/domains/decision/coverage-pass", async (orig) => { const a = await orig() as { recordCoverageNeeds: (...x: never[]) => Promise<unknown> };
   return { ...a, recordCoverageNeeds: async (...x: never[]) => { env.wrote.push("recordCoverageNeeds"); return a.recordCoverageNeeds(...x); } }; });
@@ -163,8 +162,7 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     const stale = openCard("title"), theirs = openCard("ai_answer_gap");
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     await produceProposalsForTenant(TENANT);
-    // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
-    expect(env.withdrawn).toEqual([stale.id]); });
+    expect(env.withdrawn).toEqual([stale.id]); }); // The AI family enters the sweep ONLY through a finished extras pass whose verdicts were durably filed (pinned below), so a failed AI read leaves the AI card standing while finished families still sweep.
   /** A DRY RUN WRITES NOTHING, AND IT IS THE PRODUCER THAT SAYS SO, not a reading of the code. A no-persist run was reported alongside 13 changed rows and nobody could tell whether the guard leaked or the harness had never run dry; the same pass answers both ways here, so the next such report is settled by running this. `withdrawn` is listed separately because it is the same act by another name. */
   it("writes nothing at all when it is told not to persist", async () => {
     env.snapshot = snapshotWith("fresh"); env.aiWindow = "fail";
@@ -172,8 +170,7 @@ describe("the sweep only retires what a producer that FINISHED rewrote", () => {
     env.store = new Map([[stale.id, stale], [theirs.id, theirs]]);
     env.wrote = []; env.withdrawn = [];
     await produceProposalsForTenant(TENANT, { persist: false });
-    // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
-    expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); });
+    expect({ wrote: env.wrote, withdrawn: env.withdrawn }).toEqual({ wrote: [], withdrawn: [] }); }); // The pass directly above this one, identical but for the flag, withdraws `stale`. This one must do nothing at all.
   /** AND WHAT A DRY RUN HANDS BACK IS WHAT PERSISTENCE WOULD KEEP. The guard used to sit at the TOP of persistIfChanged, so a dry run returned the row BEFORE nine transforms (identity stamp, banked-copy preservation, soft downgrade, ranking inheritance) and the copy an operator inspected was not the copy that later landed. Inspecting one object and storing another is the whole defect. */
   it("hands back exactly the payload persistence would keep", async () => {
     const shape = (p: ChangeProposal) => ({ id: p.id, rc: p.recommendedChange, steps: p.operatorSteps, claims: p.claims, support: (p.supportFacts ?? []).map((f) => f.id),
@@ -193,14 +190,12 @@ describe("a zero-spend regeneration is non-destructive", () => {
     env.store = new Map([[drafted.id, drafted], [theirs.id, theirs]]);
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true });
     expect(out.outcome).not.toBe("persistence_failed"); // a pass that bought nothing is not a failed pass
-    // The paid drafter never ran, so the family it owns is not one anybody rewrote in full this pass.
-    expect(env.withdrawn).not.toContain(theirs.id);});
+    expect(env.withdrawn).not.toContain(theirs.id);}); // The paid drafter never ran, so the family it owns is not one anybody rewrote in full this pass.
   it("mints both paid pools empty, so no page reading and no drafting attempt is available to spend", async () => {
     env.snapshot = snapshotWith("fresh");
     env.store = new Map();
     const out = await produceProposalsForTenant(TENANT, { zeroSpend: true, maxDrafts: 5 });
-    // maxDrafts is the caller's ask and the pause outranks it: nothing here was drafted for money.
-    expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);});});
+    expect(out.proposals.every((p) => p.researchOnly === true || p.status !== "ready")).toBe(true);});}); // maxDrafts is the caller's ask and the pause outranks it: nothing here was drafted for money.
 /** THE REAL COUNTEREXAMPLE, through the REAL AI producer, twice, as two cold instances sharing one durable table: the blind instance files nothing and holds its families; the seeing one files durably; and what it filed is what BOTH surfaces render, from the same row. */
 describe("a failed 28-day AI read files nothing, and only a seeing pass reopens the sweep", () => {
   const wixPage = (path: string, title: string, outline: string[]) => ({
@@ -243,8 +238,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     const run = await runExtras(aiSnapshot()); expect(run.families).toEqual(expect.arrayContaining(["ai_answer_gap", "engine_followup"]));
     expect(env.upserts).toBeGreaterThan(0); const unreported = env.dispositions.get(`${TENANT}|prompt:pB`);
     expect(unreported?.state).toBe("unreported");
-    // BOTH SURFACES print the same sentence from the same row, read back through the store.
-    const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store"); const file = await readAiCaseDispositions(TENANT);
+    const { readAiCaseDispositions, dispositionOf } = await import("@/domains/decision/ai-case-store"); const file = await readAiCaseDispositions(TENANT); // BOTH SURFACES print the same sentence from the same row, read back through the store.
     expect(file.state).toBe("read"); const onVisibility = dispositionOf({ caseKey: "prompt:pB", state: "actionable", reason: "the evidence-only view" }, file);
     const onChanges = file.state === "read" ? file.rows.find((d) => d.caseKey === "prompt:pB")?.reason ?? null : null; expect(onVisibility.state).toBe("unreported");
     expect(onVisibility.href).toBeNull(); expect(onChanges).toBe(onVisibility.line);});
@@ -295,8 +289,7 @@ describe("a failed 28-day AI read files nothing, and only a seeing pass reopens 
     expect([...env.dispositions.entries()]).toEqual([...standing.entries()]); // the newer verdicts stand untouched
   });
   it("files a search a tracked question already asks as covered, a decision with the covering thing named, never silence", async () => {
-    // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its OWN prompt never becomes a row: the projection drops the echo at the door.)
-    const windowRow = (id: string, promptId: string, promptText: string, fanOuts: string[] | null) => ({
+    const windowRow = (id: string, promptId: string, promptText: string, fanOuts: string[] | null) => ({ // A search a tracked question already asks files as covered, never as silence. (A fan-out echoing its OWN prompt never becomes a row: the projection drops the echo at the door.)
       id, prompt_id: promptId, prompt_version: 1, prompt_text: promptText, cache_key: null, engine: "chatgpt",
       model_requested: null, model_served: null, observation_mode: "consumer_search", reporting_day: "2026-08-19",
       completed_at: "2026-08-19T00:00:00.000Z", answer_hash: "h", analysis: null, analysis_hash: null, site: "fixture.example",

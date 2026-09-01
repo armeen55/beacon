@@ -320,6 +320,8 @@ export function validateProposal(
     if (DASH_RE.test(t)) safetyFlags.push("Contains an em or en dash (banned in operator copy).");
     if (containsUuid(t)) safetyFlags.push("Leaks a raw id into operator copy.");
   }
+  // RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried '<a href="...">iran eagle</a>' in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is TEXT. A tag in `after` is malformed for every existing_edit field, because the anchor words travel typed (anchorText) and the customer pastes prose, never HTML. Schema-block rows are already held by their own "describes the work" gap; this only adds the honest second reason.
+  if (change.kind === "existing_edit" && /<\/?[a-z][a-z0-9-]*(?:\s[^>]*)?>/i.test(change.after)) safetyFlags.push("Contains raw HTML markup, and operator copy is pasted as text.");
   if (change.kind === "existing_edit" && isDestructiveEdit(change.before, change.after)) {
     safetyFlags.push("Rewrite deletes or guts the current value (destructive edit).");
   }

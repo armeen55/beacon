@@ -231,21 +231,17 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const narrow = validate(many.components, RECEIPT_ONLY, { bundle: bare });
     expect([narrow.verdict, narrow.reasons.includes("Part of this change points at evidence I cannot show you, so I am not putting it in front of you."), narrow.factViolations]).toEqual(["rejected", true, []]);
     expect(validate(many.components, RECEIPT_ONLY).verdict).toEqual("ready");
-    // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
-    const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes);
+    const four = { pattern: { ...PATTERN, commonHeadings: FOUR.map((heading, i) => ({ heading, seenOn: [i] })) } }; const partial = await produceFullRewriteRecommendation(ctxOf({ ...four, draft: whole(2) }), causes); // ONE SECTION SHORT SHIPS WHAT IS FINISHED: the written sections leave as their own pasteable additions, the one still owed is named out loud, and resuming costs nothing a second time.
     expect([partial.components.length, partial.refusal, partial.components.every((x) => x.kind === "section_add")]).toEqual([3, null, true]); expect(partial.components[0]!.mechanism!.includes("still owes 1 section")).toBe(true);
-    // and a page whose sections all landed with no opening to lead them is still not a page
-    const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes); expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]);
-    // no reading of the pages that win means no rebuild, however many causes fired
-    const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes); expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); });
+    const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes); expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]); // and a page whose sections all landed with no opening to lead them is still not a page
+    const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes); expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); }); // no reading of the pages that win means no rebuild, however many causes fired
   it("refuses on every producer when the finding carries no structured payload", async () => {
     const bare = { finding: finding("internal_link_weakness") }; const links = await produceInternalLinks(ctxOf(bare));
     const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
     for (const out of [links, sources, merge]) {
       expect(out.components).toHaveLength(0); expect(out.refusal!.length).toBeGreaterThan(20);
       expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);}
-    // a finding with nothing on file behind it never becomes a component, whatever the payload says
-    const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } }));
+    const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } })); // a finding with nothing on file behind it never becomes a component, whatever the payload says
     expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });
 describe("what a change actually costs the operator", () => {
   // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not one price.

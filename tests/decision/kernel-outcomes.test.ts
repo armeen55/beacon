@@ -829,3 +829,21 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
     expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
 });
+/** RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried an <a> tag in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is text. The canon owns it now, so every door that mints or replays Ready refuses it. */
+describe("the canon refuses raw HTML in operator copy", () => {
+  it("holds the stored row that carries a tag, at $0, while its clean sibling still promotes", async () => {
+    const gateLine = "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape";
+    const page = { ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } };
+    reset(snap([page], looked([["nowruz traditions", GAP_URL]])));
+    const mk = (id: string, after: string): ChangeProposal => baseProposal({ id: `fixture-tenant::${id}::existing_edit::replay-fixture`, pagePath: "/nowruz-guide", pageUrl: `https://${GAP_URL}`, changeFamily: "meta", status: "needs_review", primaryQuery: "nowruz traditions", limitations: [gateLine], basis: "basis_test::d8", recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line about the holiday.", after } });
+    const tagged = mk("/nowruz-guide-3", 'Nowruz traditions explained, with the <a href="/haft-seen">Haft-Seen table</a> and the spring timing of Persian New Year.');
+    const clean = mk("/nowruz-guide-4", "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.");
+    env.store = new Map([[tagged.id, tagged], [clean.id, clean]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    expect([env.store.get(tagged.id)!.status, env.store.get(clean.id)!.status], "the tag is a material defect and the clean line is safe to try").toEqual(["needs_review", "ready"]);
+    const standing = { ...mk("/nowruz-guide-5", 'Standing copy with a <a href="/x">tag</a> that predates the rule.'), status: "ready" as const, limitations: [] }; // AND THE RULE REACHES A ROW ALREADY WEARING READY: the sweep demotes it in the canon's own sentence, because a rule added today reaches finished rows exactly as a rule withdrawn today does.
+    env.store = new Map([[standing.id, standing]]);
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    const demoted = env.store.get(standing.id)!;
+    expect([demoted.status, demoted.limitations.some((l) => l.startsWith("Contains raw HTML markup"))], "demoted with the canon's own reason on the row").toEqual(["needs_review", true]); });
+});

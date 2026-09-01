@@ -463,7 +463,7 @@ export function diagnoseCauses(input: LadderInput): CauseFinding {
     return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], notConsidered,
       competingExplanations: lost.slice(0, MAX_COMPETING),
       falsifier: "If one of the causes that could not be weighed here turns out to hold, this is not the answer.",
-      explanation: "The gap is measured and nothing on file names a cause for it yet." };
+      explanation: "The click gap is measured and nothing on file names a cause for it yet. This rules on the snippet alone; section, answer, link and factual work close on their own evidence." };
   }
   // A FINDING ALWAYS SHIPS WITH AN ALTERNATIVE: the winner's own structural rival first, then what was really weighed and lost, deduped, with the causes that FIRED leading the rest.
   const competing: CauseFinding["competingExplanations"] = [];
@@ -499,7 +499,7 @@ const LABEL: Record<CandidateCause, string> = {
   retrieved_not_cited: "an engine reading this page and citing somebody else",
   technical_indexability: "something stopping this page being indexed",
   measuring_change: "a change here still being measured",
-  no_problem: "nothing being wrong with this page",
+  no_problem: "this page's snippet earning what its positions predict", // SCOPE-HONEST (operator, 2026-08-31): this verdict rules on the CLICK QUESTION alone. It never says the page lacks a section, an answer, a link or a fact opportunity; those close on their own evidence, and the empty lever set in proof.ts is what makes that structural rather than a promise.
 };
 
 /** The finding for a page nothing accuses: a real answer carrying the same four things as every other one,

@@ -13,7 +13,6 @@ import type { ChangesView } from "./changes-data";
 import type { ChangeProposal } from "@/domains/decision";
 import { ChangeCard } from "./changes/change-card";
 import { openHold } from "@/domains/decision/completeness";
-import { pageLabel } from "./changes/types";
 import { dismissProposalAction, loadMoreChangesAction, markManyImplementedAction } from "./changes/actions";
 import { CHANGES_PAGE_SIZE } from "./changes/types";
 
@@ -21,21 +20,21 @@ type Lane = "ready" | "todo" | "research";
 /** How long a skip stays takeable-back before the store is told. Nothing is written until it ends. */
 const UNDO_MS = 10_000;
 
-/** WHAT BEACON IS DOING ON A PREPARING ROW, in one plain sentence per kind of work. The full internal
- *  argument stays on the row's own detail page; the default screen never renders the research essay. */
-const PREPARING: [RegExp, string][] = [
-  [/::ownership$/, "Reading the competing pages before writing distinct titles and openings."],
-  [/::researching$/, "Reading the results page for this search before naming the exact change."],
-  [/::(ai_answer_gap|engine_followup)$/, "Comparing this page with the sources assistants credit before writing the section."],
-  [/::missing_description$/, "Writing a page-specific description from the stored page."],
-  [/::thin_page$/, "Reading what the winning pages cover that this one does not."],
-  [/::internal_link$/, "Writing the linking sentence from both pages' stored copy."],
-  [/::duplicate_heading$/, "Writing a distinct heading from this page's own stored copy."],
-];
-const preparingLine = (p: ChangeProposal): string =>
-  // A held draft is Beacon's own unfinished responsibility, summarized without offering its copy as work.
-  p.status === "needs_review" && p.researchOnly !== true ? "Writing and checking the exact change. It appears above when it is finished."
-    : PREPARING.find(([re]) => re.test(p.id))?.[1] ?? "Preparing the exact change from stored evidence.";
+/** The plain-language kind of work a preparing row is, for the collapsed lane's tally: what a customer calls it, never a producer slug. */
+const preparingKind = (p: ChangeProposal): string => {
+  const c = p.recommendedChange;
+  if (c.kind === "new_page") return "new pages being outlined and written";
+  if (p.id.endsWith("::internal_link")) return "links between your own pages being placed";
+  if (p.researchOnly === true) {
+    if (c.kind === "existing_edit" && c.field === "meta") return "page descriptions waiting on evidence";
+    if (c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) return "sections and answers waiting on evidence";
+    return "pages being read and diagnosed";
+  }
+  if (c.kind === "existing_edit" && c.field === "meta") return "page descriptions being written and checked";
+  if (c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) return "sections and answers being written and checked";
+  if (c.kind === "existing_edit" && (c.field === "title" || c.field === "h1")) return "titles and headings being written and checked";
+  return "changes being written and checked";
+};
 
 export function ChangesListClient({ view }: { view: ChangesView }) {
   // WHAT WAS DECIDED ABOUT THE SEARCH A CHANGE ANSWERS, off the ONE case file Visibility reads, matched on
@@ -201,14 +200,18 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             Beacon is working on {workingTotal.toLocaleString("en-US")} more {workingTotal === 1 ? "opportunity" : "opportunities"}
             <span className="ml-2 font-normal text-muted-foreground">Writing, checking and evidence still in progress. Nothing here is yours to do yet.</span>
           </summary>
+          {/* ONE TALLY PER KIND OF WORK, never the inventory (Product Truth; operator, 2026-08-31): printing every
+              unfinished row made the operator Beacon's own progress clerk. What a person opening this line needs is
+              the shape of what is coming, in plain words, one line per kind. */}
           <ul className="list-none space-y-1 px-4 pb-3">
-            {preparingRows.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-baseline gap-x-2 border-t border-border/60 py-2 text-[13px]" data-preparing-row="true">
-                <span className="font-medium text-foreground">{p.pagePath ? pageLabel(p.pagePath) : p.pageLabel}</span>
-                <span className="text-muted-foreground">{preparingLine(p)}</span>
-                <Link href={`/changes/${encodeURIComponent(p.id)}`} className="text-[12px] font-semibold text-accent-primary underline underline-offset-2" data-research-detail="true">Details</Link>
-              </li>
-            ))}
+            {[...preparingRows.reduce((m, p) => { const k = preparingKind(p); m.set(k, (m.get(k) ?? 0) + 1); return m; }, new Map<string, number>())]
+              .sort((a, b) => b[1] - a[1])
+              .map(([kind, n]) => (
+                <li key={kind} className="flex items-baseline gap-x-2 border-t border-border/60 py-2 text-[13px] tabular-nums" data-preparing-kind="true">
+                  <span className="font-medium text-foreground">{n.toLocaleString("en-US")}</span>
+                  <span className="text-muted-foreground">{kind}</span>
+                </li>
+              ))}
           </ul>
         </details>
       ) : null}
