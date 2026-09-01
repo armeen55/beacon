@@ -477,6 +477,7 @@ export type StructuredDraftRequest<K extends StructuredDraftKind> = {
   user: string;
   /** Concatenated grounded text for the numeric-fidelity firewall. */
   grounded: string;
+  /** A phrase CODE resolved and the writer was told to carry verbatim, so markup the writer wrapped around it can be taken off before the firewalls read the copy. */ unmarkPhrase?: string;
   projectedCostUsd?: number;
   maxTokens?: number;
   timeoutMs?: number;
@@ -654,7 +655,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // W5 (J-69): the LLM may PROPOSE sources, but only source-authority.ts decides `authority`, re-stamp before any firewall/cache/return step.
     const result = { ...parsed, data: stampAnySources(parsed.data, req.authoritativeSourceDomains) as typeof parsed.data };
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
-    if (req.kind === "internal_link") result.data = unmarkAnchor(result.data);
+    if (req.kind === "internal_link" || req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
       deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
       skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null,
@@ -787,6 +788,7 @@ type AtomicEditStructuredInput = {
   evidenceHints?: string[];
   /** The searcher's dominant intent (when/cost/how/where/who/list/compare/what), shapes the copy. */
   intent?: string;
+  /** The exact anchor this edit must carry, when it is a link. Resolved from the destination, never from the model. */ unmarkPhrase?: string;
   /** The owning account (Slice 3: REQUIRED, threaded to the drafter for cache + budget scoping). Also looks up this account's own measured winners (same field/lever) for the few-shot injection below. */
   tenantId: string;
   /** BEACON_500 item 74: the page's family (first path segment), used ONLY to look up a CONFIDENT winning pattern for this family. Optional - omitting it (or having no confident cell yet) leaves the prompt byte-identical, never an error. */
@@ -872,6 +874,7 @@ export async function draftAtomicEditStructured(
   const result = await callStructuredLLM({
     kind: "atomic_edit",
     tenantId: input.tenantId,
+    ...(input.unmarkPhrase ? { unmarkPhrase: input.unmarkPhrase } : {}),
     system: (ATOMIC_HEAD[input.field] ?? ATOMIC_HEAD.default!) + ATOMIC_EDIT_SYSTEM + (input.field === "answer_block" ? OPENING_ANSWER_CLAUSE : input.field === "meta" ? META_SUBJECT_CLAUSE : "") + fewShots,
     user,
     grounded,
@@ -906,13 +909,18 @@ type InternalLinkStructuredInput = {
 };
 
 /** MARKUP AROUND THE RIGHT WORDS IS PUNCTUATION, NOT A PLACEHOLDER (live, 2026-08-31). Told in the plainest terms not to mark the anchor, the writer still returns "[Zanjan Rug]", and the placeholder firewall rightly refuses brackets, so every link candidate dies twice and buys nothing. Instructing harder was already tried and already failed. What the model got WRONG is the punctuation it wrapped around words that are otherwise exactly correct, so code unwraps it, the way the page's own typos are repaired rather than reproduced. It fires ONLY on a run that equals the model's own anchor: a real placeholder like "[insert year]" matches nothing and is still refused outright. PURE. */
-function unmarkAnchor<T>(data: T): T {
-  const d = data as { anchorText?: unknown; linkSentence?: unknown };
-  const a = typeof d.anchorText === "string" ? d.anchorText.trim() : "", s = typeof d.linkSentence === "string" ? d.linkSentence : "";
-  if (a.length < 2 || !s) return data;
+function unmarkAnchor<T>(data: T, phrase?: string): T {
+  const d = data as Record<string, unknown>;
+  const a = (phrase ?? (typeof d.anchorText === "string" ? d.anchorText : "")).trim();
+  if (a.length < 2 || !data || typeof data !== "object") return data;
   const q = a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const out = s.replace(new RegExp(`\\[(${q})\\]\\([^)]*\\)|\\[(${q})\\]|\\*\\*(${q})\\*\\*|\\*(${q})\\*`, "gi"), (_m, ...g) => g.slice(0, 4).find((x) => typeof x === "string") ?? a);
-  return out === s ? data : { ...data, linkSentence: out };
+  const re = new RegExp(`\\[(${q})\\]\\([^)]*\\)|\\[(${q})\\]|\\*\\*(${q})\\*\\*|\\*(${q})\\*`, "gi");
+  const strip = (t: string): string => t.replace(re, (_m, ...g) => g.slice(0, 4).find((x) => typeof x === "string") ?? a);
+  let moved = false; const out: Record<string, unknown> = { ...d };
+  for (const [k, v] of Object.entries(d)) {
+    if (typeof v === "string") { const t = strip(v); if (t !== v) { out[k] = t; moved = true; } }
+    else if (Array.isArray(v) && v.every((x) => typeof x === "string")) { const t = (v as string[]).map(strip); if (t.some((x, i) => x !== v[i])) { out[k] = t; moved = true; } } }
+  return moved ? (out as T) : data;
 }
 const INTERNAL_LINK_SYSTEM =
   "You place ONE link from a page to another page on the SAME site. Return ONLY a JSON object: " +

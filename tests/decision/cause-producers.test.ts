@@ -59,23 +59,19 @@ describe("a named cause produces the change that fixes it", () => {
     expect(p.diagnosisCause).toBe("weak_opening"); // the REAL fired cause, never the hardcoded wording one
     expect(b.components.map((c) => c.kind)).toEqual(["opening_answer"]); expect(b.components[0]!.before).toBe(OPENING);     expect(b.components[0]!.after).toBe(ANSWER);
     expect(p.recommendedChange).toEqual({ kind: "existing_edit", field: "answer_block", before: OPENING, after: ANSWER }); expect(p.opportunityType).toBe("Answer the search in the page's first lines");
-    // every cited key is a receipt line the operator can actually read
-    const keys = new Set(b.receipt.items.map((i) => i.key)); expect(b.components[0]!.evidenceKeys.length).toBeGreaterThan(0);
+    const keys = new Set(b.receipt.items.map((i) => i.key)); expect(b.components[0]!.evidenceKeys.length).toBeGreaterThan(0); // every cited key is a receipt line the operator can actually read
     for (const k of b.components[0]!.evidenceKeys) expect(keys.has(k)).toBe(true);
-    // THROUGH THE REAL VALIDATOR, not a mock of it, and a round trip through the one decoder
-    expect(validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected"); expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p);
+    expect(validateProposal(p, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected"); expect(deserializeChangeProposal(serializeChangeProposal(p))).toEqual(p); // THROUGH THE REAL VALIDATOR, not a mock of it, and a round trip through the one decoder
     expect([b.objective, b.measurementPlan, ...b.risks, ...b.components.map((c) => `${c.label} ${c.after} ${c.where} ${c.objective} ${c.mechanism}`)].join(" ")).not.toMatch(/[–—]|experiment|control group|baseline|SERP/i); });
   it("writes one section per subject the winning pages agree on and this page leaves out, each answering for itself", async () => {
     const p2 = pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }, { heading: "Chaining a container", seenOn: [0, 1] }] });
     const out = await produceBundleForSnapshot(snapshot(), { ...OPTS, complete: seam(), coverage: decided(p2) }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const b = out.proposal.bundle!;
     expect(out.proposal.diagnosisCause).toBe("incomplete_coverage"); expect(b.components.map((c) => c.kind)).toEqual(["section_add", "section_add"]);
-    // section_add is OUTSIDE the grandfathered kinds, so all four answers are owed or the validator rejects the whole change
-    for (const c of b.components) {
+    for (const c of b.components) { // section_add is OUTSIDE the grandfathered kinds, so all four answers are owed or the validator rejects the whole change
       expect(c.where).toBeTruthy(); expect(c.objective).toBeTruthy(); expect(c.mechanism).toBeTruthy(); expect(c.measurementPlan).toBeTruthy(); expect(c.after).toContain(ANSWER);}
     expect(validateProposal(out.proposal, { evidenceText: b.receipt.items.map((i) => i.fact).join(" ") }).verdict).not.toBe("rejected");
     expect(bought.filter((k) => k === "atomic_edit")).toHaveLength(2); // one call per section, never a third, and every one of them through the ONE canonical editor
-    // AND EACH PIECE CARRIES ITS OWN AUTHORIZATION, named by the piece it belongs to: one section's ruling can never stand in for the next one's.
-    expect(out.proposal.claims!.map((x) => x.of)).toEqual(b.components.map((c, i) => componentIdOf(c, i)));
+    expect(out.proposal.claims!.map((x) => x.of)).toEqual(b.components.map((c, i) => componentIdOf(c, i))); // AND EACH PIECE CARRIES ITS OWN AUTHORIZATION, named by the piece it belongs to: one section's ruling can never stand in for the next one's.
     expect(out.proposal.semanticReview!.of).toBe(copyKey(out.proposal)); expect(openHold(out.proposal).blocking).toBeNull();
   });
   it("never calls a subject absent that the held page carries in a later passage", async () => {
@@ -94,8 +90,7 @@ describe("a named cause produces the change that fixes it", () => {
   });
   /** A REBUILD IS EARNED BY CAUSES THAT FIRED, never by ones checked and RULED OUT: counting the whole list told the operator "2 separate things are wrong" where the second clause contradicted the evidence. */
   describe("a rebuild is earned by what fired", () => {
-    // The cause's OWN producer can write nothing, so the rebuild is reachable; the rebuild's own sections do land, because a rebuild that cannot write the whole page now emits nothing at all. No superlative in the rebuilt copy: this fixture supplies no opening pattern, so "the first" would be an ungrounded claim and the factual firewall would rightly refuse the whole rebuild.
-    const REBUILT = ANSWER.replace("a heavy storm delivers", "a heavy storm brings"); const rebuildSeam: CompleteFn = async ({ kind, user }) => { bought.push(kind);
+    const REBUILT = ANSWER.replace("a heavy storm delivers", "a heavy storm brings"); const rebuildSeam: CompleteFn = async ({ kind, user }) => { bought.push(kind); // The cause's OWN producer can write nothing, so the rebuild is reachable; the rebuild's own sections do land, because a rebuild that cannot write the whole page now emits nothing at all. No superlative in the rebuilt copy: this fixture supplies no opening pattern, so "the first" would be an ungrounded claim and the factual firewall would rightly refuse the whole rebuild.
       if (kind === "editor_judgement") return { value: JUDGED(cited(user)) as never };
       if (user.includes("Rewrite the first lines")) return { value: { field: "answer_block", before: null, after: ANSWER, naturalHeading: "Where the overflow goes", placementAnchor: "Rain Barrels", claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The opening never says what the search is about.", ...TAIL } as never };
       return user.includes("being rebuilt") ? { value: { field: "answer_block", before: null, after: REBUILT, naturalHeading: (/under the heading "(.*?)"/.exec(user) ?? [])[1] ?? "Overflow", placementAnchor: "Rain Barrels", claims: [{ text: "Barrel sizes vary.", supportedBy: [cited(user)] }], implementationMinutes: 15, rationale: "The page is being rebuilt.", ...TAIL } as never } : { value: {} as never }; };

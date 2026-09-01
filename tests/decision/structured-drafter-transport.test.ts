@@ -44,7 +44,12 @@ describe("structured-drafter strict transport", () => {
       expect([out.status, out.status === "drafted" && (out.value as { linkSentence: string }).linkSentence], `the words survive and only the writer's own markup comes off: ${marked.slice(30, 60)}`)
         .toEqual(["drafted", "Kashan knot counts run higher than the Zanjan Rug, which sits between 100 and 150."]); }
     const holes = await drive(link("Kashan knot counts run higher than the [insert rug name], which sits between 100 and 150."));
-    expect([holes.status, holes.status === "validation_failed" && holes.reason.includes("placeholder")], "an unfilled hole is not markup around the right words, and is refused exactly as before").toEqual(["validation_failed", true]); });
+    expect([holes.status, holes.status === "validation_failed" && holes.reason.includes("placeholder")], "an unfilled hole is not markup around the right words, and is refused exactly as before").toEqual(["validation_failed", true]);
+    // AND A LINK IS DRAFTED THROUGH THE ATOMIC EDITOR, not the older link kind, which is why the first repair fired on nothing: only the caller knows which words are the anchor, so it says so, and every field is cleaned rather than one.
+    const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug",
+      complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", operatorSteps: ["Link the words **Zanjan Rug** in that sentence"] } }]).complete });
+    expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { operatorSteps: string[] }).operatorSteps[0]],
+      "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]); });
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
