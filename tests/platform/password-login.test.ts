@@ -15,13 +15,11 @@ describe("the operator signs in with a password, and the refusal tells an attack
     const spy = vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => { seen.logged.push(a.map((x) => JSON.stringify(x)).join(" ")); });
     expect(await signInWithPassword("owner@example.com", "the-real-one"), "a correct password is simply taken").toEqual({ error: null });
     const bad = await signInWithPassword("owner@example.com", "not-the-one");
-    // ONE generic refusal for a wrong password AND an unknown address, or this form becomes a way to discover who has an account. The provider's own sentence never travels to the browser.
-    expect(bad.error).toBe("That email and password do not match an account.");
+    expect(bad.error).toBe("That email and password do not match an account."); // ONE generic refusal for a wrong password AND an unknown address, or this form becomes a way to discover who has an account. The provider's own sentence never travels to the browser.
     expect(`${bad.error}`).not.toMatch(/invalid login credentials|supabase|gotrue|400/i);
     expect(await signInWithPassword("not-an-email", "x"), "the shape is checked before the provider is asked").toEqual({ error: "Enter your email and your password." });
     expect(await signInWithPassword("owner@example.com", ""), "an empty password never reaches the provider").toEqual({ error: "Enter your email and your password." });
-    // THE SECRET IS NEVER PART OF THE RECORD: not in the returned copy, not in the diagnostic line.
-    expect(seen.logged.join(" "), "no server log may carry the password").not.toContain("not-the-one");
+    expect(seen.logged.join(" "), "no server log may carry the password").not.toContain("not-the-one"); // THE SECRET IS NEVER PART OF THE RECORD: not in the returned copy, not in the diagnostic line.
     expect(seen.logged.join(" "), "the diagnostic keeps only machine-readable signal").toMatch(/invalid_credentials|400/);
     spy.mockRestore(); });
 });

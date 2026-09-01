@@ -133,7 +133,7 @@ type ProposalConfidence = "high" | "medium" | "low";
 
 /** The exact change: `existing_edit` carries a precise before/after field rewrite, `new_page` a build brief. */
 export type RecommendedChange =
-  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string; /** EXACTLY WHERE new copy lands, when it replaces no existing field. */ where?: string | null; /** THE PAGE A LINK POINTS AT, TYPED. It lived only inside the instruction sentence and was recovered by a regex over that prose, so the destination's own words were never loaded because nothing downstream knew which page it was. The anchor is the card's `primaryQuery`. */ linkTo?: string | null }
+  | { kind: "existing_edit"; field: "title" | "meta" | "h1" | "answer_block" | "section"; before: string | null; after: string; /** EXACTLY WHERE new copy lands, when it replaces no existing field. */ where?: string | null; /** THE PAGE A LINK POINTS AT, TYPED. It lived only inside the instruction sentence and was recovered by a regex over that prose, so the destination's own words were never loaded because nothing downstream knew which page it was. The anchor is the card's `primaryQuery`. */ linkTo?: string | null; /** The exact words that become the link, taken from the destination own name and never from the search query. */ anchorText?: string | null }
   | { kind: "new_page"; proposedTitle: string; metaDescription: string; openingAnswer: string; outline: string[]; faqQuestions: string[]; schemaTypes: string[] };
 
 /** A compact, frozen copy of what grounded this proposal, never a live handle: enough for the operator to see why Beacon recommends it and for the validator to re-run on load. `evidenceRefCount` is the draft's. */
@@ -343,7 +343,7 @@ export type ChangeProposal = {
 
 const RecommendedChangeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("existing_edit"), field: z.enum(["title", "meta", "h1", "answer_block", "section"]),
-    before: z.string().nullable(), after: z.string().min(1), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional() }), // THE TYPED LINK DESTINATION MUST SURVIVE THE WRITE: Zod strips what it does not declare, so a field added to the TYPE alone is erased on every persist, and the row came back with no target, failing the standalone-link gain exemption that keys on exactly this field.
+    before: z.string().nullable(), after: z.string().min(1), where: z.string().nullable().optional(), linkTo: z.string().nullable().optional(), anchorText: z.string().nullable().optional() }), // THE TYPED LINK DESTINATION MUST SURVIVE THE WRITE: Zod strips what it does not declare, so a field added to the TYPE alone is erased on every persist, and the row came back with no target, failing the standalone-link gain exemption that keys on exactly this field.
   z.object({ kind: z.literal("new_page"), proposedTitle: z.string().min(1), metaDescription: z.string().min(1),
     openingAnswer: z.string().min(1), outline: z.array(z.string()), faqQuestions: z.array(z.string()),
     schemaTypes: z.array(z.string()) }),

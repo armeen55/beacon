@@ -36,8 +36,7 @@ describe("one canonical day for money and research", () => {
     const { shareFor, SEARCH_SHARE, FACT_RESERVE_SHARE, dailyCapReason } = await import("@/lib/cost/daily-cap"); expect(shareFor("search", "bulk")).toBeCloseTo(SEARCH_SHARE - FACT_RESERVE_SHARE, 10);
     expect(shareFor("model", "bulk")).toBeCloseTo(1 - FACT_RESERVE_SHARE, 10); // non-fact OpenAI is held back too
     expect([shareFor("search", "fact_check"), shareFor("model", "fact_check")]).toEqual([1, 1]);
-    // THE COUNTEREXAMPLE: $0.769 spent of a $1 day. A $0.21 bulk buy would land at $0.979 and eat the reserve.
-    db.spentToday = 0.769;
+    db.spentToday = 0.769; // THE COUNTEREXAMPLE: $0.769 spent of a $1 day. A $0.21 bulk buy would land at $0.979 and eat the reserve.
     expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0.21)).toContain("budget");
     expect(await dailyCapReason("t", new Date(), shareFor("search", "bulk"), 0)).toBeNull(); // what the old check saw
     expect(await dailyCapReason("t", new Date(), shareFor("search", "fact_check"), 0.21)).toBeNull(); // the reserve is still there
@@ -48,8 +47,7 @@ describe("migration history is immutable", () => {
   it("the applied 2026-08-18 migration keeps its committed bytes and later moves live in their own files", async () => {
     const { readFileSync, existsSync } = await import("node:fs"); const { createHash } = await import("node:crypto");
     const original = readFileSync("migrations/2026-08-18_page_source_facts_and_fact_check_phase.sql"); expect(createHash("sha256").update(original).digest("hex")).toBe("75862d2956f861aa0d5f66cd38f0d4d098d24264505bb3be8196f76b92564a1c");
-    // the lifecycle, the ledger day and the rules version each got their own immutable file
-    for (const f of ["2026-08-18b_claim_lifecycle", "2026-08-18c_ledger_reporting_day", "2026-08-18d_verification_rules_version"]) expect(existsSync(`migrations/${f}.sql`)).toBe(true);
+    for (const f of ["2026-08-18b_claim_lifecycle", "2026-08-18c_ledger_reporting_day", "2026-08-18d_verification_rules_version"]) expect(existsSync(`migrations/${f}.sql`)).toBe(true); // the lifecycle, the ledger day and the rules version each got their own immutable file
   });});
 
 /** AN UNREADABLE BUDGET IS NOT THE DEFAULT BUDGET. The cap fell back to the standard allowance when the tenant read failed, so an account whose operator had set the day to zero, which that file's contract calls turning paid work off, would have spent against a five dollar cap the moment the read flickered. */

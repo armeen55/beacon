@@ -60,8 +60,7 @@ describe("middleware account injection — one login, one account, fail-closed",
     process.env.NEXT_PUBLIC_SUPABASE_URL = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_URL;
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = REQUIRED_ENV.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     delete process.env.BEACON_AUTH_DISABLED;
-    // No signing secret means no cached account: every row below resolves purely from the database, which is what these rows are about. The cached-account contract has its own cases underneath.
-    for (const k of ["BEACON_OAUTH_STATE_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "CRON_SECRET"]) delete process.env[k];});
+    for (const k of ["BEACON_OAUTH_STATE_SECRET", "SUPABASE_SERVICE_ROLE_KEY", "CRON_SECRET"]) delete process.env[k];}); // No signing secret means no cached account: every row below resolves purely from the database, which is what these rows are about. The cached-account contract has its own cases underneath.
   afterEach(() => {
     delete process.env.BEACON_AUTH_DISABLED;
     vi.restoreAllMocks();});
@@ -111,8 +110,7 @@ describe("middleware account injection — one login, one account, fail-closed",
     const post = new NextRequest(new URL("/changes", "https://beacon-bice.vercel.app"), { method: "POST", headers }); const acted = await updateSession(post);
     expect(acted.status).toBe(200); expect(acted.headers.get("location"), "a Mark done POST must never be redirected to /login").toBeNull();
     expect(injectedTenant(acted)).toBe("tenant-mine");
-    // A cookie signed for somebody else is not an account: it falls through to the database like any miss.
-    supabaseState.user = { id: "user-2" };
+    supabaseState.user = { id: "user-2" }; // A cookie signed for somebody else is not an account: it falls through to the database like any miss.
     supabaseState.tenantHangs = false;
     supabaseState.tenantMembersRows = [{ tenant_id: "tenant-theirs" }];
     expect(injectedTenant(await updateSession(makeRequest("/changes", { headers })))).toBe("tenant-theirs");

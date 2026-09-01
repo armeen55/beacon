@@ -577,15 +577,13 @@ describe("a visit may not open a research pass the account cannot pay for", () =
     let asked = -1; const allowed = await visitMayOpenResearch(T, async (_t, projected) => { asked = projected; return { allowed: true }; });
     expect([refused.allowed, allowed.allowed, unreadable.allowed]).toEqual([false, true, false]);
     expect([refused.reason.includes("54.9913 / 55"), unreadable.reason.includes("could not be read")]).toEqual([true, true]); // the refusal carries the door's OWN words
-    // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
-    expect([asked > 0, 54.9913 + asked > 55]).toEqual([true, true]); });
+    expect([asked > 0, 54.9913 + asked > 55]).toEqual([true, true]); }); // THE TRAP: the door refuses on `spend + projected > cap`, so a ZERO probe still answers "allowed" against an allowance reached to the last cent, and a visit would open paid work on an account with nothing left.
   /** THE COUNTEREXAMPLE AFFORDABILITY CANNOT PRODUCE. Testing only at a spent ceiling proves the money
    *  gate, never the free-control contract: with the allowance restored the press would arm research again. */
   it("does not arm recovery on a repaint even when the budget is FULLY available", async () => {
     const h = (o: Record<string, string>) => ({ get: (n: string) => o[n.toLowerCase()] ?? null });
     expect((await visitMayOpenResearch(T, async () => ({ allowed: true }))).allowed).toBe(true); // money is NOT what stops it
-    // router.refresh(), a Server Action's own response and a client navigation are RSC payloads; only a full document is a person turning up.
-    expect([isDocumentArrival(h({ rsc: "1" })), isDocumentArrival(h({ "next-action": "a1" })), isDocumentArrival(h({})), isDocumentArrival(null)]).toEqual([false, false, true, false]); });
+    expect([isDocumentArrival(h({ rsc: "1" })), isDocumentArrival(h({ "next-action": "a1" })), isDocumentArrival(h({})), isDocumentArrival(null)]).toEqual([false, false, true, false]); }); // router.refresh(), a Server Action's own response and a client navigation are RSC payloads; only a full document is a person turning up.
 });
 /** THE REGISTRY DECIDES, ONCE per run. The reconcile step here is the real one, so the wiring is what is pinned: a registry that only changed the ORDER it was written in is unmoved, and the advisory reading is bounded per RUN, never per unit iteration. */
 describe("the case registry a run saves, and the ONE reading it buys", () => {
@@ -639,8 +637,7 @@ describe("the due-work runtime: a day is not a unit of work", () => {
     expect(RR.researchStatusLine(RR.projectStatusView(rows[0]!, NOW), new Date(NOW))) .toContain("Nothing more is due until August 1."); // the operator's own zone, the same one every other date on Today uses
     NOW += DAY; await run(healthySteps(log)); expect([log, rows.length]).toEqual([["refresh", "backfill", "crawl", "publish"], 2]); }); // tomorrow is untouched by today's empty pass
   /** ONE PRESS, SERVER-OWNED. The old shape ran one hop per request, capped six per day, and the browser looped: closing the tab stopped the day and hop seven said done over an unfinished queue. The server now drives the one runtime internally; nothing due runs nothing and spends nothing, and a due list a whole pass could not move is a BLOCKER to report, never a loop to buy again. */
-  // the one-press continuation tests left with continueResearch itself (deleted 2026-08-30: zero callers)
-  it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => {
+  it("two tabs cannot both open a same-day pass: the second insert loses to the one-open-run invariant", async () => { // the one-press continuation tests left with continueResearch itself (deleted 2026-08-30: zero callers)
     const rows = completedToday(); const one = await RR.startExtraPass(T, "tab-1", today()); const two = await RR.startExtraPass(T, "tab-2", today()); // the first pass is still open
     expect([one?.lease_owner, two, rows.length]).toEqual(["tab-1", null, 2]); });
   it("marks the case a spending ceiling stopped, day-scoped on the run's own row, and the receipt reads it", async () => {
@@ -850,8 +847,7 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
   it("keeps asking for work above the stock floor, and stops only on a proven exhaustion", async () => {
     const closed = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a", attempted: [], closed: "candidates_exhausted" as const } } }) }); expect([(await dueWork(T, new Date(NOW), closed(5))).due, (await dueWork(T, new Date(NOW), closed(4))).due]).toEqual([[], []]); // a SETTLED manifest holds the day shut at any count
     const open = (n: number) => ({ ...base, readyStock: async () => n, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY) } }) });
-    // THE OPERATOR'S ACCEPTANCE COUNTS (2026-08-30): at 0, at the old floor, and far past it, eligibility is identical.
-    for (const n of [0, 4, 5, 14, 40, 100, 500]) expect((await dueWork(T, new Date(NOW), open(n))).due, `at ${n} Ready rows the work is still due`).toEqual(["replenish_ready"]); });
+    for (const n of [0, 4, 5, 14, 40, 100, 500]) expect((await dueWork(T, new Date(NOW), open(n))).due, `at ${n} Ready rows the work is still due`).toEqual(["replenish_ready"]); }); // THE OPERATOR'S ACCEPTANCE COUNTS (2026-08-30): at 0, at the old floor, and far past it, eligibility is identical.
   it("reopens an exhausted day the moment the evidence behind it moves, without waiting for tomorrow", async () => {
     const shut = { ...base, readyStock: async () => 0, run: async () => ({ open: false, progress: { decided: { basis: "b1", rowVersion: 7 }, focus: parked(NOW + DAY), replenish: { day: reportingDay(NOW), fingerprint: "b1::v7::/a|/b", attempted: ["/a", "/b"], closed: "candidates_exhausted" as const } } }) };
     expect((await dueWork(T, new Date(NOW), shut)).due).toEqual([]); // exhausted under version 7, and it stays shut while that is the question

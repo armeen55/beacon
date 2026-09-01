@@ -194,7 +194,7 @@ const bareText = (t: string): string => t.toLowerCase().normalize("NFKD").replac
 const cut = (t: string, n = 60): string => (t.trim().length > n ? `${t.trim().slice(0, n)}...` : t.trim());
 
 export const copyKey = (p: ChangeProposal): string => { const c = p.recommendedChange;
-  return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
+  return JSON.stringify([p.tenantId, p.pagePath ?? "", p.changeFamily, c.kind === "existing_edit" ? [c.field, c.where ?? "", c.before ?? "", c.after, c.linkTo ?? "", c.anchorText ?? ""] : ["new_page", c.proposedTitle, c.metaDescription, c.openingAnswer, c.outline],
     (p.bundle?.components ?? []).map((x) => [x.kind, x.page ?? "", x.where ?? "", x.before ?? "", x.after]),
     // AND WHICH PIECE EACH CLAIM ANSWERS FOR, folded ONLY where the row carries it: `of` is new, every banked reading was taken over a key that never had it, and appending a null to every claim would retire the paid review on every stored row at once.
     (p.claims ?? []).map((x) => (x.of ? [x.text, [...x.supportedBy].sort(), x.of] : [x.text, [...x.supportedBy].sort()])), [...(p.supportFacts ?? [])].map((f) => [f.id, f.fact]).sort()]); };
