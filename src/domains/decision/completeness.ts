@@ -2,6 +2,7 @@
 
 import { componentIdOf, dangerousComponents } from "./contracts";
 import { copyKey } from "./proof";
+import { domainOf } from "@/domains/evidence/relevance-gate";
 import type { ChangeProposal } from "./contracts";
 import { evidenceShortfall } from "./proof";
 
@@ -109,18 +110,23 @@ export function openHold(p: ChangeProposal): { lane: "review" | "research"; why:
     hard.push("It states what a country's national symbol is and stands only on this page saying so, which is not a source, so it is held until one is on file.");
     need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "claim_unsourced" };
   }
-  // A BODY CLAIM STANDING ON EXACTLY ONE OUTSIDE SOURCE NAMES ITS OWN CURE: a second independent source. The
-  // takbir answer sat in review with a writer-authored hold ("rests on one encyclopedia source") that matches no
-  // typed fault, so the lane said "nothing has read them for sense yet" over a cure nothing was fetching: the
-  // finished substantive answer for the queue's #2 traffic opportunity was a dead end. Read structurally, never
-  // from the sentence: an unpromoted section or answer whose external support is one distinct fact-* id mints
-  // the factual_source requirement for THAT claim's own proposition, and the runtime's acquisition researches
-  // it, banks the second source, and the next redraft clears the hold on evidence rather than on taste.
+  // EVIDENCE IS PROPORTIONAL TO WHAT THE TREATMENT RISKS, AND SOURCES ARE COUNTED, NOT IDS (operator, 2026-09-01).
+  // This held every unpromoted body row whose external support resolved to ONE fact-* id, which is not a source
+  // count at all: one fact carrying two independent authorities read as one, two ids cut from the same publisher
+  // read as two, and a reversible usage note owed exactly what a destructive correction owes. A fact- id is
+  // ALREADY authoritative, freshly read and shown to entail its own claim before it may enter a packet at all
+  // (evidence/pages/fact-checks admits nothing else), so ONE such publisher carries an ADDITIVE section, which a
+  // reader undoes by deleting it. Corroboration is owed where being wrong costs more than a revert: copy that
+  // REPLACES words the page already carries, and copy whose own claim is that sources agree.
   if (!need && !bypass && p.status === "needs_review" && c.kind === "existing_edit" && (c.field === "section" || c.field === "answer_block")) {
-    const factBacked = (p.claims ?? []).filter((x) => x.supportedBy.some((id) => id.startsWith("fact-")));
-    const distinctFacts = new Set(factBacked.flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-"))));
-    if (distinctFacts.size === 1 && factBacked[0])
-      need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}), reasonCode: "single_source", missingTopic: factBacked[0].text };
+    const cited = new Set((p.claims ?? []).flatMap((x) => x.supportedBy.filter((id) => id.startsWith("fact-"))));
+    const publishers = new Set((p.supportFacts ?? []).filter((f) => cited.has(f.id))
+      .flatMap((f) => f.fact.match(/https?:\/\/[^\s"';]+/g) ?? []).map((u) => domainOf(u)).filter(Boolean));
+    const owed = (c.before ?? "").trim() !== "" || /\bsources agree\b|\bmost (?:pages|sites|sources|publishers)\b|\bwidely (?:agreed|reported)\b/i.test(says) ? 2 : 1;
+    if (cited.size > 0 && publishers.size < owed)
+      need = { kind: "factual_source", query: p.primaryQuery, ...(p.pageUrl ? { url: p.pageUrl } : {}),
+        reasonCode: publishers.size === 0 ? "unread_source" : "single_source",
+        missingTopic: (p.claims ?? []).find((x) => x.supportedBy.some((id) => cited.has(id)))?.text ?? p.primaryQuery };
   }
   if ((p.causeFinding?.cause ?? p.diagnosisCause) === "cannibalization" && /\d[\d,.]*\s*clicks short/i.test(p.whyItMatters ?? "")) hard.push("Its reason promises clicks a wording change has never been shown to recover, so it is held until the ownership work it belongs to is finished.");
   // THE PROOF BURDEN MATCHES THE PROMISE: what a change claims decides what it owes (decision/authorization's

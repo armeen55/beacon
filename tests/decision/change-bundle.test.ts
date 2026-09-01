@@ -357,18 +357,21 @@ describe("the complete change universe answers for itself", () => { it("round-tr
     expect(validateProposal(prop({ bundle: bundleOf([legal("safe")]) })).verdict).toBe("rejected"); // an unmarked one is a MISLABELLED change, and a mislabelled change is the one that gets pasted without a second look
     const held = validateProposal(prop({ riskLevel: "high", status: "needs_review", bundle: bundleOf([legal("dangerous")]) }));
     expect([held.verdict, held.reasons.some((r) => r.includes("confirm it before you make the change"))]).toEqual(["needs_review", true]); }); });
-describe("a held body claim on one outside source asks for its second source, typed", () => { it("mints the factual_source requirement for the claim's own proposition, and only for the single-source case", () => {
-    const held = prop({ status: "needs_review", pageUrl: "https://www.iranopedia.com/iran-flags/iran-islamic-republic-flag-history",
-      recommendedChange: { kind: "existing_edit", field: "answer_block", before: null, after: "Why the Takbir appears twenty-two times." }, claims: [{ text: "The Takbir is repeated 11 times along each band, reminiscent of 22 Bahman.", supportedBy: ["fact-1"] }, { text: "The design changed in 1980.", supportedBy: ["page-copy-1"] }],
-      supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: repeated 11 times along each band." }, { id: "page-copy-1", fact: "the page's own line" }] } as never);
-    const verdict = openHold(held);
-    expect(verdict.need?.kind).toBe("factual_source");
-    expect(verdict.need?.reasonCode).toBe("single_source");
-    expect(verdict.need?.missingTopic).toContain("22 Bahman"); // the claim's own proposition, so the acquisition researches THIS
-    const twoSources = prop({ ...held, claims: [{ text: "A claim.", supportedBy: ["fact-1", "fact-2"] }], supportFacts: [{ id: "fact-1", fact: "one" }, { id: "fact-2", fact: "two" }] } as never);
-    expect(openHold(twoSources).need).toBeUndefined();
-    expect(openHold(prop({ ...held, status: "ready" } as never)).need).toBeUndefined();
-    expect(openHold(prop({ ...held, recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } } as never)).need).toBeUndefined(); }); });
+describe("evidence is proportional to what the treatment risks, and sources are counted rather than ids", () => { it("one authoritative publisher carries an additive section; a replacement, a consensus claim, an unread source and same-publisher ids do not", () => {
+    const EDIN = 'the deferential or formal you \u2014 https://era.ed.ac.uk/items/7485 says "two personal pronouns for singular address" (confirmed)';
+    const MSU = 'shoma is the polite form \u2014 https://openbooks.lib.msu.edu/persian/chapter/1-7 says "shoma is used to show respect" (confirmed)';
+    const body = (over: Record<string, unknown>) => prop({ status: "needs_review", pageUrl: "https://www.iranopedia.com/basic-persian-phrases",
+      recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Persian uses two forms of you." },
+      claims: [{ text: "shoma is the deferential form.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: EDIN }], ...over } as never);
+    const additive = body({}); expect(openHold(additive).need, "one authoritative, freshly read, entailing publisher carries a section a reader undoes by deleting it").toBeUndefined();
+    const replacing = body({ recommendedChange: { kind: "existing_edit", field: "section", before: "The words this replaces.", after: "Persian uses two forms of you." } }); expect(openHold(replacing).need?.reasonCode, "a replacement destroys what it lands on, so it owes a second publisher").toBe("single_source");
+    const consensus = body({ recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "Sources agree Persian uses two forms of you." } }); expect(openHold(consensus).need?.reasonCode, "a claim ABOUT agreement must inspect more than one publisher").toBe("single_source");
+    const unread = body({ supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: repeated 11 times along each band." }] }); expect(openHold(unread).need?.reasonCode, "a fact naming no source anybody opened is not one publisher, it is none").toBe("unread_source");
+    const REPL = { kind: "existing_edit", field: "section", before: "The words this replaces.", after: "Persian uses two forms of you." };
+    const twoIdsOnePublisher = body({ recommendedChange: REPL, claims: [{ text: "c.", supportedBy: ["fact-1", "fact-2"] }], supportFacts: [{ id: "fact-1", fact: EDIN }, { id: "fact-2", fact: EDIN.replace("deferential", "formal") }] }); expect(openHold(twoIdsOnePublisher).need?.reasonCode, "two ids cut from the same publisher are one source, never corroboration").toBe("single_source");
+    const twoPublishersOneFact = body({ recommendedChange: REPL, supportFacts: [{ id: "fact-1", fact: `${EDIN}; ${MSU}` }] }); expect(openHold(twoPublishersOneFact).need, "one fact row carrying two independent publishers IS two sources, whatever its id count").toBeUndefined();
+    expect(openHold(prop({ ...additive, status: "ready" } as never)).need, "a promoted row owes nothing here").toBeUndefined();
+    expect(openHold(prop({ ...additive, recommendedChange: { kind: "existing_edit", field: "title", before: "a", after: "b" } } as never)).need, "a title is not a body claim and this rule never reaches it").toBeUndefined(); }); });
 
 describe("traffic is the objective and every other factor may only discount it", () => { const clicky = (over: Record<string, unknown> = {}) => prop({ id: "measured", pagePath: "/cheetah", impactScore: 98, estimatedEffortMinutes: 2, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]), ...over });
   const aeo = (over: Record<string, unknown> = {}) => prop({ id: "aeo", pagePath: "/phrases", impactScore: null, estimatedEffortMinutes: 30, aiImpact: { answers: 9, days: 7, engines: 4, citedRivals: 3, mentionRate: 0, audienceWeight: null, stage: "owned_retrieved_not_cited" as const }, ...over });
@@ -660,6 +663,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
 
     it("a superlative nobody declared as an evidenced claim is refused, and a treatment the evaluator says does not resolve the diagnosis is refused", async () => {
       expect(await drive({ ...GOOD, after: "The most beloved Persian phrases are jeegareto bokhoram, moosh bokhoradet and pedar sag, each said between close friends." }), "the most is material by definition and no claim carries it").toBeNull();
+      expect(await drive({ ...GOOD, after: `${P1}\n${P2}\nMoosh bokhoradet is the more formal option.` }), "a register judgement its own line's evidence never states is refused, even beside supported lines").toBeNull();
       expect(await drive(GOOD, BODY, async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d), resolvesDiagnosis: false, notes: "more phrases do not supply the promised usage tips" })), "supported words that do not resolve the diagnosed problem are refused").toBeNull(); });
     it("a finished redraft replaces the prior pass's faults, research debt and gate prose with its own findings", async () => {
       const { canonicalUrlKey: ck4 } = await import("@/domains/evidence/snapshot"); bodyStore.map = new Map([[ck4(BODY.url), BODY]]); const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", faults: ["its opening repeats the heading"], research: { missing: "The exact copy is not written yet.", next: "n" }, limitations: ["the evaluator's exact objection: superseded by this pass", "The loss is measured from this account's own history."], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
