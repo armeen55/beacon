@@ -551,6 +551,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(naturalAnchorOf({ h1: null, title: "Booted Eagle in Iran: Facts | Iranopedia" }), "the title falls back with the site boilerplate cut").toBe("Booted Eagle in Iran");
     expect([naturalAnchorOf({ h1: "Explore More", title: "Iranopedia" }), naturalAnchorOf(null)], "furniture and a missing body name nothing, which is a refusal and not a guess").toEqual([null, null]);
     expect(naturalAnchorOf({ h1: "Safavid Lion and Sun Flag (1576-1732)", title: null }), "a catalogue date range is not how anyone links, and it carries a dash this product never publishes").toBe("Safavid Lion and Sun Flag");
+    expect([naturalAnchorOf({ h1: "Mercury (planet)", title: null }), naturalAnchorOf({ h1: "Georgia (country)", title: null })], "a disambiguator is part of the name and only catalogue dates come off").toEqual(["Mercury (planet)", "Georgia (country)"]);
     const base = { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'after "Habitat"', linkTo: "/iran-animals/booted-eagle", anchorText: "booted eagle" };
     const of = (rc: typeof base) => copyKey(prop({ id: `${TENANT}::/a::existing_edit::internal_link`, pagePath: "/a", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, recommendedChange: rc }));
     expect(of({ ...base, linkTo: "/iran-animals/persian-wolf" }), "a different destination is different work").not.toBe(of(base));
@@ -559,11 +560,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const link = prop({ id: `${TENANT}::/iran-animals/baluchistan-black-bear::existing_edit::internal_link`, pagePath: "/iran-animals/baluchistan-black-bear", pageUrl: "https://www.iranopedia.com/iran-animals/baluchistan-black-bear", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, primaryQuery: "iran eagle",
       claims: [{ text: "Booted Eagle in Iran is the linked target.", supportedBy: ["owned-page-target-title"] }],
       supportFacts: [{ id: "owned-page-target-title", fact: "/iran-animals/booted-eagle is titled: Booted Eagle in Iran" }],
-      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'One sentence placed after "Habitat", with "booted eagle" linked to /iran-animals/booted-eagle', linkTo: "/iran-animals/booted-eagle" } });
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'One sentence placed after "Habitat", with "booted eagle" linked to /iran-animals/booted-eagle', linkTo: "/iran-animals/booted-eagle", anchorText: "booted eagle" } });
     const back = deserializeChangeProposal(serializeChangeProposal(link));
-    const rc = back?.recommendedChange as { linkTo?: string | null; where?: string | null; after?: string } | undefined;
-    expect([rc?.linkTo, rc?.where?.includes('"booted eagle"'), rc?.after, back?.claims?.[0]?.supportedBy?.[0], back?.supportFacts?.[0]?.id],
-      "destination, anchor, placement and the evidence its claim stands on all come back").toEqual(["/iran-animals/booted-eagle", true, "The booted eagle hunts the same highlands.", "owned-page-target-title", "owned-page-target-title"]); });
+    const rc = back?.recommendedChange as { linkTo?: string | null; anchorText?: string | null; where?: string | null; after?: string } | undefined;
+    expect([rc?.linkTo, rc?.anchorText, rc?.where, rc?.after, back?.claims?.[0]?.supportedBy?.[0], back?.supportFacts?.[0]?.id],
+      "destination, anchor, placement, sentence and the evidence its claim stands on all come back as their own typed values").toEqual(["/iran-animals/booted-eagle", "booted eagle", 'One sentence placed after "Habitat", with "booted eagle" linked to /iran-animals/booted-eagle', "The booted eagle hunts the same highlands.", "owned-page-target-title", "owned-page-target-title"]);
+    expect(copyKey(back!), "the authorization identity is the same work after a reload").toBe(copyKey(link)); });
   it("prices a deliverable at exactly what its rounds and its final review cost, and never lets the two drift apart", () => {
     expect([DRAFT_BUDGET.DELIVERABLE_CALLS, (1 + DRAFT_BUDGET.RETRIES) * 2]).toEqual([6, 6]); // one round is a draft and its ONE evaluation, and the LAST evaluation is the promotion decision: no separate final-review unit exists to starve
     expect(DRAFT_BUDGET.POLICY).toMatch(new RegExp(`^w\\d+r${DRAFT_BUDGET.RETRIES}c${DRAFT_BUDGET.DELIVERABLE_CALLS}$`)); });  // and the WRITER version rides in front, so a material writer change reopens what the old writer settled // and the policy the day's memory is keyed on moves with them, so a page written off under the old price is asked again under the new one
