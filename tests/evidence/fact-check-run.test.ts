@@ -64,8 +64,7 @@ describe("the page slot is part of the proposition", () => {
     const meaning = tokenFingerprintOf("Afshin", "A warrior or conqueror.", "word_meaning"); // THE NORMALIZED ROLE IS IN THE FINGERPRINT, and the heading's prose is not.
     expect(meaning, "same words, two roles, two propositions").not.toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
     expect(tokenFingerprintOf("Afshin", "conqueror or warrior A.", "word_meaning"), "one role, harmless reorder").toBe(meaning);
-    expect(tokenFingerprintOf("Afshin", "A warrior or conqueror.", claimTypeOf("Afshin", "A warrior or conqueror.", "Boy names and their meanings")),
-      "two headings that mean the same role are ONE proposition, so a heading edit mints nothing").toBe(meaning);
+    expect(tokenFingerprintOf("Afshin", "A warrior or conqueror.", claimTypeOf("Afshin", "A warrior or conqueror.", "Boy names and their meanings")), "two headings that mean the same role are ONE proposition, so a heading edit mints nothing").toBe(meaning);
     expect(tokenFingerprintOf("Afshin", "A warrior or conqueror."), "MUTATION: without the role the two collide again").toBe(tokenFingerprintOf("Afshin", "A warrior or conqueror.", "definition"));
     const q = (t: Parameters<typeof sourceQueryFor>[0], sub: string, cur: string) => sourceQueryFor(t, sub, cur); // AND THE ROLE SHAPES THE QUERY WITHOUT ERASING THE PROPOSITION.
     const name = q("word_meaning", "Afshin", "A warrior or conqueror.");

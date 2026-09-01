@@ -359,7 +359,7 @@ export type StructuredDraftKind =
 
 /** THE EDITOR'S JUDGE (decision/drafted-copy): the seven rulings a finished edit survives, the one sentence that decided it, and the TYPED RESOLUTION a refusal owes ("none" on a pass): the smallest correct next step, so the runtime executes data instead of parsing the sentence. Every field is owed, so a body missing one is a refusal rather than a pass. MIRRORED with drafted-copy's JudgeVerdict. */
 /** `claims` REPLACES a coarse `claimsEntailed` boolean: the editor is already handed every claim with the exact evidence ids it cites and the stored words behind each, and answered yes or no about all of them at once, so the only answer the store may trust was thrown away and substantive work could never earn the receipt the factual family earns. One ruling per claim, in the canonical shape ChangeProposal.semanticReview persists. */
-const EditorJudgementSchema = z.object({ pageFit: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(),
+const EditorJudgementSchema = z.object({ pageFit: z.boolean(), usefulAndNatural: z.boolean(), placementCorrect: z.boolean(), resolvesDiagnosis: z.boolean(),
   claims: z.array(z.object({ i: z.number().int().min(0), by: z.array(z.string()), entailed: z.boolean() })).max(24),
   implementableNow: z.boolean(), improvesPage: z.boolean(), wouldHandToCustomer: z.boolean(), notes: z.string().min(1).max(300),
   resolution: z.enum(["none", "structural_synthesis", "use_stored_verified_evidence", "acquire_serp", "acquire_page_source", "acquire_competitor_page", "acquire_factual_source", "no_valid_treatment"]) });

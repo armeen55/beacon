@@ -131,8 +131,7 @@ describe("openAIStructuredResponse: what a failed call says, and what it stops",
   });
   it("holds the stop until a probe is due, then allows exactly one", () => {
     const t = { trippedAt: "2026-08-04T12:00:00.000Z", probeAt: null }, at = (iso: string) => new Date(iso); // one probe, fifteen minutes after the stop, and the stamp restarts the wait
-    expect([decideCreditBreaker(null, at("2026-08-04T12:00:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:14:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:15:00.000Z")),
-      decideCreditBreaker({ ...t, probeAt: "2026-08-04T12:15:00.000Z" }, at("2026-08-04T12:20:00.000Z"))])
+    expect([decideCreditBreaker(null, at("2026-08-04T12:00:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:14:00.000Z")), decideCreditBreaker(t, at("2026-08-04T12:15:00.000Z")), decideCreditBreaker({ ...t, probeAt: "2026-08-04T12:15:00.000Z" }, at("2026-08-04T12:20:00.000Z"))])
       .toEqual([{ active: false, probe: false }, { active: true, probe: false }, { active: false, probe: true }, { active: true, probe: false }]); });});
 /** THE COMPOSITION, NOT THE LAYERS (Codex, 2026-08-22). The live receipt: probeAt advanced at 18:00 UTC and the OpenAI ledger never moved, because the guards in FRONT of the call consumed the probe the cooldown had just granted and the call behind them then read the fresh stamp and refused itself, so a tripped account could never recover through a replenish drive. Real modules end to end here: the real ledger-backed breaker over one real row, the real guard both the replenish drive and the producer ask (`creditBreakerHeld`), and the real transport. Only Supabase and the wire stand in. The drive's own accounting is proved where it belongs, against the REAL producer, in the runtime and kernel suites. */
 describe("a due probe is spent on the provider call itself, never on a guard in front of it", () => {

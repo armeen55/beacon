@@ -108,8 +108,7 @@ describe("the model and mode boundary", () => {
       row({ day: "2026-07-21", model_served: "gpt-5", mentioned: true }),
       row({ day: "2026-07-22", model_served: "gpt-5.5", mentioned: false }),
       row({ day: "2026-07-23", model_served: "gpt-5.5", mentioned: false }),]); const { segments } = await aiOutcomes(T, { from: "2026-07-20", to: "2026-07-23", readObservations }); expect(segments).toHaveLength(2);
-    expect(segments[0]).toMatchObject({ from: "2026-07-20", to: "2026-07-21", boundary: null }); expect(segments[1]).toMatchObject({ from: "2026-07-22", to: "2026-07-23" }); expect(segments[1].boundary).toEqual([
-      { engine: "chatgpt", day: "2026-07-22", fromModel: "gpt-5", toModel: "gpt-5.5", fromMode: "api", toMode: "api" },]);
+    expect(segments[0]).toMatchObject({ from: "2026-07-20", to: "2026-07-21", boundary: null }); expect(segments[1]).toMatchObject({ from: "2026-07-22", to: "2026-07-23" }); expect(segments[1].boundary).toEqual([ { engine: "chatgpt", day: "2026-07-22", fromModel: "gpt-5", toModel: "gpt-5.5", fromMode: "api", toMode: "api" },]);
     expect(segments[1].models).toEqual([{ engine: "chatgpt", modelServed: "gpt-5.5", mode: "api" }]);});
   it("splits on a mode change too, and a silent engine never breaks the line on its own", async () => {
     const readObservations = reader([

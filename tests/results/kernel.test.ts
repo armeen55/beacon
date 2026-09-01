@@ -102,8 +102,7 @@ const shippedRecord = (stamp: string, over: Partial<ShippedChangeRecord> = {}): 
   operatorNote: null, aiScope: null, treatmentStamp: null, pinnedRead: null, createdAt: stamp, updatedAt: stamp, ...over,});
 describe("checkpoints count from the stamp", () => {
   it("counts from implementedAt when the row carries the stamp, and from the ship date when it does not", () => {
-    expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0]
-      .windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
+    expect(readLedger([ledgerRow({ implementedAt: "2026-05-10T09:30:00.000Z" })], LATE, "2026-07-01")[0] .windows.map((w) => w.closesOn)).toEqual(["2026-05-17", "2026-05-24", "2026-06-07"]);
     expect(readLedger([ledgerRow()], LATE, "2026-07-01")[0].windows.find((w) => w.day === 7)!.closesOn).toBe("2026-05-08");});});
 describe("overlap honesty: a later change closes the earlier one's clean window", () => {
   const twoChanges = (secondStamp: string) => readLedger([
@@ -204,8 +203,7 @@ describe("the conditional day-56 read", () => {
   it("names BOTH reads when the fourth checkpoint changes the answer", () => {
     const read = bothReads(40, 0);
     expect([read.basisDay, bandOf(read)]).toEqual([56, "learned"]);
-    expect(read.headline).toContain(
-      "The 28 day read looked like a win; the full 56 day read shows no clear change, and the longer window wins.",);
+    expect(read.headline).toContain( "The 28 day read looked like a win; the full 56 day read shows no clear change, and the longer window wins.",);
     const agrees = bothReads(40, 200);
     expect(agrees.headline).not.toContain("The 28 day read looked like");}); });
 describe("no causal overclaim on any read", () => {

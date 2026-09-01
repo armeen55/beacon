@@ -89,8 +89,7 @@ describe("a card says why this opportunity and why these words, and never trades
   it("a claim shows the evidence IT names and never another claim's source", () => {
     const r = proofOf(P({ claims: [{ text: "The flag changed in July 1980.", supportedBy: ["fact-1"] }, { text: "The Lion and Sun is older.", supportedBy: ["owned-page-1"] }],
       supportFacts: [{ id: "fact-1", fact: "Wikipedia, Flag of Iran: adopted 1980." }, { id: "owned-page-1", fact: "/iran-flags: standardised under the Pahlavi era." }] }));
-    expect(r.wording).toEqual([{ claim: "The flag changed in July 1980.", because: ["Wikipedia, Flag of Iran: adopted 1980."] },
-      { claim: "The Lion and Sun is older.", because: ["/iran-flags: standardised under the Pahlavi era."] }]);
+    expect(r.wording).toEqual([{ claim: "The flag changed in July 1980.", because: ["Wikipedia, Flag of Iran: adopted 1980."] }, { claim: "The Lion and Sun is older.", because: ["/iran-flags: standardised under the Pahlavi era."] }]);
     expect(JSON.stringify(r.wording)).not.toContain("30,423");
     expect(proofOf(P({ claims: [{ text: "x", supportedBy: ["page-copy-9"] }], supportFacts: [] })).wording).toEqual([]); });
 
@@ -119,7 +118,9 @@ describe("a card says why this opportunity and why these words, and never trades
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after } } as ChangeProposal);
     const long = " The rest of this answer carries enough real words to clear the section floor on its own merit for the test.";
     expect(staleCopyReasons(P("Common phrases are hello and thanks, with pronunciations shown beside each." + long), new Map(), []).join(" ")).toContain("points at the page instead of answering");
-    expect(staleCopyReasons(P("Anzali sits beside the Caspian Sea and is Iran's busiest northern port." + long), new Map(), []).join(" ")).not.toContain("points at the page"); });
+    expect(staleCopyReasons(P("Anzali sits beside the Caspian Sea and is Iran's busiest northern port." + long), new Map(), []).join(" ")).not.toContain("points at the page");
+    for (const shipped of ["Iranian names here are Persian first names and surnames, grouped as girl names, boy names, and last names with meanings." + long, "The basic Persian phrases to start with here are hello, thank you, yes, no, help, and nice to meet you." + long, "The most famous Iranians are organized by field. The page also calls out Rumi and Hafez. Use the category links for the deeper lists." + long])
+      expect(staleCopyReasons(P(shipped), new Map(), []).join(" "), "the three container narrations that shipped Ready on 2026-09-01 are refused: page-deictic here, the page as agent, and use-the-links").toContain("points at the page instead of answering"); });
 
   it("a replacement names what it removes, and a lost link refuses Ready outright", async () => {
     const P = (before: string | null, after: string) => ({ ...proposal(), status: "ready", bundle: undefined,

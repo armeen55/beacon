@@ -194,7 +194,10 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
   // A THIN CARD MUST CARRY THE EARNED SHAPE, not a word count. With no stored results page for this page's biggest search there is no outline to hand over, and "add 1,200 words" is a risk dressed as advice.
   const winnersOnFile = (p: OwnedPageEvidence): boolean => {
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
-    return head != null && (snapshot.research?.serpEvidence ?? []).some((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head) && (s.organic ?? []).length > 0);
+    const s = head != null ? (snapshot.research?.serpEvidence ?? []).find((e) => canonicalQueryKey(e.query) === canonicalQueryKey(head) && (e.organic ?? []).length > 0) : null;
+    if (!s) return false; // A RESULTS PAGE SHAPES THIS PAGE ONLY WHEN IT IS ABOUT THIS PAGE'S SUBJECT (operator audit, 2026-09-01): rows merely existing proved the query was bought, not that the winners share the entity, so a person-profile page of results could shape an animal page. At least two winners must name a subject word this page names itself by.
+    const subject = new Set(topicTokens(`${p.content?.title ?? ""} ${p.content?.h1 ?? ""}`));
+    return subject.size > 0 && (s.organic ?? []).filter((o) => topicTokens(o.title ?? "").some((t) => subject.has(t))).length >= 2;
   };
   // A CONTENT GAP IS DIAGNOSED, NEVER COUNTED (operator, 2026-09-01). Word count authorized this card twice
   // over: first a flat 200, then a demand-scaled floor, and both were the same mistake wearing different

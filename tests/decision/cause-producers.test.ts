@@ -16,7 +16,7 @@ const TENANT = "fixture-tenant"; const NOW = new Date("2026-08-01T00:00:00.000Z"
 const OPENING = "Collecting water at home starts with knowing what one storm actually brings you."; // ── the drafted answers the seam hands back, each grounded in words the evidence already carries ──
 /** WHAT A SECTION AND AN OPENING NOW COME BACK CARRYING: the claim it makes, the stored id that carries it, and the reviewer's ruling on exactly that claim. A bundle's substantive pieces go through the ONE canonical editor, so a fixture that answered a second section drafter is answering a question nobody asks any more. */
 const cited = (user: string): string => (user.includes("owned-page-1") ? "owned-page-1" : "page-heading-1"); // the sibling page where this account holds one, and the page's own heading where it does not
-const JUDGED = (id: string) => ({ pageFit: true, claims: [{ i: 0, by: [id], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says where a full barrel's overflow goes, which this page never said.", resolution: "none" });
+const JUDGED = (id: string) => ({ pageFit: true, resolvesDiagnosis: true, claims: [{ i: 0, by: [id], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says where a full barrel's overflow goes, which this page never said.", resolution: "none" });
 const ANSWER = "Rain barrel sizing depends on your roof area and the rain one storm brings. The bigger the roof, the faster a barrel fills, so pick one that holds what a heavy storm delivers and plan where the overflow goes.";
 const TAIL = { evidenceRefs: [{ source: "gsc", detail: "real page demand" }], confidence: "high", risks: [], operatorSteps: ["Paste the copy"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "untouched pages" } };
 const TITLE_AFTER = "Rain barrel sizing: gallons per storm by roof area";
@@ -226,13 +226,17 @@ describe("an expansion is authorized by a named missing subject, never a word co
     search: { clicks90d: 10, impressions90d: 22_509, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "iranian comedians", impressions: 22_509, clicks: 10, position: 8 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
   const research = { ...emptyResearchEvidence(),
     serpEvidence: [{ observedAt: null, query: "iranian comedians", aiOverview: [], aiMode: [], paa: [], related: [], organic: [
-      { rank: 1, domain: "a.example", url: "https://a.example/1", title: "Comedians" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Comedy" }] }],
+      { rank: 1, domain: "a.example", url: "https://a.example/1", title: "Best Iranian comedians" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Iranian comedy stars" }] }], // winners that NAME the page's subject: the fit gate refuses a results page about something else
     winningPages: [
       { url: "https://a.example/1", domain: "a.example", engines: [], examplePrompts: [], appearances: [], extract: { title: "C", h1: null, wordCount: 900, headings: ["Stand-up specials to watch", "Where to see live shows"], faqCount: 0, entityNames: [], openingSample: "", hasList: true }, extractState: "current" },
       { url: "https://b.example/2", domain: "b.example", engines: [], examplePrompts: [], appearances: [], extract: { title: "C2", h1: null, wordCount: 800, headings: ["Stand-up specials to watch"], faqCount: 0, entityNames: [], openingSample: "", hasList: false }, extractState: "current" }] };
   const run = async (page: OwnedPageEvidence, r: unknown) => { vi.resetModules();
     vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map() }));
     return (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: TENANT, snapshot: snapshot({ ownedPages: [page], research: r as never }) as never, now: NOW, reads: { left: 0 }, persist: false }); };
+  it("a results page about a different subject shapes nothing here, whatever it contains", async () => {
+    const foreign = { ...research, serpEvidence: [{ ...research.serpEvidence[0]!, organic: [{ rank: 1, domain: "a.example", url: "https://a.example/1", title: "Premier league fixtures this week" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Stadium seating guide" }] }] };
+    const out = await run(pageOf(150, ["Iranian comedians"]), foreign);
+    expect(out.cards.some((c) => c.id.endsWith("::thin_page")), "winners that never name this page's subject authorize no shaping").toBe(false); });
   it("mints the card naming the winners' shared subject the page lacks, and word count decides nothing either way", async () => {
     const short = await run(pageOf(150, ["Iranian comedians"]), research); // 150 words, but the SUBJECT is missing: minted, and the card names it
     const card = short.cards.find((c) => c.id.endsWith("::thin_page"));

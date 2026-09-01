@@ -351,7 +351,7 @@ const cited = (user: string): string => ["owned-page-1", "page-copy-1", "page-he
 const sectionDraft = (user: string, heading = (user.match(/Write the section headed "(.*?)"/) ?? [])[1] ?? "The table") => ({ ...VALID_ATOMIC_EDIT, field: "answer_block", before: null,
   after: `${heading}: a haft seen table is the spread a household sets out for the new year, and every piece on it stands for something the family hopes the year will bring. It says what belongs there and why, in the words a reader looking for ${heading.toLowerCase()} would use.`,
   naturalHeading: heading, placementAnchor: BRIEF.proposedTitle, implementationMinutes: 15, claims: [{ text: "The table is set out.", supportedBy: [cited(user)] }] });
-const judged = (user: string) => ({ pageFit: true, claims: [{ i: 0, by: [cited(user)], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says what belongs on the table, which nothing else here does.", resolution: "none" });
+const judged = (user: string) => ({ pageFit: true, resolvesDiagnosis: true, claims: [{ i: 0, by: [cited(user)], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says what belongs on the table, which nothing else here does.", resolution: "none" });
 /** One whole drafting pass for a page: the brief, then every planned section, each read for sense. `sections: false` refuses one. */
 const pageSeam = (brief: unknown, sections = true): CompleteFn => async ({ kind, user }) =>
   ({ value: (kind === "new_page_brief" ? brief : kind === "editor_judgement" ? judged(user)
@@ -824,6 +824,11 @@ describe("the $0 replay: a held finished draft promotes when its evidence lands,
     expect([promoted.status, promoted.recommendedChange.kind === "existing_edit" && promoted.recommendedChange.after, !!promoted.modeledOn], "the stored copy promotes byte-identical, wearing the results-page backing the gate asked for").toEqual(["ready", good.recommendedChange.kind === "existing_edit" ? good.recommendedChange.after : "", true]);
     expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
     expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
+  it("never promotes a row carrying a typed fault, whatever the prose says", async () => {
+    reset(snap([{ ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } }], looked([["nowruz traditions", GAP_URL]])));
+    const faulted = meta("/nowruz-guide", "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.", { faults: ["its opening repeats the heading"] });
+    env.store = new Map([[faulted.id, faulted]]); await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true });
+    expect([env.store.get(faulted.id)!.status, env.store.get(faulted.id)!.faults], "the same copy that promotes clean stays held under its typed fault, which no replay may clear").toEqual(["needs_review", ["its opening repeats the heading"]]); });
 });
 /** RAW MARKUP IS NOT PASTE COPY (operator, 2026-08-31). A stored link row from before the typed-anchor contract carried an <a> tag in a section body and the $0 replay promoted it: nothing typed owned the rule that operator copy is text. The canon owns it now, so every door that mints or replays Ready refuses it. */
 describe("the canon refuses raw HTML in operator copy", () => {
@@ -853,8 +858,7 @@ describe("a stampless re-mint never replaces finished work", () => {
     const remint = baseProposal({ id: finished.id, pagePath: "/w", changeFamily: "meta", status: "needs_review", researchOnly: true,
       recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "Write a description of about 150 characters." } });
     const kept = preferFinished(remint, finished);
-    expect([kept.status, kept.researchOnly, (kept.recommendedChange as { after: string }).after, kept.modeledOn ?? null],
-      "the finished words, the earned backing and Ready all survive a template that read nothing").toEqual(["ready", false, (finished.recommendedChange as { after: string }).after, finished.modeledOn]);
+    expect([kept.status, kept.researchOnly, (kept.recommendedChange as { after: string }).after, kept.modeledOn ?? null], "the finished words, the earned backing and Ready all survive a template that read nothing").toEqual(["ready", false, (finished.recommendedChange as { after: string }).after, finished.modeledOn]);
     const rewrite = { ...remint, copyStamp: "T2|H2|D2|O2" }; // a producer that DID re-read the page and saw it move still replaces, with the retirement receipt
     const moved = preferFinished(rewrite, finished);
     expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });

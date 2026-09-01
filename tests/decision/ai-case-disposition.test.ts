@@ -90,11 +90,9 @@ describe("the filed verdicts are durable, and two cold instances merge instead o
   const coldInstance = async () => { vi.resetModules(); return import("@/domains/decision/ai-case-store"); };
   it("merges by row across two cold instances: the pass that reached fewer cases erases nothing", async () => {
     const a = await coldInstance();
-    expect(await a.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "no_page" }),
-      filed({ caseKey: "fanout:b", state: "already_credited" })])).toEqual({ filed: true, landed: 2 });
+    expect(await a.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "no_page" }), filed({ caseKey: "fanout:b", state: "already_credited" })])).toEqual({ filed: true, landed: 2 });
     const b = await coldInstance();
-    expect(await b.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable",
-      pageUrl: "https://own.example/p", decidedAt: "2026-08-20T00:00:00.000Z" })])).toEqual({ filed: true, landed: 1 });
+    expect(await b.recordAiCaseDispositions("t", [filed({ caseKey: "fanout:a", state: "actionable", pageUrl: "https://own.example/p", decidedAt: "2026-08-20T00:00:00.000Z" })])).toEqual({ filed: true, landed: 1 });
     const back = await b.readAiCaseDispositions("t");
     expect(back.state === "read" ? back.rows.map((d) => [d.caseKey, d.state]).sort() : []).toEqual(
       [["fanout:a", "actionable"], ["fanout:b", "already_credited"]]);});

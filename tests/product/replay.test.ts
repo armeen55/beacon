@@ -148,7 +148,7 @@ const META2 = { ...META_EDIT, placementAnchor: "Lantern Release",
 /** The writer AND its final editor, both deterministic and both answering the EXACT ask: the field the prompt names, and a ruling per claim parsed off the judgement's own prompt. Every gate between the ask and the store is the production gate. */
 const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => string[] } => { let n = 0; const asked: string[] = [];
   const complete: CompleteFn = async (a) => { n += 1; asked.push(`${a.kind}: ${a.user.slice(0, 240)}`);
-    if (a.kind === "editor_judgement") return { value: { pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true,
+    if (a.kind === "editor_judgement") return { value: { pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true,
       improvesPage: true, wouldHandToCustomer: true, notes: "It says what the page covers in one plain line.", resolution: "none",
       claims: [...a.user.matchAll(/^- claim (\d+): "(?:[^"]+)" <- (.+)$/gm)].map((m) => ({ i: Number(m[1]), by: m[2]!.split(", ").filter(Boolean), entailed: true })) } as never };
     if (a.kind === "atomic_edit" && a.user.includes("Field to edit: meta")) return { value: (a.user.includes("Page: Lantern Release") ? META2 : META_EDIT) as never };

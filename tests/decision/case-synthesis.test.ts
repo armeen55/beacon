@@ -48,8 +48,7 @@ describe("what the semantic reading may change about my case registry", () => {
     const merged = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject." }] })).cases; const alias = merged.find((c) => c.aliasOf)!.id, canonical = merged.find((c) => c.aliasOf)!.aliasOf!;
     const out = apply(reading({ merges: [{ keepId: TERMS.id, absorbIds: [alias], reason: "These belong together." },
       { keepId: "inv_ghost", absorbIds: [RUGS.id], reason: "And so do these." }] }), merged);
-    expect(out.refused).toEqual([`I did not join ${TERMS.id} and ${alias}: ${alias} names a case that was already absorbed into another one.`,
-      `I did not join inv_ghost and ${RUGS.id}: inv_ghost is not a case I hold.`]);
+    expect(out.refused).toEqual([`I did not join ${TERMS.id} and ${alias}: ${alias} names a case that was already absorbed into another one.`, `I did not join inv_ghost and ${RUGS.id}: inv_ghost is not a case I hold.`]);
     expect([out.cases, out.cases.filter((c) => c.id === canonical).length]).toEqual([merged, 1]); }); // nothing moved, and one row per id either way
   it("files which page answers which case, so one page can answer two cases and one case can hold two pages", () => {
     const out = apply(reading({ merges: [{ keepId: NAMES.id, absorbIds: [MALE.id], reason: "One subject: names people give a child." }],

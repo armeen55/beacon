@@ -220,8 +220,7 @@ describe("a new page owes me the address it is live at", () => {
   it("refuses with no address and with someone else's site, then records and verifies the one I can read", async () => {
     mocks.loadChangeProposal.mockResolvedValue(newPage()); const none = await markProposalImplementedAction({ ...PRESS });
     const away = await markProposalImplementedAction({ ...PRESS, liveUrl: "https://elsewhere.example/kite" });
-    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Add the address the new page is live at, on x.test, so it can be read.",
-      false, "That address is on elsewhere.example, not on x.test. Only pages on your own site are recorded and read."]);
+    expect([none.success, none.error, away.success, away.error]).toEqual([false, "Add the address the new page is live at, on x.test, so it can be read.", false, "That address is on elsewhere.example, not on x.test. Only pages on your own site are recorded and read."]);
     expect(mocks.recordShipment).not.toHaveBeenCalled(); // nothing is written until I hold an address I can check
     expect((await markProposalImplementedAction({ ...PRESS, liveUrl: "https://www.x.test/kite-festival-guide" })).success).toBe(true);
     expect(mocks.recordShipment.mock.calls[0]![0]).toMatchObject({ page: "https://www.x.test/kite-festival-guide", path: "/kite-festival-guide" }); // verification reads THAT page

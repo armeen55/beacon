@@ -257,7 +257,7 @@ export const READY_STOCK_ALARM = 5;
 /** THE ALARM LEVEL ADAPTS TO THE OPERATOR'S OWN PACE (operator ruling, 2026-08-29): roughly TWO DAYS of recent applied pace, read off the
  *  shipment ledger at $0, clamped so the urgency signal stays legible. REPORTING ONLY (operator, 2026-08-30): it sizes no batch, closes no
  *  day, funds no manifest, and no gate weakens to reach it. Consumed by receipts and logs alone. */
-export const READY_FLOOR_MIN = READY_STOCK_ALARM, READY_FLOOR_MAX = 40; export async function readyStockFloor(tenantId: string): Promise<number> {
+const READY_FLOOR_MIN = READY_STOCK_ALARM, READY_FLOOR_MAX = 40; export async function readyStockFloor(tenantId: string): Promise<number> {
   const applied = await (async () => { const { loadShippedChangesForTenant } = await import("@/domains/measurement"); const weekAgo = Date.now() - 7 * 86_400_000;
     return (await loadShippedChangesForTenant(tenantId)).filter((r) => { const at = Date.parse(r.implementedAt ?? r.shippedAt ?? ""); return Number.isFinite(at) && at >= weekAgo; }).length; })().catch(() => 0);
   return Math.min(READY_FLOOR_MAX, Math.max(READY_FLOOR_MIN, Math.ceil((applied / 7) * 2))); }

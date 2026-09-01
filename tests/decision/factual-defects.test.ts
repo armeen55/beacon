@@ -93,8 +93,7 @@ describe("a page's own statements against their sources", () => {
   it("gives every correction its exact current wording, its replacement, its place and its source", async () => {
     checks.rows = [check({ alsoAt: ["the FAQ answer on this page"] })];
     const [card] = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
-    expect(card!.recommendedChange).toMatchObject({ kind: "existing_edit", field: "section",
-      before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
+    expect(card!.recommendedChange).toMatchObject({ kind: "existing_edit", field: "section", before: "Goddess, divine and strong.", after: "Legend, myth, fable in Persian." });
     expect((card!.recommendedChange as { where?: string }).where).toContain('The "Afsaneh" entry'); expect((card!.recommendedChange as { where?: string }).where).toContain("the FAQ answer on this page");
     expect(card!.supportFacts?.map((f) => f.id)).toEqual(["fact-1", "fact-2"]); expect(card!.supportFacts?.[0]!.fact).toContain('behindthename.com/name/afsaneh says: "the name Afsaneh means legend, myth or fable in Persian"');
     expect(card!.claims?.[0]!.supportedBy).toEqual(["fact-1", "fact-2"]);
@@ -126,14 +125,10 @@ describe("a page's own statements against their sources", () => {
     const parisa = check({ subject: "Parisa", current: "Meaning:Fairy-like, ethereal, or angelic.", proposed: "like a fairy; beautiful like a fairy",
       sources: two(src("encyclopedia", "Parisā ( Persian : پریسا, lit. ' fairy-like ' ) is a Persian feminine given name."),
         src("publisher", '"Parisa" means "like a fairy" or "beautiful like a fairy."')) });
-    expect(unauthorizedReason(parisa as never), "the live Parisa record").toContain("do not carry every word of the proposal"); expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", literal: "silver",
-      sources: two(src("dictionary", "Aryana is a Persian feminine given name."), src("publisher", "Aryana means silver.")) }) as never)).toContain("do not carry every word");
-    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
-      sources: two(src("dictionary", 'Aryana means "silver".'), src("publisher", "A popular name this year.")) }) as never), "authoritative carries all, weak corroborates").toBeNull();
-    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "bright silver",
-      sources: two(src("dictionary", 'Aryana means "silver".'), src("encyclopedia", "The name reads as bright.")) }) as never), "two authoritative sources together").toBeNull();
-    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver",
-      sources: two(src("news", "Aryana means silver."), src("news", "Aryana means silver.")) }) as never)).toContain("no authoritative source");
+    expect(unauthorizedReason(parisa as never), "the live Parisa record").toContain("do not carry every word of the proposal"); expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", literal: "silver", sources: two(src("dictionary", "Aryana is a Persian feminine given name."), src("publisher", "Aryana means silver.")) }) as never)).toContain("do not carry every word");
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", sources: two(src("dictionary", 'Aryana means "silver".'), src("publisher", "A popular name this year.")) }) as never), "authoritative carries all, weak corroborates").toBeNull();
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "bright silver", sources: two(src("dictionary", 'Aryana means "silver".'), src("encyclopedia", "The name reads as bright.")) }) as never), "two authoritative sources together").toBeNull();
+    expect(unauthorizedReason(check({ subject: "Aryana", proposed: "silver", sources: two(src("news", "Aryana means silver."), src("news", "Aryana means silver.")) }) as never)).toContain("no authoritative source");
     const { glossCarriedBy } = await import("@/domains/evidence/pages/fact-checks");
     expect(glossCarriedBy("Light", ["reading it is a delight"]), "delight is not light").toBe(false); expect(glossCarriedBy("Gods", ["the goddess of dawn"]), "goddess is not gods").toBe(false);
     expect(glossCarriedBy("founded 1979", ["established in 1,979 by decree", "founded by decree"])).toBe(true); expect(glossCarriedBy("Studies", ["the study of names"])).toBe(true);
@@ -222,8 +217,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const withStray = async () => ({ status: "drafted" as const, value: { rulings: [...cards.map((_c, i) => ({ index: i, publish: true, reason: "fine", // AND NOTHING RETURNED IS SILENTLY DROPPED: a ruling for a component nobody asked about was ignored, so a response could carry anything at all beside the real ones and still clear the batch.
       claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }] })),
       { index: 99, publish: true, reason: "about nothing here", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }] } });
-    expect((await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: withStray })).filter((c) => c.status === "ready"),
-      "a ruling about a component nobody asked about").toEqual([]);
+    expect((await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: withStray })).filter((c) => c.status === "ready"), "a ruling about a component nobody asked about").toEqual([]);
     const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] }); // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
     expect(earned.length, "an exact ruling still earns Ready").toBeGreaterThan(0);
     expect(earned[0]!.semanticReview!.claims).toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
@@ -233,8 +227,7 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     expect(two[0]!.claims![0]!.supportedBy.length, "the card really declares two").toBe(2);
     const ruleTwo = (ids: string[]) => async () => ({ status: "drafted" as const, value: { rulings: [{ index: 0, publish: true, reason: "fine",
       claims: [{ claim: 0, factIds: ids, entailed: true, why: "carried" }] }] } });
-    expect((await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-1"]) })).filter((c) => c.status === "ready"),
-      "ruled against one of the two passages the claim names").toEqual([]);
+    expect((await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-1"]) })).filter((c) => c.status === "ready"), "ruled against one of the two passages the claim names").toEqual([]);
     const both = (await reviewFactualBundle(two, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: ruleTwo(["fact-2", "fact-1"]) })).filter((c) => c.status === "ready");
     expect(both[0]!.semanticReview!.claims, "and both, in any order, is what it banks").toEqual([{ i: 0, by: ["fact-1", "fact-2"], entailed: true }]);
     let shown = ""; await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, // AND THE REVIEWER WAS ACTUALLY SHOWN WHAT IT RULED ON: the canonical claim, its own fact ids, and the exact passage behind each.

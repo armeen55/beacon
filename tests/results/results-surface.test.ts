@@ -175,8 +175,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS); });
   it("keeps a Google decline on the row under its own heading, and never as the answer", () => {
     const row = first({ read: declined, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar! > 0, row.impressionsLabel]).toEqual(["worked", "Worked", "Credited more often", true, null]);
-    expect([row.happened, row.nextStep]).toEqual(["Ran 28 days. Credited in AI answers more often than before.",
-      "Do this again on the next page AI answers name without crediting."]);
+    expect([row.happened, row.nextStep]).toEqual(["Ran 28 days. Credited in AI answers more often than before.", "Do this again on the next page AI answers name without crediting."]);
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
     expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed." }); // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });});

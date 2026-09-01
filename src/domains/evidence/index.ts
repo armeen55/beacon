@@ -25,7 +25,6 @@ export {
 } from "./snapshot";
 
 // Topic investigation: the non-actionable research packet derived from a snapshot
-export type { TopicInvestigation } from "./topic-investigation";
 export { buildTopicInvestigations } from "./topic-investigation";
 export type { SerpPageType } from "./serp-shape";
 // The per-case research receipt: what was found, what it cost, and why nothing more was bought
