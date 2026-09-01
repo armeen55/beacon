@@ -122,6 +122,9 @@ const liveConfirmed = (p: ShipmentPresentation): boolean => p.implementedAt != n
 function rowState(p: ShipmentPresentation): ResultState {
   const r = p.read, onAi = judgedOnAi(p), group = groupFor(p), legacy = p.implementedAt == null;
   if (p.ai?.terminal === true || (r.metric === "unclassified" && !onAi)) return "not_measurable";
+  // A SHIPMENT THE LIVE PAGE CAN NEVER CONFIRM IS NOT WAITING: the verifier's terminal "blocked" with no recheck (the words it was meant
+  // to read were never stored) can never teach, so it is named as such instead of standing as recorded for ever.
+  if (!legacy && p.verification?.status === "blocked" && p.verification.recheckAfter == null) return "not_measurable";
   if (group !== "reading" && !onAi && (r.verdict === "confounded" || r.overlappingIds.length > 0)) return "confounded";
   if (group === "reading") {
     const started = onAi ? (p.ai?.daysElapsed ?? 0) > 0 : r.basisDay != null;
@@ -337,6 +340,7 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
       : "Nothing can be read on this one. Try the next change on this page and measure that.";
   }
   if (r.metric === "unclassified") return "Nothing to wait for on this one.";
+  if (p.implementedAt != null && p.verification?.status === "blocked" && p.verification.recheckAfter == null) return "Nothing can be read on this one: the exact words it was meant to change were never stored, so the live page cannot confirm it. The next change on this page carries its exact words.";
   if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
   const d = r.learning.outcomeDirection;
   if (d !== "unclear" && !liveConfirmed(p)) return unconfirmedStep(p);

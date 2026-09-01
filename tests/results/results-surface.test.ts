@@ -4,6 +4,7 @@ import type { ShipmentVerification } from "@/domains/measurement";
 import { buildResultsView, type ShipmentPresentation } from "@/app/(shell)/results/results-presentation";
 import { buildResultsBrain } from "@/app/(shell)/results/results-brain";
 import { RESULT_LINES } from "@/app/(shell)/results/results-lines";
+import { splitLedgerLifecycle } from "@/domains/decision/changes/lifecycle-counts";
 const { rowState } = RESULT_LINES;
 import { buildResultsCsv } from "@/app/(shell)/results/results-csv";
 import { buildHeadline } from "@/domains/measurement/proof-gsc/read-honesty";
@@ -223,7 +224,6 @@ describe("the surface never renders uncertainty as No change", () => {
   it("says Inconclusive, in the one vocabulary, on a real control-based Google flat result", async () => {
     const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }; const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []); // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
     expect(await render({ read: flat })).toContain("Inconclusive");});});
-/** THE LEARNING STRIP AT THE TOP OF RESULTS: what the kinds of work have DONE here, off the same rows the list below renders. Pinned, RENDERED and never read off the object: the kernel's counts reach the screen intact and in its order, a group under five finished readings says it is early and is never turned into a recommendation, a reading taken beside other work on the same page says so, a ledger with nothing countable says exactly that instead of implying a record, and no lab word or first person reaches the screen. */
 describe("the Brain: what Beacon believes is derived from verified facts, and history never trains it", () => {
   const legacy = (read = evaluateChange(input(), WINDOWS, []), id = "L") => shipment({ read: { ...read, id }, implementedAt: null, verification: null });
   const level = evaluateChange(input({ windows: [win(28, { adjustedClicksLift: 0, adjustedImpressionsLift: 0 })] }), WINDOWS, []);
@@ -260,7 +260,15 @@ describe("the Brain: what Beacon believes is derived from verified facts, and hi
     const brain = buildResultsBrain([shipment(), legacy(), shipment({ read: measuring, verification: { ...VERIFICATION, recheckAfter: "2026-06-03" } })], NOW);
     const strings = [brain.belief.headline, ...brain.belief.lines, brain.changed ?? "", ...brain.watching, brain.nextStep.text, ...brain.thoughts.flatMap((x) => [x.name, x.belief, x.changeMind, x.watching, ...x.limits, x.strongest?.label ?? "", x.strongest?.line ?? "", x.counterexample?.label ?? "", x.counterexample?.line ?? ""])];
     for (const s of strings) expect(s, s).not.toMatch(/[–—]|^\/|[a-z]+_[a-z]+|\b(I|me|my|we|our)\b|\b(experiment|controls?|baseline|treatment|serp|observational|directional|confounded|evidence|window)\b/i);
-    expect([brain.nextStep, brain.thoughts[0]!.strongest?.label]).toEqual([{ text: "Publish the 1 change waiting on you; the live page is read again after that.", href: "/changes" }, "Nowruz"]); });
+    expect([brain.nextStep.href, brain.nextStep.text.startsWith("Nothing to do until the next read"), brain.thoughts[0]!.strongest?.label]).toEqual(["/changes", true, "Nowruz"]); });
+  it("a shipment the live page can never confirm is not measurable, a finished read nobody confirmed is never a win, and the next step counts finished changes rather than rechecks", () => {
+    const blocked = { status: "blocked", checkedAt: "2026-05-03T09:00:00Z", components: [], recheckAfter: null } as unknown as ShipmentVerification;
+    expect([rowState(shipment({ verification: blocked })), first({ verification: blocked }).verdictWord, first({ verification: blocked }).nextStep.startsWith("Nothing can be read on this one")]).toEqual(["not_measurable", "Not measurable", true]);
+    const differs = shipment({ read: { ...measuring, id: "d" }, verification: { ...VERIFICATION, status: "differs", recheckAfter: "2026-05-05" } as unknown as ShipmentVerification });
+    expect([buildResultsBrain([shipment(), differs], NOW, { ready: 3 }).nextStep, buildResultsBrain([differs], NOW).nextStep.href, buildResultsBrain([differs], NOW).watching.some((w) => w.includes("not yet show on the live page"))])
+      .toEqual([{ text: "Make the 3 finished changes waiting on Changes; each one starts its read the day you mark it done.", href: "/changes" }, "#change-d", true]);
+    const row = { id: "l", path: "/p", actionType: "section_add", shippedAt: "2026-05-01", implementedAt: "2026-05-01T12:00:00Z", verdict: "won", windows: [7, 14, 28].map((day) => ({ day, ran: true, controlsUsed: 3, adjustedLift: 40, adjustedCtrLift: 0.02, adjustedImpressionsLift: 120, treatedPostImpressions: 5000 })), baseline: { impressions: 9100, clicks: 200 } };
+    expect([splitLedgerLifecycle([row], NOW).won.length, splitLedgerLifecycle([row], NOW).learned.length, splitLedgerLifecycle([{ ...row, verification: VERIFICATION }], NOW).won.length]).toEqual([0, 1, 1]); });
   it("serves the saved surface without waiting on the persisted read, so the belief paints while a live read hangs", async () => {
     vi.doMock("next/server", () => ({ after: () => {} })); vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "t" }));
     vi.doMock("@/app/(shell)/results/results-surface-store", () => ({ readResultsSurface: async () => ({ computedAt: NOW.toISOString(), shipments: [shipment()] }), isResultsSurfaceStale: () => false, writeResultsSurface: async () => {} }));

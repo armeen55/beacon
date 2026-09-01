@@ -105,7 +105,7 @@ function thoughtOf(family: string | null, rows: ShipmentPresentation[], now: Dat
 }
 
 /** THE WHOLE ARGUMENT. Thoughts are ordered by what may be believed first: patterns, then signals, then the largest in flight. */
-export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>, now: Date): BrainModel {
+export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>, now: Date, actionable: { ready: number | null } = { ready: null }): BrainModel {
   const byFamily = new Map<string | null, ShipmentPresentation[]>();
   for (const p of shipments) { const f = familyOf(p); byFamily.set(f, [...(byFamily.get(f) ?? []), p]); }
   // REAL COMBINATIONS ONLY: two kinds of work are joined when the kernel found their windows overlapping on one page.
@@ -138,12 +138,17 @@ export function buildResultsBrain(shipments: ReadonlyArray<ShipmentPresentation>
   const split = [[ahead, "ahead"], [behind, "behind"], [recent.length - ahead - behind, "unclear"]].filter(([n]) => (n as number) > 0).map(([n, w]) => `${n} ${w}`).join(", ");
   const changed = recent.length === 0 ? null : `${plural(recent.length, "read")} finished in the last two weeks: ${split}${hist === recent.length ? ", all of them historical" : hist > 0 ? `, ${hist} of them historical` : ""}.`;
   const soonest = shipments.map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null).filter((d): d is string => d != null).sort()[0] ?? null;
-  const publishWaits = shipments.filter((p) => p.verification?.recheckAfter != null).length;
+  // THE FACTS BEHIND THE LIVE CHECK, said as facts: a page whose live copy differs from the approved words, and a page that could not be read.
+  const differs = shipments.filter((p) => p.implementedAt != null && p.verification?.status === "differs"), unread = shipments.filter((p) => p.verification?.status === "blocked" && p.verification.recheckAfter != null).length;
   const watching = [...(counts.liveVerified > 0 ? [`${plural(counts.liveVerified, "change")} confirmed on the live page, whose reads decide the first verified pattern.`] : []),
     ...(soonest ? [`The next read ${landsLabel(soonest, now) ?? "lands soon"}.`] : []),
+    ...(differs.length > 0 ? [`${plural(differs.length, "marked-done change")} ${differs.length === 1 ? "does" : "do"} not yet show on the live page as approved: check ${differs.length === 1 ? "it is" : "they are"} published, and Beacon re-reads ${differs.length === 1 ? "it" : "them"}.`] : []),
+    ...(unread > 0 ? [`${plural(unread, "page")} could not be read on the last check; Beacon retries ${unread === 1 ? "it" : "them"}.`] : []),
     ...(unconfirmed > 0 ? [`${plural(unconfirmed, "change")} recorded and not yet confirmed live: their numbers are context only.`] : [])];
-  // ALWAYS A NEXT STEP, AND AN IMPERATIVE: a change waiting on the operator's publish is the one thing on this page only they can move.
-  const nextStep = publishWaits > 0 ? { text: `Publish the ${plural(publishWaits, "change")} waiting on you; the live page is read again after that.`, href: "/changes" }
+  // ALWAYS A NEXT STEP, AND AN IMPERATIVE, OFF ACTIONABLE STATE (truth review, 2026-09-01): the finished changes the saved release
+  // serves on Changes come first; a page whose live copy differs is the operator's to check; otherwise the next read is the wait.
+  const nextStep = actionable.ready != null && actionable.ready > 0 ? { text: `Make the ${plural(actionable.ready, "finished change")} waiting on Changes; each one starts its read the day you mark it done.`, href: "/changes" }
+    : differs.length > 0 ? { text: `Check that ${differs.length === 1 ? "the marked-done change on" : `the ${differs.length} marked-done changes on`} ${[...new Set(differs.map((p) => p.read.path || p.read.page))].slice(0, 2).join(" and ")} ${differs.length === 1 ? "is" : "are"} published as approved; Beacon re-reads ${differs.length === 1 ? "it" : "them"} after that.`, href: `#change-${differs[0]!.read.id}` }
     : soonest ? { text: `Nothing to do until the next read ${landsLabel(soonest, now) ?? "lands soon"}; mark the next change done on Changes and its read starts that day.`, href: "/changes" }
       : { text: "Mark the next change done on Changes; its read starts from that day.", href: "/changes" };
   return { belief: { headline, lines, confidence }, changed, watching, thoughts, counts, nextStep };

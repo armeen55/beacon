@@ -170,9 +170,10 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
   // slowing the store made a VALID saved release time out into "This section could not load": the operator's own
   // finished work, in hand, hidden behind a spinner. The joins now get exactly the budget the release read left
   // behind; when they exceed it or throw, the release's own saved first page, lanes and counts paint instead.
-  const joinBudget = Math.max(800, 4_400 - (Date.now() - t0));
+  // NO FLOOR (operator, 2026-09-01): a release read that already spent the budget paints the release; an 800 ms floor spent on joins after a slow read is exactly how a valid release in hand missed the section's deadline.
+  const joinBudget = Math.max(0, 4_400 - (Date.now() - t0));
   const joined = await loadWithDeadline((async (): Promise<ChangesView | null> => {
-    const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+    const basis = await currentBasisFast(tenantId);
     if (basis == null) return null;
     // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
     // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
@@ -204,6 +205,18 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
  *  every instance warms its own copy, which is exactly the scope of a fallback that must cost no read. */
 const RELEASE_READ_DEADLINE_MS = 2_000;
 const lastGoodRelease = new Map<string, CustomerSurface>();
+/** THE BASIS FOR A READ IS REMEMBERED FOR A MINUTE (operator, 2026-09-01): a saved release waited on an uncached account read plus a profile
+ *  read before it could paint, on every visit. The basis moves only when the website, profile or goal changes; a minute of memory costs
+ *  nothing a customer can see, a rebuild re-resolves it live, and a null is never remembered. Process-local, like the remembered release. */
+const BASIS_MEMORY_MS = 60_000;
+const rememberedBasis = new Map<string, { value: string; at: number }>();
+async function currentBasisFast(tenantId: string): Promise<string | null> {
+  const held = rememberedBasis.get(tenantId);
+  if (held && Date.now() - held.at < BASIS_MEMORY_MS) return held.value;
+  const value = await resolveCurrentBasis(tenantId).catch(() => null);
+  if (value != null) rememberedBasis.set(tenantId, { value, at: Date.now() });
+  return value;
+}
 
 /** MEMORY BEATS A SECOND ATTEMPT (operator, 2026-09-01). The old shape spent two 2.5s attempts BEFORE looking at
  *  the copy this process already held, so a slow store burned the section's whole 5s budget on reads whose answer
@@ -250,7 +263,7 @@ async function readReleasedChanges(tenantId: string): Promise<ChangesView> {
       surfaceBuilding: false,
       surfaceVersion: customer.releaseId,
       ...(read.fromMemory ? { releaseFromMemory: true } : {}),
-    }, { tenantId, currentBasis: await resolveCurrentBasis(tenantId).catch(() => null) });
+    }, { tenantId, currentBasis: await currentBasisFast(tenantId) });
   }
   // A FAILED READ SCHEDULES NO REBUILD: the heavy rebuild is owed when a release is genuinely absent or
   // stale, and firing it on every visit during a store outage is a rebuild loop on top of the outage

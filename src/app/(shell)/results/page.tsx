@@ -10,6 +10,8 @@ import { buildResultsView, type ShipmentPresentation } from "./results-presentat
 import { ResultsRows } from "./results-rows-client";
 import { RecomputeLedgerButton, RecordAnyPageForm } from "./proof-ledger-client";
 import { monthDayLabel } from "@/components/data/receipt-line";
+import { loadWithDeadline } from "@/lib/load-with-deadline";
+import { readCustomerSurface } from "../surface-release";
 
 /**
  * Results - THE ARGUMENT, THEN THE MEMORY. The page opens on what Beacon believes about each kind of work, how sure it may be,
@@ -28,7 +30,9 @@ export default async function ProofPage({ searchParams }: { searchParams?: Promi
   // A LEDGER I COULD NOT READ IS NOT AN EMPTY ONE: both failure doors land on `unavailable`, rendered as an outage with a retry.
   const surface = await loadResultsLedgerSurface().catch(() => ({ shipments: [] as ShipmentPresentation[], computedAt: null, checkedAgo: null, unavailable: true }));
   const shipments = surface.shipments, now = new Date();
-  const brain = buildResultsBrain(shipments, now), view = buildResultsView(shipments, now);
+  // THE ONE THING TO DO COMES FROM THE SAVED RELEASE, never a live queue join: the finished-change count Changes itself serves, read once with a short deadline, null when unavailable.
+  const release = await loadWithDeadline(readCustomerSurface(tenantId), 1_500).catch(() => null);
+  const brain = buildResultsBrain(shipments, now, { ready: release?.data?.changes.summary.ready ?? null }), view = buildResultsView(shipments, now);
   const firstLive = monthDayLabel(shipments.map((p) => p.implementedAt).filter((d): d is string => !!d).sort()[0] ?? null);
   const anyClosed = shipments.some((s) => s.read.windows.some((w) => w.state === "closed"));
   if (shipments.length > 0) scheduleAutoMeasure(tenantId); // settles due rows in the background, never on this render

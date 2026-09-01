@@ -39,6 +39,8 @@ export type LedgerLifecycleRow = {
   /** THE STAMP the measurement windows count from, on every Shipment. Optional so a
    *  legacy row still reads exactly as it did, counting from its ship date. */
   implementedAt?: string | null;
+  /** The live check, when one ran: only a change confirmed on the page may file as a win. */
+  verification?: { status?: string | null } | null;
   verdict: string;
   windows: ReadonlyArray<{
     day: number;
@@ -132,7 +134,11 @@ export function splitLedgerLifecycle<T extends LedgerLifecycleRow>(
   const real = excludeRevertBookkeeping(rows);
   const reads = readRecordsForLearning(real.map(toLedgerRecordLike), now);
   const out: LedgerLifecycleSplit<T> = { won: [], promising: [], learned: [], measuring: [] };
-  real.forEach((row, i) => out[bandOf(reads[i])].push(row));
+  // A WIN NOBODY CONFIRMED ON THE LIVE PAGE IS NOT A WIN (operator, 2026-09-01): Today printed "6 wins" and Changes "6 clear wins" off
+  // reads whose live page was never read back, beside a Results page saying nothing was verified. A finished improving read files as
+  // won only when the change was confirmed live; otherwise it is finished context and counts with what was learned.
+  const confirmed = (r: T): boolean => r.implementedAt != null && (r.verification?.status === "verified" || r.verification?.status === "partially_verified");
+  real.forEach((row, i) => { const band = bandOf(reads[i]); out[band === "won" && !confirmed(row) ? "learned" : band].push(row); });
   return out;
 }
 

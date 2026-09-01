@@ -93,7 +93,7 @@ export function ResultsBrain({ model, checkedAgo }: { model: BrainModel; checked
                     <circle cx={p.x} cy={p.y} r={r} fill={fill} fillOpacity={faint} stroke={fill} strokeOpacity={Math.min(1, faint + 0.35)} strokeWidth={1.25} />
                     {t.verifiedSample > 0 ? <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize="11" fontWeight={600} fill="var(--foreground)">{t.verifiedSample}</text> : null}
                     <text x={p.x} y={p.y + (ring ?? r) + 20} textAnchor="middle" fontSize="12" fontWeight={on ? 600 : 500} fill="var(--foreground)">{t.name}</text>
-                    <text x={p.x} y={p.y + (ring ?? r) + 34} textAnchor="middle" fontSize="10.5" fill="var(--muted-foreground)">{t.confidence === "none" ? (t.inFlight > 0 ? `${t.inFlight} reading` : t.historical > 0 ? `${t.historical} historical` : `${t.shipped} recorded`) : confWord(t)}</text>
+                    <text x={p.x} y={p.y + (ring ?? r) + 34} textAnchor="middle" fontSize="10.5" fill="var(--muted-foreground)">{t.confidence === "none" ? (t.inFlight > 0 ? `${t.inFlight} reading` : t.historical > 0 ? `${t.historical} historical` : t.notMeasurable > t.recorded ? `${t.notMeasurable} not measurable` : `${t.recorded} recorded`) : confWord(t)}</text>
                   </g>
                 ); })}
             </svg>

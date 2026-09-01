@@ -183,6 +183,7 @@ function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | nul
   // A ROW WITH NO STAMP WEARS ITS STATE WORD ON THE COLLAPSED LINE: the direction cell shows a number, so the chip is where the one vocabulary lands.
   if (!v) return { text: stateWord(p), amber: false };
   if (v.status === "verified") return null;
+  if (v.status === "blocked" && v.recheckAfter == null) return { text: "Could not be checked: its exact words were never stored", amber: false };
   // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
   if (v.recheckAfter != null) return { text: "Waiting for your publish. Beacon checks the page again soon.", amber: false };
   if (v.status === "differs" || v.components?.some((c) => c.state === "changed_differently"))
