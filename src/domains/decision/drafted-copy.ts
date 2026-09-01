@@ -541,7 +541,7 @@ async function draftBlock(card: ChangeProposal, page: OwnedPageEvidence, body: O
     opts.note?.(key, "review_saved", `${verdict.qualityStatus}: ${verdict.reasons[0] ?? verdict.factViolations[0] ?? "the canon held this copy for a human look"}`);} // THE CANON HOLDING COMPLETE COPY IS A LOOK OWED, NOT A REFUSAL: `needs_review` is not `rejected`, so this is review work carrying the canon's own quality reason.
   return { d: deliverable, ready };} // THE LAST EVALUATION WAS THE PROMOTION DECISION (Codex, 2026-08-23): the evaluator already read this copy inside the round that produced it, with its objections fed back, so no second semantic reviewer waits past the budget to refuse what the first one passed. What remains above is the canon: deterministic house rules, free, and already named when they hold.
 /** WHAT THE PAGES THAT WIN THIS PAGE'S OWN HEAD SEARCH COVER, off headings at least two READ winners share. Deterministic and quotes nobody: a heading is named only when several of them agree on it. */
-function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
+export function winnersCover(snapshot: EvidenceSnapshot, page: OwnedPageEvidence): string[] {
   const head = [...(page.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query; const row = head ? (snapshot.research?.serpEvidence ?? []).find((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head)) : null; if (!row) return [];
   const ranked = new Set(row.organic.map((o) => canonicalUrlKey(o.url))), mine = canonicalUrlKey(page.url); const seen = new Map<string, { label: string; on: Set<string> }>();
   for (const w of snapshot.research?.winningPages ?? []) {

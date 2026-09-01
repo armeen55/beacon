@@ -42,14 +42,12 @@ describe("a paused account rebuilds its surface and buys nothing, whatever the c
     vi.doMock("@/domains/runtime", () => ({ researchPermission: async () => "paused" as const }));
     vi.doMock("@/domains/decision", () => ({
       produceProposalsForTenant: async (_t: string, opts: unknown) => {
-        // ASKED FROM INSIDE THE PRODUCER, which is the only place the answer means anything.
-        const { spendingRefused: refused } = await import("@/lib/spend-scope");
+        const { spendingRefused: refused } = await import("@/lib/spend-scope"); // ASKED FROM INSIDE THE PRODUCER, which is the only place the answer means anything.
         seen.push({ opts, refusedInside: refused() });
         return { proposals: [], outcome: "no_actionable_candidate", persisted: 0 };},
       reconcileImplementedWithoutShipment: async () => undefined,}));
     const { refreshCustomerSurface } = await import("@/app/(shell)/surface-release");
-    // The caller asks for five paid drafts. The pause outranks it.
-    await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null); expect(seen).toHaveLength(1);
+    await refreshCustomerSurface("tenant-fx", { maxDrafts: 5 }).catch(() => null); expect(seen).toHaveLength(1); // The caller asks for five paid drafts. The pause outranks it.
     expect(seen[0]!.refusedInside).toBe(true); // every paid door inside this pass is already closed
     expect(seen[0]!.opts).toMatchObject({ maxDrafts: 0 }); // and the pause outranked the caller's ask
     expect(calls.claims).toContain("surface-claims"); // the cross-instance hold was taken at the boundary
@@ -87,8 +85,7 @@ describe("the paid doors refuse a paused account even with no scope open", () =>
     setSpendPauseProbeForTests(null);
     expect(result.state).toBe("capped"); expect(fetchSpy).not.toHaveBeenCalled();});
   it("leaves the FREE collect of an already-purchased task untouched by the pause", async () => {
-    // Collection is a task_get that costs nothing; the pause stops buying, never picking up what was bought.
-    const { setSpendPauseProbeForTests, runWithoutSpending } = await import("@/lib/spend-scope");
+    const { setSpendPauseProbeForTests, runWithoutSpending } = await import("@/lib/spend-scope"); // Collection is a task_get that costs nothing; the pause stops buying, never picking up what was bought.
     setSpendPauseProbeForTests(async () => true);
     const { collectCapability } = await import("@/domains/evidence/dataforseo/capabilities"); let reached = false;
     const out = await runWithoutSpending(() => collectCapability("dfs2_missing", {
@@ -117,8 +114,7 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
                   if (!held || held.content[0].until >= nowIso) return { data: [], error: null };
                   rows.set(key, { content: r.content });
                   return { data: [{ scope_key: key }], error: null };},}),
-              // The release path: a second eq is the OWNER match, and the row changes only when it holds.
-              eq: (_o: string, owner: string) => ({
+              eq: (_o: string, owner: string) => ({ // The release path: a second eq is the OWNER match, and the row changes only when it holds.
                 then: (res: (v: unknown) => unknown) => {
                   const held = rows.get(key);
                   if (held && held.content[0].owner === owner) rows.set(key, { content: r.content });

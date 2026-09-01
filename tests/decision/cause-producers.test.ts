@@ -220,22 +220,29 @@ describe("a page that slipped down the results", () => {
     const out = await fall({ coverage: decided(pattern({ commonHeadings: [{ heading: "Gutter guards keep debris out", seenOn: [0, 1, 2] }] })) }); expect(out.status).toBe("bundled"); if (out.status !== "bundled") return;
     expect([out.proposal.diagnosisCause, out.proposal.bundle!.components.map((c) => c.kind)]).toEqual(["ranking_loss", ["section_add"]]);
     expect(out.proposal.bundle!.alternatives.map((a) => a.option)).toContain("A sharper title or description"); }); });
-/** THIN IS RELATIVE TO THE AUDIENCE (operator, 2026-08-31). A flat 200-word line called /cities fine at 500 words on 28,847 impressions and /famous-iranian-comedians fine at 324 on 22,509: the two biggest content opportunities on the site, invisible because a constant said a stub is 200 words wherever it sits. Nothing here loosens the evidence floors that keep "add 1,200 words" from being advice: the stored results page is still required, and a quiet page still owes only the old floor. */
-describe("a page owes the copy the search it already earns asks for, not a fixed word count", () => {
-  const short = (url: string, imps: number, query: string): OwnedPageEvidence => ({
-    url, content: { title: "Iranian comedians", metaDescription: null, h1: "Iranian comedians", h2: [], outline: ["Iranian comedians"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 324, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
-    search: { clicks90d: 10, impressions90d: imps, ctr90d: 0.01, position90d: 8, topQueries: [{ query, impressions: imps, clicks: 10, position: 8 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
-  const serpFor = (queries: string[]) => ({ ...emptyResearchEvidence(), serpEvidence: queries.map((query) => ({ observedAt: null, query, aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Comedians" }] })) });
-  const run = async (over: Partial<EvidenceSnapshot>) => { vi.resetModules();
-    vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map() })); // an EMPTY queue, not an unreadable one: this producer emits nothing at all when it cannot see what the account already holds
-    return (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: TENANT, snapshot: snapshot(over) as never, now: NOW, reads: { left: 0 }, persist: false }); };
-  it("names the 324-word page a heavy search already found, leaves the quiet one alone, and still refuses both without a stored results page", async () => {
-    const heavy = short("https://fixture-content.example/comedians", 22_509, "iranian comedians"), quiet = short("https://fixture-content.example/philosophers", 400, "iranian philosophers");
-    const out = await run({ ownedPages: [heavy, quiet], research: serpFor(["iranian comedians", "iranian philosophers"]) as never });
-    const thin = out.cards.filter((c) => c.id.endsWith("thin_page")).map((c) => c.pagePath);
-    expect(thin, "324 words is a stub under a search seen 22,509 times and an ordinary page under one seen 400 times, and only the first is offered").toEqual(["/comedians"]);
-    const blind = await run({ ownedPages: [heavy, quiet], research: emptyResearchEvidence() as never });
-    expect(blind.cards.filter((c) => c.id.endsWith("thin_page")), "with no results page on file there is no shape to hand over, so the higher floor buys nothing: 'add more words' stays unsayable").toEqual([]); });
+/** A CONTENT GAP IS DIAGNOSED, NEVER COUNTED (operator, 2026-09-01). Word count authorized this card twice, first a flat 200 then a demand-scaled floor, and both were the same mistake: a 150-word page can be complete and a 1,500-word one can miss the question that matters. What authorizes an expansion is a NAMED missing subject the winners of this page's own search agree on carrying and the page's stored outline does not; the card names the exact subjects, and "add N words" is gone from the product's mouth. */
+describe("an expansion is authorized by a named missing subject, never a word count", () => {
+  const pageOf = (words: number, outline: string[]): OwnedPageEvidence => ({
+    url: "https://fixture-content.example/comedians", content: { title: "Iranian comedians", metaDescription: "d", h1: "Iranian comedians", h2: [], outline, schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: words, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
+    search: { clicks90d: 10, impressions90d: 22_509, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "iranian comedians", impressions: 22_509, clicks: 10, position: 8 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } });
+  const research = { ...emptyResearchEvidence(),
+    serpEvidence: [{ observedAt: null, query: "iranian comedians", aiOverview: [], aiMode: [], paa: [], related: [], organic: [
+      { rank: 1, domain: "a.example", url: "https://a.example/1", title: "Comedians" }, { rank: 2, domain: "b.example", url: "https://b.example/2", title: "Comedy" }] }],
+    winningPages: [
+      { url: "https://a.example/1", domain: "a.example", engines: [], examplePrompts: [], appearances: [], extract: { title: "C", h1: null, wordCount: 900, headings: ["Stand-up specials to watch", "Where to see live shows"], faqCount: 0, entityNames: [], openingSample: "", hasList: true }, extractState: "current" },
+      { url: "https://b.example/2", domain: "b.example", engines: [], examplePrompts: [], appearances: [], extract: { title: "C2", h1: null, wordCount: 800, headings: ["Stand-up specials to watch"], faqCount: 0, entityNames: [], openingSample: "", hasList: false }, extractState: "current" }] };
+  const run = async (page: OwnedPageEvidence, r: unknown) => { vi.resetModules();
+    vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map() }));
+    return (await import("@/domains/decision/producers/extra")).extraQueueCards({ tenantId: TENANT, snapshot: snapshot({ ownedPages: [page], research: r as never }) as never, now: NOW, reads: { left: 0 }, persist: false }); };
+  it("mints the card naming the winners' shared subject the page lacks, and word count decides nothing either way", async () => {
+    const short = await run(pageOf(150, ["Iranian comedians"]), research); // 150 words, but the SUBJECT is missing: minted, and the card names it
+    const card = short.cards.find((c) => c.id.endsWith("::thin_page"));
+    expect([!!card, (card?.recommendedChange as { after?: string } | undefined)?.after?.includes("Stand-up specials to watch") ?? false], "minted with the exact missing subject in the copy, never a word target").toEqual([true, true]);
+    expect((card?.recommendedChange as { after?: string } | undefined)?.after ?? "", "no word count is ever the instruction").not.toMatch(/\d+\s*(?:to|-)\s*\d+\s*words|words to/);
+    const covered = await run(pageOf(150, ["Iranian comedians", "Stand-up specials to watch", "Where to see live shows"]), research); // SAME 150 words, subjects carried: no card
+    expect(covered.cards.some((c) => c.id.endsWith("::thin_page")), "a page carrying the winners' subjects mints nothing at any length").toBe(false);
+    const noSerp = await run(pageOf(150, ["Iranian comedians"]), emptyResearchEvidence()); // no stored results page: no named gap is possible, so nothing is minted
+    expect(noSerp.cards.some((c) => c.id.endsWith("::thin_page")), "no results page, no diagnosis, no card").toBe(false); });
 });
 /** SUPPRESSION IS BY THE MUTATION A ROW WRITES (operator, 2026-08-31). Page plus action family let ONE measuring section on /cities block every further section that page could earn, whatever its topic: the site's two largest expansion opportunities were invisible behind rows about different subjects. The footprint separates body topics, so only a genuine collision suppresses. */
 describe("a standing section on one topic never suppresses a new section on another", () => {
@@ -249,7 +256,10 @@ describe("a standing section on one topic never suppresses a new section on anot
     const { extraQueueCards } = await import("@/domains/decision/producers/extra");
     const page = { url: at, content: { title: "Cities of Iran", metaDescription: "d", h1: "Cities of Iran", h2: [], outline: ["Cities of Iran"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 500, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
       search: { clicks90d: 100, impressions90d: 28_847, ctr90d: 0.003, position90d: 9, topQueries: [{ query: "cities in iran", impressions: 28_847, clicks: 100, position: 9 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
-    const serp = { ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "cities in iran", aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Cities" }] }] };
+    const serp = { ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "cities in iran", aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Cities" }, { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Cities 2" }] }],
+      winningPages: [ // the diagnosed contract needs a NAMED missing subject the winners agree on, not a word count
+        { url: "https://rival.example/a", domain: "rival.example", engines: [], examplePrompts: [], appearances: [], extractState: "current", extract: { title: "C", h1: null, wordCount: 900, headings: ["Largest cities by population"], faqCount: 0, entityNames: [], openingSample: "", hasList: true } },
+        { url: "https://other.example/b", domain: "other.example", engines: [], examplePrompts: [], appearances: [], extractState: "current", extract: { title: "C2", h1: null, wordCount: 800, headings: ["Largest cities by population"], faqCount: 0, entityNames: [], openingSample: "", hasList: false } }] };
     const out = await extraQueueCards({ tenantId: TENANT, snapshot: snapshot({ ownedPages: [page], research: serp as never }) as never, now: NOW, reads: { left: 0 }, persist: false });
     expect(out.cards.some((c) => c.id.endsWith("::thin_page") && c.pagePath === "/cities"), "the 500-word page under 28,847 impressions earns its expansion card despite the measuring section on another topic").toBe(true); });
 });

@@ -186,8 +186,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect(row.nextStep).toBe("Being credited has not moved. Put the fact those answers credit elsewhere on this page, in your own words, then measure again.");
     expect(row.googleAside!.line).toBe("Ran 28 days. Estimated lift: 40 clicks ahead of pages that were not changed.");
     for (const s of fields(row)) expect(s, `reads as a win: ${s}`).not.toMatch(/\bworked\b|ahead|\bwin\b|more often/i); });
-  // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
-  it("speaks the same way on every objective: no slug, no first person, no dash, no lab word, and always a next step", () => {
+  it("speaks the same way on every objective: no slug, no first person, no dash, no lab word, and always a next step", () => { // FOUR OBJECTIVES, FOUR DIRECTIONS, THREE STRETCHES: hand-written copy on one objective is a sample, and the sample is how a branch gets rewritten while its sibling keeps saying the old thing. Walk the space instead.
     for (const m of ["ai_citation", "ai_citation_conversion", "ai_retrieval", "ai_mentions"] as const)
       for (const d of ["improved", "worsened", "no_clear_movement", "unclear"] as const) for (const days of [0, 3, 28]) {
         const row = first({ judgedMetric: m, ai: ai(d, days) });
@@ -226,14 +225,12 @@ describe("the surface never renders uncertainty as No change", () => {
       expect(html).toContain("No clear result");   // the tab that holds all three
       expect(html).toMatch(said); expect(html).not.toContain("No change");
       expect(html).not.toContain("landed inside the normal range");}});
-  // A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): on a day after the window close, the surface says the read is overdue because Google reports behind, never "lands May 8".
-  it("never renders a past date as the next future result", () => {
+  it("never renders a past date as the next future result", () => { // A PROMISE ABOUT THE FUTURE MAY NEVER RENDER A PAST DATE (operator, 2026-08-21): on a day after the window close, the surface says the read is overdue because Google reports behind, never "lands May 8".
     const late = buildResultsView([shipment({ read: measuring })], new Date("2026-08-21T00:00:00Z"));
     const texts = [late.header.worked.value, late.header.reading.sub, ...late.rows.reading.map((r) => `${r.pipCaption} ${r.happened} ${r.nextStep}`)].join(" | "); expect(texts).not.toMatch(/lands May|Next May|until May/);
     expect(texts).toContain("overdue"); expect(texts).toContain("Google reports a few days behind");});
   it("still says No change on a real control-based Google flat result", async () => {
-    // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
-    const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }; const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []);
+    const level = { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }; const flat = evaluateChange(input({ windows: [win(7, level), win(14, level), win(28, level)] }), WINDOWS, []); // The one outcome that HAS been called: comparable pages moved the same way, so this page genuinely landed inside the normal range, and that sentence stays true where it is earned.
     expect(await render({ read: flat })).toContain("No change");});});
 /** THE LEARNING STRIP AT THE TOP OF RESULTS: what the kinds of work have DONE here, off the same rows the list below renders. Pinned, RENDERED and never read off the object: the kernel's counts reach the screen intact and in its order, a group under five finished readings says it is early and is never turned into a recommendation, a reading taken beside other work on the same page says so, a ledger with nothing countable says exactly that instead of implying a record, and no lab word or first person reaches the screen. */
 describe("what each kind of change has done here", () => {
@@ -262,8 +259,7 @@ describe("what each kind of change has done here", () => {
     expect(titles).toContain("Titles"); expect(titles).toContain("+10 clicks"); expect(titles).toContain("typically, against pages that were not changed");
     expect(titles).toContain("Do this again on a similar page.");   // six readings, ahead on both the count and the total
     expect(words(cardOf(html, "unsigned"))).toContain("Older changes recorded before kinds were tracked");
-    // The strongest reading and its counterexample, each on the page the ledger below links to.
-    expect(titles).toContain("Strongest: Up 0 , 10 clicks ahead of pages that were not changed.");
+    expect(titles).toContain("Strongest: Up 0 , 10 clicks ahead of pages that were not changed."); // The strongest reading and its counterexample, each on the page the ledger below links to.
     expect(titles).toContain("Weakest: Down 1 , 2 clicks behind pages that were not changed.");
     expect(cardOf(html, "title::")).toContain('href="https://site.com/up-0"');});
   it("says a thin record is early, counts what it still owes, and never turns it into a recommendation", async () => {

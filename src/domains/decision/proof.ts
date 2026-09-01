@@ -337,7 +337,7 @@ function certifiedScope(p: ChangeProposal): string[] {
   return [];
 }
 
-export function materialLosses(p: ChangeProposal): string[] {
+function materialLosses(p: ChangeProposal): string[] {
   const c = p.recommendedChange;
   if (c.kind !== "existing_edit" || !c.before?.trim()) return [];
   const before = c.before, after = c.after;

@@ -14,6 +14,7 @@ import type { CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
+import { winnersCover } from "../drafted-copy";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
 import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
@@ -24,8 +25,8 @@ import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
 // public surface for nothing.
 /** A page shown HEAVY_IMPRESSIONS often is a page to write, not a stub to fill. MIN_EARNED_OVERLAP is the words of a page's own tie to a search, past the site wide ones, before it may be asked to answer it, and past MAX_HEADING_WORDS a heading is a paragraph wrapped in a heading tag, saying nothing about what it answers. */
 const HEAVY_IMPRESSIONS = 5_000, MIN_EARNED_OVERLAP = 2, MAX_HEADING_WORDS = 12;
-/** A page worth linking to sits inside striking distance and is genuinely being seen; under THIN_WORDS a page is a stub to a reader and to Google. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time. */
-const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, THIN_WORDS = 200, TOP_PAGES_PER_CLASS = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates
+/** A page worth linking to sits inside striking distance and is genuinely being seen. TOP_PAGES_PER_CLASS pages per defect get a card, one page at a time; no word-count line exists any more, because a content gap is diagnosed, never counted. */
+const NEAR_MISS_MIN = 4, NEAR_MISS_MAX = 15, MIN_IMPRESSIONS = 30, TOP_PAGES_PER_CLASS = Number.MAX_SAFE_INTEGER; // the count meter is DELETED (operator, 2026-08-30, "i dont want any limits"): every page with the defect gets its card; the evidence floors stay the only quality gates
 /** Results led by places that sell. A page losing to these loses on having nothing to buy on it. */
 const SHOP_DOMAIN = /(^|\.)(amazon|etsy|ebay|aliexpress|walmart|redbubble|teepublic|zazzle|temu|wayfair|shop)\./i;
 const STORE_FIRST = /(^|\.)(amazon|etsy)\./i;
@@ -195,29 +196,35 @@ function technicalCards(all: OwnedPageEvidence[], snapshot: EvidenceSnapshot, ex
     const head = [...(p.search?.topQueries ?? [])].sort((a, b) => b.impressions - a.impressions)[0]?.query;
     return head != null && (snapshot.research?.serpEvidence ?? []).some((s) => canonicalQueryKey(s.query) === canonicalQueryKey(head) && (s.organic ?? []).length > 0);
   };
-  // THIN IS RELATIVE TO THE AUDIENCE, NEVER AN ABSOLUTE LINE (operator, 2026-08-31). A flat 200 words called
-  // /cities fine at 500 words on 28,847 impressions and /famous-iranian-comedians fine at 324 on 22,509: the
-  // two biggest content opportunities on the site, invisible because a constant said a stub is 200 words
-  // wherever it sits. What a page owes is set by what it is already being asked for, so a page carrying a
-  // heavy search load owes an article and a quiet one still only owes the old floor.
-  const owedWords = (p: OwnedPageEvidence): number => (impressions(p) >= HEAVY_IMPRESSIONS ? 3 * THIN_WORDS : THIN_WORDS);
-  const thin = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && (p.content?.wordCount ?? 0) < owedWords(p) && impressions(p) > 0 && winnersOnFile(p)));
-  for (const p of thin.slice(0, TOP_PAGES_PER_CLASS)) {
-    // THE TARGET IS THE AUDIENCE. Three hundred words on a page shown thirty thousand times is still a stub; what a page at that size of search has to become is an article.
-    const target = impressions(p) > HEAVY_IMPRESSIONS ? "800 to 1,200" : "200 to 300";
+  // A CONTENT GAP IS DIAGNOSED, NEVER COUNTED (operator, 2026-09-01). Word count authorized this card twice
+  // over: first a flat 200, then a demand-scaled floor, and both were the same mistake wearing different
+  // arithmetic, because a 150-word page can be complete and a 1,500-word page can miss the one question that
+  // matters. What authorizes an expansion now is a NAMED missing subject: a heading the pages winning this
+  // page's own head search agree on carrying, that this page's stored outline does not, with the demand and
+  // the stored results page as the evidence. The card names the exact subjects; "add N words" is gone.
+  const carries = (p: OwnedPageEvidence, label: string): boolean => {
+    const bag = (t: string) => new Set(t.toLowerCase().normalize("NFKD").replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter((w) => w.length > 2));
+    const want = bag(label); if (want.size === 0) return true;
+    const own = bag([p.content?.title ?? "", p.content?.h1 ?? "", ...(p.content?.outline ?? []), ...(p.content?.h2 ?? [])].join(" "));
+    return [...want].filter((w) => own.has(w)).length >= Math.max(1, Math.ceil(want.size / 2)); };
+  const gapsOf = (p: OwnedPageEvidence): string[] => winnersCover(snapshot, p).filter((label) => !carries(p, label));
+  const expandable = rank(pages.filter((p) => (p.content?.wordCount ?? 0) > 0 && impressions(p) > 0 && winnersOnFile(p)))
+    .map((p) => ({ p, gaps: gapsOf(p) })).filter((x) => x.gaps.length > 0);
+  for (const { p, gaps } of expandable.slice(0, TOP_PAGES_PER_CLASS)) {
     const stores = winnersAreStores(p);
     const shopStep = "Add a product block or shop link above the fold; the pages winning this search are stores.";
+    const named = gaps.slice(0, 4);
     out.push({
       page: p, slug: "thin_page", field: "section", query: topQueryOf(p),
-      headline: `Fill out ${pathOf(p.url)}: ${count(p.content?.wordCount ?? 0, "word")} on a page shown ${count(impressions(p), "time")}`,
+      headline: `Cover what this search's winners all carry on ${pathOf(p.url)}: ${named[0]}`,
       before: null,
-      after: `Add ${target} words to ${pathOf(p.url)} that answer its main question, in short sections with their own headings.`,
-      why: `${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} and is still shown ${count(impressions(p), "time")} in 90 days, so people are being handed a page with almost nothing on it.`,
-      steps: [`Open the site editor on ${pathOf(p.url)}`, `Add ${target} words that answer the question the page title asks`, "Break them into short sections with their own headings", ...(stores ? [shopStep] : []), "Mark it done here and the impressions get read again"],
-      hints: [`${pathOf(p.url)} holds ${count(p.content?.wordCount ?? 0, "word")} of copy`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(thin.length, "page")} of the ${pages.length} stored pages hold less copy than the search they already earn asks for`],
-      // This page's stored copy, its search row, and the stored results page the shape came from.
+      after: `Add a section to ${pathOf(p.url)} covering ${named.map((g) => `"${g}"`).join(", ")}: the pages winning "${topQueryOf(p)}" each carry ${named.length === 1 ? "this subject" : "these subjects"} and this page does not.`,
+      why: `${pathOf(p.url)} is shown ${count(impressions(p), "time")} in 90 days for "${topQueryOf(p)}", and every page winning that search covers ${named.map((g) => `"${g}"`).join(", ")} while this page's own headings do not.`,
+      steps: [`Open the site editor on ${pathOf(p.url)}`, `Add a section covering ${named[0]}`, ...(named.length > 1 ? [`Cover the other named ${named.length === 2 ? "subject" : "subjects"} too: ${named.slice(1).join(", ")}`] : []), ...(stores ? [shopStep] : []), "Mark it done here and the impressions get read again"],
+      hints: [`The winners of "${topQueryOf(p)}" agree on: ${named.join(", ")}`, `${pathOf(p.url)} is shown ${count(impressions(p), "time")} and earns ${count(clicksOf(p), "click")} in 90 days`, `${count(expandable.length, "page")} of the ${pages.length} stored pages are missing a subject their search's winners agree on`],
+      // This page's stored copy, its search row, and the stored results page the missing subjects came from.
       minutes: 30, confidence: "medium", refs: 3, impact: recoverableClicks(p, expectedCtrAt),
-      limitation: "Word count is read off the last stored copy of the page, so copy added since that read is not counted here.",
+      limitation: "The missing subjects are read off the stored results page and the winners' own headings as last read; a subject added to the page since that read is not counted here.",
     });
   }
   // A ZERO-WORD 200 IS AN UNREAD PAGE, NEVER A THIN ONE. A page built with javascript answers a raw fetch
