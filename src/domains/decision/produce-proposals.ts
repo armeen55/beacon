@@ -330,9 +330,9 @@ export async function produceProposalsForTenant(tenantId: string, opts: ProduceP
   const doorWalked = new Set<string>();
   const sweepStale = async (runs: readonly ProducerRun[]): Promise<void> => {
     if (!persist) return; const families = runs.filter((r) => r.complete).flatMap((r) => [...r.families]); if (families.length === 0) return void log.warn("[produce-proposals] no producer finished, so no card is taken back", { tenantId });
-    const pattern = new RegExp(`::existing_edit::(${families.join("|")})$`), ids = new Set(proposals.map((p) => p.id));
+    const pattern = new RegExp(`::existing_edit::(${families.join("|")})(@[^:]*)?$`), ids = new Set(proposals.map((p) => p.id)); // a family slug may carry its destination after "@" (one link card per destination), and the sweep owns those rows too
     // THE CAP SHIELD COVERS PAID WORK ONLY. The $0 producers walk EVERY page EVERY pass, so their silence past the paid bound is a real withdrawal; shielding it kept thirty-five stale titles alive for days (operator, 2026-08-17: the cheetah card).
-    const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})$`); let taken = 0;
+    const zeroDollar = new RegExp(`::existing_edit::(${[...SUGGESTED_FAMILIES, ...EXTRA_FAMILIES, "demand_recovery", "factual_correction"].join("|")})(@[^:]*)?$`); let taken = 0;
     for (const [id, row] of existing) {
       if (ids.has(id) || (!zeroDollar.test(id) && (cappedOut.has(id) || cappedOut.has((row.pagePath ?? "").trim().toLowerCase())))) continue; if (row.status !== "needs_review" || !pattern.test(id)) continue;
       if (row.bundle && !doorWalked.has((row.pagePath ?? "").trim().toLowerCase()) && !doorWalked.has((row.pageUrl ?? "").trim().toLowerCase())) continue; if (await withdrawChangeProposal(row, "swept: the producer that owns this family rewrote it and did not re-emit this card").catch(() => false)) taken += 1;

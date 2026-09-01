@@ -14,7 +14,8 @@ import type { CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
 import { mutationFootprint } from "../mutation-footprint";
-import { winnersCover } from "../drafted-copy";
+import { placementCandidatesOf, winnersCover } from "../drafted-copy";
+import { loadOwnedPageBodies, type OwnedPageBody } from "@/domains/evidence/pages/owned-context";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
 import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
@@ -78,7 +79,10 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   // WHAT EACH PAGE IS HELD UP BY, off the same graph: how many pages point at it today. That is the link's purpose said as a number the operator can check, rather than as link equity.
   const inbound = new Map<string, number>();
   for (const links of linksByPage.values()) for (const to of links) inbound.set(to, (inbound.get(to) ?? 0) + 1);
-  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0).sort((a, b) => clicksOf(b) - clicksOf(a)); // the source-page meter is DELETED (operator, 2026-08-30): every read page with clicks may donate a link, same anchor and fit gates
+  const strongest = pages.filter((p) => linksByPage.has(canonicalUrlKey(p.url)) && clicksOf(p) > 0 && !STOREFRONT.test(pathOf(p.url))).sort((a, b) => clicksOf(b) - clicksOf(a)); // the source-page meter is DELETED (operator, 2026-08-30): every read page with clicks may donate a link, same anchor and fit gates; a shop page donates none, its rails are not prose
+  // THE PLACEMENT IS THE GATE (operator, 2026-09-01): a link is a sentence on the source page that already talks about the destination's subject, so the source's stored PROSE is what is read, furniture excluded. Headings and rails put every flag's name on every flag page and the fit said yes to all of them.
+  const bodies = new Map<string, OwnedPageBody>();
+  for (let i = 0; i < strongest.length; i += 3) for (const [k, v] of await loadOwnedPageBodies(tenantId, strongest.slice(i, i + 3).map((p) => p.url)).catch(() => new Map<string, OwnedPageBody>())) bodies.set(k, v); // the reader is bounded to three pages a call and answers nothing to more
   const nearMiss = pages.flatMap((p) => {
     // THE SEARCH BECOMES THE WORDS ON THE LINK, so a search that is not words never qualifies: an operator like "site:" is never anchor text, a dictionary ask ("hyena in farsi") earns a line on its own page, and a question is a sentence nobody links with; anchors are the noun phrase the destination is FOR.
     const q = (p.search?.topQueries ?? []).filter((q) => !/[:/@]|^https?/i.test(q.query)
@@ -90,7 +94,8 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
   const out: Draft[] = [];
   for (const from of strongest) {
     const links = linksByPage.get(canonicalUrlKey(from.url))!;
-    const words = pageWords(from, weak);
+    const spots = placementCandidatesOf(bodies.get(canonicalUrlKey(from.url)) ?? null, 500).filter((c) => c.kind === "sentence").map((c) => new Set(subjectWords(c.exactText, weak)));
+    const own = new Set(subjectWords(`${from.content?.title ?? ""} ${from.content?.h1 ?? ""}`, weak)); // the source's own subject: a word both pages are about ("flag", "empire") places nothing
     // DOWNHILL ONLY: the source must out-earn the destination, or the link asks the weaker page to lift the stronger one. THE WORDS ON THE LINK MUST BE WHAT THE DESTINATION IS FOR, and BOTH ENDS MUST BE READ AND SAY FITS: an unread pair, or an unsettled verdict, holds the card with its reason.
     const belongs = async (to: OwnedPageEvidence, anchor: string): Promise<boolean> => {
       const [dest, src] = [await u.of(to), await u.of(from)];
@@ -101,9 +106,9 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
     const targets: { page: OwnedPageEvidence; query: OwnedQuerySignal }[] = [];
     for (const t of nearMiss) {
       if (targets.length >= LINKS_PER_SOURCE) break;
-      const subject = subjectWords(t.query.query, weak);
-      if (t.page.url === from.url || clicksOf(from) <= clicksOf(t.page) || links.has(pathOf(t.page.url).toLowerCase()) || targets.some((x) => x.page.url === t.page.url)
-        || subject.filter((w) => words.has(w)).length < Math.min(2, subject.length)) continue;
+      const subject = subjectWords(t.query.query, weak), distinct = subject.filter((w) => !own.has(w)); // what the destination is about that this page is not: "parthian" on the Achaemenid page, never "flag"
+      if (t.page.url === from.url || clicksOf(from) <= clicksOf(t.page) || links.has(pathOf(t.page.url).toLowerCase()) || targets.some((x) => x.page.url === t.page.url) || STOREFRONT.test(pathOf(t.page.url))
+        || distinct.length === 0 || !spots.some((spot) => distinct.filter((w) => spot.has(w)).length >= Math.min(2, distinct.length))) continue; // an exact editable sentence on the source already speaks of the destination's own subject, or there is nowhere honest to put the link
       if (await belongs(t.page, t.query.query)) targets.push(t);
     }
     for (const target of targets) {
