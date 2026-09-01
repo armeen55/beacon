@@ -68,8 +68,7 @@ describe("runResolvedCall - the atomic money path, and the paid-response policy 
     const a = identityCacheKey(resolved()), others = [identityCacheKey(resolved({ locationCode: 2826 })), identityCacheKey(resolved({ modelRequested: "gpt-4o" }))];
     expect([identityCacheKey(resolved({ tenantId: "tenant-b" })), others.includes(a)]).toEqual([a, false]); // tenant never enters identity; location and model always split it
   });
-  it("a REPORTED zero cost is refunded and BLOCKED durably unless the exact code is a documented temporary failure; an unknown cost quarantines", async () => {
-    // 50100 terminal, 50401/50402 live timeouts (any retry is a NEW paid call), 61234 undocumented, 40401 collection-only (a fresh POST proves nothing) -> blocked. 50301/50000 -> the ONE retry path.
+  it("a REPORTED zero cost is refunded and BLOCKED durably unless the exact code is a documented temporary failure; an unknown cost quarantines", async () => { // 50100 terminal, 50401/50402 live timeouts (any retry is a NEW paid call), 61234 undocumented, 40401 collection-only (a fresh POST proves nothing) -> blocked. 50301/50000 -> the ONE retry path.
     const cases: [number, number | undefined, "blocked" | "none" | "quarantined"][] = [
       [50100, 0, "blocked"], [50401, 0, "blocked"], [50402, 0, "blocked"], [61234, 0, "blocked"], [40401, 0, "blocked"],
       [50301, 0, "none"], [50000, 0, "none"], [50100, undefined, "quarantined"], [50301, undefined, "quarantined"]]; // no cost field = it may have been charged
@@ -102,8 +101,7 @@ describe("Standard tasks - free resumption and the STRUCTURED dispositions", () 
     const { deps, calls } = makeDeps({ claimEvidenceFetch: claim("pending", { providerTaskId: "task-123" }), cacheRead: row({ provider_task_id: "task-123" }) });
     deps.fetchImpl = fetcher(calls, () => liveOk(0)); const res = await runResolvedCall(taskCall(), deps);
     expect([res.state, res.state === "ok" && res.costUsd, calls.reserve.length]).toEqual(["ok", 0, 0]); // no reservation on a free resume
-    expect(calls.fetch).toEqual([expect.stringContaining("/task_get/advanced/task-123")]);
-    // FRESHNESS truth: a collected row expires on the REGISTRY ttl (60s fixture), never the 30-day task retention, so a due re-observation re-buys.
+    expect(calls.fetch).toEqual([expect.stringContaining("/task_get/advanced/task-123")]); // FRESHNESS truth: a collected row expires on the REGISTRY ttl (60s fixture), never the 30-day task retention, so a due re-observation re-buys.
     expect(Date.parse(calls.writes.find((w) => w.status === "ready")!.expires_at as string) - NOW.getTime()).toBe(60_000); });
   it("maps every in-body task code onto the frozen disposition and clears ONLY a proven dead identity", async () => {
     const cases: [number, string, boolean][] = [

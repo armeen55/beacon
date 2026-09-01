@@ -124,17 +124,14 @@ describe("two dispatchers cannot both rebuild one account, and only the owner ca
     vi.resetModules();
     const rows = new Map<string, Hold>();
     vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
-    const { claimScope } = await import("@/lib/persistence/json-store");
-    // The two dispatchers arrive one after the other, which is what the database sees however they were scheduled: the first statement takes the hold, and the second changes nothing and is told so.
+    const { claimScope } = await import("@/lib/persistence/json-store"); // The two dispatchers arrive one after the other, which is what the database sees however they were scheduled: the first statement takes the hold, and the second changes nothing and is told so.
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     expect(await claimScope("surface-claims", "tenant-fx", 300)).toBeNull(); // never both
-    expect(typeof await claimScope("surface-claims", "tenant-other", 300)).toBe("string"); // another account is not blocked by it
-    // AND A HOLD THAT OUTLIVES ITS OWNER NEVER WEDGES THE ACCOUNT: expired, the next dispatcher takes it.
+    expect(typeof await claimScope("surface-claims", "tenant-other", 300)).toBe("string"); // another account is not blocked by it // AND A HOLD THAT OUTLIVES ITS OWNER NEVER WEDGES THE ACCOUNT: expired, the next dispatcher takes it.
     rows.set("surface-claims::tenant-fx", { content: [{ until: "2000-01-01T00:00:00.000Z", owner: "dead" }] });
     expect(typeof await claimScope("surface-claims", "tenant-fx", 300)).toBe("string");
     vi.doUnmock("@/lib/persistence/supabase"); vi.resetModules();});
-  it("lets a holder that outlived its TTL release NOTHING, so its successor keeps the hold", async () => {
-    // A stalls past TTL; B takes the hold; A's late release must free NOTHING or C rebuilds beside B.
+  it("lets a holder that outlived its TTL release NOTHING, so its successor keeps the hold", async () => { // A stalls past TTL; B takes the hold; A's late release must free NOTHING or C rebuilds beside B.
     vi.resetModules();
     const rows = new Map<string, Hold>();
     vi.doMock("@/lib/persistence/supabase", () => claimsTable(rows));
@@ -241,10 +238,8 @@ describe("a paused tick collects what was already paid for, free, then republish
     vi.doMock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({
       from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ id: "tenant-fx" }], error: null }) }) }) }) }) }),
     }) }));
-    const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler");
-    // The stranded probe is somebody else's contract; this pin holds the dispatch to the paused tail.
-    await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never });
-    // The order IS the contract: what was already bought lands first, then the republish reads it.
+    const { runDueAccounts } = await import("@/domains/runtime/ops/scheduler"); // The stranded probe is somebody else's contract; this pin holds the dispatch to the paused tail.
+    await runDueAccounts({ now: () => new Date("2026-08-21T12:00:00Z"), steps: { strandedToday: async () => [] } as never }); // The order IS the contract: what was already bought lands first, then the republish reads it.
     expect(events).toEqual(["enumerate:5", "collect:dfs2_owed", "rebuild:tenant-fx"]);
     expect(fetchSpy).not.toHaveBeenCalled(); // GET went through the collector fake; nothing posted, nothing paid
     vi.doUnmock("@/domains/evidence/dataforseo/default-deps"); vi.doUnmock("@/domains/evidence/dataforseo/capabilities");

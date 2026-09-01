@@ -501,8 +501,7 @@ describe("what the winning pages share reaches the operator, and never one of th
     const page = res.proposals.find((p) => p.kind === "new_page")!; const keys = page.bundle!.receipt.items.map((i) => i.key);
     expect(keys).toEqual(expect.arrayContaining(["pattern", "look"])); // the verdict's OWN lines, and ONE check per source read rather than one per row
     expect(keys).not.toContain("gap1"); // no page of this account covers this subject, so none was supplied and no gap was ever written
-    expect(page.bundle!.receipt.items.find((i) => i.key === "pattern")!.fact).toContain("3 of the 3 cover what each piece means."); }); });
-// ── every door reaches the deep producer, not only a proven click gap ─────────
+    expect(page.bundle!.receipt.items.find((i) => i.key === "pattern")!.fact).toContain("3 of the 3 cover what each piece means."); }); }); // ── every door reaches the deep producer, not only a proven click gap ─────────
 /** A page the click door can NEVER select: about 27 clicks short of the 50 a change owes, and its displayed line already carries the searcher's words. */
 const WHOLE = ownedPage(GAP_URL, `${HAFT} guide for Nowruz`, { impressions: 900, clicks: 45 }, [{ query: HAFT, impressions: 900, clicks: 45, position: 4.1 }], ["Persian New Year Customs", "what each piece means"]);
 const SPLIT_URL = "fixture-outdoors.example/haft-seen-table";
@@ -715,8 +714,7 @@ describe("the click curve is fitted to the account it judges", () => {
     const page = (clicks: number) => ownedPage("own.example/flag", "Iran flag", { impressions: 60_000, clicks }, [{ query: "iran flag", impressions: 60_000, clicks, position: 3 }]); const dead = compileCandidates(snap([page(0)]), { curve })[0]!;
     expect([dead.action, dead.recoverableClicks]).toEqual(["research_needed", 66]); // NOT watch: zero clicks on 60,000 views is the clearest gap there is
     const near = compileCandidates(snap([page(200)]), { curve })[0]!; // AND THE FLOOR THAT REFUSED IT IS THE ONE NAMED, in its own unit: a search worth 539 clicks used to read "under the 50 clicks on 500 searches that earn a change".
-    expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); });
-// ── work identity is the JOB'S OWN evidence, never the account's ──────────────
+    expect([near.action, /under the 50 clicks/.test(near.reason)]).toEqual(["watch", false]); expect(near.reason).toContain("which is most of what that position gives, so its wording is not visibly costing you the click"); }); }); // ── work identity is the JOB'S OWN evidence, never the account's ──────────────
 /** The audited defect this pins: every fixture in this suite hardcodes `evidenceHash: "fixture"`, so an entire  class of account-wide identity bugs was invisible to the suite BY CONSTRUCTION (627 versions on one live row,  a finished answer overwritten by a worse redraft, twelve-call rewrites re-bought). These tests use the REAL  `hashSnapshot`, move an UNRELATED page's Google figures between passes, and hold the identity still. */
 describe("work identity survives unrelated drift and moves with the job's own evidence", () => {
   const AT = ownedPage("fixture-outdoors.example/hiking-socks", "Hiking Socks", { impressions: 9000, clicks: 700 }, [{ query: "hiking socks", impressions: 9000, clicks: 700, position: 1.2 }]);
@@ -862,4 +860,23 @@ describe("a stampless re-mint never replaces finished work", () => {
     const rewrite = { ...remint, copyStamp: "T2|H2|D2|O2" }; // a producer that DID re-read the page and saw it move still replaces, with the retirement receipt
     const moved = preferFinished(rewrite, finished);
     expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });
+});
+/** A REDRAFT REQUEST IS THE EVIDENCE MOVING, IN THE OPERATOR'S HAND (operator, 2026-09-01). The same-day stop refused to re-buy a held draft until "the evidence moves", and a person reading the words and asking for better ones is exactly that, the same way preferFinished already lets a redraft request outrank preservation. Without this, the review door's own "ask the next funded pass to write better words" answer pointed at a pass that could never fund it. */
+describe("a redraft request reopens the same-day stop", () => {
+  it("funds the redraft-requested standing row this pass, where the untouched hold met the same-day sentence", async () => { reset(SEEN());
+    const first = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
+    const landedId = first.proposals.find((p) => p.status === "ready" || p.status === "needs_review")?.id;
+    expect(landedId, "the seed pass landed a row to hold").toBeTruthy();
+    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"] };
+    env.store.set(held.id, held);
+    const focus = DRAFT_BUDGET.keyOf(held); // the standing-card re-entry passes the STORED ROW itself, the exact live path the stop blocked tonight
+    const frozen = new Map([...env.store.entries()].map(([k, v]) => [k, { ...v }])); // two branches from ONE store state, because a pass rewrites rows and a second pass would compare against a moved target
+    const blocked = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
+    const sentence = (blocked.paid.declined ?? []).find((d) => d.key === focus)?.reason ?? "";
+    expect(sentence, "the untouched held row meets the same-day sentence at the focus").toContain("already made on today's evidence");
+    env.store = new Map([...frozen.entries()].map(([k, v]) => [k, { ...v }]));
+    env.store.set(held.id, { ...env.store.get(held.id)!, redraftRequested: new Date().toISOString() });
+    const reopened = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
+    const still = (reopened.paid.declined ?? []).some((d) => d.key === focus && /already made on today's evidence/.test(d.reason));
+    expect([still, reopened.paid.funded.includes(focus)], "the redraft request never meets the sentence, and the row is funded again").toEqual([false, true]); });
 });

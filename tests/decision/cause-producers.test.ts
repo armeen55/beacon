@@ -13,8 +13,7 @@ vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async
 vi.mock("@/domains/decision/llm/winner-memory", () => ({ buildWinnerFewShots: async () => "", buildWinnerFewShotsWithPattern: async () => ({ fragment: "", patternHint: null }) }));
 import { produceBundleForSnapshot, type OwnedBody } from "@/domains/decision/produce-bundle"; import { buildNewPageProposal } from "@/domains/decision/new-page"; import { evidenceShortfall } from "@/domains/decision/proof";
 const TENANT = "fixture-tenant"; const NOW = new Date("2026-08-01T00:00:00.000Z"); const URL = "fixture-content.example/rain-barrels";
-const OPENING = "Collecting water at home starts with knowing what one storm actually brings you.";
-// ── the drafted answers the seam hands back, each grounded in words the evidence already carries ──
+const OPENING = "Collecting water at home starts with knowing what one storm actually brings you."; // ── the drafted answers the seam hands back, each grounded in words the evidence already carries ──
 /** WHAT A SECTION AND AN OPENING NOW COME BACK CARRYING: the claim it makes, the stored id that carries it, and the reviewer's ruling on exactly that claim. A bundle's substantive pieces go through the ONE canonical editor, so a fixture that answered a second section drafter is answering a question nobody asks any more. */
 const cited = (user: string): string => (user.includes("owned-page-1") ? "owned-page-1" : "page-heading-1"); // the sibling page where this account holds one, and the page's own heading where it does not
 const JUDGED = (id: string) => ({ pageFit: true, claims: [{ i: 0, by: [id], entailed: true }], usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "It says where a full barrel's overflow goes, which this page never said.", resolution: "none" });

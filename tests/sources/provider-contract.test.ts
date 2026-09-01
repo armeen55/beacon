@@ -89,11 +89,9 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     const tomorrow = await post({ observation_day: next, sample_slot: 0 }); const retry = await post({ observation_day: day, sample_slot: 0 });
     expect(slot0.key).toBe(retry.key);           // the same reading retried the same day is ONE ask and stays $0
     expect(slot0.key).not.toBe(slot1.key);       // a second sample is a SECOND question, never a free replay of the first
-    expect(slot0.key).not.toBe(tomorrow.key);    // and tomorrow is a new question, so a 23:00 answer is never served as tomorrow's
-    // Neither field is a provider field: the request body is identical to one asked without them (the only difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
+    expect(slot0.key).not.toBe(tomorrow.key);    // and tomorrow is a new question, so a 23:00 answer is never served as tomorrow's // Neither field is a provider field: the request body is identical to one asked without them (the only difference is `tag`, which IS the cache identity and is how a quarantined task is recovered for free).
     expect([slot1.body.observation_day, slot1.body.sample_slot]).toEqual([undefined, undefined]); const plain = (b: Record<string, unknown>) => ({ ...b, tag: undefined });
-    expect(plain(slot1.body)).toEqual(plain((await post({})).body));
-    // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
+    expect(plain(slot1.body)).toEqual(plain((await post({})).body)); // Slot 0 is not merely ignored, it is ABSENT from the identity, so an omitted slot and an explicit 0 agree.
     expect(slot0.key).toBe((await post({ observation_day: day })).key);
     const key = (publicInput: Record<string, unknown>) => identityCacheKey({ endpoint: "ai_optimization/gemini/llm_responses/task_post", publicInput, locationCode: 2840, languageCode: "en", device: null, modelRequested: "gpt-4o" });
     expect(slot0.key).toBe(key({ user_prompt: "q", web_search: true, observation_day: day }));});
@@ -104,10 +102,8 @@ describe("web-enabled request bodies per engine (only documented fields)", () =>
     expect(parseCapability("llm_scraper_chatgpt", scraped([]))!.brandMentions).toEqual([]); // it looked and named none
     expect(parseCapability("llm_scraper_chatgpt", scraped([{ name: "Acme" }]))!.brandMentions).toBeNull(); // unreadable is "I do not know", never "it named none"
     expect(parseCapability("llm_scraper_chatgpt", scraped(undefined))!.brandMentions).toBeNull();});
-  it("rejects cross-engine fields and caller-chosen models at COMPILE time", () => {
-    // @ts-expect-error a scraper is keyword-based; user_prompt is not its field
-    const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS);
-    // @ts-expect-error the model is resolved, never caller-supplied
+  it("rejects cross-engine fields and caller-chosen models at COMPILE time", () => { // @ts-expect-error a scraper is keyword-based; user_prompt is not its field
+    const scraper = () => providerCall("llm_scraper_chatgpt", { user_prompt: "x" }, IDS); // @ts-expect-error the model is resolved, never caller-supplied
     const chosen = () => providerCall("llm_chatgpt", { user_prompt: "x", model_name: "gpt-4o" }, IDS); expect([typeof scraper, typeof chosen]).toEqual(["function", "function"]); });});
 describe("keyword ideas: one request per 200 seeds, and nothing missing turned into a zero", () => {
   const rich = { keyword: "saffron price", keyword_info: { search_volume: 1200, competition: 0.21, competition_level: "LOW", cpc: 0.9, monthly_searches: [{ year: 2026, month: 6, search_volume: 1100 }, { year: 2026, month: 5 }] }, keyword_properties: { keyword_difficulty: 34 }, search_intent_info: { main_intent: "commercial" } }, ranked = { ranked_serp_element: { serp_item: { rank_group: 4, rank_absolute: 7, url: "https://mysite.example/saffron-price" } } };
@@ -167,16 +163,14 @@ describe("envelope parsing + method-aware resolution", () => {
     const stored = fresh.calls.writes.find((w) => w.status === "ready")!.payload; const hit = harness(labsKeywordsForSiteLive, { claimEvidenceFetch: async () => ({ outcome: "ready", payload: stored, providerTaskId: null, modelServed: null, readyAt: NOW.toISOString(), costUsd: 0 }) });
     const r2 = await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, hit.deps); if (r2.state !== "hit") throw new Error(r2.state); expect(hit.calls.fetch).toHaveLength(0); expect(parseCapability("labs_keywords_for_site", r2.envelope)).toEqual(parsed);
     let reserved = 0; const ov = harness(labsKeywordsForSiteLive, { reserveProviderSpend: async (_t: string, _p: string, amount: number) => { reserved = amount; return true; } }); await providerCall("labs_keyword_overview", { keywords: ["a"] }, IDS, ov.deps); expect(reserved).toBeGreaterThanOrEqual(700 * 0.0003); }); // 150 keywords really charged $0.02988, so a FULL 700-keyword batch lands near $0.21: never reserved under it
-  it("asks ranked_keywords for ORGANIC rankings only, so an ad this account bought is never one of its own pages", async () => {
-    // The endpoint defaults to organic AND paid, so one page ranking once organically and once as an ad came back as two pages of mine, which is the whole arithmetic behind calling a search a consolidation.
+  it("asks ranked_keywords for ORGANIC rankings only, so an ad this account bought is never one of its own pages", async () => { // The endpoint defaults to organic AND paid, so one page ranking once organically and once as an ad came back as two pages of mine, which is the whole arithmetic behind calling a search a consolidation.
     const rk = harness(labsKeywordsForSiteLive); await providerCall("labs_ranked_keywords", { target: "apple.com" }, IDS, rk.deps);
     expect(rk.calls.bodies[0]![0]).toMatchObject({ target: "apple.com", location_code: 2840, language_code: "en", item_types: ["organic"] });
     const site = harness(labsKeywordsForSiteLive); await providerCall("labs_keywords_for_site", { target: "apple.com" }, IDS, site.deps);
     expect("item_types" in site.calls.bodies[0]![0]!).toBe(false); }); // the site pull claims no ranking of mine, so it sends no such filter
   it("the SERP fixture yields organic, PAA, related, AI Overview; an LLM answer lists web citations", async () => {
     const serp = parseCapability("serp_organic", serpTaskGetAdvanced as unknown as ProviderEnvelope); expect(serp!.organic.map((o) => o.domain)).toEqual(["python.org", "w3schools.com"]); expect(serp!.paaQuestions).toHaveLength(2); expect(serp!.relatedSearches).toHaveLength(3); expect(serp!.aiOverview?.references.map((r) => r.domain)).toEqual(["python.org", "wikipedia.org"]);
-    const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]);
-    // An annotation knows WHICH WORDS it backs, and the ask's own token and money receipt rides home with it.
+    const { deps } = harness(llmResponsesTaskGet, { cacheRead: async () => taskRow("ai_optimization/chat_gpt/llm_responses/task_post", { cost_usd: 0 }) }); const res = await collectCapability("k", deps); if (res.state !== "ok") throw new Error(res.state); const ans = parseCapability("llm_chatgpt", res.envelope); expect([ans!.webSearchReported, ans!.citations?.map((c) => c.domain), ans!.fanOutQueries?.length]).toEqual([true, ["runnersworld.com", "wirecutter.com"], 2]); // An annotation knows WHICH WORDS it backs, and the ask's own token and money receipt rides home with it.
     expect(ans!.citations![0]).toMatchObject({ startIndex: 4, endIndex: 20, passage: "Brand X Runner" }); expect(ans!.usage).toEqual({ inputTokens: 12, outputTokens: 88, reasoningTokens: 0, moneySpentUsd: 0.03 });
     const bare = parseCapability("llm_chatgpt", { status_code: 20000, tasks: [{ result: [{ items: [{ type: "message", sections: [{ type: "text", text: "hi", annotations: [{ url: "https://x.example/a" }] }] }] }] }] }); // an envelope reporting none of it stores absence, never a zero
     expect([bare!.usage, bare!.citations![0]!.startIndex, "passage" in bare!.citations![0]!]).toEqual([null, undefined, false]); });
