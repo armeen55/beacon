@@ -1630,13 +1630,21 @@ describe("a stored results page backs a replacement description, and its absence
       snapshot: { ownedPages: [{ url: at, content: { wordCount: 300, title: "Persian Wolf", metaDescription: "Learn about the wolf.", h1: "Persian Wolf", outline: [] }, search: null }], research, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } } as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf::meta", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       reviewer: async () => ({ notes: "fine" }) as never,
-      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "A clean summary in the searcher's words.", resolution: "none", claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })) })) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "A clean summary in the searcher's words.", resolution: "none", claims: d.claims.map((c, i) => ({ i, by: [c.supportedBy[0]!], entailed: true })) })) as never, // the ruling cites a SUBSET of the claim's own ids, which is confirmation, not transcription: the evidential rule holds and the clerical echo is not demanded
       complete: async () => ({ value: { field: "meta", before: "Learn about the wolf.", after: "Persian Wolf explained: the habitat, diet, lifespan and conservation basics of this wolf, described in plain language.", rationale: "The current line says nothing the searcher asked.", placementAnchor: "Persian Wolf", claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], ...TAIL } }) } as never);
     return out[0]!; };
   it("stamps the earned backing, and the finished description clears the replacement gate", async () => {
     const row = await drive(serp);
     expect([!!row.modeledOn, row.modeledOn?.includes('the results page for "persian wolf"') ?? false], "the backing is stamped with its own arithmetic").toEqual([true, true]);
     expect(openHold(row).blocking ?? "none", "and the gate's second arm is satisfied by it").not.toContain("demand evidence alone"); });
+  it("refuses a ruling that cites nothing at all: affirmation without evidence is not a reading", async () => {
+    const out = await applyDraftedCopy([wolfCard()], { tenantId: TENANT, now: NOW, refusals: new Map<string, string>(),
+      snapshot: { ownedPages: [{ url: at, content: { wordCount: 300, title: "Persian Wolf", metaDescription: "Learn about the wolf.", h1: "Persian Wolf", outline: [] }, search: null }], research: serp, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } } as never,
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/iran-animals/persian-wolf::meta", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
+      reviewer: async () => ({ notes: "fine" }) as never,
+      judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "Looks fine.", resolution: "none", claims: d.claims.map((c, i) => ({ i, by: [], entailed: true })) })) as never,
+      complete: async () => ({ value: { field: "meta", before: "Learn about the wolf.", after: "Persian Wolf explained: the habitat, diet, lifespan and conservation basics of this wolf, described in plain language.", rationale: "The current line says nothing the searcher asked.", placementAnchor: "Persian Wolf", claims: [{ text: "The page is about the Persian Wolf.", supportedBy: ["page-h1"] }], ...TAIL } }) } as never);
+    expect(out[0]!.status, "a by-nothing ruling never promotes").not.toBe("ready"); });
   it("stamps nothing without the results page, and the same draft stays held exactly as before", async () => {
     const bare = await drive({});
     expect([bare.modeledOn ?? null, (openHold(bare).blocking ?? "") .includes("demand evidence alone") || bare.researchOnly === true], "no results page, no stamp, same hold").toEqual([null, true]); });

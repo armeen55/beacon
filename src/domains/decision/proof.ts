@@ -220,7 +220,7 @@ export function unreviewed(p: ChangeProposal): string | null {
     ? "Beacon's reviewer ruled this rewording keeps the page's meaning, so it is not offered"
     : "this looks like a wording-only change, so Beacon's reviewer must confirm the meaning genuinely moves before it is offered";
   if (r.claims.length !== claims.length) return "the reading did not rule on every claim this change makes, and silence about one of them is not a pass";
-  return claims.every((c, i) => { const v = r.claims.find((x) => x.i === i); return !!v && v.entailed && key(v.by) === key(c.supportedBy); }) ? null : "a claim here was not shown to follow from the exact sources it names";
+  return claims.every((c, i) => { const v = r.claims.find((x) => x.i === i), own = new Set(c.supportedBy); return !!v && v.entailed && v.by.length > 0 && v.by.every((id) => own.has(id)); }) ? null : "a claim here was not shown to follow from the exact sources it names"; // the reading is EVIDENTIAL, never clerical (operator, 2026-08-31): a ruling entailed by a nonempty subset of the claim's OWN ids confirms the claim; only vouching through evidence the claim never named is refused
 }
 
 /** WHAT A CLAIM MAY NEVER STAND ON ALONE, and what counts as real authority for one. A rival's page, a winner read side by side and a results-page line say what OTHER sites cover and how the winning answer is shaped: that is why a piece of work is worth doing and it is never proof that a sentence is true. `fact-*` is a checked statement with a source that was actually read, and `owned-page-*` is another page of this account, which is the one comparison a page cannot make about itself. Ids, never prose, so no rewording of a briefing line can promote it to a source. */
