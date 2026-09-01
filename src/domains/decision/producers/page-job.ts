@@ -369,7 +369,8 @@ export function linkFit(
   if (!covers(target, anchorWords, jobs)) return "off_topic";
   if (target.pageType === "translation" && !covers(target, [...vocabularyOf(source)], jobs)) return "wrong_type";
   // A LINK IS A CLAIM THAT TWO PAGES SHARE A SUBJECT, and the claim runs BOTH ways: a names page was told to link "iranian horse" to a horse page because both carry the word Iranian. The source must cover some of the target's own vocabulary too, read AFTER the type verdict so a dictionary page from a stranger is refused for what it IS.
-  if (![...vocabularyOf(target)].some((w) => covers(source, [w], jobs))) return "off_topic";
+  // TWO WORDS, NOT ONE: asked one target word at a time, the floor fell to a single match, and a names page that lists "Caspian" as a name was told to link "caspian horse" to a horse breed. The source must cover the target's vocabulary on the same two-word floor the forward check uses.
+  if (!covers(source, [...vocabularyOf(target)], jobs)) return "off_topic";
   return "fits";
 }
 

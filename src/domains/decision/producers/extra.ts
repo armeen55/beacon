@@ -63,7 +63,9 @@ function recoverableClicks(p: OwnedPageEvidence, expectedCtrAt: (position: numbe
 }
 /** ONE card, in the ONE shape the store files and every surface renders. */
 /** 2. THE LINKS THE STRONGEST PAGES NEVER PASS ON: the three pages that earn the most clicks, and the near miss pages they never link to. Off the stored link graph, so the absence of a link is a fact here. */
-async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding): Promise<{ drafts: Draft[]; complete: boolean }> {
+/** How many links one source page may donate in one pass: distinct destinations, each its own card and footprint. */
+const LINKS_PER_SOURCE = 3;
+async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: ReadonlySet<string>, u: Understanding, expectedCtrAt: (position: number) => number): Promise<{ drafts: Draft[]; complete: boolean }> {
   // A READ THAT THREW IS NOT A SITE WITH NO LINKS. Swallowed, it returned the same empty list as a linkless site, this producer still reported FINISHED, and the sweep then withdrew every internal_link card on file for a database blip. The failure is carried out instead of flattened.
   const graphs = await getRepository().forTenant(tenantId).getPageSnapshotLinkGraphs().catch(() => null);
   if (graphs == null) return { drafts: [], complete: false };
@@ -95,19 +97,23 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       for (const [page, read] of [[to, dest], [from, src]] as const) {
         if (!read.job) { u.hold(page.url, `${read.reason} for the link "${anchor}"`); return false; } }
       return linkFit(dest.job, src.job, subjectWords(anchor, weak), u.corpus) === "fits"; };
-    let target: { page: OwnedPageEvidence; query: OwnedQuerySignal } | undefined;
+    // TWO WORDS OF THE DESTINATION'S SUBJECT ON THE SOURCE PAGE, NEVER ONE (operator, 2026-09-01): one shared word is a coincidence, and "caspian" on a names page sent a link to a horse breed. SEVERAL LINKS PER SOURCE: every destination that fits is its own card, its own footprint and its own worth.
+    const targets: { page: OwnedPageEvidence; query: OwnedQuerySignal }[] = [];
     for (const t of nearMiss) {
-      if (t.page.url === from.url || clicksOf(from) <= clicksOf(t.page)
-        || links.has(pathOf(t.page.url).toLowerCase())
-        || !subjectWords(t.query.query, weak).some((w) => words.has(w))) continue;
-      if (await belongs(t.page, t.query.query)) { target = t; break; }
+      if (targets.length >= LINKS_PER_SOURCE) break;
+      const subject = subjectWords(t.query.query, weak);
+      if (t.page.url === from.url || clicksOf(from) <= clicksOf(t.page) || links.has(pathOf(t.page.url).toLowerCase()) || targets.some((x) => x.page.url === t.page.url)
+        || subject.filter((w) => words.has(w)).length < Math.min(2, subject.length)) continue;
+      if (await belongs(t.page, t.query.query)) targets.push(t);
     }
-    if (!target) continue;
+    for (const target of targets) {
     const to = pathOf(target.page.url), position = target.query.position!.toFixed(1);
+    // THE LINK'S OWN WORTH: the clicks the destination is leaving behind at the position it holds for this search, and that search's audience. Never the source page's whole audience.
+    const gain = Math.round((expectedCtrAt(target.query.position!) - Math.min(1, target.query.clicks / Math.max(1, target.query.impressions))) * target.query.impressions);
     const held = inbound.get(to.toLowerCase()) ?? 0, support = held === 0 ? `No page of this site links to ${to} at all today`
       : `Only ${count(held, "page")} of this site ${held === 1 ? "links" : "link"} to ${to} today`;
     out.push({
-      page: from, slug: "internal_link", field: "section", query: target.query.query, linkTo: to,
+      page: from, slug: `internal_link@${to}`, field: "section", query: target.query.query, linkTo: to, demand: target.query.impressions, impact: gain > 0 ? gain : null,
       headline: `Link ${pathOf(from.url)} to ${to} with the words "${target.query.query}"`, before: null,
       after: `Add one link in the body of ${pathOf(from.url)} pointing to ${to}, with the anchor text "${target.query.query}".`,
       // THE LINK'S PURPOSE, OFF THE STORED GRAPH: what holds the destination up today, what the words on it tell Google that page is for, and why this source page is the one being asked to give it.
@@ -117,7 +123,7 @@ async function linkCards(tenantId: string, pages: OwnedPageEvidence[], weak: Rea
       // Every page whose stored link graph was read for the counts above, plus the destination's own search row.
       minutes: 5, confidence: "medium", refs: linksByPage.size + 1,
       limitation: "The link list comes from the last stored read of this page, so a link added since then is not counted here.",
-    });
+    }); }
     if (out.length >= MAX_PER_PRODUCER) break; // unreachable: the meter is deleted and stays only as a runaway guard
   }
   return { drafts: out, complete: true };
@@ -291,7 +297,7 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
   const u = await pageUnderstanding(tenantId, eligible, { now, openPaths: new Set(rows.map((p) => (p.pagePath ?? "").toLowerCase())), ...(input.reads ? { reads: input.reads } : {}) });
   const bank: { query: string; refusedPages?: string[] }[] = [];
-  const links = await linkCards(tenantId, pages, weak, u);
+  const links = await linkCards(tenantId, pages, weak, u, expectedCtrAt);
   // THE STORED AI WINDOW, one lean read through the same projection Visibility renders; a failed read hands
   // null through, and the staged producer then claims no recurrence it cannot show.
   const day = (d: Date): string => d.toISOString().slice(0, 10);

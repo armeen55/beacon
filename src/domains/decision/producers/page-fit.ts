@@ -17,6 +17,8 @@ export type Draft = { page: OwnedPageEvidence; slug: string; field: "meta" | "h1
   minutes: number; confidence: ChangeProposal["confidence"]; limitation: string;
   /** HOW MANY STORED ROWS ARE BEHIND THIS CARD, which used to be the hint count: three on every card this file writes, on three stored answers or thirty. `impact` is the clicks this page is measurably leaving behind. */
   refs: number; impact?: number | null;
+  /** THE AUDIENCE THIS MUTATION ACTS ON when it is not the page's own: a link is worth the destination's search, never the source page's whole audience. */
+  demand?: number | null;
   /** THE AI SIDE IN ITS OWN UNITS, only on a card stored answers stand behind. Never converted into clicks. */
   aiImpact?: ChangeProposal["aiImpact"];
   /** THE EXACT AI SCOPE this card targets: prompt ids, assistants and the follow-up-search cluster, preserved through shipment so Results remeasures the same thing, never ten flattened strings. */
@@ -118,7 +120,7 @@ export function mint(tenantId: string, d: Draft, now: Date): ChangeProposal {
     // WHAT IS ON THE CARD, NEVER WHAT WAS CONSULTED TO WRITE IT: the link card counted every page whose stored link graph it read and claimed 224 pieces of evidence behind four sentences.
     evidence: { query: d.query, hints: d.hints, evidenceRefCount: Math.max(1, Math.min(Math.round(d.refs), d.hints.length)) },
     // WHAT IS RIDING ON IT, off this page's own rows: the clicks it is measurably leaving behind, and the audience it is shown to. Either one absent stays null, never a zero the ranking would believe.
-    impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.page.search?.impressions90d ?? null,
+    impactScore: d.impact ?? null, upsidePerMonth: null, demandImpressions90d: d.demand ?? d.page.search?.impressions90d ?? null,
     ...(d.aiImpact ? { aiImpact: d.aiImpact } : {}),
     ...(d.treatment ? { treatment: d.treatment } : {}),
     ...(d.aiScope ? { aiScope: d.aiScope } : {}),

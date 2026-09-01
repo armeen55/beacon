@@ -5,7 +5,7 @@ import { DANGEROUS_COMPONENT_KINDS as DECISION_DANGEROUS } from "@/domains/decis
 import { DANGEROUS_COMPONENT_KINDS as MEASUREMENT_DANGEROUS } from "@/domains/measurement/proof-gsc/measure-lifecycle";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 import { effortMinutesFor, fieldForComponent, type ProducerCtx } from "@/domains/decision/producers/contract";
-import { produceConsolidation, produceFullRewriteRecommendation, produceInternalLinks, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
+import { produceConsolidation, produceFullRewriteRecommendation, produceSourceExpansion } from "@/domains/decision/producers/extended"; import { CORE_PRODUCERS } from "@/domains/decision/producers/core";
 import type { WinningPattern } from "@/domains/decision/winning-pattern";
 import { validateProposal } from "@/domains/decision/validate-proposal";
 import type { OwnedPageBody } from "@/domains/evidence/pages/owned-context";
@@ -93,17 +93,6 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const out = await (CORE_PRODUCERS.incomplete_coverage as (c: ProducerCtx) => Promise<{ refusal: string | null }>)(
       ctxOf({ finding: finding("incomplete_coverage", { cause: "incomplete_coverage", absentHeadings: ["Roof area"], absentEntities: [] }) }));
     expect(out.refusal).toBe("The page itself already carries what the winning pages cover, so there is nothing to add here."); });
-  it("never feeds one of my own numbers to the drafter that writes page copy", async () => {
-    const heard: string[] = [];
-    const out = await produceInternalLinks(ctxOf({
-      draft: { section: async () => null, internalLink: async (i) => {
-        heard.push(...i.evidenceHints ?? []);
-        return { anchorText: `${i.topic} guide`, linkSentence: `Working out ${i.topic} means reading ${(i.evidenceHints ?? []).join(" ")}`, reason: "same subject" }; } },}));
-    expect(heard.length).toBeGreaterThan(0); // it is grounded, not starved, and never on one of my own figures
-    for (const fact of FACTS) expect(heard).not.toContain(fact);
-    expect(out.components.map((c) => c.after).join(" ")).not.toMatch(/6,000|90 clicks/); // the receipt's numbers never reach the page
-    expect(heard).toEqual(expect.arrayContaining(["Rain Barrels", "How much rain a roof collects"])); // the page's own words, and the winners' headings
-  });
   it("never ships drafted body copy with a run of spaces in it, and never touches a line break", async () => {
     const out = await produceSourceExpansion(ctxOf({
       finding: finding("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "what size rain barrel do I need" }),
@@ -112,16 +101,6 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
         sources: [], containsNumber: false }) },}));
     const after = out.components[0]!.after; // "a  b" never ships, and the paragraph break is left exactly where it was
     expect([/ {2}/.test(after), after.includes("barrel.\n\nThe cited")]).toEqual([false, true]); });
-  it("sends the reader to a page this account actually has, and survives the component gate", async () => {
-    const out = await produceInternalLinks(ctxOf()); expect([out.refusal, out.components.map((c) => c.kind)]).toEqual([null, ["internal_link_add", "internal_link_add"]]);
-    expect(out.components.map((c) => c.label)).toEqual(["Link to /rain-collection", "Link to /storm-drains"]); expect(out.components.every((c) => answered(c) && c.risk === "safe" && c.before === null)).toBe(true);
-    expect(out.components[0]!.mechanism).toContain("about 12 of their own pages and this one points to 3");
-    const c = out.components[0]!;
-    expect(c.after).toBe('This line goes in the section headed "How much rain a roof collects": if you are working out Rain collection basics, that page walks through it. The words "Rain collection basics guide" then point at /rain-collection, so a reader who came for "rain barrel sizing" has somewhere to go next.');
-    expect([componentRefusals(validate(out.components)), validate(out.components).verdict]).toEqual([[], "ready"]);
-    const old = validate([{ ...c, after: 'If you are working out Roof area, that page walks through it. Point the words "Roof area guide" at /roof-area-calculator.' }]);
-    expect([old.verdict, old.reasons.join(" ").includes("Rewrite drops the words this page is actually about"), old.factViolations.join(" ").includes('names "Point"')]).toEqual(["rejected", true, false]); });
-  /** A HUB AND ITS OWN CHILD ARE NOT A SPLIT SETTLED BY CLICKS. Live, /iran-flags/iran-islamic-republic-flag-history out-clicked its own hub /iran-flags, so the survivor rule made the CHILD the owner and the brief told it to keep the broad words; the hub's roster of its children's names then filled the sibling set with every word the child was distinct for, so the guard that should have caught it computed an EMPTY distinct set and passed. Beacon handed over "Iran Flag: Meaning, Colors, and Full History Timeline" for a page whose own heading reads "Islamic Republic of Iran Flag (1979-Current)", making the two pages compete harder for the search the card exists to settle. Nothing here turns on a word list; it turns on one address nesting inside another. */
   it("never broadens a child onto its own hub's search", async () => {
     const broad = async (i: { body: OwnedPageBody }) => ({ before: i.body.title, after: "Rain Barrels: Sizes, Materials & Full Buying Guide", anchor: "top", heading: null, minutes: 5 });
     const out = await produceConsolidation(ctxOf({ heldBodies: nestedBodies(), draft: { ...ctxOf().draft, pageField: broad }, finding: nestedSplit() }));
@@ -138,12 +117,6 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     expect(out.components).toHaveLength(0);
     expect(out.refusal).toContain("The only wording that came back is for /rain-barrels/steel-barrels, not for this page");
     expect(new Set((out.dispositions ?? []).map((d) => d.page))).toEqual(new Set(["/rain-barrels", "/rain-barrels/steel-barrels"])); }); // the other page's decision is still on the record, never silently dropped
-  it("refuses honestly when no page of this account is named by the evidence", async () => {
-    const nowhere = await produceInternalLinks(ctxOf({ ownedPages: [] })); expect(nowhere.components).toHaveLength(0);
-    expect(nowhere.refusal).toContain("so none is invented");
-    const offTopic = await produceInternalLinks(ctxOf({ ownedPages: [{ url: "https://fixture-content.example/careers", title: "Careers", h1: "Careers" }] }));
-    expect([offTopic.components.length, offTopic.refusal ?? ""]).toEqual([0, expect.stringContaining("so none is invented")]);
-    const blind = await produceInternalLinks(ctxOf({ body: null })); expect([blind.components.length, blind.refusal!.includes("Name the page it should lead to")]).toEqual([0, true]); });
   it("assembles a source pack out of claims that belong on the page, never my own numbers", async () => {
     const section = async (i: { heading: string | null }) => ({
       heading: i.heading ?? "Where these claims come from",
@@ -236,9 +209,8 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const mute = await produceFullRewriteRecommendation(ctxOf({ draft: { ...whole(), openingAnswer: async () => null } }), causes); expect([mute.components.length, mute.refusal!.includes("no way in")]).toEqual([0, true]); // and a page whose sections all landed with no opening to lead them is still not a page
     const blind = await produceFullRewriteRecommendation(ctxOf({ pattern: null, draft: whole() }), causes); expect([blind.components.length, blind.refusal!.includes("side by side")]).toEqual([0, true]); }); // no reading of the pages that win means no rebuild, however many causes fired
   it("refuses on every producer when the finding carries no structured payload", async () => {
-    const bare = { finding: finding("internal_link_weakness") }; const links = await produceInternalLinks(ctxOf(bare));
     const sources = await produceSourceExpansion(ctxOf({ finding: finding("ai_citation_gap") })); const merge = await produceConsolidation(ctxOf({ finding: finding("cannibalization") }));
-    for (const out of [links, sources, merge]) {
+    for (const out of [sources, merge]) {
       expect(out.components).toHaveLength(0); expect(out.refusal!.length).toBeGreaterThan(20);
       expect(out.refusal!).not.toMatch(/[–—]|payload|null|undefined|experiment|control|baseline|SERP/);}
     const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } })); // a finding with nothing on file behind it never becomes a component, whatever the payload says

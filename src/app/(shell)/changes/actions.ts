@@ -101,7 +101,10 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       // AND A FORWARD RIDES WITH ITS DESTINATION. Without it the live check read the first address out of the sentence, which is the one being MOVED, and graded a correct forward as a wrong one.
       ...(c.redirectTo ? { redirectTo: c.redirectTo } : {}) }))
       // An atomic change has no component to carry a grade, so it reads null rather than a guess.
-      ?? [{ id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: proposal.recommendedChange?.kind === "existing_edit" ? proposal.recommendedChange.after : null, risk: null }];
+      ?? [((c) => c?.kind === "existing_edit" && c.linkTo
+        // AN ATOMIC LINK IS VERIFIED AS A LINK (operator, 2026-09-01): shipped as its field family it was read as a section and nineteen of them could never be confirmed. The destination rides in the address slot the live check reads and the anchor in the words slot.
+        ? { id: null, kind: "internal_link_add", label: proposal.opportunityType, after: c.after, risk: null, redirectTo: c.linkTo, ...(c.anchorText ? { anchorAfter: c.anchorText } : {}) }
+        : { id: null, kind: proposal.changeFamily, label: proposal.opportunityType, after: c?.kind === "existing_edit" ? c.after : null, risk: null })(proposal.recommendedChange)];
     const componentsApplied = bundleIds.length > 0 ? all.filter((c) => c.id != null && covers(fresh, c.id)) : all;
 
     // The page as Beacon already holds it: canonical URL, path and the content hash from the last crawl, nothing fetched. THE OPERATOR'S OWN ADDRESS WINS for a new page: it is the only one that exists.

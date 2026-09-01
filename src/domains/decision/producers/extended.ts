@@ -17,7 +17,7 @@ import type { CauseFinding } from "../diagnosis"; import { RECEIPT } from "../di
 import { effortMinutesFor } from "./contract"; import type { Produced, Producer, ProducerCtx } from "./contract";
 import { produceDifferentiation } from "./differentiate";
 /** Two links is the whole budget, and a rebuild is earned by causes agreeing, never by one loud one. */
-const MAX_LINKS = 2, MAX_REQUIREMENTS = 4, MAX_HEADINGS = 6, MIN_STRUCTURAL_CAUSES = 2;
+const MAX_REQUIREMENTS = 4, MAX_HEADINGS = 6, MIN_STRUCTURAL_CAUSES = 2;
 /** A rebuild that names more losses than this is not a rebuild, it is a different page; a merge that lists more than MAX_MOVED is a rebuild of the page that survives. */
 const MAX_LOSSES = 8, MAX_MOVED = 6;
 /** Pages under one prefix past which they are a SET, and a set's member is never folded into its hub. */
@@ -64,14 +64,6 @@ const textAt = (b: Bag, k: string): string | null => {
   return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
 };
 
-function linkGap(f: CauseFinding): { medianWinnerLinks: number; ownedLinks: number } | null {
-  for (const b of bagsOf(f)) {
-    const median = numberAt(b, "medianWinnerLinks");
-    const owned = numberAt(b, "ownedLinks");
-    if (median !== null && owned !== null) return { medianWinnerLinks: median, ownedLinks: owned };
-  }
-  return null;
-}
 
 function enginePrompt(f: CauseFinding): { engine: string; promptText: string } | null {
   for (const b of bagsOf(f)) {
@@ -99,10 +91,7 @@ function competingPages(f: CauseFinding): Split | null {
 }
 // ── 1. internal links: somewhere for the reader to go next ───────────────────
 
-const WEAK_ANCHOR = /^(read more|learn more|click here|here|more|this page|link|details|see more|continue)$/i;
-
-type Target = { path: string; topic: string; score: number };
-/** Same site, same account, never the page itself. Anything I cannot resolve is not a page I will name. */
+/** A link's destination as a path of this account, or null for anything off the site. */
 function ownPath(href: string, pageUrl: string): string | null {
   const raw = href.trim();
   if (!raw || raw.startsWith("#") || /^(mailto:|tel:|javascript:)/i.test(raw)) return null;
@@ -114,121 +103,6 @@ function ownPath(href: string, pageUrl: string): string | null {
     return u.pathname.replace(/\/+$/, "") || "/";
   } catch { return null; }
 }
-
-const wantedTokens = (ctx: ProducerCtx): Set<string> =>
-  new Set([...topicTokens(ctx.primary), ...(ctx.body?.entityNames ?? []).flatMap((e) => topicTokens(e))]);
-/** WHERE THIS PAGE ALREADY SENDS PEOPLE, by canonical path: a second link to a destination it already
- *  points at is not somewhere new to go. */
-const alreadyLinked = (ctx: ProducerCtx): Set<string> =>
-  new Set((ctx.body?.internalLinks ?? []).map((l) => ownPath(l.href, ctx.page.url)).filter((p): p is string => !!p));
-/** DETERMINISTIC FIRST: the target comes from THE ACCOUNT'S OWN PAGE INVENTORY, scored on the words the
- *  search and the page's subjects share with the destination's address and name. No body, no link. */
-function candidateTargets(ctx: ProducerCtx): Target[] {
-  if (!ctx.body) return [];
-  const self = ownPath(ctx.page.url, ctx.page.url);
-  const want = wantedTokens(ctx);
-  const linked = alreadyLinked(ctx);
-  const seen = new Set<string>();
-  const out: Target[] = [];
-  for (const owned of ctx.ownedPages) {
-    const path = ownPath(owned.url, ctx.page.url);
-    if (!path || path === self || linked.has(path) || seen.has(path)) continue;
-    seen.add(path);
-    const name = (owned.title ?? owned.h1 ?? "").trim();
-    const tokens = new Set([...topicTokens(path), ...topicTokens(name)]);
-    const shared = [...tokens].filter((t) => want.has(t));
-    if (shared.length === 0) continue;
-    out.push({ path, topic: name || ctx.primary, score: shared.length });
-  }
-  return out.sort((a, b) => b.score - a.score || a.topic.localeCompare(b.topic) || a.path.localeCompare(b.path));
-}
-/** THE ONE THING AN EXISTING LINK IS STILL GOOD FOR: words that tell a reader nothing, replaced only where
- *  the destination is a page of this account whose own name is on this page's subject. */
-function weakAnchorSwap(ctx: ProducerCtx): { anchor: string; path: string; name: string } | null {
-  const want = wantedTokens(ctx);
-  const named = new Map<string, string>();
-  for (const owned of ctx.ownedPages) {
-    const path = ownPath(owned.url, ctx.page.url); const name = (owned.title ?? owned.h1 ?? "").trim();
-    if (path && name && !named.has(path)) named.set(path, name);
-  }
-  for (const link of ctx.body?.internalLinks ?? []) {
-    const anchor = link.anchorText.trim(); const path = ownPath(link.href, ctx.page.url);
-    const name = path ? named.get(path) : undefined;
-    if (!WEAK_ANCHOR.test(anchor) || !path || !name || !topicTokens(name).some((t) => want.has(t))) continue;
-    return { anchor, path, name };
-  }
-  return null;
-}
-
-function placeFor(ctx: ProducerCtx, target: Target): string {
-  const tokens = new Set([...topicTokens(target.topic), ...topicTokens(target.path)]);
-  const heading = ctx.page.outline.find((h) => topicTokens(h).some((t) => tokens.has(t)));
-  return heading ? `the section headed "${heading}"` : `the part of this page that talks about ${target.topic}`;
-}
-/** A drafted line's first word wears a capital because of where it sat, and the firewall reads a capital it
- *  cannot place as an invented name, so it keeps that capital only where the page itself uses the word. */
-function openLower(line: string, own: Set<string>): string {
-  const token = topicTokens(line.split(/\s+/)[0] ?? "")[0];
-  return token && own.has(token) ? line : line.charAt(0).toLowerCase() + line.slice(1);
-}
-
-export const produceInternalLinks: Producer = async (ctx) => {
-  if (ctx.finding.cause !== "internal_link_weakness") return refuse("This page's links are not what loses it the click, so no links are written for it. The cause that was found is on the receipt.");
-  const keys = evidenceKeysOf(ctx);
-  if (!keys) return refuse(NO_EVIDENCE);
-  const gap = linkGap(ctx.finding);
-  if (!gap) return refuse("This page's links have not been counted against the pages that win its subject, so nowhere to send a reader is invented. Research this page again and both sides get counted.");
-  const targets = candidateTargets(ctx);
-  if (targets.length === 0) return refuse("This page leaves a reader with nowhere to go, and no other page of yours on this subject is on file to send them to, so none is invented. Name the page it should lead to and the sentence gets written.");
-  // NEVER MY OWN FIGURES. This drafted sentence becomes copy on the operator's page, and a receipt fact is a
-  // number ABOUT the page (clicks, views), so handing them over let a click count land in a line somebody publishes. The hints are this page's own words and what the pages winning the subject say.
-  const evidenceHints = [ctx.page.title, ctx.page.h1, ...ctx.page.outline,
-    ...(ctx.body?.entityNames ?? []), ...(ctx.pattern?.commonHeadings ?? []).map((h) => h.heading)]
-    .filter((h): h is string => typeof h === "string" && h.trim().length > 0).slice(0, MAX_REQUIREMENTS);
-  const own = ownVocabulary(ctx);
-  const components: BundleComponent[] = [];
-  for (const target of targets.slice(0, MAX_LINKS)) {
-    const drafted = await ctx.draft.internalLink({
-      query: ctx.primary, sourcePage: ctx.page.url, targetPage: target.path, topic: target.topic, evidenceHints,
-    });
-    if (!drafted) continue;
-    const anchor = plain(drafted.anchorText);
-    const line = plain(drafted.linkSentence);
-    if (!anchor || !line) continue;
-    const place = placeFor(ctx, target);
-    // EVERY SENTENCE OPENS ON A WORD THE FIREWALL CAN PLACE, and the copy says the page's own subject out loud: true copy was refused twice for how it was worded, so the wording is what changed.
-    components.push({
-      kind: "internal_link_add",
-      label: `Link to ${target.path}`,
-      before: null,
-      after: `This line goes in ${place}: ${sentence(openLower(line, own))} The words "${anchor}" then point at ${target.path}, so a reader who came for "${ctx.primary}" has somewhere to go next.`,
-      evidenceKeys: keys,
-      risk: "safe",
-      where: place,
-      objective: `Send the reader who lands here on to ${target.path} instead of leaving them at the bottom of this page.`,
-      mechanism: `The pages that win this subject point readers on to about ${count(gap.medianWinnerLinks)} of their own pages and this one points to ${count(gap.ownedLinks)}, so somebody who lands here has nowhere to go next.`,
-      measurementPlan: `Clicks and average position for "${ctx.primary}" on this page and on ${target.path}, read at 7, 14 and 28 days after you add it.`,
-    });
-  }
-  // AN EXISTING LINK IS NEVER A NEW DESTINATION, and the only change worth making to one is the words on it.
-  const swap = weakAnchorSwap(ctx);
-  if (swap) components.push({
-    kind: "anchor_text",
-    label: `Rename the link to ${swap.path}`,
-    before: swap.anchor,
-    // The exact new wording travels structured, so the live check reads the LINK'S OWN WORDS.
-    anchorAfter: swap.name,
-    after: `The words "${swap.anchor}" that already point at ${swap.path} should read "${swap.name}", because a reader who came for "${ctx.primary}" cannot tell where that link goes until they have spent the click.`,
-    evidenceKeys: keys,
-    risk: "safe",
-    where: `the words "${swap.anchor}" where they already sit on this page`,
-    objective: `Say out loud where that link goes, so a reader who came for "${ctx.primary}" knows before they click it.`,
-    mechanism: `The words on that link describe nothing, so the one route this page already offers reads as noise and the reader stops here.`,
-    measurementPlan: `Clicks and average position for "${ctx.primary}" on this page and on ${swap.path}, read at 7, 14 and 28 days after you change it.`,
-  });
-  if (components.length === 0) return refuse("No link sentence for this page passed its own checks, so nothing is handed over rather than filler. Ask again and the next page down gets tried.");
-  return { components, refusal: null };
-};
 // ── 2. source expansion: what an engine reads before it decides who to name ───
 
 function ownVocabulary(ctx: ProducerCtx): Set<string> {

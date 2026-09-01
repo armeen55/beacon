@@ -18,7 +18,7 @@ import { technicalComponents } from "../technical-findings";
 import { pageContains } from "@/domains/evidence/pages/owned-context";
 import { topicTokens } from "@/domains/evidence/relevance-gate";
 import type { CauseKey, Produced, Producer, ProducerCtx } from "./contract";
-import { produceConsolidation, produceInternalLinks, produceSourceExpansion } from "./extended";
+import { produceConsolidation, produceSourceExpansion } from "./extended";
 
 /** At most two sections in one change. An operator's morning is the budget, and a page handed five new
  *  sections at once is a rewrite nobody applies rather than a change somebody makes. */
@@ -296,9 +296,8 @@ export const CORE_PRODUCERS: Record<CauseKey, Producer | { reason: string }> = {
   ctr_snippet: { reason: "The title path owns this cause and writes it directly." },
   // Settling which of two pages owns a search is a merge, a redirect and a de-index, not a paste. It is built beside this file rather than inside it, and wired in at integration.
   cannibalization: produceConsolidation,
-  // WHERE A READER GOES NEXT is a real change and a real drafter (internal_link) is now wired for it, but a
-  // link needs a DESTINATION this page should honestly point at, and picking that page is its own reading.
-  internal_link_weakness: produceInternalLinks,
+  // WHERE A READER GOES NEXT is owned by the ranked link lane (producers/extra.ts linkCards): a link is minted off the stored link graph with both pages understood and a two-word subject floor, never off token overlap, so the bundle path writes none here (operator, 2026-09-01).
+  internal_link_weakness: { reason: "The ranked link lane owns this cause and mints each link on its own evidence." },
   // Both AI causes are about what an engine did with a page it already read. Nothing on the page is proven wrong by either, so a rewrite here would be a guess dressed as a fix.
   retrieved_not_cited: produceSourceExpansion,
   ai_citation_gap: produceSourceExpansion,
