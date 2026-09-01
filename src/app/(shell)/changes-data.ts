@@ -190,8 +190,9 @@ async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
     const laneById = { ...page.laneById, ...readyPage.laneById };
     const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
     const counts = await queueLaneCounts(tenantId, page.release, basis);
+    // THE READY LANE NEVER SHOWS FEWER CARDS THAN IT COUNTS (operator, 2026-09-01): while a rebuild re-stamps ranks, the lane page can answer empty against a count of one, and the screen said "no finished change" over "Show 1 more". The release's own saved ready rows paint until the stamps catch up.
     return { ...view, proposals: rows, laneById,
-      ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
+      ready: lane("ready").length === 0 && counts.ready > 0 ? view.ready : lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
       summary: { ...view.summary, ready: counts.ready, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
       queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
   })(), joinBudget).catch(() => null);
