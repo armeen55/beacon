@@ -1,14 +1,12 @@
 /** structured-drafter strict-gateway transport: the seam returns parsed VALUES (no prose recovery), a refusal fails closed with no artifact, retry is bounded and paid for, and a cache hit costs $0. */
 import { describe, it, expect, vi } from "vitest";
-// Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed budget seam that RECORDS what it was told to bill.
-const BILLED = vi.hoisted(() => ({ usd: [] as number[] }));
+const BILLED = vi.hoisted(() => ({ usd: [] as number[] })); // Budget is not this file's subject (see llm-budget-isolation.test.ts): keep the transport hermetic with an always-allowed budget seam that RECORDS what it was told to bill.
 vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({
   checkBudget: async () => ({ allowed: true, remaining: 10 }),
   recordSpend: async (usd: number) => { BILLED.usd.push(usd); },}));
 import { callStructuredLLM, draftAtomicEditStructured, draftInternalLinkStructured, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
 import type { CacheImpl, LlmCallCacheEntry } from "@/domains/decision/llm/call-cache";
-// A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
-const VALID_ATOMIC_EDIT = {
+const VALID_ATOMIC_EDIT = { // A schema-valid AtomicEditDraft value (the simplest kind, no source-verify / word-count / superlative machinery in the way of the transport assertions).
   field: "title", before: "Nowruz", after: "Nowruz Traditions: Persian New Year Customs and Haft-Seen", rationale: "The current title is one word and misses the customs searchers ask about.",
   evidenceRefs: [{ source: "gsc", detail: "strong impressions for nowruz traditions with a low click rate" }], confidence: "high", risks: ["keep the title concise"],
   operatorSteps: ["Replace the page title field with the new value"], proofPlan: { metrics: ["clicks"], windowsDays: [7, 14, 28], controls: "comparable unchanged pages" },};
@@ -32,8 +30,7 @@ describe("structured-drafter strict transport", () => {
     let seen = ""; const capture: CompleteFn = async (r) => { seen = r.system; return { error: "refusal", retryable: false }; };
     await draftInternalLinkStructured({ query: "haft seen", topic: "the table", sourcePage: "https://own.com/a", targetPage: "https://own.com/b", tenantId: "t" }, { complete: capture });
     expect([seen.includes('"evidenceRefs"'), seen.includes("at least one ref must NOT be ga4 or clarity")]).toEqual([true, true]); // the validator rejects the other answer
-    // A LINK SENTENCE IS ABOUT THE DESTINATION (live, 2026-08-31): with no destination words in the packet the model wrote about its own edit ("Famous Iranian Singers also has an Explore More link to iranian horse") and claimed "The body includes a link labeled iranian horse", which no evidence can carry. The destination's own copy now travels as owned-page-target-* ids and the brief says so.
-    expect([seen.includes("owned-page-target-"), seen.includes("Never write about the link itself"), seen.includes("UNMARKED")], "the brief names the destination evidence, forbids writing about the link, and forbids marked-up anchors").toEqual([true, true, true]); });
+    expect([seen.includes("owned-page-target-"), seen.includes("Never write about the link itself"), seen.includes("UNMARKED")], "the brief names the destination evidence, forbids writing about the link, and forbids marked-up anchors").toEqual([true, true, true]); }); // A LINK SENTENCE IS ABOUT THE DESTINATION (live, 2026-08-31): with no destination words in the packet the model wrote about its own edit ("Famous Iranian Singers also has an Explore More link to iranian horse") and claimed "The body includes a link labeled iranian horse", which no evidence can carry. The destination's own copy now travels as owned-page-target-* ids and the brief says so.
   /** AND SAYING SO IS NOT ENOUGH (live, 2026-08-31). The brief above forbids marking the anchor in the plainest words available, and the writer still returned "[Zanjan Rug]", so the placeholder firewall refused both attempts and the candidate bought nothing twice. The words were right and the punctuation around them was the model's own, so code takes the punctuation off rather than paying again to ask nicely. */
   it("takes the writer's markup off an anchor that is otherwise exactly right, and still refuses a real placeholder", async () => {
     const link = (linkSentence: string, anchorText = "Zanjan Rug") => ({ sourcePage: "https://own.com/a", targetPage: "https://own.com/b", anchorText, linkSentence, reason: "The reader comparing knot densities gets the other weaving region.", riskNotes: [], confidence: "high" as const, risks: [],
@@ -45,13 +42,11 @@ describe("structured-drafter strict transport", () => {
         .toEqual(["drafted", "Kashan knot counts run higher than the Zanjan Rug, which sits between 100 and 150."]); }
     const holes = await drive(link("Kashan knot counts run higher than the [insert rug name], which sits between 100 and 150."));
     expect([holes.status, holes.status === "validation_failed" && holes.reason.includes("placeholder")], "an unfilled hole is not markup around the right words, and is refused exactly as before").toEqual(["validation_failed", true]);
-    // AND A LINK IS DRAFTED THROUGH THE ATOMIC EDITOR, not the older link kind, which is why the first repair fired on nothing: only the caller knows which words are the anchor, so it says so, and every field is cleaned rather than one.
-    const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug",
+    const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug", // AND A LINK IS DRAFTED THROUGH THE ATOMIC EDITOR, not the older link kind, which is why the first repair fired on nothing: only the caller knows which words are the anchor, so it says so, and every field is cleaned rather than one.
       complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", operatorSteps: ["Link the words **Zanjan Rug** in that sentence"] } }]).complete });
     expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { operatorSteps: string[] }).operatorSteps[0]],
       "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]);
-    // A HIT RETURNS BEFORE THE FIREWALLS, so a draft banked under an older prompt version would serve the brackets the fresh path takes off: what the customer reads may not depend on which door the answer came through.
-    const banked = { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave." } as unknown as LlmCallCacheEntry["value"];
+    const banked = { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave." } as unknown as LlmCallCacheEntry["value"]; // A HIT RETURNS BEFORE THE FIREWALLS, so a draft banked under an older prompt version would serve the brackets the fresh path takes off: what the customer reads may not depend on which door the answer came through.
     const served = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug", unmarkPhrase: "Zanjan Rug", complete: seam([{ error: "should-never-run", retryable: false }]).complete,
       cacheImpl: { read: async () => ({ value: banked } as LlmCallCacheEntry), write: async () => {}, recentTexts: async () => [] } });
     expect([served.status, served.status === "drafted" && served.cached, served.status === "drafted" && (served.value as { after: string }).after],
@@ -59,8 +54,7 @@ describe("structured-drafter strict transport", () => {
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
-    // A CALL THAT BOUGHT NOTHING IS BILLED NOTHING. Two attempts died with no usage receipt; the drafter used to substitute an ESTIMATE and record it against the cap, so a throttled minute read back as real money and could later block a working account on spend that never happened.
-    BILLED.usd.length = 0;
+    BILLED.usd.length = 0; // A CALL THAT BOUGHT NOTHING IS BILLED NOTHING. Two attempts died with no usage receipt; the drafter used to substitute an ESTIMATE and record it against the cap, so a throttled minute read back as real money and could later block a working account on spend that never happened.
     const boom = await callStructuredLLM({ ...REQ, complete: seam([{ error: "network boom", retryable: true }]).complete }); expect([boom.status === "validation_failed" && boom.costUsd, BILLED.usd]).toEqual([0, []]);
     BILLED.usd.length = 0; // and a real receipt is billed exactly once, exactly as it was issued
     const paid = await callStructuredLLM({ ...REQ, complete: seam([{ error: "incomplete", retryable: false, costUsd: 0.0042 }]).complete }); expect([paid.status === "validation_failed" && paid.costUsd, BILLED.usd]).toEqual([0.0042, [0.0042]]);
@@ -83,21 +77,18 @@ describe("a description names the subject, never the page's own furniture", () =
       outline: ["Shir o Khorshid Vertical Stripe Shirt", "Does this ship internationally?", "What is the return policy?", "Cotton, mid-weight, regular fit"] }, { complete: capture });
     return seen; };
   it("tells the retry which text was rejected, and never asks a kind for a field its own schema lacks", async () => {
-    // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
-    let second = "";
+    let second = ""; // LIVE on the fact judge: a Wikipedia reference marker like "[ 1 ]" inside a quoted passage trips the
     const capture: CompleteFn = async (r) => { second = r.system;
       return { value: { ...VALID_ATOMIC_EDIT, rationale: "The title misses what searchers ask [ 1 ] about." } }; };
     await callStructuredLLM({ ...REQ, complete: capture });
     expect(second, "the retry is shown the exact offending text").toContain("[ 1 ]");
-    // atomic_edit DOES carry evidenceRefs, so the instruction still belongs on this kind.
-    expect(second).toContain("evidenceRefs");
+    expect(second).toContain("evidenceRefs"); // atomic_edit DOES carry evidenceRefs, so the instruction still belongs on this kind.
     let judgeRetry = "";
     const judge: CompleteFn = async (r) => { judgeRetry = r.system; return { value: { verdict: "not a valid judgement [ 2 ]" } }; };
     await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.",
       user: "Judge it.", grounded: "a passage", complete: judge } as never);
     expect(judgeRetry, "a judgement has no evidenceRefs field, so it is never asked for one").not.toContain("evidenceRefs");
-    // A VERDICT IS NOT A PAGE (live, 2026-08-30): the judge quotes the page's own citation markers, so a schema-valid judgement carrying "[ 1 ]" DRAFTS; the bracket rule guards only copy a customer could paste (the atomic_edit above still refuses it).
-    const VERDICT = { verdict: "page_correct", confidence: "likely", proposed: "", literal: "light", usage: "given name", note: 'the page quotes its source as "light [ 1 ]"', supporting: [], subjects: [] };
+    const VERDICT = { verdict: "page_correct", confidence: "likely", proposed: "", literal: "light", usage: "given name", note: 'the page quotes its source as "light [ 1 ]"', supporting: [], subjects: [] }; // A VERDICT IS NOT A PAGE (live, 2026-08-30): the judge quotes the page's own citation markers, so a schema-valid judgement carrying "[ 1 ]" DRAFTS; the bracket rule guards only copy a customer could paste (the atomic_edit above still refuses it).
     const ruled = await callStructuredLLM({ kind: "fact_claim_judgement", tenantId: "t", system: "You judge one claim.", user: "Judge it.", grounded: "a passage", complete: seam([{ value: VERDICT }]).complete } as never);
     expect(ruled.status, "a citation marker in a verdict is data, never an unfilled placeholder").toBe("drafted"); });
 

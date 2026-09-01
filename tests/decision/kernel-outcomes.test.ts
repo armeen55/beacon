@@ -749,8 +749,7 @@ describe("work identity survives unrelated drift and moves with the job's own ev
     expect(moved.workKey).not.toBe(heldKey); // the identity follows the job's own evidence
     expect(env.saved.some((p) => p.id === guideId)).toBe(true); }); // one re-stamp, which is the honest churn a real movement earns
 });
-// ── the re-read sweep reconciles bundles, and the stored status agrees with the rendered lane ─
-describe("canonical bundle status", () => {
+describe("canonical bundle status", () => { // ── the re-read sweep reconciles bundles, and the stored status agrees with the rendered lane ─
   const BUNDLE = { objective: "Tell the two flag pages apart", metric: "clicks", measurementPlan: "read at 7, 14, 28 days", risks: [], confidenceReasons: ["r"], alternatives: [], scope: { queries: ["iran flag"], prompts: [] },
     components: [{ kind: "title" as const, label: "Title", before: "Iran Flag", after: "The national flag of Iran, explained", where: null, page: "/flags", risk: "safe" as const, evidenceKeys: [] }],
     dispositions: [], receipt: { items: [{ key: "k1", kind: "serp" as const, fact: "Observed on the results page for iran flag.", observedAt: "2026-07-20T00:00:00.000Z" }], missing: [], freshestObservedAt: "2026-07-20T00:00:00.000Z" } };
@@ -773,8 +772,7 @@ describe("canonical bundle status", () => {
     const q = await loadProposalQueue("fixture-tenant", { currentBasis: "basis_test::d8", now: NOW });
     expect(q.ready.some((p) => p.id === row.id)).toBe(false); }); // demoted in the store AND off the ready lane: no split brain
 });
-// ── the sweep's thin-coverage rule and the synthesis charter agree ─────────────
-describe("a synthesis replacement is not demoted for standing on the page's own words", () => {
+describe("a synthesis replacement is not demoted for standing on the page's own words", () => { // ── the sweep's thin-coverage rule and the synthesis charter agree ─────────────
   const COPY = "Funny Persian phrases are everyday slang and insults, and the clearest examples are the playful ones that follow, each carrying the meaning a reader needs to use it well in ordinary conversation with friends and family members across generations of speakers.";
   const row = (where: string, id: string): ChangeProposal => baseProposal({ id, pagePath: "/funny", pageUrl: "https://fixture-outdoors.example/funny", basis: "basis_test::d8",
     changeFamily: "section", primaryQuery: "funny persian phrases", status: "ready",
@@ -790,8 +788,7 @@ describe("a synthesis replacement is not demoted for standing on the page's own 
     expect(env.store.get(keep.id)!.status).toBe("ready"); // the synthesis charter: its whole gain is FORM, so the page's own words are its legal ground
     expect([env.store.get(demote.id)!.status, (env.store.get(demote.id)!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("what a reader gains")]); });});
 
-// ── a pass whose review never ruled keeps its hands off a banked reading ───────
-describe("the unruled review pass", () => {
+describe("the unruled review pass", () => { // ── a pass whose review never ruled keeps its hands off a banked reading ───────
   const mint = (): ChangeProposal => baseProposal({ id: "fixture-tenant::/x::existing_edit::fact-noor", changeFamily: "factual_correction", status: "needs_review",
     diagnosisCause: "factual_error", primaryQuery: "noor meaning", impactScore: 400, upsidePerMonth: 120,
     claims: [{ text: "Noor means light.", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: the name Noor means light." }],
@@ -807,11 +804,28 @@ describe("the unruled review pass", () => {
     const writes = env.saved.filter((p) => p.id === reviewed.id);
     expect(writes.every((w) => !!w.semanticReview), "no write of this pass strips the banked reading").toBe(true); // the defect wrote the mint copy, review gone
     const kept = env.store.get(reviewed.id)!;
-    // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
-    expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]);
+    expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]); // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
     expect(out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::"))?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
-    // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
-    reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards;
+    reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards; // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
     expect(env.store.get(mint().id)?.status).toBe("needs_review");
     fenv.cards = null; fenv.review = null; }); });
+/** SPENDING AND AUTHORIZATION ARE TWO QUESTIONS (operator, 2026-08-31). Six finished descriptions with positive readings sat at needs_review while the results pages their gate asked for landed the same day: the same-day stop refused the re-buy, which is its job, and nothing else could re-read the stored work, which is nobody's. Ready means safe to try: complete, placed, reasonably better, reversible, no known material defect. The $0 replay re-reads stored finished copy against today's full deterministic authorization, attaches newly landed shape backing, calls no provider, and a materially defective sibling in the same pass stays held with every word intact. */
+describe("the $0 replay: a held finished draft promotes when its evidence lands, with no provider call", () => {
+  const gateLine = "it replaces the description this page already has on demand evidence alone: demand proves the page matters, never that these words beat the current ones, so it is held until a diagnosis names what is wrong with the current description or a stored results page backs this shape";
+  const meta = (id: string, after: string, over: Partial<ChangeProposal> = {}): ChangeProposal => baseProposal({
+    id: `fixture-tenant::${id}::existing_edit::replay-fixture`, pagePath: id, pageUrl: `https://${GAP_URL}`, changeFamily: "meta", status: "needs_review",
+    primaryQuery: "nowruz traditions", limitations: [gateLine], basis: "basis_test::d8",
+    recommendedChange: { kind: "existing_edit", field: "meta", before: "Old line about the holiday.", after }, ...over });
+  it("promotes the exact stored copy at $0, and holds the malformed sibling with its reasons intact", async () => {
+    const page = { ...GAP, content: { ...GAP.content!, metaDescription: "Old line about the holiday." } };
+    reset(snap([page], looked([["nowruz traditions", GAP_URL]])));
+    const good = meta("/nowruz-guide", "Nowruz traditions explained: the customs, the Haft-Seen table and the spring timing of Persian New Year, in plain language.");
+    const bad = meta("/nowruz-guide-2", "Nowruz traditions - the customs and the Haft-Seen table — explained.", { id: "fixture-tenant::/nowruz-guide-2::existing_edit::replay-fixture", pagePath: "/nowruz-guide" }); // an em dash is a house-rule material defect the canon owns
+    env.store = new Map([[good.id, good], [bad.id, bad]]);
+    let paidCalls = 0; const out = await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true, complete: (async () => { paidCalls += 1; return { error: "no provider may be reached", retryable: false }; }) as never });
+    const promoted = [...env.store.values()].find((p) => p.id === good.id)!, held = [...env.store.values()].find((p) => p.id === bad.id)!;
+    expect([promoted.status, promoted.recommendedChange.kind === "existing_edit" && promoted.recommendedChange.after, !!promoted.modeledOn], "the stored copy promotes byte-identical, wearing the results-page backing the gate asked for").toEqual(["ready", good.recommendedChange.kind === "existing_edit" ? good.recommendedChange.after : "", true]);
+    expect([held.status, held.limitations.includes(gateLine)], "the defective sibling stays held with every word and reason").toEqual(["needs_review", true]);
+    expect([paidCalls, out.outcome !== "evidence_unreadable"], "no provider was called for any of it").toEqual([0, true]); });
+});

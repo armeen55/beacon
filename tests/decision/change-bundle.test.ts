@@ -1,7 +1,7 @@
 /** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap, receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { componentIdOf, receiptComposition } from "@/domains/decision/contracts";
-import { naturalAnchorOf, placementCandidatesOf } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
+import { naturalAnchorOf, placementCandidatesOf } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy"; // acceptDeliverable went internal: imported here for years and never called
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -484,7 +484,9 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     const FACT = "Persian Accessories: hats, phone cases and designs inspired by Iranian culture, made for everyday wear and shipped from the shop.";
     const SEMI = "Iranopedia x TavanDesigns Persian Shoes - features Love \"Eshgh\" and Nothingness \"Heech\" sneakers with Persian calligraphy; view designs and shop details.", DASH = "Achaemenid Empire Flag (550-330 BCE): concise history, symbolism and origins featured on this page - click to read the focused account.";
     expect([withoutCta(A, "meta"), withoutCta(B, "meta"), withoutCta(FACT, "meta"), withoutCta(SEMI, "meta"), withoutCta(DASH, "meta")])
-      .toEqual([null, "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion.", FACT, "Iranopedia x TavanDesigns Persian Shoes - features Love \"Eshgh\" and Nothingness \"Heech\" sneakers with Persian calligraphy.", null]); });
+      .toEqual(["Achaemenid Empire Flag (550-330 BCE): its symbolism, origins, role and changes in Persian flags history.", // NO LENGTH FLOOR DECIDES READY (operator, 2026-08-31): the cut leaves a complete, specific line, and 103 characters against an invented 110 is a preference, never a defect
+        "Persian Accessories: showcase heritage with hats, patterned phone cases and timeless designs that blend Iranian tradition with modern fashion.", FACT, "Iranopedia x TavanDesigns Persian Shoes - features Love \"Eshgh\" and Nothingness \"Heech\" sneakers with Persian calligraphy.",
+        "Achaemenid Empire Flag (550-330 BCE): concise history, symbolism and origins featured on this page."]); }); // page-narration in the survivor is the evaluator's question, not a length rule's
   it("refuses a figure that walked away from the qualifier its own sentence carried", () => { const body = "Free USA shipping on all orders, with delivery in 2-6 business days. International shipping is available worldwide, with delivery usually between 7\u201321 business days depending on location.";
     const pk = { targetUrl: "https://www.iranopedia.com/p", title: "T", h1: "H", metaDescription: null, bodyText: body, headings: [], evidence: { "page-copy-1": body }, trackedQuestion: "Q", ownedPaths: ["/p"], bannedTerms: [], demand: { preserve: [], vocabulary: [] } };
     const meta = (after: string) => deliverableFailures({ targetUrl: "https://www.iranopedia.com/p", actionType: "meta", naturalHeading: null, beforeText: null, placementAnchor: "the description", evidenceIdsUsed: ["page-copy-1"], uncertaintyOrOmitted: [], implementationMinutes: 1, measurementTarget: "ctr", claims: [{ text: "a claim", supportedBy: ["page-copy-1"] }], finalCopy: after } as never, pk as never);
@@ -1249,13 +1251,14 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: words, where: 'A new section headed "Judged", placed after "Judged heading"' },
       claims: [{ text: words, supportedBy: ["page-copy-1"] }],
       supportFacts: [{ id: "page-copy-1", fact: words }, { id: "page-copy-2", fact: "The page's Judged heading introduces the list." }] });
-    store.rows.set(JUDGED, row(["the evaluator's exact objection: it only repeats what the page already says"]));
+    const refused = row(["the evaluator's exact objection: it only repeats what the page already says"]); delete (refused as { semanticReview?: unknown }).semanticReview; // A MODEL-REFUSED ROW CARRIES NO BINDING REVIEW (operator, 2026-08-31): the refusal IS the absence of the typed authorization, never a sentence a sweep would have to sentiment-read. A round that ends refused stores its objection and no review; the $0 replay re-derives authorization from typed state alone, finds the gain receipt unreviewed, and leaves the row exactly where the model put it.
+    store.rows.set(JUDGED, refused);
     await runWith(incoming());
     const judged = store.rows.get(JUDGED)!;
     expect([judged.status, judged.limitations.some((l) => l.includes("evaluator"))]).toEqual(["needs_review", true]);
     store.rows.set(JUDGED, row(["this one still needs a cited authoritative source before it is paste-ready"]));
     await runWith(incoming());
-    expect(store.rows.get(JUDGED)!.status).toBe("needs_review");
+    expect(store.rows.get(JUDGED)!.status).toBe("needs_review"); // A SOURCE DEBT IS A HARD HOLD, AND IT IS TYPED: completeness's HARD_LIMITATION recognizes exactly this vocabulary ("cited authoritative source", "paste-ready"), openHold refuses the candidate on it, and the $0 replay honors that refusal. Unsupported material claims are on the operator's own hard-hold list; only prose with no typed channel behind it stopped blocking.
     for (const gone of ["it tells a reader this page offers \"habitats\", and no claim on this card carries it",
       "it tells a reader this page offers \"wool rugs\", and this page never puts those words together"]) {
       store.rows.set(JUDGED, row([gone]));
@@ -1263,7 +1266,8 @@ describe("a changed treatment retires the copy it makes premature, on any kind o
       expect(store.rows.get(JUDGED)!.status).toBe("ready"); }
     store.rows.set(JUDGED, row(["the operator read this and no claim on this card carries it"]));
     await runWith(incoming());
-    expect(store.rows.get(JUDGED)!.status).toBe("needs_review"); });
+    const opRow = store.rows.get(JUDGED)!; // AN OPERATOR REFUSAL IS A WITHDRAWAL, TYPED (operator, 2026-08-31): the take-back door is how a person's no is recorded, and this row's own typed state (a binding entailed review on every claim) says the opposite of the prose beside it. The prose survives as a visible limitation for the person to read; it does not outvote the typed record either way.
+    expect([opRow.status, opRow.limitations.includes("the operator read this and no claim on this card carries it")]).toEqual(["ready", true]); });
   it("retires nothing when there is no finished copy to make premature", async () => {
     store.rows.set(CITIES, heldRow({ researchOnly: true, status: "needs_review",
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "An earlier brief, never finished work." } }));

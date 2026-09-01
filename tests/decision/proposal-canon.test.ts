@@ -265,20 +265,17 @@ describe("the operator's yes lands on the exact version they read, or on nothing
     expect(await saveChangeProposal(held)).toBe("saved"); // THE DEFECT, kept as the reason this exists: read, check, unconditional write, and the rewrite that landed underneath is gone.
     db.state.race = rewriting(held);
     await saveChangeProposal({ ...held, status: "ready", confirmedVersion: confirmedVersion(held) }); expect(landed(held)).toEqual(["ready", 2, "Nowruz Traditions and the Haft-Seen Table"]);
-    // THE SAME INTERLEAVING through the one door a confirmation walks now: nothing is written, the rewrite stands, and the change stays behind the hold.
-    db.state.rows = [];
+    db.state.rows = []; // THE SAME INTERLEAVING through the one door a confirmation walks now: nothing is written, the rewrite stands, and the change stays behind the hold.
     expect(await saveChangeProposal(held)).toBe("saved");
     db.state.race = rewriting(held);
     const raced = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE); expect([raced.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]);
-    // AND THE UNRACED PRESS DOES LAND, once, on the version it named: the yes is written onto the row and the row is at the next version.
-    const ok = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE);
+    const ok = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE); // AND THE UNRACED PRESS DOES LAND, once, on the version it named: the yes is written onto the row and the row is at the next version.
     expect([ok.status, ...landed(held)]).toEqual(["stale", "needs_review", 9, REWRITE]); // the row is a rewrite now, so the version they read is not this one
     db.state.rows = [];
     expect(await saveChangeProposal(held)).toBe("saved"); const yes = await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE);
     const stored = deserializeChangeProposal(JSON.stringify(db.state.rows.find((r) => r.id === held.id)!.payload))!;
     expect([yes.status, ...landed(held), stored.confirmedVersion === confirmedVersion(held)]).toEqual(["promoted", "ready", 2, "Nowruz Traditions and the Haft-Seen Table", true]);
-    // A version nobody is looking at, a row already promoted out of review, and a bar that has moved are all stale, and none of them writes anything.
-    const after = landed(held);
+    const after = landed(held); // A version nobody is looking at, a row already promoted out of review, and a bar that has moved are all stale, and none of them writes anything.
     expect([(await answerReviewedProposal(T, held.id, "a version nobody is looking at", held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), held.basis ?? null, PROMOTE)).status,
       (await answerReviewedProposal(T, held.id, confirmedVersion(held), "basis_moved::d9", PROMOTE)).status, ...landed(held)]).toEqual(["stale", "stale", "stale", ...after]); });});
@@ -296,10 +293,8 @@ describe("a badly classified row cannot be waved through", () => {
 describe("promotion fails closed when it cannot check its own work", () => {
   it("refuses atomic copy that carries no claim and no support fact", async () => {
     const bare = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet" }); await saveChangeProposal(bare);
-    // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever receipt it was handed, so the door's own check became unconditionally true on the way past.
-    const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } });
-    // THE STORE VALIDATES A READING, IT NEVER ISSUES ONE, and it will not keep `ready` on a row whose sources were never shown to support its claims: the work is saved and kept, it is simply not offered.
-    await saveChangeProposal({ ...withReceipt, status: "ready" });
+    const withReceipt = proposal({ status: "needs_review", diagnosisCause: "ctr_snippet", id: `${T}::/other::existing_edit::meta`, pagePath: "/other", pageUrl: "https://www.fixture-outdoors.example/other", informationGain: { adds: "a", by: ["fact-1"], pageWhole: true } }); // THE STORE VALIDATES AN AUTHORIZATION, IT NEVER ISSUES ONE: stamping the identity here signed whatever receipt it was handed, so the door's own check became unconditionally true on the way past.
+    await saveChangeProposal({ ...withReceipt, status: "ready" }); // THE STORE VALIDATES A READING, IT NEVER ISSUES ONE, and it will not keep `ready` on a row whose sources were never shown to support its claims: the work is saved and kept, it is simply not offered.
     expect(current().find((r) => r.id === withReceipt.id)!.status, "no reading, no ready").toBe("needs_review");
     expect(await answerReviewedProposal(T, bare.id, confirmedVersion(bare), bare.basis ?? null, PROMOTE))
       .toEqual({ status: "refused", refusal: "this copy carries no record of what it stands on, so it is held rather than promoted" }); });
@@ -310,8 +305,7 @@ describe("promotion fails closed when it cannot check its own work", () => {
     expect(res.status).toBe("refused"); expect(res.refusal).toContain("the words this change lands on are not in hand"); }); });
 /** THE CANON'S OWN QUALITY STATUS GATES PROMOTION, NOT JUST ITS VERDICT: `needs_review` also covers real work still short of paste-ready (a claim with no source, a fresh number nobody confirmed), and that hold may not be waved through just because it is not the harsher `rejected`. */
 describe("promotion asks the canon's own quality status, not just its verdict", () => {
-  // AND A BUNDLE THAT PUTS WORDS ON THE PAGE CARRIES ITS OWN CLAIM-TO-SOURCE AUTHORIZATION NOW, named by the piece it belongs to: without it the door holds the row for that, and this block would be asking the canon a question the authorization already answered.
-  const held = (after: string) => { const b = bundle("section"); const row = deep({ status: "needs_review", diagnosisCause: "incomplete_coverage", bundle: b, recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after },
+  const held = (after: string) => { const b = bundle("section"); const row = deep({ status: "needs_review", diagnosisCause: "incomplete_coverage", bundle: b, recommendedChange: { kind: "existing_edit", field: "meta", before: "Nowruz", after }, // AND A BUNDLE THAT PUTS WORDS ON THE PAGE CARRIES ITS OWN CLAIM-TO-SOURCE AUTHORIZATION NOW, named by the piece it belongs to: without it the door holds the row for that, and this block would be asking the canon a question the authorization already answered.
     claims: [{ text: "Nowruz is the Persian new year.", supportedBy: ["fact-1"], of: componentIdOf(b.components[0]!, 0) }], supportFacts: [{ id: "fact-1", fact: "encyclopedia: Nowruz is the Persian new year." }] });
     return { ...row, semanticReview: { of: copyKey(row), version: REVIEW_CONTRACT, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }; };
   it.each([["a specific fact with no cited source (missing_source)", "The official record of Nowruz traditions spans centuries."], ["a fresh count nobody confirmed yet (useful_but_needs_review)", "Nowruz customs span 150+ regional variations."]] as const)("refuses promotion on %s even though the verdict is only needs_review", async (_label, after) => { const row = held(after); await saveChangeProposal(row); expect((await answerReviewedProposal(T, row.id, confirmedVersion(row), row.basis ?? null, PROMOTE)).status).toBe("refused"); });

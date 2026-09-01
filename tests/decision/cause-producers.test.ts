@@ -100,13 +100,10 @@ describe("a named cause produces the change that fixes it", () => {
     it("rebuilds when a SECOND structural cause genuinely fired, and ships the whole page or nothing", async () => {
       const out = await rebuildOf("Chaining a second container", "Gutter guards keep debris out"); // subjects this page carries none of: it fires
       expect(out.status).toBe("bundled"); if (out.status !== "bundled") return; const b = out.proposal.bundle!; const c = b.components[0]!; expect(b.components.map((x) => x.kind)).toEqual(["full_rewrite"]);
-      // THE COPY, NOT A PLAN: the page's own opening, then every section the winners agree on, in order.
-      expect(c.after.startsWith(ANSWER)).toBe(true); expect(c.after).toContain(REBUILT);
+      expect(c.after.startsWith(ANSWER)).toBe(true); expect(c.after).toContain(REBUILT); // THE COPY, NOT A PLAN: the page's own opening, then every section the winners agree on, in order.
       expect(c.mechanism).toContain("2 things are wrong at once");
-      // BOTH SECTIONS THE WINNERS AGREE ON were bought, and neither was shipped as an unwritten heading.
-      expect(bought.filter((k) => k === "editor_judgement")).toHaveLength(3); // the opening and the two sections the rebuild wrote, each read for sense by the ONE evaluator
-      // A REBUILD ASSEMBLED FROM SEVERAL AUTHORIZED PIECES IS NOT ITSELF AUTHORIZED: its own copy is nobody's ruled claim, so the door holds it and says so instead of letting the pieces vouch for the whole.
-      expect(out.proposal.status).toBe("needs_review"); expect(openHold(out.proposal).blocking).toContain("have not been read against the sources they name");
+      expect(bought.filter((k) => k === "editor_judgement")).toHaveLength(3); // the opening and the two sections the rebuild wrote, each read for sense by the ONE evaluator // BOTH SECTIONS THE WINNERS AGREE ON were bought, and neither was shipped as an unwritten heading.
+      expect(out.proposal.status).toBe("needs_review"); expect(openHold(out.proposal).blocking).toContain("have not been read against the sources they name"); // A REBUILD ASSEMBLED FROM SEVERAL AUTHORIZED PIECES IS NOT ITSELF AUTHORIZED: its own copy is nobody's ruled claim, so the door holds it and says so instead of letting the pieces vouch for the whole.
     });
     it("never rebuilds when every competing explanation was RULED OUT", async () => {
       const out = await rebuildOf("Rain barrel sizing"); // a subject this page already covers: it does not fire
