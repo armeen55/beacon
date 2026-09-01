@@ -106,12 +106,10 @@ describe("one release identity, or no release at all", () => {
       factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] };
     payload.proposal.whyRankedAboveNext = "ranked here by a rule that is gone";
     await stamp("rel-1", [{ id: one.id, lane: "ready" }]);
-    const got = (await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows[0] as unknown as { rankingReceipt?: { factors?: { name: string }[]; score?: number } }; expect(got.rankingReceipt?.factors?.some((f) => f.name === "treatment"), "a deleted factor may not explain a live rank").toBe(false);
-    expect(got.rankingReceipt?.score).not.toBe(-15.57); });
+    const got = (await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows[0] as unknown as { rankingReceipt?: { factors?: { name: string }[]; score?: number } }; expect(got.rankingReceipt?.factors?.some((f) => f.name === "treatment"), "a deleted factor may not explain a live rank").toBe(false); expect(got.rankingReceipt?.score).not.toBe(-15.57); });
 
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
-    const view = await buildChangesViewUncached(T, "rel-9"); expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
-    expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
+    const view = await buildChangesViewUncached(T, "rel-9"); expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]); expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
       confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null },
       components: [{ kind: "title", label: "Title", risk: "safe", before: "a", after: "b", evidenceKeys: ["nothing-holds-this"] }] } } as Partial<ChangeProposal>);

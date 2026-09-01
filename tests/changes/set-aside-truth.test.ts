@@ -94,18 +94,15 @@ describe("a direct link renders only what the ranked list would, and always land
   /** THE ONE SERVABILITY VERDICT, ON THE DIRECT LINK TOO. The detail read status and unsettledCause and skipped openHold, so a stored ready row the queue itself demotes (a typed fault carried on the row) rendered Copy and Mark done on its own URL while the list refused to offer it. The list and the detail may never disagree about one row. */
   it("a ready row the hold blocks exposes neither Copy nor Mark done on its direct link", async () => {
     const { bundle: _b2, ...flat } = bundled(NOW);
-    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal; const page = await link(held);
-    expect(page).not.toContain(">Copy<");
+    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal; const page = await link(held); expect(page).not.toContain(">Copy<");
     expect(page).not.toContain("Mark done");
     expect(page).toContain("held"); // the reason renders where the controls were
   });
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
-    const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
-    const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
+    const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); }; const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
     const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
-    const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
-    expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
+    const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]); expect([(await mark(merge, { destructiveConfirmed: true })).success, shipped.records.length]).toEqual([false, 0]);
     const { confirmDangerousChangeAction: confirm } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, answerReviewedProposal: promote } = await import("@/domains/decision");
     const safe = { ...merge, bundle: { ...merge.bundle!, components: [b.components[0]!] } } as ChangeProposal;
     await link(merge); const html = await renderDetail(), stale = await confirm({ proposalId: merge.id, version: "a version nobody is looking at" });
@@ -120,8 +117,7 @@ describe("an account that skipped the connectors still reaches its own Today", (
       vi.doMock("@/lib/connector-store", () => ({ hasAnyConnectedDataSource: async () => false }));
       vi.doMock("@/lib/persistence/repositories", () => ({ getRepository: repo }));
       return (await import("@/app/(shell)/today-gate-data")).loadTodayV2GateData();};
-    const held = (tracked: unknown[]) => () => ({ forTenant: () => ({ getPromptAnswerObservations: async () => [], getTrackedPrompts: async () => tracked }) });
-    expect([(await gate(held([{ is_active: true, tags: ["core_v1"] }]))).isDemoMode, (await gate(held([]))).isDemoMode]).toEqual([false, true]);
+    const held = (tracked: unknown[]) => () => ({ forTenant: () => ({ getPromptAnswerObservations: async () => [], getTrackedPrompts: async () => tracked }) }); expect([(await gate(held([{ is_active: true, tags: ["core_v1"] }]))).isDemoMode, (await gate(held([]))).isDemoMode]).toEqual([false, true]);
     const blind = await gate(() => { throw new Error("database unreachable"); }); // A read I could not take is not proof the account is empty, so it may not send them to the connect prompt.
     expect([blind.isDemoMode, blind.unreadable]).toEqual([false, true]);
     for (const m of ["@/lib/seed-data.server", "@/lib/connector-store", "@/lib/persistence/repositories"]) vi.doUnmock(m);
@@ -134,8 +130,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
       operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
-    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } }; const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
-    expect(html).toContain("Beacon is working on 2 more opportunities");
+    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } }; const html = await renderChanges(view), today = buildTodayViewFromChanges(view); expect(html).toContain("Beacon is working on 2 more opportunities");
     expect(html).toMatch(/being written and checked|waiting on evidence|being read and diagnosed/); // the lane speaks in kinds of work now, one tally line per kind, never a per-row narration
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);
     expect(html).not.toMatch(/Proven|Mark done|Still missing/);
@@ -151,8 +146,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
   it("says what Beacon is doing on a preparing row in the family's own plain words", async () => {
     const idea = (id: string) => ({ ...bundled(NOW, id), status: "needs_review", researchOnly: true, bundle: undefined,
       recommendedChange: { kind: "existing_edit", field: "section", before: null, after: "internal brief text" } }) as unknown as ChangeProposal;
-    const rows = [idea("t::/a::existing_edit::ownership"), idea("t::/b::existing_edit::missing_description"), idea("t::idea-typed")];
-    const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } }; const html = await renderChanges(view);
+    const rows = [idea("t::/a::existing_edit::ownership"), idea("t::/b::existing_edit::missing_description"), idea("t::idea-typed")]; const view = { ...emptyView(0), proposals: rows, ready: [], toDo: [], research: rows, summary: { ...emptyView(0).summary, research: 3 } }; const html = await renderChanges(view);
     expect([html.includes("sections and answers waiting on evidence"), html.includes("internal brief text")], "the lane names each KIND of work in plain words, and never leaks a word of the internal draft").toEqual([true, false]); }); // per-family narration went with the per-row lane (operator, 2026-08-31): three research section drafts are one tally line
   it("takes a yes on judgement alone and refuses one on a fact about the work", async () => {
     const { reviewDraftAction } = await import("@/app/(shell)/changes/actions"), { confirmedVersion, loadChangeProposal, resolveCurrentBasis } = await import("@/domains/decision");
