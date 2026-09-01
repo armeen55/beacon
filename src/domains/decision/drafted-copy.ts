@@ -70,8 +70,7 @@ const BAND: Record<EditorDeliverable["actionType"], [number, number, "c" | "w"]>
 const FRAMED = /\b(?:the most|complete list|all of the|every one of|top \d+|more formal|most formal|less formal|more polite|more respectful|more casual)\b/i;
 function framedUnbacked(copy: string, claims: readonly { text: string; supportedBy: readonly string[] }[], evidenceOf: (id: string) => string): string | null {
   for (const sent of copy.split(/(?<=[.!?])\s+|\n+/)) {
-    const w = sent.match(FRAMED)?.[0]; if (!w) continue; const last = w.trim().split(" ").pop()!.toLowerCase();
-    const own = claims.find((c) => { const a = flat(c.text), b = flat(sent); return a.includes(b) || b.includes(a); });
+    const w = sent.match(FRAMED)?.[0]; if (!w) continue; const last = w.trim().split(" ").pop()!.toLowerCase(); const own = claims.find((c) => { const a = flat(c.text), b = flat(sent); return a.includes(b) || b.includes(a); });
     if (!own || !own.supportedBy.some((id) => evidenceOf(id).toLowerCase().includes(last)))
       return `its "${w.trim()}" is a ranking or register judgement no cited evidence carries: say it as a claim your sources support, or leave it out`; }
   return null; }
@@ -679,7 +678,8 @@ function bankedCopyReasons(p: ChangeProposal, bannedTerms: readonly string[], he
   const band = p.id.endsWith("::internal_link") ? "internal_link" as const : field; // A FACTUAL CORRECTION IS A POINT REPLACEMENT, NOT A SECTION: weighing it as 15 to 400 WORDS held every honest one-phrase meaning correction for ever ("Meaning:Light." can never be fifteen words without inventing words no source carries), so it is weighed in characters like the other line-shaped fields; standing where the replaced words stood is unfitToStandIn's job.
   const [lo, hi, unit] = p.changeFamily === "factual_correction" ? [12, 400, "c"] as const : BAND[band], n = unit === "c" ? c.after.trim().length : words(c.after);
   if (n < lo || n > hi || UNSAFE.test(c.after)) out.push(`its copy is ${n} long, outside the ${lo} to ${hi} this field takes, or carries something nobody can paste`);
-  if (band !== "internal_link" && (field === "answer_block" || field === "section")) { const f = framedUnbacked(c.after, p.claims ?? [], (id) => (p.supportFacts ?? []).find((x) => x.id === id)?.fact ?? ""); if (f) out.push(f); } // the same one asked of the banked row, off its own banked provenance
+  if (band !== "internal_link" && (field === "answer_block" || field === "section")) { const f = framedUnbacked(c.after, p.claims ?? [], (id) => (p.supportFacts ?? []).find((x) => x.id === id)?.fact ?? ""); if (f) out.push(f);
+    const cl = p.claims ?? [], outside = cl.filter((x) => x.supportedBy.some((id) => !OWN_PAGE_ID.test(id) && !id.startsWith("rival-"))).length; if (cl.length > 2 && outside > 0 && (cl.length - outside) * 2 > cl.length) out.push("most of what it says is already on the page: this is the page's own material with a fact attached, not a section that adds one"); } // asked of the BANKED row too, or a rule added today never reaches the rows already wearing Ready // the same one asked of the banked row, off its own banked provenance
   if (band !== "internal_link" && (field === "answer_block" || field === "section") && SELF_POINTER.test(c.after)) out.push("it points at the page instead of answering"); if (withoutCta(c.after, band) == null) out.push("its closing line asks the reader to read the page and too little is left without it");
   const line: Record<string, string | null | undefined> = { title: held?.title, h1: held?.h1, meta: held?.metaDescription }; // AND THE LINE IT REPLACES IS STILL THE LINE THE PAGE CARRIES, asked only of a page this pass is actually holding: a page I could not read is not a page that changed.
   if (held && field in line && c.before != null && (line[field] == null || flat(c.before) !== flat(line[field]!))) out.push("the line it says it replaces is not the one this page carries");
