@@ -922,8 +922,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.outcome = "proposals_persisted"; M.throws = true; expect(await drive()).toEqual([0, "retryable_blocked", 0]); M.throws = false;
       M.out = M.declared.map((key) => ({ key, outcome: "deterministic_refusal" })); expect(await drive()).toEqual([0, "candidates_exhausted", 5]); // 4. settled receipts are the only thing that writes a page off, and only a fully settled manifest exhausts
       M.declared = ["/f"]; M.out = [{ key: "/f", outcome: "produced" }]; expect(await drive()).toEqual([1, "made_progress", 1]); // 5. credit returning later the SAME DAY finishes the page that was blocked, on a manifest that moved on
-      // 6. THE REFUSAL'S OWN WORDS REACH THE DAY'S MEMORY, and a reading of the winning pages is banked EVIDENCE, never a change anybody can act on.
-      M.ready = 0; M.declared = ["/g", "pattern:x"]; mem = { fingerprint: null, attempted: [] };
+      M.ready = 0; M.declared = ["/g", "pattern:x"]; mem = { fingerprint: null, attempted: [] }; // 6. THE REFUSAL'S OWN WORDS REACH THE DAY'S MEMORY, and a reading of the winning pages is banked EVIDENCE, never a change anybody can act on.
       M.out = [{ key: "/g", outcome: "deterministic_refusal", why: "the closing line tells the reader to read the page" }, { key: "pattern:x", outcome: "evidence_banked" }];
       const last = await live.replenishReady(T, new Date(NOW), mem);
       expect([last!.outcomes!.readySaved, last!.outcomes!.evidenceBanked, last!.outcomes!.refused, last!.outcomes!.stuck.join(" ").includes("the closing line tells the reader to read the page")]).toEqual([0, 1, 1, true]);

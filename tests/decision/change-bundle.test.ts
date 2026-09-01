@@ -550,6 +550,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect(naturalAnchorOf({ h1: "Booted Eagle", title: "Booted Eagle in Iran: Facts, Size & Habitat | Iranopedia" }), "the H1 is the entity's real name").toBe("Booted Eagle");
     expect(naturalAnchorOf({ h1: null, title: "Booted Eagle in Iran: Facts | Iranopedia" }), "the title falls back with the site boilerplate cut").toBe("Booted Eagle in Iran");
     expect([naturalAnchorOf({ h1: "Explore More", title: "Iranopedia" }), naturalAnchorOf(null)], "furniture and a missing body name nothing, which is a refusal and not a guess").toEqual([null, null]);
+    expect(naturalAnchorOf({ h1: "Safavid Lion and Sun Flag (1576-1732)", title: null }), "a catalogue date range is not how anyone links, and it carries a dash this product never publishes").toBe("Safavid Lion and Sun Flag");
     const base = { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'after "Habitat"', linkTo: "/iran-animals/booted-eagle", anchorText: "booted eagle" };
     const of = (rc: typeof base) => copyKey(prop({ id: `${TENANT}::/a::existing_edit::internal_link`, pagePath: "/a", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, recommendedChange: rc }));
     expect(of({ ...base, linkTo: "/iran-animals/persian-wolf" }), "a different destination is different work").not.toBe(of(base));
