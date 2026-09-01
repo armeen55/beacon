@@ -59,17 +59,14 @@ describe("a struggling source costs one read, and a list already in hand beats a
     await loadChangesView();
     calls.surface = 0;
     calls.failSurface = 2;
-    const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1);
-    expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false);
+    const view = await loadChangesView(); expect(calls.surface, "memory beats a second attempt: one failed read, then the remembered list, never a second read while a copy is in hand").toBe(1); expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false);
     expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
   }, 15_000);
   /** THE SAVED RELEASE IS THE FIRST PAINT (operator, 2026-09-01). A valid committed release existed while the live queue joins, slowed by post-batch research, exceeded the section's one deadline: the operator's own finished work timed out into "This section could not load". The joins now carry their own budget inside the section's; a join that never resolves paints the release's saved rows instead of the error. */
   it("paints the saved release rows inside the section budget while the live queue join hangs forever", async () => {
     calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
-    const t0 = Date.now();
-    const view = await loadChangesView();
-    expect([view.proposals.map((p) => p.pagePath), Date.now() - t0 < 6_000], "the saved rows paint, inside the budget, with the queue read still hanging").toEqual([["/wolf"], true]);
+    const t0 = Date.now(); const view = await loadChangesView(); expect([view.proposals.map((p) => p.pagePath), Date.now() - t0 < 6_000], "the saved rows paint, inside the budget, with the queue read still hanging").toEqual([["/wolf"], true]);
     expect((view.ready[0]?.recommendedChange as { after?: string })?.after, "the exact committed copy is what paints").toBe("The saved, committed description from the last release.");
     calls.hangQueue = false; calls.serveRows = false; calls.basis = null;
     expect((await renderSection()).includes('data-delay-reset="true"'), "success clears the path's escalation").toBe(true); // AND A SUCCESSFUL SECTION RENDER CARRIES THE RESET MARKER, so a prior HonestDelay escalation on this path cannot poison the next good render.

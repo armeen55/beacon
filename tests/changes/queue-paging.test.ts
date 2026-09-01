@@ -71,12 +71,10 @@ describe("Today and Changes answer one question once", () => {
   it("drops a dismissed change from Today's count on the next render, naming the same release as Changes", async () => {
     expect((await loadTodayView()).today.readyTotal).toBe(N);
     budget.allowed = false; const refused = (await loadTodayView()).modelBudgetSpent; budget.throws = true; // A SPENT BUDGET MUST NOT LOOK LIKE A QUIET DAY: it stops every paid door at once while this screen carries on looking normal. Asked of the same gate the work asks, and an unreadable answer claims nothing, like the research permission beside it.
-    const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true;
-    expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
+    const unread = (await loadTodayView()).modelBudgetSpent; budget.throws = false; budget.allowed = true; expect([refused, unread, (await loadTodayView()).modelBudgetSpent], "refused says so, unreadable and allowed say nothing").toEqual([true, undefined, undefined]);
 
     db.rows.find((r) => r.id === ALL[0]!.id)!.terminal_disposition = "dismissed";
-    const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]);
-    expect(changes.summary.ready).toBe(N - 1); });
+    const after = await loadTodayView(), changes = await loadChangesView(); expect([after.today.readyTotal, after.surfaceVersion]).toEqual([N - 1, changes.surfaceVersion]); expect(changes.summary.ready).toBe(N - 1); });
   it("withholds a count it could not read, and never counts a lane higher than it can hand over", async () => {
     ledgerFails.value = true;
     const view = await buildChangesViewUncached(T, "rel-8"), today = buildTodayViewFromChanges(view); expect([view.countsUnavailable, view.summary.measuring, today.countsUnavailable, today.measuringCount]).toEqual([true, 0, true, undefined]);
@@ -91,8 +89,7 @@ describe("Today and Changes answer one question once", () => {
       confidenceReasons: [], alternatives: [], risks: [], components: [{ kind: "title", label: "T", risk: "safe", before: "a", after: "b", evidenceKeys: ["k1"] }],
       receipt: { items: [{ key: "k1", kind: "gsc_demand", fact: "f", observedAt: cold }], missing: [], freshestObservedAt: cold } } } as Partial<ChangeProposal>);
     for (const i of [1, 2, 130]) db.rows.find((r) => r.id === ALL[i]!.id)!.payload = JSON.parse(serializeChangeProposal(expired(i))); // 130 sits past the first page, so the cross-page shrink below stays proven at any page size
-    const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1");
-    expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
+    const first = await readChangesPage(T, "ready", 0, "rel-1"), second = await readChangesPage(T, "ready", first.cursor, "rel-1"); expect([first.total, first.rows.length, first.dropped, second.dropped, first.total - second.dropped]).toEqual([N - 2, CHANGES_PAGE_SIZE - 2, 2, 1, N - 3]); });
   it("falls back to the last release that landed rather than claiming a cold start or an outage, on Changes and on Today", async () => {
     releaseFails.value = true; db.rows = [];
     const view = await loadChangesView(), { ChangesSection } = await import("@/app/(shell)/changes/page");
@@ -109,13 +106,11 @@ describe("one release identity, or no release at all", () => {
       factors: [{ name: "treatment", max: 45, input: "rewriting a line of metadata is the kind of change that has lost here at high confidence", contribution: -45 }] };
     payload.proposal.whyRankedAboveNext = "ranked here by a rule that is gone";
     await stamp("rel-1", [{ id: one.id, lane: "ready" }]);
-    const got = (await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows[0] as unknown as { rankingReceipt?: { factors?: { name: string }[]; score?: number } };
-    expect(got.rankingReceipt?.factors?.some((f) => f.name === "treatment"), "a deleted factor may not explain a live rank").toBe(false);
+    const got = (await readQueuePage(T, "ready", "b1", 0, CHANGES_PAGE_SIZE)).rows[0] as unknown as { rankingReceipt?: { factors?: { name: string }[]; score?: number } }; expect(got.rankingReceipt?.factors?.some((f) => f.name === "treatment"), "a deleted factor may not explain a live rank").toBe(false);
     expect(got.rankingReceipt?.score).not.toBe(-15.57); });
 
   it("builds the one order without touching the live ranking, commits ranking and surface together or not at all, and pages no change whose receipt stopped resolving", async () => {
-    const view = await buildChangesViewUncached(T, "rel-9");
-    expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
+    const view = await buildChangesViewUncached(T, "rel-9"); expect([view.surfaceVersion, view.summary.ready, buildTodayViewFromChanges(view).readyTotal]).toEqual(["rel-9", N, N]);
     expect([(await readQueuePage(T, "ready", "b1", 0, 1)).release, view.stampRows?.length]).toEqual(["rel-1", N]);
     const broken = proposal(0, { bundle: { objective: "o", metric: "m", measurementPlan: "p", scope: { queries: [], prompts: [] },
       confidenceReasons: [], alternatives: [], risks: [], receipt: { items: [], missing: [], freshestObservedAt: null },
@@ -125,8 +120,7 @@ describe("one release identity, or no release at all", () => {
     const args = (release: string, expectedPrior: string | null) => ({ tenantId: T, expectedPrior, release,
       rows: view.stampRows!, scopeKey: "customer-surface::tenant:fixture", storeName: "customer-surface", content: { releaseId: release } });
     expect(await publishCustomerRelease(args("rel-9", null))).toBe("rel-9");
-    const committed = async () => [(await readQueuePage(T, "ready", "b1", 0, 1)).release, (blob.stored as { releaseId?: string } | null)?.releaseId ?? null];
-    expect(await committed()).toEqual(["rel-9", "rel-9"]);
+    const committed = async () => [(await readQueuePage(T, "ready", "b1", 0, 1)).release, (blob.stored as { releaseId?: string } | null)?.releaseId ?? null]; expect(await committed()).toEqual(["rel-9", "rel-9"]);
     db.stampFails = true;
     await expect(publishCustomerRelease(args("rel-10", "rel-9"))).rejects.toThrow("could not commit");
     expect(await committed()).toEqual(["rel-9", "rel-9"]);

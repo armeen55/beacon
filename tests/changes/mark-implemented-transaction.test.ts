@@ -42,14 +42,11 @@ describe("many at once is one trip, and still one shipment each", () => {
   it("records twenty changes on one press and rebuilds the surfaces once, not twenty times", async () => {
     const ids = Array.from({ length: 20 }, (_, i) => `t::/p-${i}::existing_edit::bundle`);
     stored.proposal = change(); surf.rebuilds = 0;
-    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction;
-    const out = await mark({ proposalIds: ids });
-    expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1);
+    const mark = (await import("@/app/(shell)/changes/actions")).markManyImplementedAction; const out = await mark({ proposalIds: ids }); expect(surf.rebuilds, "one rebuild for the whole batch").toBe(1);
     expect(out.done + out.already, "and every id is answered").toBe(20);
     expect(led.flip).toHaveBeenCalledTimes(20); // still one atomic transition each
     surf.rebuilds = 0; led.flip.mockClear();
-    const again = await mark({ proposalIds: ids });
-    expect(again.done, "nothing is recorded twice").toBe(0);
+    const again = await mark({ proposalIds: ids }); expect(again.done, "nothing is recorded twice").toBe(0);
     expect(again.already).toBe(20); });});
 describe("nothing is marked done that no record stands behind", () => {
   it("schedules the exact shipment it just wrote, on the full press and on a partial bundle alike", async () => {
@@ -63,21 +60,18 @@ describe("nothing is marked done that no record stands behind", () => {
       { kind: "title", label: "Title", risk: "safe", before: "Comedians", after: "A", evidenceKeys: ["k1"] },
       { kind: "meta", label: "Meta", risk: "safe", before: null, after: "B", evidenceKeys: ["k1"] }];
     stored.proposal = two;
-    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] });
-    expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]);
+    const r = await (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: two.id, componentIds: ["0:title"] }); expect([r.success, r.note ?? ""], "and it really was the partial branch").toEqual([true, expect.stringContaining("still on your list")]);
     expect(led.verified, "the partial press schedules the same shipment").toEqual([led.records[led.records.length - 1]!.id]); });
   it("stamps what kind of work it was, and how much of theirs was already being measured on that page", async () => {
     const first = { ...change(), treatment: "title_or_h1", diagnosisCause: "ctr_snippet" } as ChangeProposal; // THE PRESS IS THE LAST MOMENT THE CARD EXISTS: the treatment and the diagnosed cause live nowhere on a shipment, so a Results screen asking which of this account's bets pay would have nothing but the coarse action word to group by.
     expect((await press(first)).success).toBe(true);
     expect(led.records[0]!.treatmentStamp).toEqual({ signature: { family: "title", treatment: "title_or_h1", field: "title", cause: "ctr_snippet" }, overlapAtShip: 0 });
-    const second = { ...change("A second change to the very same page"), id: "t::/famous-iranian-comedians::existing_edit::meta" } as ChangeProposal;
-    expect((await press(second)).success).toBe(true);
+    const second = { ...change("A second change to the very same page"), id: "t::/famous-iranian-comedians::existing_edit::meta" } as ChangeProposal; expect((await press(second)).success).toBe(true);
     expect(led.records[1]!.treatmentStamp, "a different change of theirs is already being read on this page, and the card carried neither of the other two facts").toEqual({ signature: { family: "title", treatment: null, field: "title", cause: null }, overlapAtShip: 1 });
     await press(change("Redrafted words for that very same change"));
     expect(led.records[2]!.treatmentStamp!.overlapAtShip, "a redraft of their own change is not a second change crowding the page").toBe(1); });
   it("has no bare flip on the facade at all: the one door demands the record that is measuring the change", async () => {
-    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented");
-    expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
+    const facade = await vi.importActual<Record<string, unknown>>("@/domains/decision"); expect(Object.keys(facade)).not.toContain("markProposalImplemented"); expect([typeof facade.transitionProposalToImplemented, typeof facade.reconcileImplementedWithoutShipment]).toEqual(["function", "function"]); });
   it("refuses to record unfinished work as done, whatever a stale screen sends", async () => {
     const research = await press({ ...change(), researchOnly: true } as ChangeProposal); // full copy on the row, so only the typed fact can be refusing it
     const errand = await press({ ...change(), researchOnly: true, recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Write a description of about 150 characters that names this page's subject." } } as ChangeProposal);
@@ -88,8 +82,7 @@ describe("nothing is marked done that no record stands behind", () => {
     stored.disposition = "withdrawn"; // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([true, 1, 1]);
     stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
-    const no = await press(change("Different words for the dismissed row"));
-    expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
+    const no = await press(change("Different words for the dismissed row")); expect([no.success, led.records.length, led.flip.mock.calls.length], "no shipment and no flip on a dismissed row").toEqual([false, 0, 0]); });
   it("a crash BEFORE the record lands flips nothing, so the change is still theirs to do", async () => {
     led.breakWrite = true;
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([false, 0, 0]);

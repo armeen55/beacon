@@ -76,8 +76,7 @@ describe("a direct link renders only what the ranked list would, and always land
   it("opens the picker on the pieces nobody has recorded yet", async () => {
     const b = bundled(NOW).bundle!;
     shipped.held = [{ proposalId: ID, componentsApplied: [{ id: "0:title", kind: "title", label: "Title" }] }];
-    const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal);
-    const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
+    const html = await link({ ...bundled(NOW), bundle: { ...b, components: [b.components[0]!, { ...b.components[0]!, kind: "meta", label: "Description", after: "A description" }] } } as ChangeProposal); const boxes = [...html.matchAll(/<input type="checkbox"[^>]*>/g)].map((m) => m[0]); shipped.held = []; expect([boxes.length, boxes[0]!.includes("checked"), boxes[1]!.includes("checked")]).toEqual([2, false, true]); });
   /** FRESHNESS IS PER COMPONENT, because a receipt is mixed by design. One AI answer taken this morning used to keep a whole change alive beside a page reading and a results check nobody had taken in months. And an atomic change carried no receipt at all, so it could never go stale: it ages on the day it was drafted. The gated rebuild used to be handed NOTHING, so a basis shift silently erased the retry date, the pages under investigation, the ideas held back and the kernel's own verdicts. THE APPROVAL BOUNDARY IS THE SERVER'S, NOT THE SCREEN'S. Editorial judgement is the operator's to answer; an unsupported claim, a blank, a wrong page or a placement nobody can check is a fact about the work, and no yes waves one through. THE COMPACT SENTENCE IS TYPED BY THE KIND OF WORK, never the internal brief said back: an ownership row says Beacon is reading the competing pages, and an unfamiliar family falls back to one plain sentence. EVERY GENUINE OPPORTUNITY IS REACHABLE, COMPACTLY: the preparing lane is collapsed by default, one plain sentence per row, its own detail link, and NEVER the internal research essay (operator, 2026-08-21). ONE STORY ACROSS BOTH SURFACES (operator, 2026-08-15): a gate decides the LANE, never whether genuine work is seen; the same counts appear on Today and Changes, and no row is in two lanes. Connecting Google is worth doing and it is not the price of entry: an account with approved questions and research of its own must not be told to connect before it may see anything at all. AND THE PROMOTION ITSELF NEVER RUNS AS A READ AND A SAVE: the action hands the store the exact version that was confirmed, and the store writes only while the row still IS that version (pinned in proposal-canon). */
   it("expires the change whose own component cites only cold readings, keeps the one whose readings are current, and ages a change with no receipt on its drafted date", () => {
     const cold = new Date(Date.now() - 40 * 86_400_000).toISOString(), ctx = { tenantId: "t", currentBasis: NOW }; const b = bundled(NOW).bundle!, item = b.receipt.items[0]!;
@@ -95,16 +94,14 @@ describe("a direct link renders only what the ranked list would, and always land
   /** THE ONE SERVABILITY VERDICT, ON THE DIRECT LINK TOO. The detail read status and unsettledCause and skipped openHold, so a stored ready row the queue itself demotes (a typed fault carried on the row) rendered Copy and Mark done on its own URL while the list refused to offer it. The list and the detail may never disagree about one row. */
   it("a ready row the hold blocks exposes neither Copy nor Mark done on its direct link", async () => {
     const { bundle: _b2, ...flat } = bundled(NOW);
-    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal;
-    const page = await link(held);
+    const held = { ...flat, limitations: [...(flat.limitations ?? []), "This claim carries no source yet, so it is held for review until one is on file."] } as ChangeProposal; const page = await link(held);
     expect(page).not.toContain(">Copy<");
     expect(page).not.toContain("Mark done");
     expect(page).toContain("held"); // the reason renders where the controls were
   });
   it("refuses a receipt that no longer resolves, and holds a page-mover until the operator confirms it here", async () => {
     shipped.records = [];
-    const b = bundled(NOW).bundle!;
-    const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
+    const b = bundled(NOW).bundle!; const mark = async (p: ChangeProposal, args: Record<string, unknown> = {}) => { await link(p); return (await import("@/app/(shell)/changes/actions")).markProposalImplementedAction({ proposalId: p.id, ...args }); };
     const broken = { ...bundled(NOW), bundle: { ...b, components: [{ ...b.components[0]!, evidenceKeys: ["nothing-holds-this"] }] } } as ChangeProposal; expect([(await mark(broken)).success, shipped.records.length]).toEqual([false, 0]);
     const merge = { ...bundled(NOW), status: "needs_review", riskLevel: "high", bundle: { ...b, risks: ["The old address stops answering."], components: [{ ...b.components[0]!, kind: "consolidation", label: "Merge the two pages", risk: "dangerous", redirectTo: "https://site.example/keep" }] } } as unknown as ChangeProposal;
     const refused = await mark(merge); expect([refused.success, refused.error?.includes("still being reviewed"), shipped.records.length]).toEqual([false, true, 0]);
@@ -137,8 +134,7 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const idea = { ...bundled(NOW, "t::idea"), status: "needs_review", researchOnly: true, bundle: undefined, opportunityType: "Find out what took the clicks from /famous-iranian-comedians",
       operatorSteps: [missing, "The exact change lands on this card once that read is on file"], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: missing },
       research: { missing, next: "The exact change lands on this card once that read is on file" } } as unknown as ChangeProposal;
-    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } };
-    const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
+    const view = { ...emptyView(0), proposals: [draft, idea], ready: [], toDo: [draft], research: [idea], summary: { ...emptyView(0).summary, todo: 1, research: 1 } }; const html = await renderChanges(view), today = buildTodayViewFromChanges(view);
     expect(html).toContain("Beacon is working on 2 more opportunities");
     expect(html).toMatch(/being written and checked|waiting on evidence|being read and diagnosed/); // the lane speaks in kinds of work now, one tally line per kind, never a per-row narration
     for (const never of ["Copy draft", "Why it is held", "Needs your review", "Beacon must improve", EXACT]) expect(html).not.toContain(never);

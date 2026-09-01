@@ -16,7 +16,7 @@ vi.mock("@/domains/evidence/pages/fact-checks", async (orig) => {
       db.superseded.push(...gone.map((g) => String(g.subject))); return gone.length; },};});
 import { runFactCheckUnit, runFactCheckPass, pageHashOf, claimTypeOf, sourceQueryFor, claimIdentity, tokenFingerprintOf, ATTEMPTS_PER_PASS, EXTRACT_CHUNK } from "@/domains/evidence/pages/fact-check-run";
 import { VERIFICATION_RULES_VERSION, type FactCheck, type InventoryCoverage } from "@/domains/evidence/pages/fact-checks";
-import { SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, deriveSupport, type ClaimSupport, type SupportContext, type UnsupportedReason } from "@/domains/evidence/pages/claim-support";
+import { SUPPORT_ARTIFACT_VERSION, supportFailure, supportIdentity, deriveSupport, backfillClaimSupport, type ClaimSupport, type SupportContext, type UnsupportedReason } from "@/domains/evidence/pages/claim-support";
 const NOW = new Date("2026-08-18T00:00:00.000Z");
 const PAGE = { url: "https://x.example/names", path: "/names", body: "Afsaneh means Goddess. Darya means Beauty." };
 const reader = (byStage: { claims?: unknown; judge?: unknown }) => async (input: { system: string }) => {
@@ -72,6 +72,24 @@ describe("the page slot is part of the proposition", () => {
     expect(q("geography", "Tehran", "Capital of Iran"), "geography asks where").toContain("location");
     expect(q("date_or_event", "Tehran", "was founded in 1796"), "history asks when").toContain("period");
     expect(q("quantity", "Iran", "has a population of 89 million"), "an unchanged type keeps its plain query").toContain("89");});});
+describe("a usage rule is not a word meaning, and a stray colon is not a dictionary", () => {
+  const EDIN = "Persian, has two personal pronouns for singular address, to ([to]) the familiar or intimate 'you' and \u0161oma ([\u222foma:]) the deferential or formal 'you'.";
+  const ctx = (over: Partial<SupportContext>): SupportContext => ({ tenantId: "t", page: "/p", statementKey: "k", pageLocator: null, subject: "\u0161oma", claimKind: "usage_or_register", current: "", proposed: "the deferential or formal you", url: "https://era.ed.ac.uk/x", kind: "scholarly", quote: EDIN, titleContext: null, ...over });
+  it("carries usage on usage language, refuses a meaning claim on it, and lets only a real headword define a word", async () => {
+    expect(deriveSupport(ctx({ claimKind: "definition", subject: "Ahvaz", proposed: "a city in Khuzestan province", quote: "Ahvaz is a city in Khuzestan province." })), "a generic definition is carried by an ordinary relation and owes no dictionary vocabulary").toBeTruthy();
+    const owed = { page: "/p", statementKey: "k", subject: "\u0161oma", current: "", proposed: "the deferential or formal you", literal: null, usage: null, sources: [{ url: "https://era.ed.ac.uk/x", kind: "scholarly" as const, says: EDIN }], agreement: "single_source" as const, confidence: "confirmed" as const, verdict: "undecidable" as const, alsoAt: [], note: "", pageContentHash: null, pageLocator: null, sourceReadAt: "2026-09-01T00:00:00.000Z", state: "checked" as const, rulesVersion: VERIFICATION_RULES_VERSION, evidenceBasis: null, checkedAt: "2026-09-01T00:00:00.000Z" } as FactCheck;
+    let banked = [owed]; const keep = async (_p: string, rs: readonly FactCheck[]): Promise<number> => (banked = [...rs], rs.length);
+    await backfillClaimSupport("t", [{ page: "/p", statementKey: "k", onUnsupported: "reopen" }], { rows: async () => banked, rebank: keep, reopen: keep });
+    expect(banked[0]!.sources[0]!.support?.relationSpan, "a row that corrects nothing is classified by what it ASSERTS, so the backfill finds and stores the usage relation").toBe("address");
+    expect(claimTypeOf("\u0161oma", "", "used instead of to, to show respect"), "an assertion about WHEN a form is used is not a dictionary entry").toBe("usage_or_register");
+    const usage = deriveSupport(ctx({})); expect([!!usage, usage?.relationSpan], "carried by the source's own usage words, with no dictionary vocabulary anywhere in the passage").toEqual([true, "address"]);
+    expect(deriveSupport(ctx({ claimKind: "word_meaning", proposed: "means the formal you" })), "a usage passage may not authorize a translation, and its phonetic colon may not stand in for one").toBeNull();
+    expect(deriveSupport(ctx({ subject: "\u0634\u0645\u0627", proposed: "used instead of \u062a\u0648 as a sign of respect", quote: "The formal gardens of Isfahan draw respect from visitors every season." })), "a passage merely containing formal and respect carries nothing").toBeNull();
+    const entry = ctx({ claimKind: "word_meaning", subject: "\u0627\u0641\u0633\u0627\u0646\u0647", proposed: "tale, story, fable", quote: "\u0627\u0641\u0633\u0627\u0646\u0647: tale, story, fable", kind: "dictionary" }); expect(deriveSupport(entry)?.relationSpan, "a real headword entry still defines its own word").toBe("\u0627\u0641\u0633\u0627\u0646\u0647:");
+    expect(deriveSupport({ ...entry, quote: "A note about \u0627\u0641\u0633\u0627\u0646\u0647: tale, story, fable follows." }), "the same colon inside ordinary prose does not").toBeNull();
+    expect(supportFailure({ ...deriveSupport(ctx({}))!, version: 2 }, ctx({})), "an artifact decided under the old question is stale, never silently trusted").toBe("stale"); });
+});
+
 describe("a missing proposition is researched, never graded", () => { beforeEach(reset);
   /** THE LOOP'S MISSING HALF, at the unit: an owed claim with NO current wording is information the page LACKS (the missing-information requirement seeds exactly these), so the unit searches the subject, reads real sources, and banks `proposed` as the researched statement with verified quotes. The judge is asked what the passages establish, never to grade an empty quotation. */
   it("an owed claim with no current wording banks the researched statement from real sources", async () => {

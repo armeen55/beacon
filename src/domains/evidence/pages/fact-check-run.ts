@@ -63,6 +63,7 @@ const STOP = new Set(["the", "and", "for", "with", "that", "this", "from", "its"
  *  query, but it may never erase the date, number, relationship or assertion being verified. */
 /** WHAT KIND OF SOURCE WOULD SETTLE THIS, one small hint per type. The claim itself is preserved whole below. */
 const HINT_FOR: Record<ClaimType, string> = { word_meaning: " name meaning origin etymology",
+  usage_or_register: " usage formal informal grammar", // a usage rule is settled by a grammar or instructional reference, never by a dictionary headword
   geography: " location region geography", date_or_event: " date period history",
   quantity: "", definition: "", specification: "", entity_fact: "" };
 
