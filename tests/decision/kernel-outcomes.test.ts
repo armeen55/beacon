@@ -156,7 +156,8 @@ describe("what the evidence justifies before anything is drafted", () => { it("l
     const dark = await pass("failed"); // nothing judged, nothing taken back, nothing written: the caller keeps the release it already had
     expect([dark.outcome, dark.candidates.length, env.withdrawn, env.saved]).toEqual(["evidence_unreadable", 0, [], []]);
     const genuinely = await pass("empty"); // an account that really holds no search data reads empty, not failed, and publishes exactly as before
-    expect([genuinely.outcome, genuinely.candidates.length, env.withdrawn]).toEqual(["no_actionable_candidate", 1, []]); });
+    expect([genuinely.outcome, genuinely.candidates.length, env.withdrawn]).toEqual(["proposals_persisted", 1, []]); // footprint-level suppression lets the $0 defect producers mint what the page itself proves (a missing description needs no search row), so an empty-GSC account now persists that real work instead of reporting nothing to do
+    expect(env.saved.every((p) => p.researchOnly === true || p.status === "needs_review"), "and nothing minted on an empty account claims to be drafted copy").toBe(true); });
 }); // ── one evidence basis, one decision generation, ONE material row ─────────────
 const NOW = new Date("2026-07-26T00:00:00.000Z");
 /** A REAL but smaller gap (169 clicks) that is listed FIRST, ahead of GAP's 300. */ const WEAK = ownedPage("fixture-outdoors.example/nowruz-food", "Nowruz Food", { impressions: 3000, clicks: 60 }, [{ query: "nowruz food traditions", impressions: 2800, clicks: 55, position: 4.1 }], ["Persian New Year Customs", "Haft-Seen"]);
@@ -235,10 +236,9 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     env.store = new Map([[measured.id, measured]]);
     const out = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
     const guide = "/nowruz-guide", food = "/nowruz-food";
-    expect(out.paid.funded.some((k: string) => k === guide || k.startsWith(`${guide}::`))).toBe(false); // the answer was knowable before a cent moved
-    expect(out.paid.receipts.some((r) => r.key === guide || r.key.startsWith(`${guide}::`))).toBe(false); // so it took no slot and owns no funded receipt
-    expect(out.paid.funded.some((k: string) => k === food || k.startsWith(`${food}::`))).toBe(true); // the one slot went to work that can finish, under its own mutation key
-    expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); });
+    expect(out.paid.funded.some((k: string) => k === guide || k.startsWith(`${guide}::title`)), "the mutation under measurement is never bought again while its reading runs").toBe(false);
+    expect(out.paid.receipts.some((r) => r.key === guide || r.key.startsWith(`${guide}::title`)), "and it owns no funded receipt").toBe(false);
+    expect(out.paid.receipts.every((r) => r.outcome !== "not_reached")).toBe(true); }); // A DIFFERENT mutation on the measured page MAY fund (operator, 2026-08-31): a title under measurement never makes the page's missing description wait a month; only overlapping work queues behind the reading.
   /** THE RECEIPT IS PROVED AGAINST THE REAL PRODUCER (Codex, 2026-08-23). The runtime test used to hand-build a  complete receipt inside a mocked `@/domains/decision` and assert on its own fiction, while the real builder  emitted neither treatment, nor family, nor impact, nor allowance, nor operations, nor the store's answer.  This drives `produceProposalsForTenant` itself and reads what it actually returns. */
   it("emits the COMPLETE per-page record for every funded key: family, treatment, impact, allowance, operations, real requests, real dollars, the store's own answer and the whole reason", async () => {
     reset(SEEN()); const out = await run(counting().complete);

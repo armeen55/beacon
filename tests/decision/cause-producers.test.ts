@@ -247,3 +247,19 @@ describe("a page owes the copy the search it already earns asks for, not a fixed
     const blind = await run({ ownedPages: [heavy, quiet], research: emptyResearchEvidence() as never });
     expect(blind.cards.filter((c) => c.id.endsWith("thin_page")), "with no results page on file there is no shape to hand over, so the higher floor buys nothing: 'add more words' stays unsayable").toEqual([]); });
 });
+/** SUPPRESSION IS BY THE MUTATION A ROW WRITES (operator, 2026-08-31). Page plus action family let ONE measuring section on /cities block every further section that page could earn, whatever its topic: the site's two largest expansion opportunities were invisible behind rows about different subjects. The footprint separates body topics, so only a genuine collision suppresses. */
+describe("a standing section on one topic never suppresses a new section on another", () => {
+  it("mints the second topic's card beside a measuring first topic, and still refuses a true duplicate", async () => {
+    const at = "https://fixture-content.example/cities";
+    const standing = { id: `${TENANT}::/cities::existing_edit::ai_answer_gap`, tenantId: TENANT, kind: "existing_edit" as const, pagePath: "/cities", pageUrl: at, pageLabel: "Cities", primaryQuery: "best cities in iran", opportunityType: "Capture clicks",
+      changeFamily: "section", status: "implemented_pending_verification" as const, researchOnly: false, whyItMatters: "w", estimatedEffortMinutes: 5, riskLevel: "low" as const, confidence: "medium" as const, limitations: [], evidence: { query: "best cities in iran", hints: [], evidenceRefCount: 1 }, impactScore: 10, upsidePerMonth: null, publish: "manual" as const, createdAt: "2026-07-25T00:00:00.000Z",
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Shiraz, Isfahan and Tabriz each reward a different kind of visit." } } as never;
+    vi.resetModules();
+    vi.doMock("@/domains/decision/proposal-store", async (orig) => ({ ...(await orig<Record<string, unknown>>()), loadChangeProposals: async () => new Map([[(standing as { id: string }).id, standing]]) }));
+    const { extraQueueCards } = await import("@/domains/decision/producers/extra");
+    const page = { url: at, content: { title: "Cities of Iran", metaDescription: "d", h1: "Cities of Iran", h2: [], outline: ["Cities of Iran"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 500, internalLinks: [], fetchedAt: "2026-07-20T00:00:00.000Z" },
+      search: { clicks90d: 100, impressions90d: 28_847, ctr90d: 0.003, position90d: 9, topQueries: [{ query: "cities in iran", impressions: 28_847, clicks: 100, position: 9 }] }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
+    const serp = { ...emptyResearchEvidence(), serpEvidence: [{ observedAt: null, query: "cities in iran", aiOverview: [], aiMode: [], paa: [], related: [], organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Cities" }] }] };
+    const out = await extraQueueCards({ tenantId: TENANT, snapshot: snapshot({ ownedPages: [page], research: serp as never }) as never, now: NOW, reads: { left: 0 }, persist: false });
+    expect(out.cards.some((c) => c.id.endsWith("::thin_page") && c.pagePath === "/cities"), "the 500-word page under 28,847 impressions earns its expansion card despite the measuring section on another topic").toBe(true); });
+});

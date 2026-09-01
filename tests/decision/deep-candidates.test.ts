@@ -25,8 +25,7 @@ const pageSnap = (url: string): EvidenceSnapshot => ({ ...snapshot([]),
 const AI_PAGE = "https://own.example/saffron-guide";
 const CTR_PAGE = "https://own.example/nowruz";
 describe("the four doors into the deep read", () => {
-  // AI EVIDENCE NO LONGER OPENS A DEEP DOOR (2026-08-19): the staged case path in producers/extra.ts is the ONE AEO decision path, so a citation-gap candidate with no click gap earns no deep slot here, and the same page still enters by the click door when a real gap rides it.
-  it("never opens a deep door on AI evidence alone: the staged case path owns AEO", () => {
+  it("never opens a deep door on AI evidence alone: the staged case path owns AEO", () => { // AI EVIDENCE NO LONGER OPENS A DEEP DOOR (2026-08-19): the staged case path in producers/extra.ts is the ONE AEO decision path, so a citation-gap candidate with no click gap earns no deep slot here, and the same page still enters by the click door when a real gap rides it.
     const picked = selectDeepCandidates({
       candidates: [cand({ pageUrl: AI_PAGE, query: "saffron price",
         cause: cause("ai_citation_gap", { cause: "ai_citation_gap", engine: "ChatGPT", promptText: "where to buy saffron" }) })],
@@ -58,16 +57,13 @@ describe("the four doors into the deep read", () => {
   const ownRate = { expectedCtrAt: () => 763 / 40_000 };
   it("opens the fallen door on a page that was earning and stopped, ranked on what it actually lost", () => {
     const FALLEN = "https://own.example/persian-male-names";
-    // THE LIVE CASE: 191 clicks gone on a page whose position never moved, which is a 20 percent dip and clears no share floor on its own.
-    const decline = new Map([[FALLEN, { clicksNow: 763, clicksPrior: 954, positionNow: 7.5, positionPrior: 7.2, impressionsNow: 40_000, impressionsPrior: 41_000, windowEnd: "2026-08-01" }]]);
+    const decline = new Map([[FALLEN, { clicksNow: 763, clicksPrior: 954, positionNow: 7.5, positionPrior: 7.2, impressionsNow: 40_000, impressionsPrior: 41_000, windowEnd: "2026-08-01" }]]); // THE LIVE CASE: 191 clicks gone on a page whose position never moved, which is a 20 percent dip and clears no share floor on its own.
     const candidates = compileCandidates(pageSnap(FALLEN), { decline, curve: ownRate });
     expect([candidates[0]!.gap, candidates[0]!.recoverableClicks]).toEqual(["recent_decline", 191]); // the REAL lost clicks, never a curve distance
     expect(candidates[0]!.reason).toContain("This page earned 191 fewer clicks in the last four weeks than in the four weeks before, and it holds the same position it held then (7.2 to 7.5), so the ranking is not what changed.");
     const picked = selectDeepCandidates({ candidates, coverage: null, limit: 3 });
-    // THE DOOR CARRIES THE SPAN THE FALL WAS MEASURED OVER, or the producer refuses every page it picks and the door burns a slot on every pass producing nothing.
-    expect([picked.map((p) => p.door), picked[0]!.evidence.window]).toEqual([["recent_decline"], "the four weeks to 2026-08-01, against the four weeks before"]);
-    // Its sentence is the FALL, never a curve distance: this door is opened by what the page lost.
-    expect(picked[0]!.entry).toContain("about 191 fewer clicks than the four weeks before"); expect(picked[0]!.entry).not.toContain("under what its positions usually earn"); });
+    expect([picked.map((p) => p.door), picked[0]!.evidence.window]).toEqual([["recent_decline"], "the four weeks to 2026-08-01, against the four weeks before"]); // THE DOOR CARRIES THE SPAN THE FALL WAS MEASURED OVER, or the producer refuses every page it picks and the door burns a slot on every pass producing nothing.
+    expect(picked[0]!.entry).toContain("about 191 fewer clicks than the four weeks before"); expect(picked[0]!.entry).not.toContain("under what its positions usually earn"); }); // Its sentence is the FALL, never a curve distance: this door is opened by what the page lost.
   it("never says leave it alone over a page that just shed 191 clicks", () => {
     const BEATS = "https://own.example/persian-male-names"; // a page beating its curve, so the wording is settled and the honest verdict was do_nothing
     const decline = new Map([[BEATS, { clicksNow: 763, clicksPrior: 954, positionNow: 7.5, positionPrior: 7.2, impressionsNow: 40_000, impressionsPrior: 41_000 }]]);
@@ -76,6 +72,5 @@ describe("the four doors into the deep read", () => {
     expect(c.reason).not.toContain("Leave it alone"); expect(c.reason).toContain("191 fewer clicks"); });
   it("never calls a small page's wobble a fall: the floors decide, not the direction", () => {
     const SMALL = "https://own.example/quiet";
-    // Down 60 percent and off 30 clicks: real movement, and nothing an operator should be sent at.
-    const decline = new Map([[SMALL, { clicksNow: 12, clicksPrior: 30, positionNow: 9, positionPrior: 4, impressionsNow: 900, impressionsPrior: 2_000 }]]); const c = compileCandidates(pageSnap(SMALL), { decline, curve: ownRate })[0]!;
+    const decline = new Map([[SMALL, { clicksNow: 12, clicksPrior: 30, positionNow: 9, positionPrior: 4, impressionsNow: 900, impressionsPrior: 2_000 }]]); const c = compileCandidates(pageSnap(SMALL), { decline, curve: ownRate })[0]!; // Down 60 percent and off 30 clicks: real movement, and nothing an operator should be sent at.
     expect([c.gap, selectDeepCandidates({ candidates: [c], coverage: null, limit: 3 })]).toEqual([undefined, []]); }); });

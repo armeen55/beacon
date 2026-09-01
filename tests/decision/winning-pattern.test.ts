@@ -1,7 +1,6 @@
 /** WINNING-PAGE PATTERN (V1 Truth Convergence Phase 3): what the pages that already win a search have in common, learned without copying one of them. Each pin states what the reading may say about those pages and what it may never say. Fixtures only, zero network: the gateway is seamed as case-synthesis seams it. */
 import { describe, it, expect, vi } from "vitest";
-// Budget is not this file's subject: always-allowed, no-op hermetic seam.
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} })); // Budget is not this file's subject: always-allowed, no-op hermetic seam.
 import { extractPageFacts, readWinningPattern } from "@/domains/decision/winning-pattern";
 import type { WinningPatternRead } from "@/domains/decision/llm/schemas";
 import type { CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -40,15 +39,12 @@ describe("the facts I read off the winning pages myself", () => {
   it("carries what the read captured and fills in nothing it did not", () => {
     const [first] = facts(); expect([first!.domain, first!.headings, first!.questionHeadings, first!.entities]).toEqual(["guide.example", ["What a Persian rug is", MADE, CARE], ["What a Persian rug is", MADE], ["Tabriz", "Kashan"]]);
     expect([first!.wordCount, first!.faqCount, first!.hasList, first!.hasTable, first!.hasSchema]).toEqual([1400, 3, true, false, true]);
-    // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing downstream can read "no sections, no words, no structured data" off a page nobody ever fetched.
-    const unread = extractPageFacts([{ url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }])[0]!;
+    const unread = extractPageFacts([{ url: "https://blocked.example/rugs", domain: "blocked.example", extract: null }])[0]!; // A PAGE I NEVER READ IS NOT A PAGE OF ZEROES. Every scalar is null and every list is empty, so nothing downstream can read "no sections, no words, no structured data" off a page nobody ever fetched.
     expect(unread).toEqual({ domain: "blocked.example", titleTokens: [], headings: [], questionHeadings: [], entities: [],
       wordCount: null, faqCount: null, hasList: null, hasTable: null, hasSchema: null, opening: null });
-    // A row stored before those fields existed reads the same way: absent, never false.
-    const legacy = extractPageFacts([{ url: "https://old.example/rugs", extract: { title: "Persian rugs", h1: null, wordCount: 900, headings: ["Where they come from"], faqCount: 0 } }])[0]!;
+    const legacy = extractPageFacts([{ url: "https://old.example/rugs", extract: { title: "Persian rugs", h1: null, wordCount: 900, headings: ["Where they come from"], faqCount: 0 } }])[0]!; // A row stored before those fields existed reads the same way: absent, never false.
     expect([legacy!.hasList, legacy!.hasTable, legacy!.hasSchema, legacy!.opening, legacy!.faqCount, legacy!.domain]).toEqual([null, null, null, null, 0, "old.example"]);
-    // A read that banked cards but no list flag still knows it saw a list; one that banked no structured data says so.
-    const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!; expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); });
+    const cards = extractPageFacts([{ url: "https://cards.example/rugs", extract: { headings: [], cardTexts: ["Tabriz rug", "Kashan rug"], entityNames: [] } }])[0]!; expect([cards!.hasList, cards!.hasSchema]).toEqual([true, false]); }); }); // A read that banked cards but no list flag still knows it saw a list; one that banked no structured data says so.
 describe("the one reading a case may buy", () => {
   it("says what four winning pages share, counts them itself, and names the sites without the reading ever seeing one", async () => {
     const s = seam(reading()); const out = await readWinningPattern(facts(), ownedFacts(), "t_fixture", { complete: s.complete });

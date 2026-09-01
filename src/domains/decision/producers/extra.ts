@@ -13,6 +13,7 @@ import type { ChangeProposal } from "@/domains/decision/contracts";
 import type { CauseFinding } from "@/domains/decision/diagnosis";
 import type { CanonicalDemandUnit } from "@/domains/evidence/demand-units";
 import { actionFamilyOf, loadChangeProposals } from "../proposal-store";
+import { mutationFootprint } from "../mutation-footprint";
 // THE SHARED PRIMITIVES live in page-fit now: two producers answer "which page of this account is this search
 // FOR" and one copy of that answer is the whole point of the split.
 import { count, labelOf, MAX_PER_PRODUCER, mint, pageWords, pathOf, plain,
@@ -270,7 +271,11 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   const store = await loadChangeProposals(tenantId).catch(() => null);
   if (!store) return { cards: [], complete: false, families: [], held: [], needsOwnPage: [] };
   const rows = [...store.values()];
-  const taken = new Set(rows.map((p) => `${(p.pagePath ?? "").toLowerCase()}::${actionFamilyOf(p)}`));
+  // SUPPRESSION IS BY THE MUTATION A ROW WRITES, NEVER BY PAGE PLUS FAMILY (operator, 2026-08-31). The old key
+  // let one measuring section on /cities block EVERY new section that page could earn, whatever its topic: the two
+  // largest expansion opportunities on the site were invisible behind rows about different subjects. The footprint
+  // is THE definition of what a change writes; two rows collide when their footprints do, and only then.
+  const taken = new Set(rows.flatMap((p) => [...mutationFootprint(p)]));
   const mine = new Set(rows.map((p) => p.id));
   // WHAT AN ESSAY MAY NEVER LAND ON is this file's rule, so this file decides which pages are worth reading.
   const eligible = pages.filter((p) => { const path = pathOf(p.url); return path !== "/" && !STOREFRONT.test(path); });
@@ -294,9 +299,9 @@ export async function extraQueueCards(input: { tenantId: string; snapshot: Evide
   for (const d of drafts) {
     const asks = d.asked ? [canonicalQueryKey(d.query), canonicalQueryKey(d.asked)].filter(Boolean) : [];
     if (asks.some((k) => answered.has(k))) continue;
-    const card = mint(tenantId, d, now), key = `${(card.pagePath ?? "").toLowerCase()}::${actionFamilyOf(card)}`;
-    if (taken.has(key) && !mine.has(card.id)) continue;
-    taken.add(key);
+    const card = mint(tenantId, d, now), prints = [...mutationFootprint(card)];
+    if (prints.some((k) => taken.has(k)) && !mine.has(card.id)) continue;
+    for (const k of prints) taken.add(k);
     for (const k of asks) answered.add(k);
     out.push(card);
   }
