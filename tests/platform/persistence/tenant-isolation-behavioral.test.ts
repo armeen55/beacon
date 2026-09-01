@@ -19,8 +19,7 @@ import {
 } from "@/lib/persistence/dual-write";
 const TENANT = "tenant-fixture-local";
 const OTHER = "tenant-other";
-// ── A. buildTenantRepo facade ───────────────────────────────────────────────
-describe("buildTenantRepo behavioral isolation", () => {
+describe("buildTenantRepo behavioral isolation", () => { // ── A. buildTenantRepo facade ───────────────────────────────────────────────
   const prompt = (id: string, tenant_id: string) =>
     ({ id, tenant_id, account_id: tenant_id, text: id, is_active: true }) as unknown as never;
   const entity = (id: string, tenant_id: string) =>
@@ -49,8 +48,7 @@ describe("buildTenantRepo behavioral isolation", () => {
     const aIds = new Set(promptsA.map((p) => p.id));
     for (const p of promptsC) expect(aIds.has(p.id)).toBe(false);
     expect(promptsA.length).toBe(2); expect(promptsC.length).toBe(1);});});
-// ── B. dual-write validation layer ──────────────────────────────────────────
-describe("dual-write tenant validation (fires before any I/O)", () => {
+describe("dual-write tenant validation (fires before any I/O)", () => { // ── B. dual-write validation layer ──────────────────────────────────────────
   it("assertRowsScopedToTenant throws on empty tenantId and on any mismatched row", () => {
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }], "", "results")).toThrow(/tenantId must be a non-empty string/);
     expect(() => assertRowsScopedToTenant([{ tenant_id: TENANT }, { tenant_id: OTHER }], TENANT, "results")).toThrow(/tenant mismatch/);
@@ -101,8 +99,7 @@ describe("an unset DATA_SOURCE means Supabase, in every module that asks", () =>
     try {
       delete process.env.DATA_SOURCE;
       expect(usesSupabase()).toBe(true);
-      // And the branch that used to disagree: the merge reads the repository rather than trusting empty disk.
-      let asked = false;
+      let asked = false; // And the branch that used to disagree: the merge reads the repository rather than trusting empty disk.
       vi.doMock("@/lib/persistence/repositories", () => ({
         usesSupabase, getRepository: () => ({ forTenant: () => ({ getRecommendationResponses: async () => { asked = true; return []; } }) }) }));
       vi.resetModules();
@@ -120,8 +117,7 @@ describe("Tier A sync* helpers stay tenant-wired", () => {
 describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
   const FORBIDDEN_VOCAB =
     /(harborview|referencepedia|builder|project_mix|budget_range|cities_served|publish_target|email_frequency|profound|semrush|founder|bay area)/i;
-  // Supabase stub: select("user_id") answers the collision probe with `owners`; the membership idempotency probe answers empty so provisioning proceeds.
-  const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) =>
+  const fakeSupabase = (inserted: Record<string, unknown>[], owners: { user_id: string }[] = []) => // Supabase stub: select("user_id") answers the collision probe with `owners`; the membership idempotency probe answers empty so provisioning proceeds.
     ({ from: (table: string) => ({
       select: (cols: string) => ({ eq: () => Object.assign(Promise.resolve({ data: cols === "user_id" ? owners : [], error: null }), { order: () => Promise.resolve({ data: [], error: null }) }) }),
       upsert: async (row: Record<string, unknown>) => { inserted.push({ __table: table, ...row }); return { error: null }; },
@@ -131,11 +127,9 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const { provisionTenantForNewUser, PROVISIONING_DEFAULTS } = await import("@/domains/account/onboarding/provision-tenant"); expect(JSON.stringify(PROVISIONING_DEFAULTS)).not.toMatch(FORBIDDEN_VOCAB);
     const inserted: Record<string, unknown>[] = []; expect(await provisionTenantForNewUser(fakeSupabase(inserted), NEW_USER)).toEqual({ ok: true, tenantId: "tenant-12345678", created: true });
     const { __table: _t, ...row } = inserted.find((r) => r.__table === "tenants")!;
-    // Any key that is not a real column takes EVERY signup down with PGRST204; the physical set also proves no vertical vocabulary is written.
-    expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]);
+    expect(Object.keys(row).sort()).toEqual(["business_name", "created_at", "daily_budget_usd", "domain", "growth_goal", "id", "signup_date", "slug", "status", "tos_accepted_at", "updated_at"]); // Any key that is not a real column takes EVERY signup down with PGRST204; the physical set also proves no vertical vocabulary is written.
     expect(typeof row.business_name === "string" && (row.business_name as string).length > 0, "business_name is NOT NULL").toBe(true);
-    // A colliding id already owned by someone else is refused, never adopted.
-    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });});
+    expect(await provisionTenantForNewUser(fakeSupabase([], [{ user_id: "other-user" }]), NEW_USER)).toEqual({ ok: false, error: "tenant id collision", phase: "tenant_collision" });}); // A colliding id already owned by someone else is refused, never adopted.
   it("cold first read resolves the real account identity; no placeholder is ever cached as identity", async () => {
     const bp = await import("@/domains/account/business-profile");
     bp.__resetBusinessProfileCacheForTests();
@@ -143,8 +137,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     bp.setBusinessProfileRepositoryForTests({
       load: async () => {
         loads++;
-        // First call: the row does NOT exist yet (cold signup race)…
-        if (loads === 1) return null;
+        if (loads === 1) return null; // First call: the row does NOT exist yet (cold signup race)…
         // …then the durable row lands.
         return row as never;},
       save: async () => ({ ok: true }),});

@@ -104,8 +104,7 @@ describe("a page's own statements against their sources", () => {
     checks.rows = [check({ subject: "Maryam", proposed: "beloved", sources: src('The name may have originated from the root mr "love; beloved"') }),
       check({ subject: "Ariana", proposed: "Most holy", sources: src('The name Ariana is the Latinized form of the Ancient Greek name Ariadne ("most holy")') }),
       check({ subject: "Aryana", proposed: "silver", sources: src('Ariana is sometimes used as a Welsh name, an elaboration of Welsh: arian "silver."') }),
-      // THE QUOTE NAMES LEILA HERSELF: the old fixture named Laila and still minted, the exact live defect claim-support refuses now, so the clean case that SHOULD mint has to earn it.
-      check({ subject: "Leila", proposed: "Night", sources: src('The name Leila comes from the Arabic word layl, which means "night"') })];
+      check({ subject: "Leila", proposed: "Night", sources: src('The name Leila comes from the Arabic word layl, which means "night"') })]; // THE QUOTE NAMES LEILA HERSELF: the old fixture named Laila and still minted, the exact live defect claim-support refuses now, so the clean case that SHOULD mint has to earn it.
     const { cards } = await factualDefectCards({ tenantId: "t", snapshot, now: NOW });
     expect(cards.map((c) => c.id.split("fact-")[1])).toEqual(["leila"]); });
   it("the banked quote is the only text that may authorize a short gloss, and a citation is not a gloss", async () => {
@@ -169,34 +168,26 @@ describe("a page's own statements against their sources", () => {
 describe("Beacon reviews its own corrections, one page at a time", () => {
   beforeEach(() => { checks.rows = []; });
   it("names which kind of correction it is, and never calls a narrowing a falsehood", async () => {
-    // TWO OF THE THREE LIVE CORRECTIONS ARE page_imprecise and every card said "X means Y, not Z". Telling a paying customer their page is wrong when the sources merely sharpen it is an overclaim. The kind is read from the STORED verdict and the two wordings, never from the copy.
-    const src = (says: string) => [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says }];
+    const src = (says: string) => [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says }]; // TWO OF THE THREE LIVE CORRECTIONS ARE page_imprecise and every card said "X means Y, not Z". Telling a paying customer their page is wrong when the sources merely sharpen it is an overclaim. The kind is read from the STORED verdict and the two wordings, never from the copy.
     checks.rows = [
       check({ subject: "Leila", verdict: "page_wrong", current: "Meaning:Beauty and purity.", proposed: "Night; dark", sources: src('The name Leila means "night", or "dark"') }),
       check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright, radiant, or glowing.", proposed: "Light", sources: src('The name Noor means "light"') }),
-      // THE SAME-FETCH TITLE IDENTIFIES THE ANAPHORIC PASSAGE: the live Mahsa shape, supportable only because the fetched document's own title names her while the sentence says "the name".
-      check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says: 'The name has the meaning "like the moon"', titleContext: "Mahsa" }] })];
+      check({ subject: "Mahsa", verdict: "page_imprecise", current: "Meaning:Like the moon.", proposed: "Like the moon", sources: [{ url: "https://en.wikipedia.org/n", kind: "encyclopedia", says: 'The name has the meaning "like the moon"', titleContext: "Mahsa" }] })]; // THE SAME-FETCH TITLE IDENTIFIES THE ANAPHORIC PASSAGE: the live Mahsa shape, supportable only because the fetched document's own title names her while the sentence says "the name".
     const by = new Map((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards.map((c) => [c.id.split("fact-")[1]!, c]));
     const say = (k: string) => [by.get(k)!.opportunityType, (by.get(k)!.claims ?? [])[0]!.text, by.get(k)!.whyItMatters].join(" | ");
-    // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
-    expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(say("leila")).toContain("Correct what");
-    // A NARROWING SAYS SO, and never that the page is wrong.
-    expect(say("noor"), "page_imprecise sharpens").toContain("less precisely");
-    // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
-    const CARRIER = new Set(["the", "and", "not", "its", "for", "with", "from", "that", "this", "was", "are"]);
+    expect(say("leila"), "page_wrong contradicts").toContain("contradict"); expect(say("leila")).toContain("Correct what"); // A REAL FALSEHOOD KEEPS DIRECT LANGUAGE.
+    expect(say("noor"), "page_imprecise sharpens").toContain("less precisely"); // A NARROWING SAYS SO, and never that the page is wrong.
+    const CARRIER = new Set(["the", "and", "not", "its", "for", "with", "from", "that", "this", "was", "are"]); // ANCHORED TO ITS OWN EVIDENCE: `staleCopyReasons` refuses a claim overlapping its cited evidence by under a quarter, and a version leading with the page's current wording pushed two live corrections out of Ready reading "argues from support nobody banked".
     const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !CARRIER.has(w));
     for (const k of ["leila", "noor", "mahsa"]) { const card = by.get(k)!, mine = words((card.claims ?? [])[0]!.text);
       const its = new Set(words((card.supportFacts ?? []).map((f) => f.fact).join(" ")));
       expect(mine.filter((w) => its.has(w)).length / Math.max(1, mine.length), `${k} claim stays anchored to its evidence`).toBeGreaterThanOrEqual(0.25); }
     expect(say("noor"), "no falsehood language on a narrowing").not.toMatch(/contradict|say otherwise|wrong meaning/); expect(by.get("noor")!.opportunityType).toContain("Sharpen");
-    // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.
-    expect(say("mahsa"), "mechanical only").toContain("broken formatting"); expect(say("mahsa")).not.toMatch(/contradict|more precisely/);
-    // AND THE RENDERED REPLACEMENT IS MECHANICALLY CLEAN: one space after a Latin label, one terminal mark.
-    const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after;
+    expect(say("mahsa"), "mechanical only").toContain("broken formatting"); expect(say("mahsa")).not.toMatch(/contradict|more precisely/); // THE SAME WORDS WITH BROKEN PUNCTUATION ARE A FORMATTING REPAIR, whatever the verdict says.
+    const after = (k: string) => (by.get(k)!.recommendedChange as { after: string }).after; // AND THE RENDERED REPLACEMENT IS MECHANICALLY CLEAN: one space after a Latin label, one terminal mark.
     expect([after("noor"), after("mahsa")], "the label is not glued to its value").toEqual(["Meaning: Light.", "Meaning: Like the moon."]);
     expect(after("leila")).toBe("Meaning: Night or dark.");
-    // AN EXACT LOCATION MAY NOT REPEAT ITSELF. Live, `also_at` held the row's OWN locator on every correction, so the Find step read "the Noor entry, and the same statement at: <the section it is already in>".
-    const step = (k: string) => (by.get(k)!.operatorSteps ?? []).join(" | ");
+    const step = (k: string) => (by.get(k)!.operatorSteps ?? []).join(" | "); // AN EXACT LOCATION MAY NOT REPEAT ITSELF. Live, `also_at` held the row's OWN locator on every correction, so the Find step read "the Noor entry, and the same statement at: <the section it is already in>".
     expect(step("noor"), "the entry's own section is not a second place").not.toContain("the same statement at");
     expect(step("noor"), "and the one place it names is still named").toContain('Find the "Noor" entry');
     checks.rows = [check({ subject: "Noor", verdict: "page_imprecise", current: "Meaning:Bright.", proposed: "Light",
@@ -204,26 +195,21 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
     const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards[0]!;
     expect((two.operatorSteps ?? []).join(" "), "a real second location survives").toContain("A to Z index");
     expect((two.operatorSteps ?? []).join(" "), "the duplicate does not").not.toContain("Girl names; ");
-    // AND A QUOTED SENTENCE CARRIES ONE TERMINAL MARK, never the page's stop plus another.
-    const everything = [...by.values()].flatMap((c) => [(c.claims ?? [])[0]?.text ?? "", c.whyItMatters]);
+    const everything = [...by.values()].flatMap((c) => [(c.claims ?? [])[0]?.text ?? "", c.whyItMatters]); // AND A QUOTED SENTENCE CARRIES ONE TERMINAL MARK, never the page's stop plus another.
     for (const line of everything) expect(line, "no doubled stop").not.toMatch(/[.!?]"\./);
-    // AN UNSUPPORTED ROW NEVER BECOMES CONFIDENT CORRECTION COPY: it does not mint at all.
-    checks.rows = [check({ subject: "Ghost", confidence: "unsupported", proposed: "anything at all" })];
+    checks.rows = [check({ subject: "Ghost", confidence: "unsupported", proposed: "anything at all" })]; // AN UNSUPPORTED ROW NEVER BECOMES CONFIDENT CORRECTION COPY: it does not mint at all.
     expect((await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards, "unsupported mints nothing").toEqual([]);});
   const cardsOf = async (n: number) => { checks.rows = many(n); return (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards; };
   it("clears a correction to ready, holds another with its reason, and never charges the operator with the checking", async () => {
     const cards = await cardsOf(3);
-    // PUBLISH IS DERIVED FROM THE CLAIM RULINGS, never taken from the model: a reviewer that says publish while ruling the claim unsupported is not a pass, and a ruling that never came is not silence in Beacon's favour.
-    const ok = (i: number) => ({ index: i, publish: true, reason: "reads cleanly and matches its source",
+    const ok = (i: number) => ({ index: i, publish: true, reason: "reads cleanly and matches its source", // PUBLISH IS DERIVED FROM THE CLAIM RULINGS, never taken from the model: a reviewer that says publish while ruling the claim unsupported is not a pass, and a ruling that never came is not silence in Beacon's favour.
       claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries the corrected meaning" }] });
     const complete = async () => ({ status: "drafted" as const, value: { rulings: [ok(0),
       { index: 1, publish: false, reason: "the replacement contradicts its own source", claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }, ok(2)] } });
-    // A REVIEWER ANSWERING THE OLD COARSE SHAPE AUTHORIZES NOTHING: publish is derived from claim rulings, so a verdict carrying none of them is silence about every claim rather than a yes to all of them.
-    const coarse = async () => ({ status: "drafted" as const, value: { rulings: [0, 1, 2].map((i) => ({ index: i, publish: true, reason: "reads cleanly" })) } });
+    const coarse = async () => ({ status: "drafted" as const, value: { rulings: [0, 1, 2].map((i) => ({ index: i, publish: true, reason: "reads cleanly" })) } }); // A REVIEWER ANSWERING THE OLD COARSE SHAPE AUTHORIZES NOTHING: publish is derived from claim rulings, so a verdict carrying none of them is silence about every claim rather than a yes to all of them.
     const old = await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 4 }, complete: coarse });
     expect(old.map((c) => c.status), "publish alone is not entailment").toEqual(old.map(() => "needs_review"));
-    // THE RETURNED MAPPING IS CHECKED, NOT TIDIED. A ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean authorization from its OWN ids: self-authorization wearing a reviewer's name. Each shape below must hold the card instead.
-    const rule = (over: Record<string, unknown>) => async () => ({ status: "drafted" as const, value: { rulings: cards.map((_c, i) => ({
+    const rule = (over: Record<string, unknown>) => async () => ({ status: "drafted" as const, value: { rulings: cards.map((_c, i) => ({ // THE RETURNED MAPPING IS CHECKED, NOT TIDIED. A ruling naming a claim that does not exist and a fact nobody banked, marked entailed, cleared every card while the producer wrote a clean authorization from its OWN ids: self-authorization wearing a reviewer's name. Each shape below must hold the card instead.
       index: i, publish: true, reason: "looks fine", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }], ...over })) } });
     const promoted = async (over: Record<string, unknown>) => (await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: rule(over) })).filter((c) => c.status === "ready");
     for (const [what, over] of [["a claim number nobody made", { claims: [{ claim: 99, factIds: ["fact-1"], entailed: true, why: "w" }] }],
@@ -233,18 +219,15 @@ describe("Beacon reviews its own corrections, one page at a time", () => {
       ["the reviewer's own no", { claims: [{ claim: 0, factIds: ["fact-1"], entailed: false, why: "the passage says something else" }] }],
       ["a sense refusal over an entailed claim", { publish: false, reason: "reads badly" }]] as const)
       expect(await promoted(over), `${what} authorizes nothing`).toEqual([]);
-    // AND NOTHING RETURNED IS SILENTLY DROPPED: a ruling for a component nobody asked about was ignored, so a response could carry anything at all beside the real ones and still clear the batch.
-    const withStray = async () => ({ status: "drafted" as const, value: { rulings: [...cards.map((_c, i) => ({ index: i, publish: true, reason: "fine",
+    const withStray = async () => ({ status: "drafted" as const, value: { rulings: [...cards.map((_c, i) => ({ index: i, publish: true, reason: "fine", // AND NOTHING RETURNED IS SILENTLY DROPPED: a ruling for a component nobody asked about was ignored, so a response could carry anything at all beside the real ones and still clear the batch.
       claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "carried" }] })),
       { index: 99, publish: true, reason: "about nothing here", claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "w" }] }] } });
     expect((await reviewFactualBundle(cards, { tenantId: "t", now: NOW, attempts: { left: 9 }, complete: withStray })).filter((c) => c.status === "ready"),
       "a ruling about a component nobody asked about").toEqual([]);
-    // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
-    const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] });
+    const earned = await promoted({ claims: [{ claim: 0, factIds: ["fact-1"], entailed: true, why: "the quoted passage carries it" }] }); // AND WHAT IS BANKED IS WHAT THE REVIEWER RETURNED: the ids come back from the ruling, not from the row.
     expect(earned.length, "an exact ruling still earns Ready").toBeGreaterThan(0);
     expect(earned[0]!.semanticReview!.claims).toEqual([{ i: 0, by: ["fact-1"], entailed: true }]);
-    // A CARD STANDING ON TWO PASSAGES MUST BE RULED AGAINST BOTH: naming only one of them is a different question than the claim asks, and every named id is banked, so nothing else catches this.
-    checks.rows = [check({ subject: "Pair", current: "Wrong.", proposed: "Right.",
+    checks.rows = [check({ subject: "Pair", current: "Wrong.", proposed: "Right.", // A CARD STANDING ON TWO PASSAGES MUST BE RULED AGAINST BOTH: naming only one of them is a different question than the claim asks, and every named id is banked, so nothing else catches this.
       sources: [{ url: "https://en.wiktionary.org/a", kind: "dictionary", says: "Pair means right" }, { url: "https://en.wikipedia.org/b", kind: "encyclopedia", says: "Pair also means right" }] })];
     const two = (await factualDefectCards({ tenantId: "t", snapshot, now: NOW })).cards;
     expect(two[0]!.claims![0]!.supportedBy.length, "the card really declares two").toBe(2);

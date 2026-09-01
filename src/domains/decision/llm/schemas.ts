@@ -99,6 +99,8 @@ const AtomicEditDraftSchema = z.object({
   proofPlan: ProofPlanSchema,
   /** THE EDITOR CONTRACT (decision/drafted-copy): the homework a finished edit shows, additive with defaults so every draft stored before it still deserializes. `claims` is what the copy asserts and the grounding ids that carry it; the deliverable check, never this schema, decides whether an empty one is finished. */
   placementAnchor: z.string().max(400).default(""),
+  /** SELECTION, NOT INVENTION: for an internal link the writer is handed the exact editable spots that exist on the stored page and must name one by id. Free-text placement is how a link came to be offered after "Explore More". Empty for every other kind. */
+  placementId: z.string().max(8).default(""),
   naturalHeading: z.string().max(160).nullable().default(null),
   claims: z.array(z.object({ text: z.string().min(1).max(400), supportedBy: z.array(z.string().min(1).max(80)).max(8).default([]) })).max(10).default([]),
   implementationMinutes: z.number().int().min(0).max(600).default(0),

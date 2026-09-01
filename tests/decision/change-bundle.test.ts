@@ -1,7 +1,7 @@
 /** The ONE change contract: an existing-page repair (Slice 7), and NOTHING ELSE. Selection on a PROVEN recoverable gap, receipt-first grounding for the EXACT candidate search, scope named on every number, QUERY IDENTITY per query, winners attaching only on exact membership, atomic bundling, confidence and readiness by EVIDENCE HELD, determinism, honest refusal, no page is ever invented however much research backs the topic, a release publishing only on a real production result, dedupe, and a round trip. */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"; import type { BundleComponent, BundleComponentKind, ChangeBundle, ChangeProposal } from "@/domains/decision/contracts";
 import { componentIdOf, receiptComposition } from "@/domains/decision/contracts";
-import { naturalAnchorOf } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
+import { naturalAnchorOf, placementCandidatesOf } from "@/domains/decision/drafted-copy"; import { confirmedVersion, deliverableGaps, openHold, preferFinished } from "@/domains/decision/completeness"; import { acceptDeliverable, applyDraftedCopy, deliverableFailures, draftFieldForPage, staleCopyReasons, withoutCta } from "@/domains/decision/drafted-copy";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
 import { proposalFingerprint } from "@/domains/decision/proposal-store"; import { DANGEROUS_COMPONENT_KINDS, dangerousComponents, needsSourcePack } from "@/domains/decision/contracts"; import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals"; import { validateProposal } from "@/domains/decision/validate-proposal";
 const store = vi.hoisted(() => ({ rows: new Map<string, ChangeProposal>() })); const env = vi.hoisted(() => ({ snap: null as unknown })); vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: async () => ({ allowed: true, remaining: 10 }), recordSpend: async () => {} }));
@@ -552,10 +552,41 @@ describe("one score orders every kind of change, and says why", () => { it("puts
     expect([naturalAnchorOf({ h1: "Explore More", title: "Iranopedia" }), naturalAnchorOf(null)], "furniture and a missing body name nothing, which is a refusal and not a guess").toEqual([null, null]);
     expect(naturalAnchorOf({ h1: "Safavid Lion and Sun Flag (1576-1732)", title: null }), "a catalogue date range is not how anyone links, and it carries a dash this product never publishes").toBe("Safavid Lion and Sun Flag");
     expect([naturalAnchorOf({ h1: "Mercury (planet)", title: null }), naturalAnchorOf({ h1: "Georgia (country)", title: null })], "a disambiguator is part of the name and only catalogue dates come off").toEqual(["Mercury (planet)", "Georgia (country)"]);
+    // COINCIDENCE IS NOT COPYING (operator, 2026-08-31): the query may never authorize the anchor, but a destination that genuinely carries that name yields it independently, and refusing the match would be superstition rather than judgement.
+    expect(naturalAnchorOf({ h1: "Caspian Horse", title: "Caspian Horse: The Ancient Iranian Breed | Iranopedia" }), "the anchor is resolved from the destination and stays valid when it happens to match the search").toBe("Caspian Horse");
     const base = { kind: "existing_edit" as const, field: "section" as const, before: null, after: "The booted eagle hunts the same highlands.", where: 'after "Habitat"', linkTo: "/iran-animals/booted-eagle", anchorText: "booted eagle" };
     const of = (rc: typeof base) => copyKey(prop({ id: `${TENANT}::/a::existing_edit::internal_link`, pagePath: "/a", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, recommendedChange: rc }));
     expect(of({ ...base, linkTo: "/iran-animals/persian-wolf" }), "a different destination is different work").not.toBe(of(base));
     expect(of({ ...base, anchorText: "iran eagle" }), "a different anchor is different work").not.toBe(of(base)); });
+  /** PLACEMENT IS SELECTED FROM WHAT EXISTS, NEVER PROPOSED (operator, 2026-08-31). Free text is how a link came to be offered after "Explore More", a related-content rail nobody reads from and which often is not editable at all. */
+  it("only real editable spots are offered, and furniture and ambiguity never are", () => {
+    const body = { headings: ["Baluchistan Black Bear", "Explore More", "Iranopedia", "Iran Lion and Sun Persian Hoodie", "Conservation Status: Vulnerable", "Conservation Status: Vulnerable"],
+      passages: ["This species is a crucial part of Iran wildlife, often dwelling in mountainous areas. Recognized by its V-shaped chest marking, it is elusive.", "top of page< BackBaluchistan Black BearScientific Name"] };
+    const ids = placementCandidatesOf(body);
+    const texts = ids.map((c) => c.exactText);
+    expect(texts, "the H1 and both real sentences are offered; furniture, the product, the duplicate and the glued crawl fragment are not").toEqual([
+      "Baluchistan Black Bear",
+      "This species is a crucial part of Iran wildlife, often dwelling in mountainous areas.",
+      "Recognized by its V-shaped chest marking, it is elusive."]);
+    expect(ids.map((c) => c.id), "each spot is addressable by a typed id").toEqual(["p1", "p2", "p3"]);
+    expect(placementCandidatesOf({ headings: ["Explore More"], passages: [] }), "a page offering only furniture offers nothing, which is a refusal and not a guess").toEqual([]); });
+  /** A DESTINATION THAT NAMES NOTHING BUYS NOTHING (operator, 2026-08-31). Every earlier repair moved the anchor closer to the destination, and each one left the same escape open: when the destination named itself nowhere, the search fell in behind it and the customer was told to link the words somebody typed. The refusal has to happen BEFORE the writer is paid, or the query is still the fallback and has only become an expensive one. */
+  it("refuses a link whose destination names itself nowhere, before it pays a writer, and never falls back to the search", async () => {
+    const P0 = "/iran-animals/baluchistan-black-bear", src = `https://www.iranopedia.com${P0}`, dest = "https://www.iranopedia.com/iran-flags/nameless";
+    const { canonicalUrlKey: ck } = await import("@/domains/evidence/snapshot"); const asked: string[] = [], refusals = new Map<string, string>();
+    bodyStore.map = new Map<string, unknown>([ // a real stored destination body that simply never says what the page is
+      [ck(src), { url: src, title: "Baluchistan Black Bear", h1: "Baluchistan Black Bear", metaDescription: null, vocabulary: "", headings: ["Baluchistan Black Bear"], passages: ["This species is a crucial part of Iran wildlife, often dwelling in mountainous areas."] }],
+      [ck(dest), { url: dest, title: "Iranopedia", h1: "Explore More", metaDescription: null, vocabulary: "", headings: [], passages: [] }]]);
+    const card = prop({ id: `${TENANT}::${P0}::existing_edit::internal_link`, pagePath: P0, pageUrl: src, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "iran eagle", limitations: [],
+      recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Link to the flag page.", linkTo: "/iran-flags/nameless" } });
+    const out = await applyDraftedCopy([card], { tenantId: TENANT, refusals, now: NOW, complete: async ({ user }: { user: string }) => (asked.push(user), { value: {} }),
+      snapshot: { ownedPages: [{ url: src, content: { wordCount: 400, title: "Baluchistan Black Bear", h1: "Baluchistan Black Bear", outline: [] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } },
+      budget: DRAFT_BUDGET.plan({ jobs: [{ key: P0, family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }) } as never);
+    expect(asked, "nothing is bought for a link that already has no honest words: the refusal is free and deterministic").toEqual([]);
+    expect([...refusals.values()].join(" "), "and it says the destination is silent, in the customer's own terms").toContain("does not name itself");
+    const rc = out[0]?.recommendedChange as { anchorText?: string | null } | undefined; // the card comes back untouched, still carrying the search as the OPPORTUNITY it always was
+    expect([rc?.anchorText, (out[0]?.operatorSteps ?? []).join(" ").includes("iran eagle"), out[0]?.status], "no words were put on a link and no step tells anybody to type the search, at any price").toEqual([undefined, false, "needs_review"]);
+    bodyStore.map = null; });
   it("a stored link keeps its destination, anchor, placement and support through a reload", () => {
     const link = prop({ id: `${TENANT}::/iran-animals/baluchistan-black-bear::existing_edit::internal_link`, pagePath: "/iran-animals/baluchistan-black-bear", pageUrl: "https://www.iranopedia.com/iran-animals/baluchistan-black-bear", changeFamily: "section", status: "needs_review" as const, researchOnly: false as const, primaryQuery: "iran eagle",
       claims: [{ text: "Booted Eagle in Iran is the linked target.", supportedBy: ["owned-page-target-title"] }],

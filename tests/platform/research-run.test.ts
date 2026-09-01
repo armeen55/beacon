@@ -975,8 +975,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       surfaceStale: async () => false, debt: async () => ({ measurable: 0, unverified: 0 }), pagesToCrawl: async () => false, answersToAnalyze: async () => false, analysisFingerprint: async () => "fp1",
       consumedAnalyses: async () => "fp1", factDebt: async () => ({ owed: 0, everChecked: true }), creditHeld: async () => false, readyStock: async () => Q.ready };
     const owed = async () => (await dueWork(T, new Date(NOW), { ...quiet, run: async () => ({ open: rows.at(-1)!.status !== "completed", progress: rows.at(-1)!.progress ?? {} }) })).due;
-    // the notes have not moved and this basis has its frozen plan, so the ONLY thing owed below is the stock
-    const DECIDED = { decided: { basis: "b1", rowVersion: 1 }, focus: { basis: "b1", topics: [] } }, rows = withRun({ current_phase: "keyword_discovery", progress: { ...DECIDED, plan: { units: ["replenish_ready"] } } });
+    const DECIDED = { decided: { basis: "b1", rowVersion: 1 }, focus: { basis: "b1", topics: [] } }, rows = withRun({ current_phase: "keyword_discovery", progress: { ...DECIDED, plan: { units: ["replenish_ready"] } } }); // the notes have not moved and this basis has its frozen plan, so the ONLY thing owed below is the stock
     const dispatch = async () => { const due = await owed(); if (!due.includes("replenish_ready")) return "not_owed"; // ONE SCHEDULER DISPATCH: the real due-work read decides what is owed, and the REAL runner claims the open run or opens another same-day pass on that same due list
       await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: [...due] }),
         replenishReady: async () => { const before = Q.ready; Q.ready += Q.finishes ? Math.min(2, Math.max(0, 5 - before)) : 0;
@@ -992,8 +991,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(await dispatch()).toEqual([0, "candidates_exhausted"]); expect(await dispatch()).toBe("not_owed");
     Q.ready = 0; // and a spent provider balance owes nothing either, because a drive could achieve nothing: the day is NOT closed, so the moment the credit is back this is due again
     expect(await dueWork(T, new Date(NOW), { ...quiet, creditHeld: async () => true, run: async () => ({ open: false, progress: { ...DECIDED } }) })).toMatchObject({ due: [], readable: true }); });
-  // A RUN ALREADY PARKED PAST THE FIRST PHASE STILL REPLENISHES BEFORE IT BUYS: bound to keyword_discovery alone, the live run sitting at serp_analysis could never top the inventory up at all.
-  it("replenishes before acquisition from a run already at serp_analysis", async () => {
+  it("replenishes before acquisition from a run already at serp_analysis", async () => { // A RUN ALREADY PARKED PAST THE FIRST PHASE STILL REPLENISHES BEFORE IT BUYS: bound to keyword_discovery alone, the live run sitting at serp_analysis could never top the inventory up at all.
     const order: string[] = []; void withRun({ current_phase: "serp_analysis" });
     await run({ ...healthySteps(order), replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });

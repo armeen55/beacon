@@ -50,7 +50,7 @@ const bareOf = (t: string): string => t.toLowerCase().normalize("NFKD").replace(
 const CONTENT_STOP = new Set(["a", "an", "the", "of", "or", "and", "in", "to", "is", "meaning", "means", "also"]);
 const contentWords = (s: string): Set<string> => new Set(s.toLowerCase().normalize("NFKD")
   .replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter((w) => w.length > 1 && !CONTENT_STOP.has(w)));
-export function onlyRemovesContext(before: string, after: string): boolean {
+function onlyRemovesContext(before: string, after: string): boolean {
   const b = contentWords(before), a = contentWords(after);
   if (b.size === 0 || a.size === 0) return false;
   return [...a].every((w) => b.has(w)) && [...b].some((w) => !a.has(w));
