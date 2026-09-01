@@ -163,49 +163,66 @@ export async function readChangesPage(
  *  and the true lane totals come from the persisted ranking, one bounded page each. With no ranking stamped yet the release's own first
  *  page is served, never an empty screen. */
 async function loadChangesViewWithSwr(tenantId: string): Promise<ChangesView> {
+  const t0 = Date.now();
   const view = await readReleasedChanges(tenantId);
-  const basis = await resolveCurrentBasis(tenantId).catch(() => null);
-  if (basis == null) return view;
-  // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
-  // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
-  const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE);
-  // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has
-  // nothing behind it.
-  if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
-  // FINISHED WORK CAN NEVER FALL OFF THE FIRST PAGE (operator, 2026-08-30). The global page is the window onto
-  // internal work; the ready lane is fetched by ITSELF, because this page's contract is finished changes first
-  // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
-  // the Ready section served empty under a headline of seven, with the finished work behind a button.
-  const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE);
-  const seen = new Set(readyPage.rows.map((r) => r.id));
-  const rows = [...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
-  const laneById = { ...page.laneById, ...readyPage.laneById };
-  const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
-  const counts = await queueLaneCounts(tenantId, page.release, basis);
-  return { ...view, proposals: rows, laneById,
-    ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
-    summary: { ...view.summary, ready: counts.ready, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
-    queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
+  // THE SAVED RELEASE IS THE FIRST PAINT, AND THE LIVE JOINS ARE AN ENHANCEMENT WITH A BUDGET (operator,
+  // 2026-09-01). These joins used to run unbounded inside the section's one 5s deadline, so a research cycle
+  // slowing the store made a VALID saved release time out into "This section could not load": the operator's own
+  // finished work, in hand, hidden behind a spinner. The joins now get exactly the budget the release read left
+  // behind; when they exceed it or throw, the release's own saved first page, lanes and counts paint instead.
+  const joinBudget = Math.max(800, 4_400 - (Date.now() - t0));
+  const joined = await loadWithDeadline((async (): Promise<ChangesView | null> => {
+    const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+    if (basis == null) return null;
+    // ONE PAGE OF THE ONE GLOBAL ORDER, research included: the stamped rank is the only order any surface
+    // shows, and the stamped lane rides each row as the control fact (Codex, 2026-08-21).
+    const page = await readQueuePage(tenantId, "all", basis, 0, CHANGES_PAGE_SIZE);
+    // No ranking stamped: serve the release's own page, and COUNT ONLY WHAT I CAN SERVE, so the screen never offers a "show more" that has nothing behind it.
+    if (page.release == null) return { ...view, summary: { ...view.summary, ready: view.ready.length, todo: view.toDo.length } };
+    // FINISHED WORK CAN NEVER FALL OFF THE FIRST PAGE (operator, 2026-08-30). The global page is the window onto
+    // internal work; the ready lane is fetched by ITSELF, because this page's contract is finished changes first
+    // whatever their global rank. Live: per-entry worth ranked seven corrections below a hundred internal rows and
+    // the Ready section served empty under a headline of seven, with the finished work behind a button.
+    const readyPage = await readQueuePage(tenantId, "ready", basis, 0, CHANGES_PAGE_SIZE);
+    const seen = new Set(readyPage.rows.map((r) => r.id));
+    const rows = [...readyPage.rows, ...page.rows.filter((r) => !seen.has(r.id))];
+    const laneById = { ...page.laneById, ...readyPage.laneById };
+    const lane = (l: "ready" | "todo" | "research") => rows.filter((p) => laneById[p.id] === l);
+    const counts = await queueLaneCounts(tenantId, page.release, basis);
+    return { ...view, proposals: rows, laneById,
+      ready: lane("ready"), toDo: lane("todo"), research: lane("research").length > 0 ? lane("research") : view.research,
+      summary: { ...view.summary, ready: counts.ready, todo: counts.todo, research: counts.research }, surfaceVersion: page.release,
+      queueCursor: { all: page.nextRank, ready: readyPage.nextRank }, queueMore: { all: page.more, ready: readyPage.more }, queueTotal: page.total };
+  })(), joinBudget).catch(() => null);
+  if (joined == null || joined.timedOut || joined.data == null) return view; // the saved truth paints; the fresh joins land on the next visit or the next rebuild
+  return joined.data;
 }
 
 /** THE RELEASE BLOB READ IS THE ONE THAT MUST NOT HANG. When it exceeded the section's whole 5s deadline the screen printed a retry
  *  spinner over a list it had already served minutes earlier. It gets its own short deadline and ONE warm retry, and the last release this
  *  process read successfully is kept per account so a second failure serves that list with its age instead of a spinner. In-process only:
  *  every instance warms its own copy, which is exactly the scope of a fallback that must cost no read. */
-const RELEASE_READ_DEADLINE_MS = 2_500;
+const RELEASE_READ_DEADLINE_MS = 2_000;
 const lastGoodRelease = new Map<string, CustomerSurface>();
 
+/** MEMORY BEATS A SECOND ATTEMPT (operator, 2026-09-01). The old shape spent two 2.5s attempts BEFORE looking at
+ *  the copy this process already held, so a slow store burned the section's whole 5s budget on reads whose answer
+ *  was already in hand and the operator got a spinner over a list that existed. One bounded attempt; a failure
+ *  with a remembered release serves the remembered release immediately; the second attempt is only for the
+ *  process that remembers nothing yet. */
 async function readReleaseTwice(tenantId: string): Promise<{ s: CustomerSurface | null; ok: boolean; fromMemory: boolean }> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const raced = await loadWithDeadline(readCustomerSurface(tenantId), RELEASE_READ_DEADLINE_MS).catch(() => null);
-    if (raced && !raced.timedOut) {
-      // A SUCCESSFUL null IS AN ANSWER (no release published yet) and must not be papered over with a remembered one.
-      if (raced.data) lastGoodRelease.set(tenantId, raced.data);
-      return { s: raced.data, ok: true, fromMemory: false };
-    }
+  const attempt = async () => loadWithDeadline(readCustomerSurface(tenantId), RELEASE_READ_DEADLINE_MS).catch(() => null);
+  const first = await attempt();
+  if (first && !first.timedOut) {
+    // A SUCCESSFUL null IS AN ANSWER (no release published yet) and must not be papered over with a remembered one.
+    if (first.data) lastGoodRelease.set(tenantId, first.data);
+    return { s: first.data, ok: true, fromMemory: false };
   }
   const remembered = lastGoodRelease.get(tenantId);
-  return remembered ? { s: remembered, ok: true, fromMemory: true } : { s: null, ok: false, fromMemory: false };
+  if (remembered) return { s: remembered, ok: true, fromMemory: true };
+  const second = await attempt();
+  if (second && !second.timedOut) { if (second.data) lastGoodRelease.set(tenantId, second.data); return { s: second.data, ok: true, fromMemory: false }; }
+  return { s: null, ok: false, fromMemory: false };
 }
 
 /** The released Changes state for this account, basis-checked, scheduling the ONE background rebuild when the release is stale or missing.

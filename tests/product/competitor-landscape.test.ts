@@ -18,8 +18,7 @@ const won = (domain: string, query: string, rank: number) => ({ kind: "serp_orga
 const page = (domain: string, appearances: ReturnType<typeof won>[], extra: Record<string, unknown> = {}) => ({ url: `https://${domain}/a`, domain, engines: [], examplePrompts: [], extract: null, appearances, ...extra });
 const DEMAND: EvidenceSnapshot["keywordDemand"] = [{ query: QUERY, searchVolume: 4400, source: "dataforseo", competition: null, competitionLevel: null, gscImpressions: 600 }];
 describe("what a domain that keeps showing up actually is", () => {
-  // ONE case per group, in the order the rules fire: facts about the domain first, then what the evidence says it does to you. A stranger reading `why` learns what to do about it.
-  const TABLE: [string, ReturnType<typeof sig>, CompetitorKind][] = [
+  const TABLE: [string, ReturnType<typeof sig>, CompetitorKind][] = [ // ONE case per group, in the order the rules fire: facts about the domain first, then what the evidence says it does to you. A stranger reading `why` learns what to do about it.
     [SITE, sig({ isOwned: true, competingQueries: 9 }), "owned"], ["cityofboston.gov", sig({ serpAppearances: 4, competingQueries: 4 }), "government_educational"],
     ["reddit.com", sig({ serpAppearances: 6, competingQueries: 6 }), "social_community"], ["www.amazon.com", sig({ serpAppearances: 5, competingQueries: 5 }), "marketplace_directory"],
     ["rival.example", sig({ serpAppearances: 4, competingQueries: 3, overlap: "same_business" }), "commercial_competitor"], ["standards.example", sig({ aiCitations: 7 }), "citation_authority"],
@@ -29,18 +28,14 @@ describe("what a domain that keeps showing up actually is", () => {
     expect(row.why).toMatch(/\d/); // a number the operator can check, and never a lab word
     expect(row.why).not.toMatch(/SERP|experiment|control|baseline|treatment/i); });
   it("calls a rival a rival only once its own pages say so, a source a source for being cited, and lets neither outrank a fact", () => {
-    // RECURRENCE NOMINATES, IT DOES NOT DECIDE. Ranking for three of your searches used to be the whole proof, so any stranger who recurred was handed over as somebody to go and beat. Now the inspection of its pages is what makes it a competitor, and without one the row says so out loud.
-    expect(classifyDomain("rival.example", sig({ competingQueries: 3 }))).toMatchObject({ kind: "irrelevant_unknown", ambiguous: true });
+    expect(classifyDomain("rival.example", sig({ competingQueries: 3 }))).toMatchObject({ kind: "irrelevant_unknown", ambiguous: true }); // RECURRENCE NOMINATES, IT DOES NOT DECIDE. Ranking for three of your searches used to be the whole proof, so any stranger who recurred was handed over as somebody to go and beat. Now the inspection of its pages is what makes it a competitor, and without one the row says so out loud.
     expect(classifyDomain("rival.example", sig({ competingQueries: 3 })).why).toContain("I am reading its pages to see whether it actually sells what you sell");
     expect(classifyDomain("rival.example", sig({ competingQueries: 3, overlap: "same_business" })).why).toContain("it offers what you offer to the same customers, and it wins 3");
     expect(classifyDomain("rival.example", sig({ competingQueries: 3, overlap: "not_a_business" })).kind).toBe("publisher");
     expect(classifyDomain("standards.example", sig({ aiCitations: 7 })).why).toContain("Engines quote it 7 times as a source and it never ranks against you");
-    // No amount of ranking turns a city hall or a forum into a business you can take customers from.
-    expect(classifyDomain("data.cambridge.gov.uk", sig({ competingQueries: 8 })).kind).toBe("government_educational"); expect(classifyDomain("old.reddit.com", sig({ competingQueries: 8 })).kind).toBe("social_community"); });
-  // PIN (E, packet 10 + 11): AN ENCYCLOPEDIA IS NEVER A COMPETITOR (recurrence alone used to make one, so Beacon told operators to go and outrank Britannica), ROLE EVIDENCE decides everything else, and a domain doing both strongly is said to be unsettled rather than filed under whichever rule ran first.
-  it("10 + 11: decides on role evidence, never on recurrence, and admits when the evidence points both ways", () => {
-    // A FACT ABOUT THE DOMAIN OUTRANKS EVERY VERDICT, so even a reading that says "same business" cannot make an encyclopedia, a city hall, a forum or a marketplace into somebody an operator can take customers from.
-    for (const d of ["britannica.com", "en.wikipedia.org", "merriam-webster.com", "npr.org", "nyc.gov", "reddit.com", "www.amazon.com"]) {
+    expect(classifyDomain("data.cambridge.gov.uk", sig({ competingQueries: 8 })).kind).toBe("government_educational"); expect(classifyDomain("old.reddit.com", sig({ competingQueries: 8 })).kind).toBe("social_community"); }); // No amount of ranking turns a city hall or a forum into a business you can take customers from.
+  it("10 + 11: decides on role evidence, never on recurrence, and admits when the evidence points both ways", () => { // PIN (E, packet 10 + 11): AN ENCYCLOPEDIA IS NEVER A COMPETITOR (recurrence alone used to make one, so Beacon told operators to go and outrank Britannica), ROLE EVIDENCE decides everything else, and a domain doing both strongly is said to be unsettled rather than filed under whichever rule ran first.
+    for (const d of ["britannica.com", "en.wikipedia.org", "merriam-webster.com", "npr.org", "nyc.gov", "reddit.com", "www.amazon.com"]) { // A FACT ABOUT THE DOMAIN OUTRANKS EVERY VERDICT, so even a reading that says "same business" cannot make an encyclopedia, a city hall, a forum or a marketplace into somebody an operator can take customers from.
       expect(classifyDomain(d, sig({ competingQueries: 9, serpAppearances: 12, overlap: "same_business" })).kind, d).not.toBe("commercial_competitor");}
     expect(classifyDomain("nyc.gov", sig({ competingQueries: 9 })).kind).toBe("government_educational"); expect(classifyDomain("britannica.com", sig({ competingQueries: 1, aiCitations: 6 })).kind).toBe("citation_authority");
     expect(classifyDomain("shop.example", sig({ competingQueries: 4, aiCitations: 0, overlap: "same_business" })).kind).toBe("commercial_competitor");
@@ -86,8 +81,7 @@ describe("the competitor landscape", () => {
       { domain: "source.example", action: "correct", kind: "publisher" }, { domain: "hunch.example", action: "pin" }];
     expect((await competitorLandscape(snap(INSPECTED(), ANALYSIS), rules, async () => (asked += 1, null))).find((r) => r.domain === "rival.example")).toBeUndefined();
     expect(asked).toBe(0); // an excluded, pinned or corrected domain is never inspected
-    // The zero above is the OVERRIDE at work, not an adjudicator that was never reachable: the same pass with the exclusion lifted inspects exactly once, which is what makes the zero worth believing.
-    STORE.rows.clear();
+    STORE.rows.clear(); // The zero above is the OVERRIDE at work, not an adjudicator that was never reachable: the same pass with the exclusion lifted inspects exactly once, which is what makes the zero worth believing.
     await competitorLandscape(snap(INSPECTED(), ANALYSIS), rules.filter((r) => r.domain !== "rival.example"), async () => (asked += 1, null)); expect(asked).toBe(1);
     const rows = await competitorLandscape(snap(LANDSCAPE(), ANALYSIS), rules); expect(rows.find((r) => r.domain === "rival.example")).toBeUndefined();
     expect(rows.find((r) => r.domain === "weak.example")).toMatchObject({ kind: "commercial_competitor", why: expect.stringContaining("You pinned this") });

@@ -33,8 +33,7 @@ beforeEach(() => { CALLS.extraSample = 0; CALLS.warm = 0; CALLS.synced = 0; CALL
 afterEach(() => { vi.useRealTimers(); });
 describe("Update data is a true $0 refresh", () => {
   it("buys nothing on a press, with due research, an unread backlog and undecided rivals all standing", async () => {
-    // The seams that used to spend are wired to count; a running account with everything tempting on the table still reaches none of them, twice, and the free republish runs each time.
-    const first = await refreshAllConnectedDataNow();
+    const first = await refreshAllConnectedDataNow(); // The seams that used to spend are wired to count; a running account with everything tempting on the table still reaches none of them, twice, and the free republish runs each time.
     const second = await refreshAllConnectedDataNow();
     expect([CALLS.extraSample, CALLS.warm >= 2, first.results.length > 0, second.results.length > 0]).toEqual([0, true, true, true]);
     const line = first.results.find((r) => r.provider === "beacon_research");

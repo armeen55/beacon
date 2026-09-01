@@ -10,7 +10,7 @@ import { loadChangesView, setAsideHint, type ChangesView } from "../changes-data
 import { ChangesListClient } from "../changes-list-client";
 import { loadWithDeadline, valueWithDeadline } from "@/lib/load-with-deadline";
 import { checkedAgoLabel } from "@/components/data/receipt-line";
-import { HonestDelay } from "@/components/honest-delay";
+import { HonestDelay, HonestDelayReset } from "@/components/honest-delay";
 import { serverNowMs } from "@/lib/server-clock";
 import { researchPermission } from "@/domains/runtime";
 
@@ -99,6 +99,7 @@ export async function ChangesSection() {
   const paused = permission === "paused";
   return (
     <div className="space-y-4">
+      <HonestDelayReset />{/* a successful render forgives the path's past delays, so the next hiccup starts calm */}
       <QueueSlot view={view} researchPaused={paused} />
       {paused && view.proposals.length > 0 ? (
         <p className="text-[13px] leading-relaxed text-muted-foreground"><PausedLine paused /></p>

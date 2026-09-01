@@ -244,13 +244,11 @@ describe("the causes that had no copy now write one, or refuse in words", () => 
     const unbacked = await produceConsolidation(ctxOf({ finding: { ...finding("cannibalization", { cause: "cannibalization", competingPaths: ["/a", "/b"] }), evidenceKeys: [] } })); // a finding with nothing on file behind it never becomes a component, whatever the payload says
     expect([unbacked.components.length, unbacked.refusal!.includes("Nothing on file stands behind this")]).toEqual([0, true]); }); });
 describe("what a change actually costs the operator", () => {
-  // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not one price.
-  it("files and prices a change by the kind of component it actually is", async () => {
+  it("files and prices a change by the kind of component it actually is", async () => { // ONE map for the field a kind writes into, ONE for what it costs: the envelope a test builds is the one production persists, and a merge and a whole rebuild are not one price.
     const kinds: BundleComponent["kind"][] = ["internal_link_add", "full_rewrite", "consolidation", "title", "meta", "h1", "opening_answer", "section_rewrite"];
     expect(kinds.map(fieldForComponent)).toEqual(["section", "section", "section", "title", "meta", "h1", "answer_block", "section"]);
     const merge = await produceConsolidation(ctxOf({ heldBodies: BODIES, finding: finding("cannibalization", { cause: "cannibalization", competingPaths: [PAGE_URL, OTHER_URL], comparison: CMP, survivor: PAGE_URL }) }));
     const rebuild = await produceFullRewriteRecommendation(ctxOf({ draft: whole() }), ["weak_opening", "incomplete_coverage"]); expect([merge.components[0]!.kind, rebuild.components[0]!.kind].map(effortMinutesFor)).toEqual([90, 120]);
     expect([effortMinutesFor("section_rewrite"), effortMinutesFor("section_add"), effortMinutesFor("title")]).toEqual([30, 15, 1]); });
-  // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
-  it("pins measurement's private dangerous-kind list against the decision contract", () => {
+  it("pins measurement's private dangerous-kind list against the decision contract", () => { // Measurement may not import Decision (guard), so its private dangerous-kind list is pinned here instead.
     expect([...MEASUREMENT_DANGEROUS].sort()).toEqual([...DECISION_DANGEROUS].sort()); }); });

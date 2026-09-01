@@ -315,8 +315,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
     expect(outcome?.line).not.toMatch(/[\u2014\u2013]/); // no em or en dashes, ever
   });
   it("reads a rise in being read as progress, and never as the win", async () => {
-    // Every answer of the full 28 days read a page of yours; the baseline had 10 of 40. None credited it.
-    const readObservations = reader(days("2026-07-21", "2026-08-17", () => ({ mentioned: false, journey: journeyOf(["rival.example"], ["fixture-outdoors.example"]) })));
+    const readObservations = reader(days("2026-07-21", "2026-08-17", () => ({ mentioned: false, journey: journeyOf(["rival.example"], ["fixture-outdoors.example"]) }))); // Every answer of the full 28 days read a page of yours; the baseline had 10 of 40. None credited it.
     const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: frozen(), aiScope: scope("rivals_cited_own_not_retrieved") },
       { readObservations, now: new Date("2026-08-18T12:00:00.000Z") });
     expect(outcome?.objective).toBe("ai_retrieval"); expect(outcome?.retrieval).toEqual({ before: { sample: 40, hits: 10, rate: 0.25 }, after: { sample: 112, hits: 112, rate: 1 } });
@@ -341,8 +340,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       { engine: "chatgpt", modelServed: "gpt-5", mode: "api", answers: 20 },
       { engine: "chatgpt", modelServed: "gpt-5.5", mode: "api", answers: 24 },]);
     expect(outcome?.boundary).toBe("The instrument changed under this reading: ChatGPT moved from gpt-5 to gpt-5.5. A step here is the instrument, not the change.");
-    // DOCTRINE REVERSED (Codex, 2026-08-23). This pin used to demand 44: the model never filtered the read, because emptying the after side was the feared failure. The live counter-case is worse: comparing a gpt-5 baseline against gpt-5.5 answers sells an instrument swap as the change working or failing. An answer on a model the baseline never saw now starts its OWN segment: excluded from the direction arithmetic, still listed in instruments, and named in its own sentence.
-    expect(outcome?.after.checked).toBe(20); expect(outcome?.line ? [outcome.line, ...(outcome.metricLines ?? [])].join(" ") : "").toBeDefined();});
+    expect(outcome?.after.checked).toBe(20); expect(outcome?.line ? [outcome.line, ...(outcome.metricLines ?? [])].join(" ") : "").toBeDefined();}); // DOCTRINE REVERSED (Codex, 2026-08-23). This pin used to demand 44: the model never filtered the read, because emptying the after side was the feared failure. The live counter-case is worse: comparing a gpt-5 baseline against gpt-5.5 answers sells an instrument swap as the change working or failing. An answer on a model the baseline never saw now starts its OWN segment: excluded from the direction arithmetic, still listed in instruments, and named in its own sentence.
   /** THE INSTRUMENT IS THE EXACT TUPLE (Codex, 2026-08-23): engine, served model and mode TOGETHER. The marginal lists cross, and a cross authorizes pairings nobody observed; the frozen tuples are the only authority. */
   it("never lets engines and modes seen apart authorize the pairing, and names the cross as its own segment", async () => {
     const readObservations = reader([
@@ -352,8 +350,7 @@ describe("a shipment is judged on the objective it declared (AEO reconstruction,
       engines: ["chatgpt", "gemini"], models: ["gpt-5", "g-web"], modes: ["api", "consumer_search"],
       instruments: ["chatgpt|gpt-5|api", "gemini|g-web|consumer_search"] }), aiScope: scope("owned_mentioned_not_cited") },
       { readObservations, now: NOW });
-    // Both marginal lists contain gpt-5 and consumer_search, and the exact record still refuses the pairing.
-    expect(outcome?.after.checked).toBe(44); expect(outcome?.line).toContain("44 answers arrived on ChatGPT on gpt-5 (consumer search), which this change's starting numbers never saw");});
+    expect(outcome?.after.checked).toBe(44); expect(outcome?.line).toContain("44 answers arrived on ChatGPT on gpt-5 (consumer search), which this change's starting numbers never saw");}); // Both marginal lists contain gpt-5 and consumer_search, and the exact record still refuses the pairing.
   it("treats the same model and mode on a different engine as a new instrument, never a member", async () => {
     const readObservations = reader([ ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true })),
       ...days("2026-07-21", "2026-07-31", () => ({ mentioned: true, engine: "gemini" })),]); const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP,
@@ -425,8 +422,7 @@ describe("a conversion objective is graded on both halves, each on its own polar
     expect(outcome?.line).not.toMatch(/[—–]/); // no em or en dashes, ever
   });
   it("still reads a rising GOOD rate as the improvement it is", async () => {
-    // The polarity is per metric, not a blanket flip: being read more often is exactly what a retrieval objective wants. It started read on ten of the forty answers on file and every answer since has read it.
-    const started = { ai: { ...before(1, 1).ai, ownedRetrieved: 10, retrievedNotCited: 10 } }; const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: started,
+    const started = { ai: { ...before(1, 1).ai, ownedRetrieved: 10, retrievedNotCited: 10 } }; const outcome = await aiOutcomeForShipment(T, { implementedAt: STAMP, shipmentBaseline: started, // The polarity is per metric, not a blanket flip: being read more often is exactly what a retrieval objective wants. It started read on ten of the forty answers on file and every answer since has read it.
       aiScope: { promptIds: ["p1"], engines: [], fanouts: [], stage: "rivals_cited_own_not_retrieved" } },
     { readObservations: reader(since([CREDITED, CREDITED, PASSED_OVER, PASSED_OVER])), now: NOW });
     expect([outcome?.objective, outcome?.retrieval.after.rate, outcome?.direction]).toEqual(["ai_retrieval", 1, "improved"]); }); });

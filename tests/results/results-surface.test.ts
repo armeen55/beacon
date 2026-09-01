@@ -43,8 +43,7 @@ describe("the numbers at the top", () => {
     const mature = (["worked", "down", "flat"] as const).flatMap((g) => view.rows[g]);  // AND THEY RECONCILE: the totals are exactly the mature rows a customer can see, added up.
     expect([mature.reduce((t, r) => t + shown(r.liftLabel), 0), mature.reduce((t, r) => t + shown(r.impressionsLabel), 0)]).toEqual([10, 70]);
     expect([view.header.reading.value, view.counts, view.defaultGroup]).toEqual(["1", { worked: 1, down: 1, flat: 1, reading: 1 }, "worked"]);});
-  // ONE MATURITY RULE, BOTH SIDES: a shared-credit read sat in flight in the ledger bands and finished on Results, so Today said "out of 12 finished" over a header saying 14.
-  it("settles a shared-credit read the same way in the ledger bands and on Results", () => {
+  it("settles a shared-credit read the same way in the ledger bands and on Results", () => { // ONE MATURITY RULE, BOTH SIDES: a shared-credit read sat in flight in the ledger bands and finished on Results, so Today said "out of 12 finished" over a header saying 14.
     const early = evaluateChange(input({ windows: [win(7)] }), evaluateWindows(SHIPPED, new Date("2026-05-09T00:00:00Z"), "2026-05-09"), ["c2"]); const view = buildResultsView([shipment({ read: sharedCredit }), shipment({ read: early })], NOW);
     expect([bandOf(sharedCredit), view.counts.flat, bandOf(early), view.counts.reading]).toEqual(["learned", 1, "measuring", 1]); });
   it("never says nothing worked out of nothing: with no read finished it says when the first one lands", () => {
@@ -142,8 +141,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
   const flatOnGoogle = evaluateChange(input({ windows: [win(7, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(14, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 }),
     win(28, { adjustedClicksLift: 0, adjustedCtrLift: 0, adjustedImpressionsLift: 0 })] }), WINDOWS, []);
-  // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is still reading rather than a verdict, exactly as a 7 day Google lean is.
-  const ai = (direction: "improved" | "worsened" | "no_clear_movement" | "unclear", daysElapsed = 28) =>
+  const ai = (direction: "improved" | "worsened" | "no_clear_movement" | "unclear", daysElapsed = 28) => // A FINISHED AI READ, because the same maturity rule holds on both sides: a lean taken three days in is still reading rather than a verdict, exactly as a 7 day Google lean is.
     ({ direction, line: "Credited on 6 of the 20 answers that reported their sources, up from 1 of 18 before.", metricLines: [], boundary: null, daysElapsed });
   it("files a won citation as a win even while Google has not moved", () => {
     const row = first({ read: flatOnGoogle, judgedMetric: "ai_citation", ai: ai("improved") }); expect([row.group, row.verdictWord]).toEqual(["worked", "Worked"]);
@@ -180,8 +178,7 @@ describe("an AI change is judged on the thing it was raised to move", () => {
     expect([row.happened, row.nextStep]).toEqual(["Ran 28 days. Credited in AI answers more often than before.",
       "Do this again on the next page AI answers name without crediting."]);
     for (const s of fields(row)) expect(s, `contradicts the win: ${s}`).not.toMatch(CONTRADICTS);
-    // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
-    expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed." });
+    expect(row.googleAside).toEqual({ heading: "Google search, for context", line: "Ran 28 days. Estimated lift: 30 clicks behind pages that were not changed." }); // NOT HIDDEN, JUST NOT THE ANSWER: the decline keeps its sentence and its before and after, under a heading that says whose number it is.
     expect(row.numbers).toEqual({ before: ["200", "9,100"], after: ["261", "10,000"] });});
   it("refuses to read as a win when Google moved and the declared objective did not", () => {
     const row = first({ judgedMetric: "ai_citation", ai: ai("no_clear_movement") }); expect([row.group, row.verdictWord, row.liftLabel, row.bar]).toEqual(["flat", "No clear movement", "Credited with no clear movement yet", 0]);

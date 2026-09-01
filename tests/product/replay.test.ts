@@ -6,8 +6,7 @@ vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: asy
 vi.mock("@/domains/evidence/pages/owned-context", () => ({ loadOwnedPageBodies: async (_t: string, urls: string[]) => new Map(urls.map((u) => [u, { url: u, title: "Kite Festival", metaDescription: null, openingSample: "What happens at a kite festival.", cardTexts: [], entityNames: [], internalLinks: [], fetchedAt: "2026-07-20T09:00:00.000Z" }])) }));
 vi.mock("@/domains/decision/proposal-store", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision/proposal-store")>("@/domains/decision/proposal-store")),
   loadChangeProposals: async () => env.store,
-  // THE STORE MAY SAY NO, and a pass has to notice: a page named here is written, refused by the store, and never reaches the queue.
-  saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; env.store.set(p.id, p); return "saved" as const; } }));
+  saveChangeProposal: async (p: ChangeProposal) => { env.saved.push(p); if ([...env.refuseSave].some((k) => p.id.includes(k))) return "failed" as const; env.store.set(p.id, p); return "saved" as const; } })); // THE STORE MAY SAY NO, and a pass has to notice: a page named here is written, refused by the store, and never reaches the queue.
 vi.mock("@/domains/decision/produce-bundle", () => ({ produceBundleForSnapshot: async () => ({ status: "none", reason: "the deep bundle has its own suite" }) }));
 vi.mock("@/domains/account", async (orig) => ({ ...(await orig() as object), loadBusinessProfile: async () => null, getTenant: async () => ({ id: "replay-tenant", domain: "atlaspedia.example", growth_goal: null }), basisTag: () => "basis_replay" }));
 import type { Account } from "@/domains/account";
@@ -109,10 +108,8 @@ async function replayFunnel(): Promise<{ evidence: FunnelResearchEvidence; statu
   const statuses = [(await keywordDiscoveryUnit(deps)(TENANT, cursor, 60_000)).status, (await promptObservationUnit(deps, DUE)(TENANT, cursor, 60_000)).status,
     (await serpAnalysisUnit(deps)(TENANT, cursor, 60_000)).status];
   const state = store.peek()!;
-  // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
-  state.winningPages = [fx.winningPage(RIVAL_A, GAP_QUERY, parsed("onpage_content_parsing", fx.competitorPageBody())), fx.blockedWinner("https://rival-b.example/blog/spring-kites", GAP_QUERY)];
-  // The snapshot's AI evidence is the canonical record the executors just wrote, mapped by the same pure shape production reads, never the working window.
-  return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };}
+  state.winningPages = [fx.winningPage(RIVAL_A, GAP_QUERY, parsed("onpage_content_parsing", fx.competitorPageBody())), fx.blockedWinner("https://rival-b.example/blog/spring-kites", GAP_QUERY)]; // The winners are the SAME fixture bodies, read through the SAME parser: one readable, one the publisher refused.
+  return { evidence: { ...projectFunnelEvidence(state, NOW_MS), aiObservations: observed.filter((o) => o.status === "observed" && o.answer_hash != null).map(canonicalPairOf) }, statuses, observed };} // The snapshot's AI evidence is the canonical record the executors just wrote, mapped by the same pure shape production reads, never the working window.
 describe("the replay drives the REAL funnel executors, not a mock of them", () => {
   it("lands every fixture shape in the research evidence with its provenance intact", async () => {
     const { evidence, statuses } = await replayFunnel(); expect(statuses).toEqual(["done", "done", "done"]);
@@ -162,8 +159,7 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
     const { evidence } = await replayFunnel();
     const snapshot = fx.replaySnapshot({ gsc: [...fx.gscCannibalPair(), fx.gscStableWinner()], research: evidence,
       wix: [fx.ownedBody(GAP_URL, "Kite Festival"), fx.ownedBody(TWIN_URL, "Kite Festival Food"), fx.staleOwnedBody()] });
-    // BIGGEST FIRST, not alphabetical: a split is read one address at a time and the page most shown for that search leads it.
-    expect(snapshot.cannibalization[0]).toEqual({ query: GAP_QUERY, competingUrls: [GAP_URL, TWIN_URL], note: `2 of your pages compete for "${GAP_QUERY}", so pick one owner and point the rest at it.` });
+    expect(snapshot.cannibalization[0]).toEqual({ query: GAP_QUERY, competingUrls: [GAP_URL, TWIN_URL], note: `2 of your pages compete for "${GAP_QUERY}", so pick one owner and point the rest at it.` }); // BIGGEST FIRST, not alphabetical: a split is read one address at a time and the page most shown for that search leads it.
     expect(fx.replaySnapshot({ gsc: fx.gscCannibalPair().map((r) => ({ ...r, topQueries: r.topQueries.map((k) => ({ ...k, impressions: 49 })) })), research: evidence, wix: [] }).cannibalization).toEqual([]); // 49 views against 49 is two pages barely shown, not a split
     const dated = (url: string) => freshnessAt(snapshot.ownedPages.find((p) => p.url === url)!.content!.fetchedAt, NOW_MS, freshnessMsFor("owned_page"));
     expect([dated(GAP_URL), dated(fx.STALE_URL)]).toEqual(["current", "stale"]); // one body read this week, one read in the spring
@@ -202,31 +198,26 @@ describe("the replayed evidence reaches the REAL decision kernel", () => {
       landed: [...env.store.values()].filter((p) => p.status === "ready" && p.researchOnly !== true) }; };
   it("lands every fundable change through the store in one pass: a landing never closes the manifest, and a failed save stops nothing", async () => {
     const { evidence } = await replayFunnel();
-    // THE LANDINGS, on the real chain: the store answered saved, the rows on file are customer-actionable Ready, and the FIRST landing did not close the second purchase. Until 2026-08-30 a readyTarget of 1 made the second receipt read "the queue's shortfall was already filled": that sentence is deleted from the codebase.
-    const ok = await drive(evidence, []);
+    const ok = await drive(evidence, []); // THE LANDINGS, on the real chain: the store answered saved, the rows on file are customer-actionable Ready, and the FIRST landing did not close the second purchase. Until 2026-08-30 a readyTarget of 1 made the second receipt read "the queue's shortfall was already filled": that sentence is deleted from the codebase.
     const row = ok.landed.find((p) => p.recommendedChange.kind === "existing_edit" && p.recommendedChange.field === "meta")!;
     expect([ok.landed.length >= 2, row.status, row.researchOnly ?? false]).toEqual([true, "ready", false]);
     expect(ok.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))).toMatchObject({ outcome: "produced", persistence: "saved" }); // the money keys by mutation now, and the page-generic job collapses into it rather than buying a duplicate beside it
-    // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
-    expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()]));
+    expect(row.semanticReview!.claims.map((c) => [c.i, c.entailed, [...c.by].sort()])).toEqual(row.claims!.map((c, i) => [i, true, [...c.supportedBy].sort()])); // THE EDITOR'S READING RIDES THE ROW IT AUTHORIZED: one entailed ruling per claim, each on the claim's own evidence.
     expect(ok.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome).toBe("produced");
     expect(ok.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the first landing left the walk running
-    // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING, and still walks the whole manifest.
-    const lost = await drive(evidence, [TENANT]);
+    const lost = await drive(evidence, [TENANT]); // THE NEGATIVE SIBLING: the same drive with every save refused settles NOTHING, and still walks the whole manifest.
     expect([lost.landed, lost.res.paid.receipts.some((r) => r.outcome === "produced")]).toEqual([[], false]);
     expect(lost.res.paid.receipts.some((r) => r.outcome === "retryable_blocked" || r.outcome === "review_saved" || r.outcome === "deterministic_refusal")).toBe(true);
     expect(lost.asked.some((a) => a.includes(SECOND_QUERY))).toBe(true); // the failed save shortened nothing
   });
   it("a Ready inventory of 14, 40, 100 or 500 changes nothing: the pass still buys every real opportunity it holds", async () => {
     const { evidence } = await replayFunnel();
-    // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
-    const prior = await drive(evidence, []);
+    const prior = await drive(evidence, []); // The operator's acceptance fixture (2026-08-30). Ready = 0 is the drive above. Here the store already holds an inventory far past the old alarm floor at pass start, cloned from a genuinely landed row, and the pass must buy exactly as at zero.
     const base = prior.landed[0]!;
     const flood = (n: number) => new Map([...Array(n)].map((_, i) => [`flood-${i}`, { ...base, id: `flood-${i}`, pagePath: `/flood-${i}`, pageUrl: `${SITE}/flood-${i}` }] as const));
     for (const n of [14, 40, 100, 500]) {
       const out = await drive(evidence, [], flood(n));
-      // The seeds sit on pages this site does not have, so the sweep retires them as obsolete: a TYPED per-candidate reason, which stays legal. Quantity acting on the real work below is what must never happen.
-      expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))?.outcome, `at ${n} the strongest page was still bought`).toBe("produced");
+      expect(out.res.paid.receipts.find((r) => r.key === "/kite-festival-guide" || r.key.startsWith("/kite-festival-guide::"))?.outcome, `at ${n} the strongest page was still bought`).toBe("produced"); // The seeds sit on pages this site does not have, so the sweep retires them as obsolete: a TYPED per-candidate reason, which stays legal. Quantity acting on the real work below is what must never happen.
       expect(out.res.paid.receipts.find((r) => r.key === "/lantern-release-guide" || r.key.startsWith("/lantern-release-guide::"))?.outcome, `at ${n} the weaker page was still bought too`).toBe("produced");
       expect(out.asked.some((a) => a.includes(SECOND_QUERY)), `at ${n} the second page's draft was really asked for`).toBe(true); }
   }); });

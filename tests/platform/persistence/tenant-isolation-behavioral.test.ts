@@ -138,16 +138,13 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       load: async () => {
         loads++;
         if (loads === 1) return null; // First call: the row does NOT exist yet (cold signup race)…
-        // …then the durable row lands.
-        return row as never;},
+        return row as never;}, // …then the durable row lands.
       save: async () => ({ ok: true }),});
     try {
       const first = await bp.loadBusinessProfile("tenant-cold");
       expect(first.name.value).toBe(""); // honest empty, not another business
-      // The miss must NOT have been memoized: the next read sees the real row.
-      const second = await bp.loadBusinessProfile("tenant-cold"); expect(second.name.value).toBe("Real Cold Co");
-      // And the REAL profile is now cached (no further repo hits).
-      const before = loads; await bp.loadBusinessProfile("tenant-cold");
+      const second = await bp.loadBusinessProfile("tenant-cold"); expect(second.name.value).toBe("Real Cold Co"); // The miss must NOT have been memoized: the next read sees the real row.
+      const before = loads; await bp.loadBusinessProfile("tenant-cold"); // And the REAL profile is now cached (no further repo hits).
       expect(loads).toBe(before);
     } finally {
       bp.setBusinessProfileRepositoryForTests(null);
@@ -200,10 +197,8 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     expect(profile.importantPages.value).toEqual(["/about"]); expect(profile.constraints.value.editorial).toEqual(["Use plain English."]);
     expect(profile.constraints.value.bannedTerms).toEqual(["cheap"]); expect(profile.trustedSourceDomains.value).toEqual(["wikipedia.org"]);
     expect(profile.competitors.value).toEqual([{ name: "rival.example", evidenceUrls: [] }]);
-    // Raw legacy JSON preserved verbatim and inert.
-    expect(profile.legacy).toEqual(legacyRow);
-    // Removed contract fields do not surface as active truth.
-    expect("yelpBusinessId" in profile).toBe(false); expect("revenueModel" in profile).toBe(false);
+    expect(profile.legacy).toEqual(legacyRow); // Raw legacy JSON preserved verbatim and inert.
+    expect("yelpBusinessId" in profile).toBe(false); expect("revenueModel" in profile).toBe(false); // Removed contract fields do not surface as active truth.
     expect("domain" in profile).toBe(false);});
   it("active customer copy uses the BusinessProfile name, never the provisional signup seed", async () => {
     vi.doMock("@/lib/tenant-context", () => ({ currentTenantId: async () => "tenant-copy" }));
@@ -239,8 +234,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     try {
       expect((await store.getTenant("tenant-mem-a"))?.slug).toBe("mem-a"); expect(await store.getTenant("tenant-absent")).toBeNull();
       await expect(store.getTenantOrThrow("tenant-absent")).rejects.toThrow(/Unknown account/);
-      // Website is the canonical projection of the account's one domain.
-      const { websiteOf } = await import("@/domains/account/tenants/types"); expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" });
+      const { websiteOf } = await import("@/domains/account/tenants/types"); expect(websiteOf(memA)).toEqual({ account_id: "tenant-mem-a", domain: "mem-a.example", canonical_url: "https://mem-a.example" }); // Website is the canonical projection of the account's one domain.
     } finally {
       store.setAccountRepositoryForTests(null);}});
   it("lifecycle: a failed or anomalous account read resolves unavailable, never a redirect or a paused lockout", async () => {
@@ -248,8 +242,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
     const base = { id: "tenant-lc", slug: "lc", provisional_name: "", domain: "lc.example", signup_date: "2026-01-01",
       tos_accepted_at: null, daily_budget_usd: 5, growth_goal: null, created_at: "2026-01-01", updated_at: "2026-01-01" };
     const withStatus = (row: Record<string, unknown>) => store.mapRowToAccount({ ...base, business_name: "", ...row });
-    // An unrecognized physical status is flagged by the mapper and resolved as unavailable, not paused.
-    expect(withStatus({ status: "trialing" }).status_unrecognized).toBe(true); expect(withStatus({ status: "active" }).status_unrecognized).toBeUndefined();
+    expect(withStatus({ status: "trialing" }).status_unrecognized).toBe(true); expect(withStatus({ status: "active" }).status_unrecognized).toBeUndefined(); // An unrecognized physical status is flagged by the mapper and resolved as unavailable, not paused.
     const repo = (acct: unknown) => store.setAccountRepositoryForTests({
       getAccountById: async () => { if (acct instanceof Error) throw acct; return acct as never; }, getAccountBySlug: async () => null });
     try {
@@ -265,8 +258,7 @@ describe("generic Account + BusinessProfile (Slice 1 closure)", () => {
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard") }); // every product path resumes setup
       repo(withStatus({ status: "paused" }));
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "suspended", reason: "paused" });
-      // ACTIVE IS A STATUS, NOT PROOF OF SETUP, and AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth cannot be read at all, so the one verdict is the bounded retry surface and never a bounce back into setup for a customer who finished it months ago, while an account with no website at all resumes at the step that asks for one.
-      repo(withStatus({ status: "active" }));
+      repo(withStatus({ status: "active" })); // ACTIVE IS A STATUS, NOT PROOF OF SETUP, and AN OUTAGE IS NOT INCOMPLETENESS: with no database here the setup truth cannot be read at all, so the one verdict is the bounded retry surface and never a bounce back into setup for a customer who finished it months ago, while an account with no website at all resumes at the step that asks for one.
       expect(await resolveAccountAccess("tenant-lc")).toMatchObject({ kind: "unavailable", reason: "unreadable" });
       repo(withStatus({ status: "active", domain: "" }));
       await expect(requireReadyAccount("tenant-lc")).rejects.toMatchObject({ digest: expect.stringContaining("/onboard?step=1") });

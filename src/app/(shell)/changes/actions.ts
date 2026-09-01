@@ -7,7 +7,6 @@ import { after } from "next/server";
 import { log } from "@/lib/logger";
 import { currentTenantId } from "@/lib/tenant-context";
 import { canPublishForCurrentTenant } from "@/lib/auth/can-publish";
-import { getRepository } from "@/lib/persistence/repositories";
 import { proposalDisposition, actionableProposalFailures, answerReviewedProposal, componentIdOf, confirmedVersion, dangerousComponents, deliverableGaps, dismissChangeProposal, openHold, unsettledCause,
   loadChangeProposal, resolveCurrentBasis, sameComponentId, transitionProposalToImplemented, treatmentSignatureOf,
   type ChangeProposal } from "@/domains/decision";
@@ -71,12 +70,12 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
-  opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string },
+  opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>> },
 ): Promise<Shipped | { ok: false; error: string }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   try {
-    // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop.
-    const ledger = await loadShippedChanges();
+    // FAIL CLOSED ON THE DUPLICATE CHECK. A ledger I could not read is not proof there is no prior record: writing blind resets the live check and moves the ship date, the exact bug this lookup exists to stop. A batch press hands its ONE read through, so twenty cards no longer read the ledger twenty times.
+    const ledger = opts.preloadedLedger ?? await loadShippedChanges();
     // WHAT IS ALREADY ON FILE COMES OUT OF THIS PRESS: the picker offers every piece by default, so a partial press followed by the obvious next one wrote a SECOND record measuring the same component twice, and no screen can cause that now whatever it sends. The same id twice in one press is one piece too, so a repeated pick cannot mint a second version of one record. NAMES ARE COMPARED ACROSS ERAS. A piece recorded before its exact copy was part of its name can only ever be compared at the precision it was written with; two names of today's era compare whole, so a redrafted piece is genuinely new work and is measured.
     const already = new Set<string>();
     const mine = ledger.filter((r) => r.proposalId === proposal.id);
@@ -149,7 +148,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       preChangeContentHash: meta?.contentHash ?? null,
       // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.
       operatorNote: opts.operatorNote ?? null,
-    });
+    }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger } : undefined);
     return state(fresh.length, landed.shipmentId, landed.measurement);
   } catch (err) {
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
@@ -289,27 +288,69 @@ export async function markProposalImplementedAction(args: {
  *  sitting. The recording underneath stays ATOMIC, one shipment per change exactly as before; what is shared is
  *  the trip and the rebuild. IDEMPOTENT by construction: a change already being measured answers that it is,
  *  and says so per id rather than failing the batch. A press that records nothing still rebuilds nothing. */
-export async function markManyImplementedAction(args: { proposalIds: string[]; operatorNote?: string }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string }> {
+export async function markManyImplementedAction(args: { proposalIds: string[]; operatorNote?: string }): Promise<{ success: boolean; done: number; already: number; failed: { id: string; error: string }[]; note: string; results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; error?: string }[] }> {
+  const t0 = Date.now();
   const ids = [...new Set((args.proposalIds ?? []).filter((x) => typeof x === "string" && x.trim()))];
-  if (ids.length === 0) return { success: false, done: 0, already: 0, failed: [], note: "No changes were selected." };
-  if (!(await canPublishForCurrentTenant())) return { success: false, done: 0, already: 0, failed: [], note: "You do not have permission to mark these changes implemented." };
-  const failed: { id: string; error: string }[] = []; let done = 0, already = 0;
-  // BOUNDED, and small on purpose: every one of these writes a shipment and reads the ledger, so a wide fan-out
-  // would trade the operator's wait for the database's. Four at a time is fast and cannot stampede.
-  for (let i = 0; i < ids.length; i += 4) {
-    const slice = ids.slice(i, i + 4);
-    const answers = await Promise.all(slice.map(async (id) => ({ id,
-      r: await markProposalImplementedAction({ proposalId: id, deferSurfaces: true, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) })
-        .catch((e: unknown) => ({ success: false as const, error: e instanceof Error ? e.message : "that could not be recorded" })) })));
-    for (const { id, r } of answers) {
-      if (!r.success) failed.push({ id, error: r.error ?? "that could not be recorded" });
-      else if ((r.note ?? "").includes("already on file")) already += 1; else done += 1; }
-  }
+  if (ids.length === 0) return { success: false, done: 0, already: 0, failed: [], results: [], note: "No changes were selected." };
+  if (!(await canPublishForCurrentTenant())) return { success: false, done: 0, already: 0, failed: [], results: [], note: "You do not have permission to mark these changes implemented." };
+  // ONE BATCH CORE, NOT N COMPLETE SINGLE-CARD ACTIONS (operator, 2026-09-01). The old path ran the entire
+  // single-card action per row, so three cards repeated tenant resolution, basis resolution, a full Shipment
+  // ledger read, and the canonical save's 200-row page scan three times over: 68 to 74 seconds for work whose
+  // Shipment writes took 262 milliseconds. Auth once, tenant once, basis once, proposals once, ledger once;
+  // per row only what is genuinely per-row: its gates, its Shipment, its narrow status flip. Verification is
+  // NOT scheduled here at all: the operator is still publishing when a batch lands, and the canonical due-work
+  // sweep (verifyDueShipments) reads the page on its own bounded cadence. Research re-arming rides after().
+  const tenantId = await currentTenantId();
+  const basis = await resolveCurrentBasis(tenantId).catch(() => null);
+  const [stored, ledger] = await Promise.all([
+    (await import("@/domains/decision")).loadChangeProposals(tenantId).catch(() => new Map<string, ChangeProposal>()),
+    loadShippedChanges().catch(() => null)]);
+  if (ledger == null) return { success: false, done: 0, already: 0, failed: ids.map((id) => ({ id, error: "the record book could not be read just now" })), results: ids.map((id) => ({ id, outcome: "failed" as const, error: "the record book could not be read just now" })), note: "Nothing was recorded: the record book could not be read just now. Press it again in a moment." };
+  const results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; error?: string }[] = [];
+  const recordOne = async (id: string): Promise<(typeof results)[number]> => {
+    try {
+      // The same gates as the single press, asked against rows this batch already holds; the withdrawn-rescue
+      // fallback takes its own single read only for the rare row reconciliation retired mid-press.
+      const disposition = await proposalDisposition(tenantId, id).catch(() => null);
+      const rescued = disposition === "withdrawn";
+      const row = disposition == null ? stored.get(id) ?? await loadChangeProposal(tenantId, id).catch(() => null)
+        : rescued ? await loadChangeProposal(tenantId, id, { retired: "include" }).catch(() => null) : null;
+      if (!row) return { id, outcome: "failed", error: "That change could not be found." };
+      if (!rescued && row.status !== "implemented_pending_verification" && actionableProposalFailures(row, { tenantId, currentBasis: basis }).length > 0)
+        return { id, outcome: "failed", error: "This change was skipped, so it is not being recorded." };
+      const gaps = deliverableGaps(row);
+      if (gaps.length > 0) return { id, outcome: "failed", error: `Beacon has not finished this one yet: ${gaps[0]}` };
+      const unfit = unsettledCause(row) ?? (row.status === "ready" ? ((h) => h.safetyHold ? null : h.blocking)(openHold(row)) : null);
+      if (unfit) return { id, outcome: "failed", error: unfit };
+      if (row.status !== "ready" && row.status !== "implemented_pending_verification") return { id, outcome: "failed", error: "This change is still being reviewed." };
+      if (dangerousComponents(row.bundle?.components ?? []).length > 0) return { id, outcome: "failed", error: "This one moves or hides a page, so it needs its own confirmed press on the change itself." };
+      if (row.kind === "new_page") return { id, outcome: "failed", error: "A new page needs its live address, so record it from the change itself." };
+      const appliedIds = (row.bundle?.components ?? []).map(componentIdOf);
+      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) });
+      if (!shipment.ok) return { id, outcome: "failed", error: shipment.error };
+      // SHIPMENT FIRST, FLIP SECOND, exactly as the single press: a crash between the two leaves a Shipment the
+      // next press heals through the same idempotent id. A row already implemented replays as "already".
+      const alreadyDone = row.status === "implemented_pending_verification" || (shipment.recorded === 0 && (row.bundle?.components ?? []).length > 0); // an atomic row records zero COMPONENT ids by construction; only a bundle with nothing fresh is genuinely already on file
+      const ok = row.status === "implemented_pending_verification" ? true : await transitionProposalToImplemented(tenantId, id, shipment.shipmentId);
+      if (!ok) return { id, outcome: "failed", error: "The change could not be marked done. Press it again in a moment." };
+      return { id, outcome: alreadyDone ? "already" : "recorded", shipmentId: shipment.shipmentId };
+    } catch (err) {
+      log.error("markManyImplemented: one row failed", { id, error: err instanceof Error ? err.message : String(err) });
+      return { id, outcome: "failed", error: "That could not be recorded just now." };
+    }
+  };
+  // Bounded width: Shipment writes are ~250ms each, so four lanes keep a 20-card batch inside seconds without stampeding the store.
+  for (let i = 0; i < ids.length; i += 4) results.push(...await Promise.all(ids.slice(i, i + 4).map(recordOne)));
+  const done = results.filter((r) => r.outcome === "recorded").length, already = results.filter((r) => r.outcome === "already").length;
+  const failed = results.filter((r): r is { id: string; outcome: "failed"; error: string } => r.outcome === "failed").map((r) => ({ id: r.id, error: r.error }));
+  // ONE surface refresh for the whole batch, then acknowledge. Research re-arms AFTER the response so the
+  // operator is never waiting on the cycle it triggers; verification is owed to the due sweep, not this press.
   if (done > 0 || already > 0) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
-  if (done > 0) { const { ensureResearchRunOnVisit } = await import("@/domains/runtime"); ensureResearchRunOnVisit(await currentTenantId(), true); } // CONSUMPTION TRIGGERS REPLENISHMENT (operator ruling, 2026-08-29): a recorded batch is exactly the moment the queue emptied, so the canonical cycle is armed NOW rather than waiting for a visit or the calendar; every budget, lease and permission door inside it still answers for itself
+  if (done > 0) after(async () => { const { ensureResearchRunOnVisit } = await import("@/domains/runtime"); ensureResearchRunOnVisit(tenantId, true); });
   const parts = [done > 0 ? `${done} recorded` : null, already > 0 ? `${already} already being measured` : null,
     failed.length > 0 ? `${failed.length} could not be recorded` : null].filter(Boolean);
-  return { success: failed.length < ids.length, done, already, failed, note: `${parts.join(", ")}.` };
+  log.info("markManyImplemented: batch done", { count: ids.length, done, already, failed: failed.length, durationMs: Date.now() - t0 });
+  return { success: failed.length < ids.length, done, already, failed, results, note: `${parts.join(", ")}.` };
 }
 
 /** STEP TWO OF THE TWO-STEP HOLD, AND THE ONLY WAY A CHANGE THAT MOVES OR HIDES A PAGE BECOMES WORK. Step one has always existed: a redirect, a merge, a canonical or a de-index is minted `needs_review` and the queue says so. Step two did not, so every one of them was held for a confirmation nobody could give and none could ever be pasted. The operator reads the pieces, the addresses, the destination, the copy, the risks and the evidence on the change's own detail page and confirms THAT version. NOTHING IS TRUSTED FROM THE SCREEN: the row is re-read here and every gate is asked again at the moment of the mutation, because the page could have been open since before the copy was redrafted, before the cause was re-judged or before the bar moved. Never automatic: this runs on a press and on nothing else. */

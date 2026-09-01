@@ -97,8 +97,8 @@ async function comparisonFor(
 /** The row already holding this exact implementation, or null. Fail-closed: a ledger that could not
  *  be read THROWS rather than answering "there is nothing there", because writing blind over a real
  *  record would reset its live check and move its ship date. */
-async function heldShipment(f: Pick<ShipmentFacts, "tenantId" | "proposalId" | "proposalVersion">): Promise<ShippedChangeRecord | null> {
-  const ledger = await loadShippedChangesForTenant(f.tenantId);
+async function heldShipment(f: Pick<ShipmentFacts, "tenantId" | "proposalId" | "proposalVersion">, preloaded?: readonly ShippedChangeRecord[]): Promise<ShippedChangeRecord | null> {
+  const ledger = preloaded ?? await loadShippedChangesForTenant(f.tenantId);
   return ledger.find((r) => r.proposalId === f.proposalId && r.proposalVersion === f.proposalVersion) ?? null;
 }
 
@@ -144,8 +144,8 @@ async function write(
  * whether it can be fairly compared; a second press on the same proposal and version returns the row
  * already on file, unchanged.
  */
-export async function recordShipment(facts: ShipmentFacts): Promise<RecordedShipment> {
-  const held = await heldShipment(facts);
+export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATCH'S ONE LEDGER READ, handed through so a twenty-card press reads the ledger once instead of twenty-one times. The duplicate check stays exactly as strict: the preload IS the ledger, read by the same loader moments earlier. */ preloadedLedger?: readonly ShippedChangeRecord[] }): Promise<RecordedShipment> {
+  const held = await heldShipment(facts, opts?.preloadedLedger);
   if (held != null) {
     log.info("[shipment] this exact change is already recorded, so its record was left alone", {
       tenant: facts.tenantId, proposalId: facts.proposalId, shipment: held.id });

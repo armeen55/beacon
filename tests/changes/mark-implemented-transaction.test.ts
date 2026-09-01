@@ -85,8 +85,7 @@ describe("nothing is marked done that no record stands behind", () => {
       .toEqual([false, false, 0, 0, expect.stringContaining("nothing has been written for it yet"), expect.stringContaining("nothing has been written for it yet")]);
     expect([(await press({ ...change(), limitations: ["Nothing here is ready to paste: this card is research, not an edit."] } as ChangeProposal)).success, led.records.length]).toEqual([true, 1]); }); // that sentence on finished copy stops nothing
   it("the press outvotes a reconciliation withdrawal, and never a dismissal", async () => {
-    // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).
-    stored.disposition = "withdrawn";
+    stored.disposition = "withdrawn"; // THE LIVE RACE (2026-08-29): Noor's row was withdrawn by the producer seconds before the press loaded it, and "could not be found" recorded NOTHING the operator did. A reconciliation-withdrawn row is still theirs to finish; a DISMISSAL was the operator's own decision, asked BEFORE any shipment is written so a stale tab can neither undo it nor orphan a record (Mahsa's orphan was a shipment written before a doomed flip).
     const res = await press(change()); expect([res.success, led.records.length, led.flip.mock.calls.length]).toEqual([true, 1, 1]);
     stored.disposition = "dismissed"; led.records = []; led.flip.mockReset();
     const no = await press(change("Different words for the dismissed row"));

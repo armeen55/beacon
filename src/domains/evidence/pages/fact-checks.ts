@@ -310,7 +310,7 @@ export function glossCarriedBy(proposed: string, quotes: readonly string[]): boo
  *  copied sentence begins. */
 const bareAll = (t: string): string => foldText(t).replace(/[^\p{L}\p{N}]+/gu, "");
 const tokensOf = (t: string): string[] => foldText(t).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-export function citationOfQuote(proposed: string, quotes: readonly string[], current = ""): boolean {
+function citationOfQuote(proposed: string, quotes: readonly string[], current = ""): boolean {
   // The register is set by the slot: a statement-sized correction may legitimately match its quote (the Ahvaz
   // heat record replaces one full statement with another), so the refusal also requires the proposal to
   // OUTGROW the wording it replaces. Narration standing in a compact line fails both ways at once.

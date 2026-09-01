@@ -243,8 +243,7 @@ describe("a change detail hands over the whole investigation and the controls to
       "this page already has a change under measurement (held it back)", "did not move this one either way",
       "I ranked this on about 163 clicks I can show are recoverable"]) expect(html, s).toContain(s); });
   it("the operator can say which pieces they applied, what they actually wrote, or put the change away", async () => {
-    // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
-    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label });
+    const twin = (label: string) => ({ ...proposal().bundle!.components[0]!, kind: "internal_links" as const, label }); // READY IS THE ONLY LANE THAT CARRIES CONTROLS, so the picker is exercised on the shape that really has one. TWO PIECES OF THE SAME KIND ARE STILL TWO PIECES: a shared React key collapsed them into one row, so an operator could not say they applied one section and skipped the other. PIN (B): the control asks what they wrote; it never offers to skip the check.
     const html = await renderDetail(proposal({ status: "ready", riskLevel: "medium", modeledOn: SHAPE, bundle: { ...proposal().bundle!, components: [twin("The opening section"), twin("The sizing section")] } }));
     for (const s of ["Which pieces did you apply?", "The opening section", "The sizing section", "Only the pieces you tick get measured",
       "Wrote it your own way? Add what you put there", "Skip"]) expect(html, s).toContain(s);

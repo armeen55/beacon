@@ -115,12 +115,15 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
   const [bulkPending, startBulk] = useTransition();
   const pick = (id: string) => setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const markPicked = () => startBulk(async () => {
+    const n = picked.length;
+    say(`Recording ${n} ${n === 1 ? "change" : "changes"}…`); // said the moment the press lands; the durable answer replaces it
     const res = await markManyImplementedAction({ proposalIds: picked }).catch(() => null);
     if (!res) { say("That could not be recorded just now. Press it again in a moment."); return; }
     const failedIds = new Set(res.failed.map((f) => f.id));
-    setFinished((prev) => [...prev, ...picked.filter((id) => !failedIds.has(id))]);
+    setFinished((prev) => [...prev, ...picked.filter((id) => !failedIds.has(id))]); // FAILED ROWS STAY SELECTED AND VISIBLE; recorded rows leave the list only after the durable answer
     setPicked(picked.filter((id) => failedIds.has(id)));
-    say(res.note + (res.failed[0] ? ` First problem: ${res.failed[0].error}` : ""));
+    const doneWord = res.done > 0 ? `${res.done} ${res.done === 1 ? "change" : "changes"} recorded.` : "";
+    say([doneWord, res.already > 0 ? `${res.already} already being measured.` : "", res.failed[0] ? `${res.failed.length} could not be recorded. First problem: ${res.failed[0].error}` : ""].filter(Boolean).join(" ") || res.note);
   });
 
   return (
@@ -150,7 +153,7 @@ export function ChangesListClient({ view }: { view: ChangesView }) {
             <p className="text-[13px] font-semibold text-foreground">{picked.length} selected</p>
             <button type="button" data-bulk-done="true" disabled={bulkPending} onClick={markPicked}
               className="rounded-md bg-accent-primary px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60">
-              {bulkPending ? "Saving…" : `Mark ${picked.length} done`}
+              {bulkPending ? `Recording ${picked.length}…` : `Mark ${picked.length} done`}
             </button>
           </div>
         ) : null}

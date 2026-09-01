@@ -21,7 +21,10 @@ vi.mock("@/lib/auth/can-publish", () => ({ canPublishForCurrentTenant: async () 
 const shipped = vi.hoisted(() => ({ records: [] as unknown[], held: [] as any[] }));
 vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
   loadShippedChanges: async () => shipped.held, captureChangeMeta: async () => null, loadProofLedgerPersisted: async () => shipped.held,
-  recordShipment: async (r: unknown) => { shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
+  recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
+    const held = shipped.held.find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion); // the REAL door's idempotency, mirrored: same proposal and version answers the row already on file and writes nothing
+    if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" };
+    shipped.records.push(r); return { shipmentId: "rec-1", measurement: "measuring" }; } }));
 const NOW = "basis_now::d4";
 const EXACT = "Iranian Comedians: the 12 names people actually search for";
 const ID = "t::/famous-iranian-comedians::existing_edit::bundle";
@@ -194,4 +197,51 @@ describe("an empty Changes queue reads as a decision, not an empty screen", () =
     const current = { ...emptyView(0), proposals: [bundled(NOW)], ready: [bundled(NOW)] } as ChangesView;
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: NOW }).proposals).toHaveLength(1); // my own bar, untouched
     expect(withCurrentBasisOnly(current, { tenantId: "t", currentBasis: null }).proposals).toHaveLength(0); }); // a bar I cannot read shows nothing
+});
+/** ONE BATCH CORE, NOT N SINGLE-CARD ACTIONS (operator, 2026-09-01). Three cards used to repeat the full single press each: three ledger reads, three 200-row canonical saves, 68 to 74 seconds, then immediate live-site verification while the operator was still publishing. The batch reads the ledger once, writes one Shipment per success, flips each row narrowly, defers research past the response, schedules no immediate verification, dedupes its input, replays idempotently, and one failed row never rolls back the others. */
+describe("bulk Mark Done is one batch, durable before acknowledged", () => {
+  const readyRow = (id: string, over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id, tenantId: "t", kind: "existing_edit", pagePath: `/${id.split("::")[1] ?? "p"}`.replace("//", "/"), pageUrl: `https://iranopedia.com${`/${id.split("::")[1] ?? "p"}`.replace("//", "/")}`, pageLabel: id, primaryQuery: "q", opportunityType: "Capture clicks",
+    changeFamily: "meta", status: "ready", basis: NOW, modeledOn: 'the results page for "q": 3 ranked titles read, 2 of them leading with "q", and this line leads with it too',
+    recommendedChange: { kind: "existing_edit", field: "meta", before: "Old.", after: "A finished, specific description of the page, written from its own stored words." },
+    whyItMatters: "w", estimatedEffortMinutes: 3, riskLevel: "low", confidence: "high", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 5, upsidePerMonth: null, publish: "manual", createdAt: SEEN, ...over } as unknown as ChangeProposal);
+  const surfaceCalls = vi.hoisted(() => ({ n: 0 }));
+  const wire = async (rows: Map<string, ChangeProposal>, ledger: unknown[]) => {
+    vi.resetModules(); surfaceCalls.n = 0; shipped.records = []; shipped.held = ledger as never;
+    const transition = vi.fn(async () => true);
+    let ledgerReads = 0;
+    vi.doMock("next/server", async () => ({ ...(await vi.importActual<typeof import("next/server")>("next/server")), after: (fn: () => unknown) => { void Promise.resolve().then(fn as never); } }));
+    vi.doMock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => { surfaceCalls.n += 1; } }));
+    vi.doMock("@/domains/runtime", async () => ({ ...(await vi.importActual<typeof import("@/domains/runtime")>("@/domains/runtime")), ensureResearchRunOnVisit: () => {} }));
+    vi.doMock("@/domains/decision", async () => ({ ...(await vi.importActual<typeof import("@/domains/decision")>("@/domains/decision")),
+      loadChangeProposals: async () => rows, proposalDisposition: async () => null, loadChangeProposal: async () => null,
+      resolveCurrentBasis: async () => NOW, transitionProposalToImplemented: transition }));
+    vi.doMock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof import("@/domains/measurement")>("@/domains/measurement")),
+      loadShippedChanges: async () => { ledgerReads += 1; return shipped.held; }, captureChangeMeta: async () => null,
+      recordShipment: async (r: unknown) => { const f = r as { proposalId: string; proposalVersion: string };
+        const held = (shipped.held as Array<{ id: string; proposalId: string; proposalVersion: string; measurementState?: string }>).find((x) => x.proposalId === f.proposalId && x.proposalVersion === f.proposalVersion);
+        if (held) return { shipmentId: held.id, measurement: held.measurementState ?? "measuring" }; // the REAL door's (proposal, version) idempotency, mirrored: nothing is rewritten
+        shipped.records.push(r); return { shipmentId: `rec-${shipped.records.length}`, measurement: "measuring" }; } }));
+    const { markManyImplementedAction } = await import("@/app/(shell)/changes/actions");
+    return { markManyImplementedAction, transition, reads: () => ledgerReads };
+  };
+  it("records a deduped batch with one ledger read, one Shipment per success, per-id results, and no per-row rebuild", async () => {
+    const rows = new Map(["a", "b", "c"].map((k) => { const r = readyRow(`t::/${k}::existing_edit::missing_description`); return [r.id, r] as const; }));
+    const { markManyImplementedAction, transition, reads } = await wire(rows, []);
+    const ids = [...rows.keys()];
+    const res = await markManyImplementedAction({ proposalIds: [...ids, ids[0]!] }); // a duplicated input id is one press
+    expect([res.success, res.done, res.already, res.failed.length], "three recorded, none failed, the duplicate deduped").toEqual([true, 3, 0, 0]);
+    expect(res.results.map((r) => r.outcome), "per-id results say what each row became").toEqual(["recorded", "recorded", "recorded"]);
+    expect(res.results.every((r) => !!r.shipmentId), "every success names its Shipment").toBe(true);
+    expect([shipped.records.length, reads(), transition.mock.calls.length], "one Shipment per success, ONE ledger read for the whole batch, one flip per success").toEqual([3, 1, 3]);
+    expect(surfaceCalls.n, "one surface refresh for the whole batch, never one per row").toBe(1); });
+  it("replays idempotently, heals a crash between Shipment and flip, and one failed row rolls back nothing", async () => {
+    const a = readyRow("t::/a::existing_edit::missing_description"), b = readyRow("t::/b::existing_edit::missing_description", { status: "needs_review" });
+    const rows = new Map([a, b].map((r) => [r.id, r] as const));
+    const { markManyImplementedAction } = await wire(rows, []);
+    const first = await markManyImplementedAction({ proposalIds: [a.id, b.id] });
+    expect([first.done, first.failed.length, first.failed[0]?.id], "the review row fails alone; the ready row records").toEqual([1, 1, b.id]);
+    const written = shipped.records.at(-1) as { proposalVersion: string }; // CRASH HEAL: the Shipment landed but the flip did not. The retry finds the SAME Shipment through the door's own (proposal, version) idempotency, writes nothing new, and completes the flip it owes.
+    const healed = await wire(rows, [{ id: "rec-1", proposalId: a.id, proposalVersion: written.proposalVersion, componentsApplied: [{ id: null }], measurementState: "measuring" }]);
+    const retry = await healed.markManyImplementedAction({ proposalIds: [a.id] });
+    expect([retry.results[0]!.outcome, retry.results[0]!.shipmentId, shipped.records.length, healed.transition.mock.calls.length], "the retry heals the flip through the SAME Shipment, writes no duplicate, and flips once").toEqual(["recorded", "rec-1", 0, 1]); });
 });

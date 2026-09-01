@@ -2,8 +2,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { recordSpendSupabase } from "@/lib/cost/budget-ledger-supabase";
 const db = vi.hoisted(() => ({ readError: null as { message: string } | null, wrote: [] as Record<string, unknown>[], tables: [] as string[], spentToday: 0 }));
-// THE WRITE IS ONE ATOMIC INCREMENT IN THE DATABASE, never a total this process computed. Reading the row, adding the cost here and writing the absolute value back lost one of any two concurrent charges outright, and the cap that fails closed then read a total lower than what was spent. The mock is the RPC, and what it is handed is a DELTA: two charges send two deltas and neither one depends on what the other read.
-vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => {
+vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => ({ rpc: async (fn: string, args: Record<string, unknown>) => { // THE WRITE IS ONE ATOMIC INCREMENT IN THE DATABASE, never a total this process computed. Reading the row, adding the cost here and writing the absolute value back lost one of any two concurrent charges outright, and the cap that fails closed then read a total lower than what was spent. The mock is the RPC, and what it is handed is a DELTA: two charges send two deltas and neither one depends on what the other read.
   db.tables.push(fn);
   if (db.readError) return { data: null, error: db.readError };
   db.wrote.push(args); return { data: true, error: null }; },

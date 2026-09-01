@@ -36,6 +36,18 @@ function honestDelayHasEscalated(retryCount: number): boolean {
  * warms the durable cache. Session storage prevents a slow dependency from
  * turning this into a refresh loop.
  */
+/** A SUCCESSFUL RENDER FORGIVES THE PAST (operator, 2026-09-01). The retry counter lives per path for the whole
+ *  session and never reset, so one bad minute escalated the copy to "could not load" for every later hiccup on
+ *  that path, however many good renders came between. The section that succeeds renders this marker, the keys
+ *  clear, and the next delay starts from the calm sentence again. */
+export function HonestDelayReset() {
+  const pathname = usePathname();
+  useEffect(() => {
+    try { window.sessionStorage.removeItem(`beacon:delay-retry:${pathname}`); window.sessionStorage.removeItem(`beacon:delay-retry-count:${pathname}`); } catch { /* hardened modes keep the calm default */ }
+  }, [pathname]);
+  return <span hidden data-delay-reset="true" />;
+}
+
 export function HonestDelay({
   message = "This section is taking longer than it should. Beacon is retrying automatically.",
 }: {

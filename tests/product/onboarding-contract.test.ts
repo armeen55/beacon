@@ -34,8 +34,7 @@ function chain(): any {
 vi.mock("@/lib/persistence/supabase", async (orig) => ({ ...(await orig<Record<string, unknown>>()),
   getSupabaseAdmin: () => ({ from: () => chain(), rpc: async (_fn: string, a: any) => { guard(); if (ledgerWriteFails) return { data: null, error: { message: "write failed" } }; ledger = { usd: Math.max(0, ledger.usd + (Number(a.p_delta) || 0)), has: true }; return { data: true, error: null }; } }),
   isSupabaseConfigured: () => true,}));
-// ── in-memory world ─────────────────────────────────────────────────────────
-const NOW = new Date("2026-07-24T00:00:00Z");
+const NOW = new Date("2026-07-24T00:00:00Z"); // ── in-memory world ─────────────────────────────────────────────────────────
 type TenantRow = { status: Account["status"]; domain: string; growth_goal: string | null; tos: string | null };
 function makeWorld() {
   const tenants = new Map<string, TenantRow>();

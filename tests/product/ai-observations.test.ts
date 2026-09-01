@@ -33,8 +33,7 @@ function fakeTable(table: string) {
 /** The two first-party Search Console reads the funnel's own page-query default sits on. Faked here so the default itself is the thing under test; nothing else in this file reaches them. */
 const gsc = vi.hoisted(() => ({ pages: new Map<string, unknown>(), decay: new Map<string, unknown>() }));
 vi.mock("@/domains/evidence/readers/gsc-page-signals", () => ({ loadGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return gsc.pages; },
-  // The snapshot reads the FULL result, so a failed read travels as a failed source and a partial one does too.
-  readGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return { signals: gsc.pages, incomplete: false }; },
+  readGscPageSignalsForTenant: async () => { if (gsc.pages instanceof Error) throw gsc.pages; return { signals: gsc.pages, incomplete: false }; }, // The snapshot reads the FULL result, so a failed read travels as a failed source and a partial one does too.
   loadGscDecaySignalsForTenant: async () => gsc.decay }));
 /** THE one owner of the approved question set, faked so what a canonical read is SCOPED to is the thing under test. */
 const promptSet = vi.hoisted(() => ({ active: null as { id: string; version: number }[] | null }));
@@ -203,19 +202,16 @@ describe("re-analysis reads what was already bought", () => {
     expect(views.find((v) => v.id === "o4")!.citationUrls).toBeNull();    // and a row with no journey claims nothing
   });
   it("settles a failed reading only while it is still failed, and says which honest state it moved to", async () => {
-    // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a decision taken a moment earlier from demoting an answer that is now in hand.
-    await settleFailedObservation(TENANT, "obs_1", "unavailable"); expect(db.updated).toEqual({ status: "unavailable" });
+    await settleFailedObservation(TENANT, "obs_1", "unavailable"); expect(db.updated).toEqual({ status: "unavailable" }); // A reading that landed while the planner was deciding wins: the compare-and-set is what stops a decision taken a moment earlier from demoting an answer that is now in hand.
     expect(db.filters).toEqual({ tenant_id: TENANT, id: "obs_1", status: "failed" });
     db.updated = null; db.filters = {}; await settleFailedObservation(TENANT, "obs_2", "unsupported");
     expect([db.updated, db.filters]).toEqual([{ status: "unsupported" }, { tenant_id: TENANT, id: "obs_2", status: "failed" }]); // an engine I cannot ask is a different claim
     db.updated = null; db.error = { message: "connection lost" };
     await expect(settleFailedObservation(TENANT, "obs_3", "unavailable")).rejects.toThrow(/settle failed/);});
   it("reads a NAMED DAY whole, and an insert mid-read never doubles a row or drops one", async () => {
-    // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
-    db.read = stored(600);
+    db.read = stored(600); // The planner asks for the single day it is planning. That is a named range, so the reader walks it to the end: it used to default to 500 rows and call the newest page of a 600 row day the whole day.
     expect((await readAiObservations(TENANT, { day: DAY })).length).toBe(600);
-    // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking; an offset window re-numbers itself around them, so one row came back twice and another never at all.
-    db.pages = []; db.read = stored(2500);
+    db.pages = []; db.read = stored(2500); // AND THE PAGES DO NOT SHIFT UNDER AN INSERT. The collect step writes rows while a read is walking; an offset window re-numbers itself around them, so one row came back twice and another never at all.
     db.onPage = (n) => { if (n === 1) db.read = [...stored(30, 9000), ...db.read]; }; // 30 newer rows land mid-read
     const walked = await readAiObservations(TENANT, { day: DAY });
     expect(new Set(walked.map((r) => r.id)).size).toBe(walked.length); // no id twice
@@ -227,8 +223,7 @@ describe("the funnel's own default reader carries provenance, not just payload",
     gsc.pages = new Map([
       ["https://mine.example/guide", { page: "https://mine.example/guide", clicks90d: 10, impressions90d: 900, ctr90d: 0.01, position90d: 8, topQueries: [{ query: "kite festival dates", impressions: 400 }] }],
       ["https://mine.example/food", { page: "https://mine.example/food", clicks90d: 20, impressions90d: 500, ctr90d: 0.04, position90d: 5, topQueries: [{ query: "kite festival food", impressions: 300 }] }]]);
-    // The guide's last 28 days fell against the 28 before them, so its queries are the slipping ones.
-    gsc.decay = new Map([["https://mine.example/guide", { page: "https://mine.example/guide", clicksNow: 3, clicksPrior: 9 }]]);
+    gsc.decay = new Map([["https://mine.example/guide", { page: "https://mine.example/guide", clicksNow: 3, clicksPrior: 9 }]]); // The guide's last 28 days fell against the 28 before them, so its queries are the slipping ones.
     expect(await resolveDeps({}).loadPageQueries(TENANT)).toEqual([
       { query: "kite festival dates", impressions: 400, declining: true, page: "https://mine.example/guide" },
       { query: "kite festival food", impressions: 300, declining: false, page: "https://mine.example/food" }]);
@@ -244,8 +239,7 @@ describe("retrieved is not the same claim as not cited", () => {
     expect(retrievedNotCitedLinks(retrieved, [])).toEqual(retrieved); // an observed zero IS a claim
   });
   it("credits the whole site when the citation names only a site, and only that page when it names a page", () => {
-    // The reader falls back to the bare domain whenever an engine reports no address for what it credited, and comparing whole urls alone matched none of those: a page that WAS credited came back as read and passed over, which is the harshest verdict this product can reach about a page.
-    const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")];
+    const retrieved = [at("https://acme.com/guide"), at("https://rival.example/a")]; // The reader falls back to the bare domain whenever an engine reports no address for what it credited, and comparing whole urls alone matched none of those: a page that WAS credited came back as read and passed over, which is the harshest verdict this product can reach about a page.
     expect(retrievedNotCitedLinks(retrieved, [{ url: "acme.com", domain: "acme.com", title: null }]).map((r) => r.url)) .toEqual(["https://rival.example/a"]);
     expect(retrievedNotCitedLinks(retrieved, [at("https://acme.com/other")]).map((r) => r.url)) // A citation naming a DIFFERENT page on the same site still leaves the retrieved one uncredited.
       .toEqual(["https://acme.com/guide", "https://rival.example/a"]); });
@@ -316,8 +310,7 @@ describe("the snapshot reads the canonical answer set, never the working window"
   it("pages past the newest 1,000 rows to reach a pair whose latest answer is older, and stops the moment every pair is resolved", async () => {
     db.read = [...older(1000), stored("p1", "chatgpt", { id: "obs_deep", requested_at: `${DAY}T00:00:00.000Z` })]; // p1's only answer sits on page two
     expect((await snapshotOf()).research.aiObservations.map((o) => o.observationId).sort()).toEqual(["obs_deep", "obs_f0999"]); expect(db.pages.length).toBe(2);
-    // AND THE FINGERPRINT RUNS THAT SAME WALK. A hand-rolled one-page read beside an eight-page loader gave two windows that could never agree, so the debt between them was owed on every call and each one opened a PAID phase.
-    db.pages = []; db.selected = [];
+    db.pages = []; db.selected = []; // AND THE FINGERPRINT RUNS THAT SAME WALK. A hand-rolled one-page read beside an eight-page loader gave two windows that could never agree, so the debt between them was owed on every call and each one opened a PAID phase.
     expect((await readCanonicalAnalysisStamps(TENANT)).map((s) => s.id).sort()).toEqual(["obs_deep", "obs_f0999"]);
     expect([db.pages.length, [...new Set(db.selected)]]).toEqual([2, ["id,prompt_id,prompt_version,engine,reporting_day,requested_at,status,answer_hash,analysis_hash"]]); // same pages, and never the answer, the journey or the reading itself
     db.pages = []; db.read = wholeDay(); // and all 140 pairs land on page one, so I read exactly ONE page and never eight

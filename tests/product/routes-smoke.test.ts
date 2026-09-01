@@ -45,12 +45,10 @@ describe("Today renders, and tells the truth about its own queue", () => {
     toDo: [], measuringCountCanonical: measuring,
   } as unknown as import("@/app/(shell)/changes-data").ChangesView);
   const NO_WORK = "No finished change is ready today. The next one lands here the moment the exact work is written.";
-  // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
-  it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => {
+  it("counts every finished change, previews three, and says no finished change is ready when there are none", async () => { // EVERY CHANGE THE HEADER COUNTS IS FINISHED WORK, three of them are previewed, and an empty day says which empty it is: a quiet queue is not a quiet account and not a report either, and an unfinished opportunity is a status count, never an edit.
     const { buildTodayViewFromChanges } = await import("@/app/(shell)/today-view-data"); const view = buildTodayViewFromChanges(readyView(12, 3));
     const empty = { ready: [], toDo: [], measuringCountCanonical: 0, proposals: [] } as unknown as import("@/app/(shell)/changes-data").ChangesView;
-    // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
-    const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView;
+    const live = { ...readyView(3, 0), toDo: [readyView(1, 0).ready[0]!], summary: { ready: 3, todo: 1 } } as unknown as import("@/app/(shell)/changes-data").ChangesView; // PRODUCTION, 2026-08-15: three ready and one in review, and this sentence said "You have 4 finished changes ready to make". FINISHED COUNTS FINISHED. The review card is counted in its own clause, is never previewed, and is never the edit Today leads with: a card the queue holds back cannot be the thing to do first.
     const mixed = buildTodayViewFromChanges(live), reviewOnly = buildTodayViewFromChanges({ ...live, ready: [], summary: { ready: 0, todo: 1 } } as never);
     expect([mixed.headerSentence, mixed.readyTotal, mixed.toDoTotal, mixed.nextOpportunities.length, reviewOnly.headerSentence, reviewOnly.topEdit])
       .toEqual(["You have 3 finished changes ready to make, best first.", 3, 1, 3,
@@ -60,8 +58,7 @@ describe("Today renders, and tells the truth about its own queue", () => {
       buildTodayViewFromChanges({ ...empty, summary: { ...empty.summary, research: 7 } }).headerSentence])
       .toEqual(["You have 12 finished changes ready to make, best first.", 3, "You have 1 finished change ready to make, best first.", NO_WORK, NO_WORK,
         NO_WORK]);
-    // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): a research row outranking the one ready change globally still cedes the top slot to the finished work.
-    const rv = readyView(1, 0), research = { ...rv.ready[0]!, id: "t::/r::existing_edit::researching", researchOnly: true };
+    const rv = readyView(1, 0), research = { ...rv.ready[0]!, id: "t::/r::existing_edit::researching", researchOnly: true }; // TODAY NEVER LEADS WITH RESEARCH WHILE ANY FINISHED CHANGE EXISTS (operator, 2026-08-22): a research row outranking the one ready change globally still cedes the top slot to the finished work.
     const led = buildTodayViewFromChanges({ ...rv, research: [research], proposals: [research, rv.ready[0]!],
       summary: { ready: 1, todo: 0, research: 1 } } as never);
     expect(led.nextOpportunities[0]!.lane).toBe("ready");
