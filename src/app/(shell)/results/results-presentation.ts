@@ -8,7 +8,7 @@ import { monthDayLabel } from "@/components/data/receipt-line";
 import { isMature as kernelIsMature } from "@/domains/measurement";
 import type { ControlReceipt, KernelRead, MeasurementState, ShipmentObjective, ShipmentVerification } from "@/domains/measurement";
 import { RESULT_LINES } from "./results-lines";
-const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, nextStepLine, reasonWords, receiptOf, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
+const { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } = RESULT_LINES;
 
 
 /** What one measured change carries on the Results surface. */
@@ -33,7 +33,7 @@ export type ShipmentPresentation = {
   judgedMetric?: ShipmentObjective | null;
 };
 
-/** The four things a change can be, in the order the strip shows them. */
+/** The four things a change can be, in the order All changes shows them. */
 export type ResultsGroup = "worked" | "down" | "flat" | "reading";
 
 type ResultsRow = {
@@ -42,6 +42,8 @@ type ResultsRow = {
   work: string;
   group: ResultsGroup;
   verdictWord: string;
+  /** Confirmed on the live page after being marked done: the only rows that may teach, colour, or recommend. */
+  liveConfirmed: boolean;
   dot: "emerald" | "rose" | "grey" | "sky";
   /** Bar fill, -1 to 1, on ONE shared scale. Null when there is nothing to draw. An AI judged row draws ITS OWN objective's
    *  direction here: a bar sized and signed off Google painted a rose bar across a won citation. */
@@ -82,15 +84,6 @@ type ResultsRow = {
 export type ResultsView = {
   rows: Record<ResultsGroup, ResultsRow[]>;
   counts: Record<ResultsGroup, number>;
-  header: {
-    worked: { value: string; sub: string; isCount: boolean };
-    /** NET across every settled change, with the gross from the wins carried in the note. */
-    clicks: { value: string; positive: boolean; note: string | null };
-    appearances: { value: string; positive: boolean; note: string | null };
-    reading: { value: string; sub: string; isCount: boolean };
-    /** The period every total above answers for. */
-    window: string;
-  };
   defaultGroup: ResultsGroup;
 };
 
@@ -110,6 +103,8 @@ export const groupOf = (r: KernelRead): ResultsGroup => {
   if (r.verdict === "stronger_improvement" || r.verdict === "directional_improvement") return isMature(r.basisDay) ? "worked" : "reading";
   if (r.verdict === "directional_decline") return isMature(r.basisDay) ? "down" : "reading";
   if (r.verdict === "no_clear_movement" || r.verdict === "confounded") return isMature(r.basisDay) ? "flat" : "reading";
+  // A CLOSED WINDOW WITH NO FAIR COMPARISON IS FINISHED, NOT READING: it files under Unclear as inconclusive, where the Brain also counts it.
+  if (r.verdict === "insufficient_evidence") return isMature(r.basisDay) ? "flat" : "reading";
   return "reading";
 };
 
@@ -150,9 +145,10 @@ export const landsLabel = (closesOn: string | null | undefined, now: Date): stri
   return Number.isFinite(end) && end < now.getTime() ? "is overdue; Google reports a few days behind" : `lands ${day}`;
 };
 
-export const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
+const lastClosed = (r: KernelRead) => [...r.windows].reverse().find((w) => w.state === "closed") ?? null;
 
 const showsImpressions = (p: ShipmentPresentation): boolean => !(p.baseline && p.baseline.impressions <= 0);
+/** ONLY A LIVE-CONFIRMED CHANGE MAY TEACH: the same two answers treatment-learning and the Brain count. A legacy row has no implementation stamp and is history whatever its number. */
 
 // -- the sentences ------------------------------------------------------------
 
@@ -163,7 +159,8 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
   const done = lastClosed(p.read), next = p.read.windows.find((w) => w.state !== "closed");
   const out = [
     { label: marked ? `Marked done ${marked}` : "Marked done, date not kept", done: true },
-    p.verification && checked ? { label: `Live page checked ${checked}`, done: true } : { label: "Live page not read yet", done: false },
+    p.verification && checked ? { label: `Live page checked ${checked}`, done: true }
+      : { label: p.implementedAt == null ? "Live page never checked; predates verification" : "Live page not read yet", done: false },
   ];
   // A ROW JUDGED ON AI IS READ OVER ITS OWN 28 DAYS FROM THE STAMP, not over the Google windows: a change three days into its
   // citation read carried "28 day read May 29, done" beside its own "Reading". No date is printed for it, because none is on file.
@@ -183,7 +180,8 @@ function timelineLines(p: ShipmentPresentation): Array<{ label: string; done: bo
 function chipOf(p: ShipmentPresentation): { text: string; amber: boolean } | null {
   if (p.read.verdict === "confounded") return { text: "Shared with a later change", amber: true };
   const v = p.verification;
-  if (!v) return { text: "Live page not read yet", amber: false };
+  // A ROW WITH NO STAMP WEARS ITS STATE WORD ON THE COLLAPSED LINE: the direction cell shows a number, so the chip is where the one vocabulary lands.
+  if (!v) return { text: stateWord(p), amber: false };
   if (v.status === "verified") return null;
   // A RECHECK STILL SCHEDULED MEANS THE VERDICT IS NOT IN (operator, 2026-08-29): work is marked done in the editor and the site publishes later, so an early read seeing the old page is the publish lag, not their wording winning. Only a FINAL differs says whose words the page kept.
   if (v.recheckAfter != null) return { text: "Waiting for your publish. Beacon checks the page again soon.", amber: false };
@@ -234,15 +232,12 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     // THE COLLAPSED ROW IS HONEST BEFORE ANYTHING IS OPENED (Codex, 2026-08-21): no clear movement, a split
     // between assistants and a terminally unmeasurable result are three different silences, and only a real
     // control-based flat result may say "No change".
-    verdictWord: shared && !onAi ? "Shared with a later change"
-      : r.metric === "unclassified" && !onAi ? "Not judged"
-        : group === "worked" ? "Worked"
-        : group === "down" ? "Went down"
-          : group !== "flat" ? "Reading"
-            : p.ai?.terminal === true ? "Not measurable"
-              : move === "mixed" ? "Assistants split"
-                : onAi ? "No clear movement" : "No change",
-    dot: group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
+    // A READ AHEAD IS NOT A WIN (operator, 2026-09-01): every one of the six rows this surface once called "Worked" carried "Live page not
+    // read yet". The word is the row's ONE state, the same one the Brain above counts, so the list can never say what the belief denies.
+    verdictWord: stateWord(p),
+    liveConfirmed: liveConfirmed(p),
+    // COLOUR ONLY WHERE THE LIVE PAGE CONFIRMED THE CHANGE: a historical read ahead painted green reads as a win.
+    dot: !liveConfirmed(p) ? "grey" : group === "worked" ? "emerald" : group === "down" ? "rose" : group === "flat" ? "grey" : "sky",
     bar,
     // A Google confidence dims a GOOGLE bar only: dimmed to 0.4 under a won citation it printed a doubt no
     // reading of that objective had expressed.
@@ -278,8 +273,9 @@ function rowOf(p: ShipmentPresentation, now: Date): ResultsRow {
     aiMetricLines: p.ai?.metricLines ?? [], aiBoundary: p.ai?.boundary ?? null,
     // A WIN NOBODY VERIFIED SAYS SO ON THE ROW (operator, 2026-08-21): improvement after a marked change is a
     // fact, and "the live implementation has not been verified" is the other fact that belongs beside it.
-    caveats: [...(group === "worked" && (p.verification == null || p.verification.status === "not_found" || p.verification.status === "blocked" || p.verification.status === "operator_confirmed")
-      ? [onAi ? "This improved after the change was marked done; the live implementation has not been verified yet." : "Traffic improved after this marked change; the live implementation has not been verified yet."] : []),
+    // THE CAVEAT NAMES THE YARDSTICK THAT MOVED AND WHY THE LIVE PAGE IS SILENT: "traffic improved" over a click-rate read whose impressions fell was a second claim, and "not verified yet" on a change that predates verification promised a check that will never run.
+    caveats: [...(group === "worked" && !liveConfirmed(p)
+      ? [`${onAi ? "This improved" : r.metric === "ctr" ? "The click rate read ahead" : r.metric === "position" ? "The position read ahead" : "Clicks read ahead"} after this marked change; ${p.implementedAt == null ? "the change predates live verification and was never checked on the page." : "the live implementation has not been verified yet."}`] : []),
     ...caveatLines(r, onAi)].slice(0, 3),
     timeline: timelineLines(p),
     taught: taughtLine(p),
@@ -300,61 +296,9 @@ export function buildResultsView(shipments: ReadonlyArray<ShipmentPresentation>,
   for (const g of Object.keys(rows) as ResultsGroup[]) rows[g].sort((a, b) => a.sort - b.sort);
   const counts = { worked: rows.worked.length, down: rows.down.length, flat: rows.flat.length, reading: rows.reading.length };
 
-  // SETTLED = finished its 28 day read ON ITS OWN YARDSTICK, off the ONE grouping: reading it off the Google
-  // verdict while the strip grouped on the declared one let a citation win sit under a header saying nothing
-  // had finished. `groupFor` already holds an unfinished read of either kind as reading.
-  const settled = shipments.filter((p) => groupFor(p) !== "reading");
-  const wins = settled.filter((p) => groupFor(p) === "worked");
-  const soonest = landsLabel(shipments
-    .map((p) => p.read.windows.find((w) => w.state !== "closed")?.closesOn ?? null)
-    .filter((d): d is string => d != null).sort()[0] ?? null, now);
-
-  // NET, NOT CHERRY PICKED. The headline totals used to add up the wins alone, so a site that lost more than it
-  // gained still read "+54 clicks added". They now add up EVERY settled row exactly as the screen prints it
-  // (rounded, and nothing from a row that claims no number), and the gross from the wins drops to the second line.
-  // THE TOTALS ARE THE VISIBLE ROWS ADDED UP. An AI-judged row prints no click figure at all, so folding its
-  // Google numbers in made a header nobody could reconcile against the list under it; a row with no closed
-  // window would add a zero reading as "earned nothing" rather than "nothing read yet". Its Google movement
-  // stays on the row itself, in the labelled aside, as context and never as a claim.
-  const counted = settled.filter((p) => !judgedOnAi(p) && p.read.verdict !== "confounded" && p.read.verdict !== "insufficient_evidence" && isMature(p.read.basisDay));
-  const won = (p: ShipmentPresentation) => groupFor(p) === "worked";
-  const total = (list: ShipmentPresentation[], of: (p: ShipmentPresentation) => number) => list.reduce((s, p) => s + Math.round(of(p)), 0);
-  // Clicks are summed only where the read was measured in clicks; a rate read adds its count instead of a number pretending to be one.
-  const clicked = counted.filter((p) => p.read.metric === "clicks");
-  const clicks = total(clicked, (p) => p.read.lift);
-  const clicksWon = total(clicked.filter(won), (p) => p.read.lift);
-  const rateReads = counted.length - clicked.length;
-  const seen = counted.filter(showsImpressions);
-  const appearances = total(seen, (p) => p.read.impressionsLift);
-  const appearancesWon = total(seen.filter(won), (p) => p.read.impressionsLift);
-  const fromWins = (gross: number, net: number) => `${signed(gross)} from wins, ${signed(net - gross)} from the rest`;
-
   return {
     rows,
     counts,
-    header: {
-      worked: settled.length === 0
-        ? { value: soonest ? `First result ${soonest}` : "First result lands once a read closes", sub: "Nothing has finished its 28 day read yet", isCount: false }
-        // COUNTED, NEVER CHERRY PICKED, AND NEVER OVERSOLD: a row without a clear result is inconclusive, not
-        // proof of what does not work (operator, 2026-08-21), so the rest are counted and never characterized.
-        : { value: `${num(wins.length)} ${wins.length === 1 ? "win" : "wins"}`, isCount: true,
-            sub: `out of ${settled.length} finished` },
-      clicks: clicked.length === 0
-        ? { value: rateReads > 0 ? `${rateReads} read in click rate` : "Nothing read yet", positive: false, note: null }
-        : { value: signed(clicks), positive: clicks > 0,
-            note: `${fromWins(clicksWon, clicks)}${rateReads > 0 ? `, plus ${rateReads} more read in click rate` : ""}` },
-      appearances: seen.length === 0
-        ? { value: "Not enough read yet", positive: false, note: null }
-        : { value: signed(appearances), positive: appearances > 0, note: fromWins(appearancesWon, appearances) },
-      // A BARE 0 SET IN THE BIG NUMBER READS AS A FAILURE. Nothing mid-read is a fine state, so it is said in
-      // words and small, exactly as the three totals beside it say their own missing answers.
-      reading: counts.reading === 0
-        ? { value: "None", sub: "every change recorded has been read", isCount: false }
-        : { value: num(counts.reading), sub: soonest ? `next result ${soonest}` : "next result lands once a read closes", isCount: true },
-      window: settled.length === 0
-        ? "Nothing has finished its 28 day read yet."
-        : `Across the ${num(settled.length)} ${settled.length === 1 ? "change" : "changes"} that finished their 28 day read.`,
-    },
     defaultGroup: counts.worked > 0 ? "worked" : counts.down > 0 ? "down" : counts.reading > 0 ? "reading" : "flat",
   };
 }

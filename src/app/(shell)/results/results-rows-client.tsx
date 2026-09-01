@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
@@ -19,11 +19,12 @@ type ResultsRow = ResultsView["rows"]["worked"][number];
 const TABS: Array<{ key: ResultsGroup; label: string; line: string }> = [
   // EACH ROW FINISHED AHEAD OR BEHIND ON ITS OWN DECLARED YARDSTICK: unchanged pages for a Google objective,
   // the account's own unaffected questions for an AI one. One shared sentence may not claim otherwise.
-  { key: "worked", label: "Worked", line: "Each finished ahead on the yardstick it declared: unchanged pages for Google, unaffected questions for AI answers." },
-  { key: "down", label: "Went down", line: "Each fell behind on the yardstick it declared." },
+  // A READ AHEAD IS NOT A WIN (operator, 2026-09-01): "Worked" over rows whose live page was never read back claimed what nobody verified. The tab says what was read; the row says whether it was verified.
+  { key: "worked", label: "Read ahead", line: "Each finished ahead on the yardstick it declared: unchanged pages for Google, unaffected questions for AI answers. Only a live-verified read teaches." },
+  { key: "down", label: "Read behind", line: "Each fell behind on the yardstick it declared." },
   // NEUTRAL ENOUGH TO HOLD WHAT IS IN IT: inside the normal range, uncalled, split, and unmeasurable are
   // four different outcomes, and naming the group "No change" spoke for all four (Codex, 2026-08-21).
-  { key: "flat", label: "No clear result", line: "Nothing here earned a verdict. Each row says which kind of silence it is." },
+  { key: "flat", label: "Unclear", line: "Nothing here earned a verdict. Each row says which kind of silence it is." },
   { key: "reading", label: "Reading", line: "Nothing to decide here until the next read lands." },
 ];
 
@@ -69,7 +70,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
   const cell = group === "down" || group === "flat" ? (row.yardstick ? row.liftLabel ?? row.verdictWord : row.verdictWord)
     : group === "reading" ? row.readLabel
       : row.liftLabel ?? row.verdictWord;
-  const cellTone = group === "worked" ? "text-emerald-700" : group === "down" ? "text-rose-700" : "text-muted-foreground";
+  const cellTone = row.dot === "emerald" ? "text-emerald-700" : row.dot === "rose" ? "text-rose-700" : "text-muted-foreground";
   // THE GOOGLE HALF OF THE PANEL, IN ONE PIECE: the before and after, the site's own move and the pages this one stood against. On a row
   // judged on AI it is rendered inside the labelled aside below rather than in the answer slot, which is where it used to contradict the
   // verdict out loud. On a row judged on clicks it renders exactly where it always did.
@@ -118,7 +119,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
     </div>
   ) : null;
   return (
-    <div>
+    <div id={`change-${row.id}`}>
       <button type="button" onClick={onToggle} aria-expanded={open} className={`${GRID} h-11 w-full px-3 text-left hover:bg-surface-inset/60 ${FOCUS}`}>
         <span className={`h-2 w-2 rounded-full ${DOT[row.dot]}`} aria-hidden />
         <span className="flex min-w-0 items-center gap-1.5">
@@ -183,7 +184,7 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
           <p className="mt-3 text-[12px] text-foreground/80">{row.taught}</p>
           {/* ONE next step per row, and it is the row's own: a win used to be sent off with the title
               advice whatever the change had actually been. Clickable where there is somewhere to go. */}
-          {group === "worked"
+          {group === "worked" && row.liveConfirmed
             ? <Link href="/changes" className={`mt-1 block text-[12px] font-medium text-accent-primary underline underline-offset-2 ${FOCUS}`}>{row.nextStep}</Link>
             : <p className="mt-1 text-[12px] font-medium text-foreground">{row.nextStep}</p>}
           <div className="mt-2 flex justify-end gap-4 text-[12px] font-medium">
@@ -198,6 +199,24 @@ function Row({ row, group, open, onToggle }: { row: ResultsRow; group: ResultsGr
 export function ResultsRows({ view }: { view: ResultsView }) {
   const [group, setGroup] = useState<ResultsGroup>(view.defaultGroup);
   const [open, setOpen] = useState<string | null>(null);
+  // A Brain link names one change by id. The ledger renders one tab at a time, so the link must first
+  // switch to the tab that holds the row, open the ledger, expand the row, and only then scroll to it.
+  useEffect(() => {
+    const follow = () => {
+      const id = decodeURIComponent(window.location.hash.replace(/^#change-/, ""));
+      if (!id || !window.location.hash.startsWith("#change-")) return;
+      const holder = (Object.keys(view.rows) as ResultsGroup[]).find((g) => view.rows[g].some((r) => r.id === id));
+      if (!holder) return;
+      setGroup(holder);
+      setOpen(id);
+      const ledger = document.querySelector<HTMLDetailsElement>("details[data-results-all-changes]");
+      if (ledger) ledger.open = true;
+      window.setTimeout(() => document.getElementById(`change-${id}`)?.scrollIntoView({ block: "start" }), 0);
+    };
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, [view.rows]);
   const rows = view.rows[group];
   const tab = TABS.find((t) => t.key === group)!;
 

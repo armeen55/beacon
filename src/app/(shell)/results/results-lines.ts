@@ -106,6 +106,34 @@ const aiMove = (p: ShipmentPresentation): "improved" | "worsened" | "no_clear_mo
  *  and a row that does not carry the count is not claimed as finished. It still shows in its own lane: which answer a change is and
  *  whether its read is over are two different facts, and only the second one may be totalled. */
 const finishedReading = (p: ShipmentPresentation): boolean => (judgedOnAi(p) ? (p.ai?.daysElapsed ?? 0) >= 28 : true);
+
+/** THE ONE TRUTH VOCABULARY (operator, 2026-09-01). Every row is exactly one of these, derived from the SAME group the ledger files it
+ *  under, so the Brain above the list and the list itself can never disagree by construction. Legacy first: a row with no implementation
+ *  stamp predates live verification and can only ever be history. Then verification: a reading nobody confirmed live is a number nobody
+ *  may learn from. Then the read itself. The confounded state is printed as shared days, the customer's word for it. */
+type ResultState = "recorded" | "waiting_verification" | "live_verified" | "reading" | "historical_ahead" | "historical_behind"
+  | "historical_unclear" | "verified_early" | "verified_pattern" | "mixed" | "confounded" | "inconclusive" | "not_measurable";
+const STATE_LABEL: Record<ResultState, string> = { recorded: "Recorded", waiting_verification: "Waiting for live verification",
+  live_verified: "Live verified", reading: "Reading", historical_ahead: "Historical read ahead", historical_behind: "Historical read behind",
+  historical_unclear: "Historical unclear", verified_early: "Verified early signal", verified_pattern: "Verified pattern", mixed: "Mixed",
+  confounded: "Shared with a later change", inconclusive: "Inconclusive", not_measurable: "Not measurable" };
+/** ONLY A LIVE-CONFIRMED CHANGE MAY TEACH: the same two answers treatment-learning counts, and never a row with no implementation stamp. */
+const liveConfirmed = (p: ShipmentPresentation): boolean => p.implementedAt != null && (p.verification?.status === "verified" || p.verification?.status === "partially_verified");
+function rowState(p: ShipmentPresentation): ResultState {
+  const r = p.read, onAi = judgedOnAi(p), group = groupFor(p), legacy = p.implementedAt == null;
+  if (p.ai?.terminal === true || (r.metric === "unclassified" && !onAi)) return "not_measurable";
+  if (group !== "reading" && !onAi && (r.verdict === "confounded" || r.overlappingIds.length > 0)) return "confounded";
+  if (group === "reading") {
+    const started = onAi ? (p.ai?.daysElapsed ?? 0) > 0 : r.basisDay != null;
+    if (legacy) return "reading";
+    if (!liveConfirmed(p)) return started ? "waiting_verification" : "recorded";
+    return started ? "reading" : "live_verified";
+  }
+  if (legacy) return group === "worked" ? "historical_ahead" : group === "down" ? "historical_behind" : "historical_unclear";
+  if (!liveConfirmed(p)) return "waiting_verification";
+  return group === "flat" ? "inconclusive" : "verified_early";
+}
+const stateWord = (p: ShipmentPresentation): string => STATE_LABEL[rowState(p)];
 /** Which yardstick judged this row, in the words the operator reads. Never a lab word. */
 const yardstickOf = (metric: string | null | undefined): string | null =>
   metric === "ai_retrieval" ? "Judged on whether assistants read this page for it"
@@ -245,10 +273,12 @@ function unadjustedLine(p: ShipmentPresentation): string | null {
  *  gets recommended next on pages like this one. */
 function taughtLine(p: ShipmentPresentation): string {
   const r = p.read, l = r.learning;
-  const family = FAMILY_LABEL[l.actionFamily];
+  // A SCHEMA ROW IS STRUCTURED DATA ON THE ROW AS IT IS IN THE BRAIN: the technical family also holds forwards and canonicals.
+  const family = /schema|json.?ld|structured/i.test(r.actionType) ? "a structured data change" : FAMILY_LABEL[l.actionFamily];
   const cause = l.diagnosisCause ? CAUSE_LABEL[l.diagnosisCause] : undefined;
   const ai = judgedOnAi(p) ? aiMove(p) : null;
-  const settled = judgedOnAi(p) ? ai != null : !!l.outcomeDirection && l.outcomeDirection !== "unclear";
+  // SETTLED MEANS WHAT TRAINS: treatment-learning learns only from a closed 28 day window with a nonzero read, so a 7 day lean or a level read carries nothing forward.
+  const settled = judgedOnAi(p) ? ai != null : !!l.outcomeDirection && l.outcomeDirection !== "unclear" && kernelIsMature(r.basisDay as 7 | 14 | 28 | 56 | null) && r.lift !== 0;
   const moved = judgedOnAi(p)
     ? (ai ? `${aiStory(p)[2]} ${AI_MOVE[ai]}` : "it is too early to say which way this went")
     : l.outcomeDirection === "up" ? "the page moved up after it"
@@ -259,10 +289,11 @@ function taughtLine(p: ShipmentPresentation): string {
   if (cause) parts.push(`this page read as ${cause}`);
   if (family) parts.push(`it was answered with ${family}`);
   parts.push(moved);
-  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED.
-  const carried = settled
-    ? "That carries into what gets recommended next on pages like this one."
-    : "Nothing carries forward from this one until it settles.";
+  // NOTHING IS CARRIED FORWARD FROM A READ THAT HAS NOT LANDED, AND NOTHING TRAINS FROM A CHANGE NEVER CONFIRMED ON THE LIVE
+  // PAGE: the kernel learns only from live-confirmed changes, so a row may not promise otherwise (Results Brain, 2026-09-01).
+  const carried = !settled ? "Nothing carries forward from this one until it settles."
+    : liveConfirmed(p) ? "That carries into what gets recommended next on pages like this one."
+      : "Context only: a read never confirmed on the live page does not shape what gets recommended.";
   const backing = typeof l.evidenceCompleteness === "number" && l.evidenceCompleteness > 0
     ? `Backed by ${l.evidenceCompleteness} check${l.evidenceCompleteness === 1 ? "" : "s"}.`
     : "Read once so far.";
@@ -287,10 +318,15 @@ const GENERIC_NEXT = ["Do this again on a similar page.", "Undo what was applied
 /** The one thing to do about this row. A ROW JUDGED ON AI TAKES ITS STEP FROM ITS OWN OBJECTIVE: the Google map above sent a change that
  *  had just won a citation off to "Put the previous title back", because Google clicks had slipped over the same days. There is no undo
  *  step here at all, on purpose: the objective moved or it did not, and the answer to "it did not" is the next thing to try on the page. */
+/** A READ NOBODY CONFIRMED LIVE RECOMMENDS NOTHING (truth review, 2026-09-01): seven unverified rows were telling the operator to put a title back. */
+const unconfirmedStep = (p: ShipmentPresentation): string => p.implementedAt == null
+  ? "Context only: this read predates live verification, so nothing is recommended from it."
+  : "Confirm the change on the live page first; nothing is recommended from an unverified read.";
 function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
   const r = p.read;
   if (judgedOnAi(p)) {
     const [, , , target, down, flat] = aiStory(p), move = aiMove(p);
+    if (move != null && !liveConfirmed(p)) return unconfirmedStep(p);
     if (move === "improved") return `Do this again on the next page ${target}.`;
     if (move === "worsened") return down;
     if (move === "no_clear_movement" || move === "mixed") return flat;
@@ -303,6 +339,9 @@ function nextStepLine(p: ShipmentPresentation, now: Date = new Date()): string {
   if (r.metric === "unclassified") return "Nothing to wait for on this one.";
   if (r.verdict === "confounded") return "Two changes share these days. Make the next change on this page on its own, then measure it.";
   const d = r.learning.outcomeDirection;
+  if (d !== "unclear" && !liveConfirmed(p)) return unconfirmedStep(p);
+  // THE TECHNICAL FAMILY ALSO HOLDS STRUCTURED DATA AND CANONICALS: only a redirect row may be told to reverse a redirect.
+  if (d === "down" && r.learning.actionFamily === "technical-family" && !/redirect/i.test(r.actionType)) return "This page lost ground after the technical change. Undo it only if the loss holds on the next read; otherwise leave it and measure again.";
   if (d !== "unclear") return (NEXT_STEP[r.learning.actionFamily] ?? GENERIC_NEXT)[d === "up" ? 0 : d === "down" ? 1 : 2];
   const next = landsLabel(nextCloseOn(r), now);
   return next == null ? "Nothing to do until the next read lands."
@@ -329,4 +368,4 @@ function caveatLines(r: KernelRead, judgedOnAi: boolean): string[] {
 
 
 /** ONE module surface: the sentence layer exports itself once, not eighteen times. */
-export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, nextStepLine, reasonWords, receiptOf, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;
+export const RESULT_LINES = { AI_MOVE, aiDays, aiHappenedLine, aiMove, aiStory, cap, caveatLines, groupFor, happenedLine, judgedOnAi, liftLabel, liveConfirmed, nextStepLine, reasonWords, receiptOf, rowState, stateWord, taughtLine, unadjustedLine, workLabel, yardstickOf } as const;

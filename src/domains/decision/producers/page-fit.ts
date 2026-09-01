@@ -58,7 +58,7 @@ export const pageWords = (p: OwnedPageEvidence, weak: ReadonlySet<string>): Set<
 /** The words of a question that carry its subject: a site wide word this account puts on everything proves no  connection at all, so it never makes a page look like the answer to anything. */
 export const subjectWords = (text: string, weak: ReadonlySet<string>): string[] => [...new Set(topicTokens(text))].filter((t) => t.length > 2 && !weak.has(t));
 /** Matching runs on stems and an operator must never be told to write "persepoli", so every stem is handed  back the word it was cut from, spelled as the search spelled it. */
-export const asWritten = (text: string, stems: readonly string[]): string[] => {
+const asWritten = (text: string, stems: readonly string[]): string[] => {
   const words = plain(text).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}'-]/gu, "")).filter(Boolean);
   return stems.map((s) => words.find((w) => topicTokens(w).includes(s)) ?? s); };
 
