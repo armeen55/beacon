@@ -35,7 +35,7 @@ export function actionFamilyOf(actionType: string): ExperimentFamily {
   if (/link/.test(a)) return "link";
   if (/schema|json.?ld|structured/.test(a)) return "schema";
   if (/create_page|new_page|create_tool|create_calculator|create_collection|build_/.test(a)) return "new_page";
-  if (/edit_page|content|section|rewrite|expand|paragraph|body|add_image|image_alt/.test(a)) return "content";
+  if (/edit_page|content|section|rewrite|expand|paragraph|body|add_image|image_alt|correction|factual|source_update|entity_expansion|table_or_list/.test(a)) return "content";
   return "other";
 }
 

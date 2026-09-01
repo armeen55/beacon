@@ -89,7 +89,7 @@ export async function presentShipments(tenantId: string, records: ShippedChangeR
       // have run: an early lean is never banked as a win, on either side of the same row.
       ai: aiReads[i]
         ? { direction: aiReads[i]!.direction, line: aiReads[i]!.line, metricLines: aiReads[i]!.metricLines,
-          boundary: aiReads[i]!.boundary, daysElapsed: aiReads[i]!.coverage.daysElapsed }
+          boundary: aiReads[i]!.boundary, daysElapsed: aiReads[i]!.coverage.daysElapsed, terminal: aiReads[i]!.terminal === true }
         : null,
     };
   });

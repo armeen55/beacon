@@ -36,11 +36,10 @@ export async function readResultsSurface(
 ): Promise<{ computedAt: string; shipments: ShipmentPresentation[] } | null> {
   const rows = await readStore<ResultsSurfaceRow>(STORE, [], { tenantId }).catch(() => [] as ResultsSurfaceRow[]);
   const row = rows[0];
-  if (!row || !Array.isArray(row.reads)) return null;
-  const shipments = Array.isArray(row.shipments) && row.shipments.length === row.reads.length
-    ? row.shipments
-    : row.reads.map((read) => ({ read, implementedAt: null, verification: null, baseline: null, basisMove: null }));
-  return { computedAt: row.computedAt, shipments };
+  // A READS-ONLY SNAPSHOT IS NOT SERVED (truth review, 2026-09-01): with no implementation stamps every confirmed change would paint
+  // as history. Returning null sends the loader to the persisted records, which carry the stamps.
+  if (!row || !Array.isArray(row.reads) || !Array.isArray(row.shipments) || row.shipments.length !== row.reads.length) return null;
+  return { computedAt: row.computedAt, shipments: row.shipments };
 }
 
 export async function writeResultsSurface(
