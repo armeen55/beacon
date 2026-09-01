@@ -318,8 +318,7 @@ describe("what is wrong with how a page is served", () => { it("names every faul
     expect(validateProposal(prop({ bundle: bundleOf(parts) })).verdict).toBe("rejected"); // the same levers filed as a low risk ready change
     const safe = parts.filter((c) => !dangerousComponents(parts).includes(c)); // and the ordinary ones pass the gate as the changes they are, copy and all
     for (const c of safe) expect(validateProposal(prop({ recommendedChange: { kind: "existing_edit", field: fieldForComponent(c.kind), before: null, after: c.after }, bundle: bundleOf([c]) })).verdict).not.toBe("rejected");
-  }); });
-// ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
+  }); }); // ── the complete change universe + the ONE unified ranking (Phase 4) ──────────
 /** Every kind in the union, so a new lever can never be added without answering the gate. */
 const ALL_KINDS: BundleComponentKind[] = ["title", "meta", "h1", "opening_answer", "section", "internal_links", "source_pack", "paragraph_correction", "section_add", "section_remove", "section_rewrite", "restructure", "full_rewrite", "factual_correction", "source_update", "entity_expansion", "table_or_list_add", "internal_link_add", "internal_link_remove", "anchor_text", "schema",
   "canonical", "redirect", "noindex", "consolidation", "navigation", "new_page"];

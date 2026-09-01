@@ -803,7 +803,7 @@ describe("the unruled review pass", () => { // ── a pass whose review never 
     expect(writes.every((w) => !!w.semanticReview), "no write of this pass strips the banked reading").toBe(true); // the defect wrote the mint copy, review gone
     const kept = env.store.get(reviewed.id)!;
     expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]); // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
-    expect(out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::"))?.outcome).toBe("retryable_blocked"); // the review is still owed, and the receipt says so
+    const rx = out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::")); expect([rx?.outcome, rx?.why ?? ""], "the receipt names the row's real remaining debt, not a review the row already banks").toEqual(["evidence_required", expect.stringContaining("glued phrase")]);
     reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards; // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
     expect(env.store.get(mint().id)?.status).toBe("needs_review");
@@ -865,17 +865,14 @@ describe("a stampless re-mint never replaces finished work", () => {
 describe("a redraft request reopens the same-day stop", () => {
   it("funds the redraft-requested standing row this pass, where the untouched hold met the same-day sentence", async () => { reset(SEEN());
     const first = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1 });
-    const landedId = first.proposals.find((p) => p.status === "ready" || p.status === "needs_review")?.id;
-    expect(landedId, "the seed pass landed a row to hold").toBeTruthy();
-    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"] };
-    env.store.set(held.id, held);
+    const landedId = first.proposals.find((p) => p.status === "ready" || p.status === "needs_review")?.id; expect(landedId, "the seed pass landed a row to hold").toBeTruthy();
+    const held0 = env.store.get(landedId!)!; const held = { ...held0, status: "needs_review" as const, researchOnly: false, limitations: ["the evaluator's exact objection: not yet"] }; env.store.set(held.id, held);
     const focus = DRAFT_BUDGET.keyOf(held); // the standing-card re-entry passes the STORED ROW itself, the exact live path the stop blocked tonight
     const frozen = new Map([...env.store.entries()].map(([k, v]) => [k, { ...v }])); // two branches from ONE store state, because a pass rewrites rows and a second pass would compare against a moved target
     const blocked = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
     const sentence = (blocked.paid.declined ?? []).find((d) => d.key === focus)?.reason ?? "";
     expect(sentence, "the untouched held row meets the same-day sentence at the focus").toContain("already made on today's evidence");
-    env.store = new Map([...frozen.entries()].map(([k, v]) => [k, { ...v }]));
-    env.store.set(held.id, { ...env.store.get(held.id)!, redraftRequested: new Date().toISOString() });
+    env.store = new Map([...frozen.entries()].map(([k, v]) => [k, { ...v }])); env.store.set(held.id, { ...env.store.get(held.id)!, redraftRequested: new Date().toISOString() });
     const reopened = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 1, focusKeys: [focus] });
     const still = (reopened.paid.declined ?? []).some((d) => d.key === focus && /already made on today's evidence/.test(d.reason));
     expect([still, reopened.paid.funded.includes(focus)], "the redraft request never meets the sentence, and the row is funded again").toEqual([false, true]); });
