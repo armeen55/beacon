@@ -75,8 +75,7 @@ function ownedPage(url: string, title: string, totals: { impressions: number; cl
     search: { clicks90d: totals.clicks, impressions90d: totals.impressions, ctr90d: totals.clicks / totals.impressions, position90d: 4, topQueries }, engagement: null, friction: null, aiCitations: { count: 0, distinctPrompts: 0, engines: [] } };
 } function snap(ownedPages: OwnedPageEvidence[], research: FunnelResearchEvidence = emptyResearchEvidence(), keywordDemand: EvidenceSnapshot["keywordDemand"] = []): EvidenceSnapshot { return { scope: { tenantId: "fixture-tenant", site: "fixture-outdoors.example", builtAt: "2026-07-26T00:00:00.000Z" }, sources: [], ownedPages, competitors: [], keywordDemand, questionDemand: [],
     intentClusters: [], cannibalization: [], contentGaps: [], internalLinkOpportunities: [], aiCitations: { ownedCited: 0, competitorCited: 0, engines: [], rowsScanned: 0 }, research, evidenceHash: "fixture" };
-} /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording
- *  that line does not: exactly what a diagnosis has to read before it may name the title. */
+} /** A live results page observed for these EXACT searches, carrying this page's OWN line on it and two rivals that share wording that line does not: exactly what a diagnosis has to read before it may name the title. */
 const looked = (pairs: [string, string][], observedAt: string | null = null): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), serpEvidence: pairs.map(([query, url]) => ({ query, observedAt, aiOverview: [], aiMode: [], paa: [], related: [],
   organic: [{ rank: 1, domain: "rival.example", url: "https://rival.example/a", title: "Nowruz Traditions Explained" },
     { rank: 2, domain: "other.example", url: "https://other.example/b", title: "Persian New Year Traditions and Food" }, { rank: 3, domain: "fixture-outdoors.example", url, title: "Nowruz" }] })) });
@@ -803,8 +802,7 @@ describe("the unruled review pass", () => { // ── a pass whose review never 
     expect(writes.every((w) => !!w.semanticReview), "no write of this pass strips the banked reading").toBe(true); // the defect wrote the mint copy, review gone
     const kept = env.store.get(reviewed.id)!;
     expect([kept.semanticReview?.of === copyKey(kept), kept.semanticReview?.version]).toEqual([true, REVIEW_CONTRACT]); // The reading survives the whole pass wherever the row ends: a later gate may hold the row with its own typed reason, but only a ruling review may replace or remove the receipt itself.
-    const rx = out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::")); expect([rx?.outcome, rx?.why ?? ""], "the receipt names the row's real remaining debt, not a review the row already banks").toEqual(["evidence_required", expect.stringContaining("glued phrase")]);
-    reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards; // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
+    const rx = out.paid.receipts.find((r) => r.key === "/x" || r.key.startsWith("/x::")); expect([rx?.outcome, rx?.why ?? ""], "the receipt names the row's real remaining debt, not a review the row already banks").toEqual(["evidence_required", expect.stringContaining("glued phrase")]); reset(SEEN()); fenv.cards = [mint()]; fenv.review = (cards) => cards; // THE SIBLING: the same unruled pass still lands the owed card on a page with nothing on file.
     await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, maxDrafts: 5 });
     expect(env.store.get(mint().id)?.status).toBe("needs_review");
     fenv.cards = null; fenv.review = null; }); });

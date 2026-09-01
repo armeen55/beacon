@@ -150,7 +150,7 @@ const drafter = (): { complete: CompleteFn; calls: () => number; asked: () => st
   const complete: CompleteFn = async (a) => { n += 1; asked.push(`${a.kind}: ${a.user.slice(0, 240)}`);
     if (a.kind === "editor_judgement") return { value: { pageFit: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true,
       improvesPage: true, wouldHandToCustomer: true, notes: "It says what the page covers in one plain line.", resolution: "none",
-      claims: [...a.user.matchAll(/^- "(?:[^"]+)" <- (.+)$/gm)].map((m, i) => ({ i, by: m[1]!.split(", ").filter(Boolean), entailed: true })) } as never };
+      claims: [...a.user.matchAll(/^- claim (\d+): "(?:[^"]+)" <- (.+)$/gm)].map((m) => ({ i: Number(m[1]), by: m[2]!.split(", ").filter(Boolean), entailed: true })) } as never };
     if (a.kind === "atomic_edit" && a.user.includes("Field to edit: meta")) return { value: (a.user.includes("Page: Lantern Release") ? META2 : META_EDIT) as never };
     return { value: EDIT as never }; };
   return { complete, calls: () => n, asked: () => asked }; };

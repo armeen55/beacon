@@ -63,10 +63,7 @@ describe("a struggling source costs one read, and a list already in hand beats a
     expect(view.releaseFromMemory, "a remembered list is not a first-ever load").toBe(true); expect(view.releaseUnreadable ?? false).toBe(false);
     expect(view.surfaceComputedAt).toBe(SURFACE.computedAt);
   }, 15_000);
-  /** THE SAVED RELEASE IS THE FIRST PAINT (operator, 2026-09-01). A valid committed release existed while the live
-   *  queue joins, slowed by post-batch research, exceeded the section's one deadline: the operator's own finished
-   *  work timed out into "This section could not load". The joins now carry their own budget inside the section's;
-   *  a join that never resolves paints the release's saved rows instead of the error. */
+  /** THE SAVED RELEASE IS THE FIRST PAINT (operator, 2026-09-01). A valid committed release existed while the live queue joins, slowed by post-batch research, exceeded the section's one deadline: the operator's own finished work timed out into "This section could not load". The joins now carry their own budget inside the section's; a join that never resolves paints the release's saved rows instead of the error. */
   it("paints the saved release rows inside the section budget while the live queue join hangs forever", async () => {
     calls.serveRows = true; calls.basis = "b1"; calls.hangQueue = true;
     const { loadChangesView } = await vi.importActual<typeof import("@/app/(shell)/changes-data")>("@/app/(shell)/changes-data");
