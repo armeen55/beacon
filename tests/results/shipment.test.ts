@@ -12,6 +12,8 @@ vi.mock("@/domains/account/tenants/store", () => ({ getTenant: async () => null 
 const invalidations = vi.hoisted(() => ({ n: 0 }));
 vi.mock("@/app/(shell)/results/results-surface-store", () => ({ invalidateResultsSurface: async () => { invalidations.n += 1; } }));
 vi.mock("@/app/(shell)/surface-release", () => ({ invalidateCoreSurfaces: async () => {} }));
+const storeReads = vi.hoisted(() => ({ n: 0 }));
+vi.mock("@/domains/decision/proposal-store", () => ({ loadChangeProposals: async () => { storeReads.n += 1; return new Map(); } }));
 vi.mock("@/domains/measurement/proof-gsc/gsc-window", () => ({ readWindowForPages: gsc.window, readLastFinalizedDate: gsc.lastFinal, readCumulativeSince: async () => new Map() }));
 /** The comparison set this account's site can offer, which the recording seam asks for and never depends on. */
 const ctl = vi.hoisted(() => ({ pages: [] as string[] }));
@@ -194,6 +196,14 @@ describe("the recording seam", () => {
     path: "/nowruz-guide", actionType: "title-family", componentsApplied: [{ kind: "title", label: "Page title" }], now: NOW, ...over } as never);
   const stored = async () => (await loadShippedChangesForTenant(T))[0]!;
   beforeEach(() => { ctl.pages = ["https://x.test/a", "https://x.test/b", "https://x.test/c"]; });
+  it("a batch of ten records ten Shipments off one ledger read and one open-changes read, invalidates nothing per row, and a retry adds none", async () => {
+    // THE BATCH'S ONE READ OF EACH (operator, 2026-09-01): every row used to re-read the whole ledger and the whole proposal store inside the comparison, and invalidate the saved surfaces on its own.
+    const ten = Array.from({ length: 10 }, (_, i) => facts({ proposalId: `${T}::/p${i}::existing_edit::missing_description`, page: `https://www.fixture-outdoors.example/p${i}`, path: `/p${i}` }));
+    storeReads.n = 0; invalidations.n = 0; const ledger = await loadShippedChangesForTenant(T);
+    for (const f of ten) await recordShipment(f as never, { preloadedLedger: ledger, openPaths: ["/elsewhere"], invalidate: false });
+    expect([db.state.rows.length, storeReads.n, invalidations.n], "ten rows, no store read, no per-row invalidation").toEqual([10, 0, 0]);
+    for (const f of ten) await recordShipment(f as never, { preloadedLedger: await loadShippedChangesForTenant(T), openPaths: ["/elsewhere"], invalidate: false });
+    expect(db.state.rows.length, "a retry of the same ten writes nothing").toBe(10); });
   it("records a change with NO comparison pages at all, and names what is missing instead of refusing", async () => {
     ctl.pages = [];
     expect((await recordShipment(facts())).measurement).toBe("insufficient_comparison");

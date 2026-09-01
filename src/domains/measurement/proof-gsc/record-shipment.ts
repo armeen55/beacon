@@ -43,6 +43,11 @@ export type RecordedShipment = { shipmentId: string; measurement: MeasurementSta
 
 /** The facts about one implementation, all of them from the caller. Measurement reads no proposal. */
 type ShipmentFacts = {
+  /** A batch row asks the store not to invalidate the saved surfaces; the batch does it once. */
+  invalidate?: boolean;
+  /** The batch's one read of the open changes, for the treatment stamp and the comparison set. */
+  openPaths?: readonly string[];
+  ledger?: readonly ShippedChangeRecord[];
   tenantId: string;
   proposalId: string;
   /** The exact version of the copy applied. Same proposal + same version = the same row, always. */
@@ -79,11 +84,11 @@ type ShipmentFacts = {
  * only thing this answer may change is what Results says, not whether the work is recorded.
  */
 async function comparisonFor(
-  tenantId: string, treatedPage: string, stamp: string, now: Date,
+  tenantId: string, treatedPage: string, stamp: string, now: Date, batch?: Parameters<typeof matchedControlsFor>[4],
 ): Promise<{ controlPages: string[]; controlsReceipt: ControlReceipt[] | null; measurement: MeasurementState }> {
   // NULL is a read that FAILED, which is a different sentence from a site that genuinely has too few
   // pages: telling a connected operator to connect Search Console asks for what they already did.
-  const matched = await matchedControlsFor(tenantId, treatedPage, stamp.slice(0, 10), now).catch(() => null);
+  const matched = await matchedControlsFor(tenantId, treatedPage, stamp.slice(0, 10), now, batch).catch(() => null);
   if (matched == null) return { controlPages: [], controlsReceipt: null, measurement: "measurement_unavailable" };
   const held = { controlPages: matched.controls, controlsReceipt: matched.receipts };
   // No finalized Search data at all means there is nothing to read this page against, whatever the
@@ -115,7 +120,7 @@ async function write(
     controlPages: extra.controlPages, controlsReceipt: extra.controlsReceipt,
     // THE WINDOW IS READ FROM THE STAMP, and so is the 28 days before it: a change recorded weeks
     // after it went live must compare against the days that really preceded it, not against today.
-    shippedAt: stamp, notes: null, measurementState: extra.measurement, judgedMetric: f.judgedMetric ?? null, now,
+    shippedAt: stamp, notes: null, measurementState: extra.measurement, judgedMetric: f.judgedMetric ?? null, now, openPaths: f.openPaths, ledger: f.ledger,
     shipment: {
       proposalId: f.proposalId, proposalVersion: f.proposalVersion, basis: f.basis, caseId: f.caseId,
       bundleHypothesis: f.bundleHypothesis, componentsApplied: f.componentsApplied,
@@ -131,7 +136,7 @@ async function write(
   const measurement: MeasurementState = extra.measurement === "measuring" && record.shipmentBaseline == null
     ? "measurement_unavailable" : extra.measurement;
   record.measurementState = measurement;
-  await upsertShippedChange(record, f.tenantId);
+  await upsertShippedChange(record, f.tenantId, { invalidate: f.invalidate !== false }); // a batch invalidates once, after its last row
   if (measurement !== extra.measurement || measurement !== "measuring") {
     log.info("[shipment] recorded, and the comparison it can carry", {
       tenant: f.tenantId, id: record.id, measurement });
@@ -144,7 +149,9 @@ async function write(
  * whether it can be fairly compared; a second press on the same proposal and version returns the row
  * already on file, unchanged.
  */
-export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATCH'S ONE LEDGER READ, handed through so a twenty-card press reads the ledger once instead of twenty-one times. The duplicate check stays exactly as strict: the preload IS the ledger, read by the same loader moments earlier. */ preloadedLedger?: readonly ShippedChangeRecord[] }): Promise<RecordedShipment> {
+export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATCH'S ONE LEDGER READ, handed through so a twenty-card press reads the ledger once instead of twenty-one times. The duplicate check stays exactly as strict: the preload IS the ledger, read by the same loader moments earlier. */ preloadedLedger?: readonly ShippedChangeRecord[];
+  /** THE BATCH'S ONE READ OF THE OPEN CHANGES, for the comparison set's contamination rule; without it every row re-read the whole proposal store. */ openPaths?: readonly string[];
+  /** FALSE = the caller invalidates the saved surfaces once for the whole batch. */ invalidate?: boolean }): Promise<RecordedShipment> {
   const held = await heldShipment(facts, opts?.preloadedLedger);
   if (held != null) {
     log.info("[shipment] this exact change is already recorded, so its record was left alone", {
@@ -153,8 +160,8 @@ export async function recordShipment(facts: ShipmentFacts, opts?: { /** THE BATC
   }
   const now = facts.now ?? new Date();
   const { controlPages, controlsReceipt, measurement } =
-    await comparisonFor(facts.tenantId, facts.page, facts.implementedAt ?? now.toISOString(), now);
-  return write(facts, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false });
+    await comparisonFor(facts.tenantId, facts.page, facts.implementedAt ?? now.toISOString(), now, { ledger: opts?.preloadedLedger, open: opts?.openPaths });
+  return write({ ...facts, invalidate: opts?.invalidate, openPaths: opts?.openPaths, ledger: opts?.preloadedLedger }, { measurement, controlPages, controlsReceipt, preChangeHashUnavailable: false });
 }
 
 /** What the operator can tell Beacon about a change that was already live before it was ever recorded. */

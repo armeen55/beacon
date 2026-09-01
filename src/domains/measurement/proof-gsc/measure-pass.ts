@@ -328,11 +328,13 @@ async function cachedPageJobs(tenantId: string, ctx: Awaited<ReturnType<typeof l
  * Frozen at selection; NULL is a FAILED read, a different sentence from a site with too few pages. */
 export async function matchedControlsFor(
   tenantId: string, treatedPage: string, shipDate: string, now: Date,
+  /** A BATCH'S ONE READ OF EACH (operator, 2026-09-01): a twenty-card press re-read the whole ledger and the whole proposal store per card here. Handed through, they are read once. */
+  batch?: { ledger?: readonly ShippedChangeRecord[] | null; open?: readonly string[] | null },
 ): Promise<{ controls: string[]; receipts: ControlReceipt[] } | null> {
   const [ledger, ctx, open] = await Promise.all([
-    loadShippedChangesForTenant(tenantId).catch(() => null),
+    batch?.ledger ?? loadShippedChangesForTenant(tenantId).catch(() => null),
     loadPageSurgeonContext(tenantId).catch(() => null),
-    openChangePaths(tenantId),
+    batch?.open ?? openChangePaths(tenantId),
   ]);
   if (ledger == null || ctx == null) return null;
   const pool = topPagesByDemand(ctx, CONTROL_CANDIDATE_POOL)
@@ -371,6 +373,9 @@ export async function selectControlPages(tenantId: string, treatedPage: string):
  *  and the exact version applied (so a retry lands on the same row), it carries the stamp the measurement window is read from, and its
  *  starting numbers cover search AND AI. Every read here is of data already bought. */
 export async function recordShippedChange(args: {
+  /** THE BATCH'S ONE READ OF THE OPEN CHANGES (operator, 2026-09-01); absent, the store is read for this record alone. */
+  openPaths?: readonly string[];
+  ledger?: readonly ShippedChangeRecord[];
   tenantId: string;
   page: string;
   path: string;
@@ -469,8 +474,8 @@ export async function recordShippedChange(args: {
   // The one policy, asked here exactly as every other door asks it: the pages that cannot stand
   // behind THIS change over ITS window, and nothing wider.
   const [ledger, open] = await Promise.all([
-    loadShippedChangesForTenant(args.tenantId).catch(() => [] as ShippedChangeRecord[]),
-    openChangePaths(args.tenantId),
+    args.ledger ?? loadShippedChangesForTenant(args.tenantId).catch(() => [] as ShippedChangeRecord[]), // a batch hands its one ledger read through
+    args.openPaths ?? openChangePaths(args.tenantId), // and its one read of the open changes
   ]);
   return measureRecord(args.tenantId, draft, now, undefined,
     contaminatedPaths(contaminationFor(ledger, open, now, draft)));

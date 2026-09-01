@@ -70,7 +70,7 @@ function overlapAtShip(ledger: ReadonlyArray<{ id: string; proposalId: string | 
 
 /** Write the Shipment for one proposal. Idempotent: the id is derived from the proposal and the version applied, so a retry keeps the stamp and the starting numbers already on file, and the caller flips nothing when it did not land. A SECOND PRESS DOES NOTHING AT ALL: rebuilding the record erased the live check back to null, moved the ship date to today and recomputed the starting numbers over a window that now included days AFTER the change, so pressing twice quietly flattered its own result. */
 async function recordImplementation(tenantId: string, proposal: ChangeProposal,
-  opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>> },
+  opts: { appliedIds: readonly string[]; operatorNote?: string | null; liveUrl?: string; preloadedLedger?: Awaited<ReturnType<typeof loadShippedChanges>>; openPaths?: readonly string[]; invalidate?: boolean },
 ): Promise<Shipped | { ok: false; error: string }> {
   const bundleIds = (proposal.bundle?.components ?? []).map(componentIdOf);
   try {
@@ -151,7 +151,7 @@ async function recordImplementation(tenantId: string, proposal: ChangeProposal,
       preChangeContentHash: meta?.contentHash ?? null,
       // THE NOTE TRAVELS WITH THE PRESS, and nothing else does: their own words ride along BESIDE the reading, and Beacon still goes and looks at the page itself before it says anything.
       operatorNote: opts.operatorNote ?? null,
-    }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger } : undefined);
+    }, opts.preloadedLedger ? { preloadedLedger: opts.preloadedLedger, openPaths: opts.openPaths, invalidate: opts.invalidate } : undefined);
     return state(fresh.length, landed.shipmentId, landed.measurement);
   } catch (err) {
     log.error("markProposalImplemented: the shipment did not land, so nothing was flipped", {
@@ -310,6 +310,8 @@ export async function markManyImplementedAction(args: { proposalIds: string[]; o
     loadShippedChanges().catch(() => null)]);
   if (ledger == null) return { success: false, done: 0, already: 0, failed: ids.map((id) => ({ id, error: "the record book could not be read just now" })), results: ids.map((id) => ({ id, outcome: "failed" as const, error: "the record book could not be read just now" })), note: "Nothing was recorded: the record book could not be read just now. Press it again in a moment." };
   const results: { id: string; outcome: "recorded" | "already" | "failed"; shipmentId?: string; error?: string }[] = [];
+  // THE OPEN CHANGES, READ ONCE FOR THE BATCH: the comparison set's contamination rule asks which pages carry open work, and it asked the whole store per row.
+  const openPaths = [...stored.values()].filter((p) => p.status === "ready" || p.status === "implemented_pending_verification").map((p) => p.pagePath ?? "").filter((p) => p.length > 0);
   const recordOne = async (id: string): Promise<(typeof results)[number]> => {
     try {
       // The same gates as the single press, asked against rows this batch already holds; the withdrawn-rescue
@@ -329,7 +331,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[]; o
       if (dangerousComponents(row.bundle?.components ?? []).length > 0) return { id, outcome: "failed", error: "This one moves or hides a page, so it needs its own confirmed press on the change itself." };
       if (row.kind === "new_page") return { id, outcome: "failed", error: "A new page needs its live address, so record it from the change itself." };
       const appliedIds = (row.bundle?.components ?? []).map(componentIdOf);
-      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) });
+      const shipment = await recordImplementation(tenantId, row, { appliedIds, preloadedLedger: ledger, openPaths, invalidate: false, ...(args.operatorNote ? { operatorNote: args.operatorNote } : {}) });
       if (!shipment.ok) return { id, outcome: "failed", error: shipment.error };
       // SHIPMENT FIRST, FLIP SECOND, exactly as the single press: a crash between the two leaves a Shipment the
       // next press heals through the same idempotent id. A row already implemented replays as "already".
@@ -348,7 +350,7 @@ export async function markManyImplementedAction(args: { proposalIds: string[]; o
   const failed = results.filter((r): r is { id: string; outcome: "failed"; error: string } => r.outcome === "failed").map((r) => ({ id: r.id, error: r.error }));
   // ONE surface refresh for the whole batch, then acknowledge. Research re-arms AFTER the response so the
   // operator is never waiting on the cycle it triggers; verification is owed to the due sweep, not this press.
-  if (done > 0 || already > 0) { await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); }
+  if (done > 0 || already > 0) { await (await import("@/app/(shell)/results/results-surface-store")).invalidateResultsSurface().catch(() => {}); await invalidateCoreSurfaces().catch(() => {}); revalidatePath("/changes"); revalidatePath("/", "layout"); } // ONE invalidation of each saved surface for the whole batch
   if (done > 0) after(async () => { const { ensureResearchRunOnVisit } = await import("@/domains/runtime"); ensureResearchRunOnVisit(tenantId, true); });
   const parts = [done > 0 ? `${done} recorded` : null, already > 0 ? `${already} already being measured` : null,
     failed.length > 0 ? `${failed.length} could not be recorded` : null].filter(Boolean);
