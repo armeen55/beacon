@@ -531,7 +531,8 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
         return {
           status: "drafted",
           kind: req.kind,
-          value: stampAnySources(revalidated.data, req.authoritativeSourceDomains) as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
+          // THE SAME REPAIR ON BOTH DOORS (operator, 2026-08-31): a hit returns here BEFORE the firewalls and before the unwrap, so a draft banked under an older prompt version could serve the customer the brackets the fresh path now takes off. What a cached answer says must not depend on which door it came through.
+          value: unmarkAnchor(stampAnySources(revalidated.data, req.authoritativeSourceDomains), req.unmarkPhrase) as z.infer<(typeof SCHEMA_BY_KIND)[K]>,
           costUsd: 0,
           retried: false, attempts: 0,
           cached: true,

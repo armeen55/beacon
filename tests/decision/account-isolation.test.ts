@@ -1,9 +1,7 @@
 /** Account isolation for the structured-output cache and budget: per-account store, account-keyed hashes, explicit routing with owner stamping, scoped recentTexts, and fail-closed on a missing account. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-// Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
-vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) }));
-// json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
-const readStoreMock = vi.fn(async () => [] as unknown[]); const writeStoreMock = vi.fn(async () => {});
+vi.mock("@/domains/decision/llm/adjudicator-budget", () => ({ checkBudget: vi.fn(async () => ({ allowed: true, remaining: 10 })), recordSpend: vi.fn(async () => {}) })); // Budget seam: spy on the real adjudicator budget so we can assert the explicit account reaches the cap check + spend record (drafter uses these directly).
+const readStoreMock = vi.fn(async () => [] as unknown[]); const writeStoreMock = vi.fn(async () => {}); // json-store seam: assert storeCacheImpl routes with an EXPLICIT { tenantId }.
 vi.mock("@/lib/persistence/json-store", () => ({ readStore: (...a: unknown[]) => readStoreMock(...(a as [])), writeStore: (...a: unknown[]) => writeStoreMock(...(a as [])) }));
 import { checkBudget, recordSpend } from "@/domains/decision/llm/adjudicator-budget";
 import { callStructuredLLM, type CompleteFn } from "@/domains/decision/llm/structured-drafter";
@@ -36,10 +34,8 @@ beforeEach(() => {
   (checkBudget as unknown as ReturnType<typeof vi.fn>).mockClear();
   (recordSpend as unknown as ReturnType<typeof vi.fn>).mockClear();
   readStoreMock.mockClear(); readStoreMock.mockResolvedValue([]); writeStoreMock.mockClear(); });
-// ── store classification + key isolation ─────────────────────────────────────
-describe("the call cache is per-account, keyed by account", () => {
-  // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
-  it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => {
+describe("the call cache is per-account, keyed by account", () => { // ── store classification + key isolation ─────────────────────────────────────
+  it("storeCacheImpl routes with an EXPLICIT { tenantId }, stamps the owner, and throws on an empty account", async () => { // The REAL impl: an omitted tenantId falls back to AMBIENT resolution downstream, so a regression is silent.
     expect(classifyStore("llm-call-cache")).toBe("per-tenant"); // the store itself is per account, never global
     const entry = { key: "k1", tenantId: "ignored-overwritten", kind: "atomic_edit", promptId: "p",
       promptVersion: 1, value: VALID, primaryText: "A", createdAt: "t", lastUsedAt: "t" } as LlmCallCacheEntry;
@@ -48,12 +44,10 @@ describe("the call cache is per-account, keyed by account", () => {
     expect(w[2]).toEqual({ tenantId: "tenant-a" }); // explicit routing, never the ambient fallback
     expect(w[1][0]!.tenantId).toBe("tenant-a"); // owner stamped, not the caller's value
     await expect(storeCacheImpl.read("", "k")).rejects.toThrow(/tenantId is required/); }); });
-// ── callStructuredLLM: end-to-end account isolation ──────────────────────────
-describe("callStructuredLLM keeps accounts isolated end to end", () => {
+describe("callStructuredLLM keeps accounts isolated end to end", () => { // ── callStructuredLLM: end-to-end account isolation ──────────────────────────
   it("account B gets a MISS on account A's byte-identical prompt; A still hits at $0", async () => {
     const cache = partitionedCache();
-    // Account A generates + caches (pays).
-    const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl });
+    const a1 = seam([{ value: VALID, provenance: RECEIPT }]); const outA = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a1.complete, cacheImpl: cache.impl }); // Account A generates + caches (pays).
     expect([outA.status, a1.calls()]).toEqual(["drafted", 1]);
     // Account A repeats the SAME prompt: $0 cache hit, no call.
     const a2 = seam([{ error: "must-not-run", retryable: false }]); const outA2 = await callStructuredLLM({ ...REQ, tenantId: "tenant-a", complete: a2.complete, cacheImpl: cache.impl });

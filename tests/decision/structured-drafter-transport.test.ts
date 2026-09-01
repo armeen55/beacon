@@ -49,7 +49,13 @@ describe("structured-drafter strict transport", () => {
     const edit = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug knot density", unmarkPhrase: "Zanjan Rug",
       complete: seam([{ value: { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave.", operatorSteps: ["Link the words **Zanjan Rug** in that sentence"] } }]).complete });
     expect([edit.status, edit.status === "drafted" && (edit.value as { after: string }).after, edit.status === "drafted" && (edit.value as { operatorSteps: string[] }).operatorSteps[0]],
-      "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]); });
+      "the anchor the caller resolved is unwrapped in the copy AND in the steps, because the firewall reads both").toEqual(["drafted", "Kashan pile is denser than the Zanjan Rug weave.", "Link the words Zanjan Rug in that sentence"]);
+    // A HIT RETURNS BEFORE THE FIREWALLS, so a draft banked under an older prompt version would serve the brackets the fresh path takes off: what the customer reads may not depend on which door the answer came through.
+    const banked = { ...VALID_ATOMIC_EDIT, after: "Kashan pile is denser than the [Zanjan Rug] weave." } as unknown as LlmCallCacheEntry["value"];
+    const served = await callStructuredLLM({ kind: "atomic_edit" as const, tenantId: "t", system: "s", user: "u", grounded: "Zanjan Rug", unmarkPhrase: "Zanjan Rug", complete: seam([{ error: "should-never-run", retryable: false }]).complete,
+      cacheImpl: { read: async () => ({ value: banked } as LlmCallCacheEntry), write: async () => {}, recentTexts: async () => [] } });
+    expect([served.status, served.status === "drafted" && served.cached, served.status === "drafted" && (served.value as { after: string }).after],
+      "the cached answer is cleaned exactly like a fresh one, and still costs nothing").toEqual(["drafted", true, "Kashan pile is denser than the Zanjan Rug weave."]); });
   it("drafts a VALUE, retries a recoverable answer once and no more, and never pays twice for one answer", async () => {
     const one = seam([{ value: VALID_ATOMIC_EDIT }]); // a parsed value, no text parsing, on one call
     const first = await callStructuredLLM({ ...REQ, complete: one.complete }); expect(first.status === "drafted" && [(first.value as { after: string }).after.includes("Nowruz Traditions"), one.calls()]).toEqual([true, 1]);
