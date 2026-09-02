@@ -580,6 +580,7 @@ export function hashSnapshot(snapshot: Omit<EvidenceSnapshot, "evidenceHash">): 
     ilo: snapshot.internalLinkOpportunities.map((l) => [l.fromUrl, l.toUrl]),
     can: snapshot.cannibalization.map((c) => [c.query, c.competingUrls]),
     // MATERIAL research truth, not counters: the actual retained keyword metrics, the exact AI observations (observation MODE, models served/requested, web-search state, cited urls+domains, fan-out queries), the per-query SERP evidence, and the winning pages with their extract structure. Every timestamp and every spend/cache counter is excluded, so the same evidence at a later clock hashes identically while a changed citation, mode, served model, fan-out, settled reading, volume/intent, or extract structure changes it.
+    // THE WORDS A RESULTS PAGE CARRIES ARE DELIBERATELY NOT HASHED: snippet, featured, itemTypes, aiOverviewText, aiOverviewState and the PAA answer are briefing a writer reads, not evidence a decision stands on, and Google rewrites them constantly. Folding them in would re-identify every Ready and implemented row the first time a snippet was reworded. WHICH pages rank, WHICH are cited and WHICH questions are asked still move the hash, exactly as before.
     res: {
       kw: snapshot.research.retainedKeywords.map((k) => [k.query, k.searchVolume, k.competition, k.intent]),
       // The SETTLED READING is material too: same citations, same fan-outs, a reading now on file is different evidence.
@@ -630,8 +631,8 @@ export function jobEvidenceHash(snapshot: Pick<EvidenceSnapshot, "ownedPages" | 
  *  exact search's results page, or an assistant answering that exact search cited it. The appearance half used to be
  *  missing here, so a winner read BECAUSE an assistant cited it never moved the job's identity and never reopened the
  *  work it was read for. ONE rule, read by the identity above and by the brief below, so what reopens a job is exactly
- *  what its writer is then handed. Deterministic and order-free. */
-function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string) {
+ *  what its writer is then handed. Deterministic and order-free. Exported for `serpAnswersOf` in serp-shape, so the passages a brief quotes come off exactly the pages this rule already calls this job's winners. */
+export function jobWinners(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, primaryQuery: string) {
   const qk = canonicalQueryKey(primaryQuery ?? ""); if (!qk) return [];
   const ranked = new Set((research.serpEvidence ?? []).filter((s) => canonicalQueryKey(s.query) === qk)
     .flatMap((s) => (s.organic ?? []).map((o) => canonicalUrlKey(o.url))));

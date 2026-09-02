@@ -324,7 +324,7 @@ function citationOfQuote(proposed: string, quotes: readonly string[], current = 
 /** THE CORRECTION AS BOTH ENDS SEE IT: the evidence run judges a candidate before banking it and the card door
  *  judges the banked row, through the ONE rule below, so a row can never be banked `confirmed` and then be
  *  refused at the door for ever, reopened, re-researched and refused again. `FactCheck` satisfies this. */
-export type CorrectionCandidate = { subject: string; current: string; proposed: string | null;
+type CorrectionCandidate = { subject: string; current: string; proposed: string | null;
   sources: readonly { kind: SourceKind; says: string }[] };
 
 /** WHY A CORRECTION MAY NOT BE PUBLISHED, in one typed sentence, or null. THE ONE AUTHORIZATION RULE, asked by

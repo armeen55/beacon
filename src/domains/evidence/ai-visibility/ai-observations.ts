@@ -334,21 +334,6 @@ export function canonicalPairOf(r: AiObservationRecord): CanonicalPairObservatio
   };
 }
 
-/** WHAT ONE STORED ANSWER COST, off the EXACT receipt it names. No second ledger and no estimate: cache_key is the identity of the ONE evidence_cache receipt
- *  this answer was read from, so the money that moved for it is that receipt's own cost_usd and nothing else. Rows placed before the cost was preserved on the
- *  observation itself carry the receipt but no number, and this is how they get one back without inventing it. Null = I could not prove a cost, which every
- *  surface must say out loud rather than printing zero dollars: a free answer and an unknown one are different claims.
- *
- *  IT TAKES NO ACCOUNT, ON PURPOSE. evidence_cache is content addressed and has no tenant column at all (the same ask from two accounts shares one receipt), so
- *  this took a tenantId it could not and did not filter on: a signature that read as scoped while the query was not. THE SCOPING IS THE CALLER'S and happens
- *  before this: the cache_key arrives off an observation row already read under that account's own id, so nothing here can reach a row that account cannot. */
-async function observationReceiptCost(cacheKey: string): Promise<number | null> {
-  if (!cacheKey?.trim()) return null;
-  const { data, error } = await getSupabaseAdmin().from("evidence_cache").select("cost_usd").eq("cache_key", cacheKey).maybeSingle();
-  const cost = error != null || data == null ? NaN : Number((data as { cost_usd: number | null }).cost_usd);
-  return Number.isFinite(cost) && cost > 0 ? cost : null;
-}
-
 /** The READER's view of a stored observation: the identity, where it stands, and the text an analysis pass
  *  works on. Planners and analyzers consume this; only the writer handles the stored column shape, so no
  *  caller has to cast a database row into the shape it wanted. */

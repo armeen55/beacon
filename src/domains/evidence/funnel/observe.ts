@@ -298,13 +298,15 @@ function applySerp(s: FunnelSerp, parsed: ParsedSerp, nowIso: string, payload: u
   }
   s.identityMismatch = undefined; // a clean landing closes an earlier mismatch on this row
   s.status = "done"; s.observedAt = nowIso; s.aiOverview = refs(parsed); s.related = parsed.relatedSearches.slice(0, 20);
-  // EVERY ROW THIS LOOK PAID FOR IS KEPT. The request buys SERP_DEPTH results and the provider bills per ten of them, so slicing at ten threw away half of every purchase, and with it every owned position past nine.
-  s.reposts = undefined; s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title })); // a landed look closes the incident
-  s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain }));
-  // AND THE REST OF WHAT THE PAGE ALREADY CARRIED: its block list, its answer box and its holder, and the overview's own words beside the pages it credited. EACH IS WRITTEN ONLY WHERE THE PAYLOAD ACTUALLY SPOKE: a
-  // response with no block list leaves both unknown rather than claiming this page has no answer box, and an AI Overview that came back as an empty asynchronous stub leaves the text unknown rather than empty.
+  // EVERY ROW THIS LOOK PAID FOR IS KEPT, AND WHAT EACH ONE SAYS WITH IT. The request buys SERP_DEPTH results and the provider bills per ten, so slicing at ten threw away half of every purchase and every owned position past
+  // nine; keeping ranks and urls alone threw away the words the results actually show, which is the only part a diagnosis can read a missing proposition out of. Every string arrives bounded from the parser.
+  s.reposts = undefined; s.organic = parsed.organic.slice(0, SERP_ROWS_BOUGHT).map((o) => ({ rank: o.rank, url: o.url, domain: o.domain, title: o.title, snippet: o.snippet })); // a landed look closes the incident
+  s.paa = parsed.paaQuestions.map((q) => ({ question: q.question, answeringDomain: q.answeringDomain, answer: q.answer }));
+  // AND THE REST OF WHAT THE PAGE ALREADY CARRIED: its block list, its answer box with the answer in it, and the overview's own words. EACH IS WRITTEN ONLY WHERE THE PAYLOAD ACTUALLY SPOKE, so a response with no block
+  // list leaves both unknown rather than claiming this page has no answer box. AN OUTSTANDING ASYNCHRONOUS STUB IS NOT AN OBSERVED ABSENCE either: `aiOverview: []` said both, so a search whose overview had simply not
+  // landed yet read downstream as one Google shows no overview for, and `aiOverviewState` is the only place that difference is recorded. ONLY THE PROVIDER SENDING NO OVERVIEW BLOCK AT ALL IS ABSENCE: a block arriving with neither words nor references and claiming no outstanding load is a response nobody can read, so the state is left UNSET and projects as unknown, never as a page Google shows no overview on.
   if (parsed.itemTypes != null) { s.itemTypes = parsed.itemTypes.slice(0, 30); s.featured = parsed.featuredSnippet ?? null; }
-  const overview = parsed.aiOverview?.excerpt; if (typeof overview === "string" && overview.trim()) s.aiOverviewText = overview;
+  s.aiOverviewText = parsed.aiOverview?.excerpt ?? undefined; s.aiOverviewState = parsed.aiOverview == null ? "absent" : s.aiOverviewText || s.aiOverview.length > 0 ? "observed" : parsed.aiOverview.asynchronous ? "pending" : undefined;
 }
 
 const serpProgress = (s: FunnelState): FunnelCounters => ({ serpsAnalyzed: s.serps.analyzed, cacheHits: s.cycle.cacheHits, spendUsd: round(s.cycle.spentUsd) });
@@ -483,14 +485,12 @@ export function projectFunnelEvidence(state: FunnelState, now: number): FunnelRe
     // AI ANSWERS ARE NOT PROJECTED FROM HERE. This state is a working window of at most 20 pairs, so projecting it
     // told Decision an account with 140 answers a day held one. The loader fills the slot from ai_observations.
     aiObservations: [],
+    // WHAT THE RESULTS PAGE SAYS TRAVELS WITH THE ADDRESSES IT SAYS IT AT. The row was paying for snippets, an answer box, a block list, an overview and PAA answers and projecting none of them, so the writer's packet could see WHERE rivals rank and never WHAT they claim. A LOOK TAKEN BEFORE THE OVERVIEW STATE WAS STAMPED IS UNKNOWN, NEVER ABSENT: it reads observed where it carries the overview and null otherwise.
     serpEvidence: doneSerps.map((s) => ({
-      query: s.query,
-      observedAt: s.observedAt ?? null,
-      organic: (s.organic ?? []).map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null })),
-      aiOverview: (s.aiOverview ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
-      aiMode: (s.aiMode ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
-      paa: s.paa ?? [], related: s.related ?? [],
-    })),
+      query: s.query, observedAt: s.observedAt ?? null, itemTypes: s.itemTypes ?? null, featured: s.featured ?? null, aiOverviewText: s.aiOverviewText ?? null, aiOverviewState: s.aiOverviewState ?? ((s.aiOverview?.length ?? 0) > 0 || s.aiOverviewText ? "observed" as const : null),
+      organic: (s.organic ?? []).map((o) => ({ rank: o.rank, domain: o.domain, url: o.url, title: o.title ?? null, snippet: o.snippet ?? null })), related: s.related ?? [],
+      aiOverview: (s.aiOverview ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })), aiMode: (s.aiMode ?? []).map((a) => ({ url: a.url, domain: a.domain, title: a.title ?? null })),
+      paa: (s.paa ?? []).map((p) => ({ question: p.question, answeringDomain: p.answeringDomain, answer: p.answer ?? null })) })),
     winningPages: state.winningPages.map((w) => ({ url: w.url, domain: w.domain, engines: w.engines, examplePrompts: w.examplePrompts, appearances: w.appearances, extract: w.extract, readOutcome: w.readOutcome ?? null })),
     // Stored in the canonical shape, so this carries it through UNTRANSLATED: a reader matches on the topic AND the normalized ask, and never trusts that an answer in hand is the one it asked for.
     pageComparisons: state.pageComparisons, ownedReads: state.ownedReads ?? [], caseCompetitors: state.discovery.caseCompetitors ?? [],

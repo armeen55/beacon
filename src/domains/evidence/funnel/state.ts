@@ -139,21 +139,25 @@ export type FunnelSerp = {
   observedAt?: string;
   /** Terminal-collect recoveries: ONE clean repost, then unavailable coverage. */
   reposts?: number;
-  organic?: { rank: number; url: string; domain: string; title: string | null }[];
+  /** `snippet` is the words Google shows under the result, already bounded by the parser. Absent on a row stored before the words were kept, which is never the claim that the result showed none. */
+  organic?: { rank: number; url: string; domain: string; title: string | null; snippet?: string | null }[];
   aiOverview?: { url: string; domain: string; title: string | null }[];
   aiModeCacheKey?: string | null;
   aiMode?: { url: string; domain: string; title: string | null }[];
   /** ONE clean AI Mode retry after a terminal failure, then explicit missing coverage. */
   aiModeReposted?: boolean;
   aiModeFailed?: boolean;
-  paa?: { question: string; answeringDomain: string | null }[];
+  /** `answer` is the answer Google published for that follow-up question. null = the provider sent the question with no answer; absent = the look predates the answers being kept. */
+  paa?: { question: string; answeringDomain: string | null; answer?: string | null }[];
   related?: string[];
-  /** WHAT THIS RESULTS PAGE IS SHAPED LIKE and WHOSE PAGE HOLDS ITS ANSWER BOX, and the overview's own words beside the pages it cited. Every one of them arrives in the payload this row already paid for; keeping only
-   *  the citation list meant half of each bought page was discarded, so no rule could ask whether a search even HAS a snippet to take. CAPTURE INCOMPLETE IS NEVER OBSERVED ZERO: each is written only when the payload
-   *  actually said something, so ABSENT means unknown (the look predates these fields, or the response did not carry them) and null on `featured` means the provider's own block list proved this page has no answer box. */
+  /** WHAT THIS RESULTS PAGE IS SHAPED LIKE, WHOSE PAGE HOLDS ITS ANSWER BOX AND WHAT THAT BOX SAYS, and the overview's own words beside the pages it cited. Every one of them arrives in the payload this row already paid
+   *  for; keeping only the citation list discarded the half of each bought page that says what these pages actually claim. CAPTURE INCOMPLETE IS NEVER OBSERVED ZERO: each is written only when the payload actually said
+   *  something, so ABSENT means unknown (the look predates these fields, or the response did not carry them) and null on `featured` means the provider's own block list proved this page has no answer box.
+   *  `aiOverviewState` is the one three-way truth about the overview, because `aiOverview: []` said both "Google shows none here" and "the asynchronous stub has not landed yet", and downstream could only read the first. */
   itemTypes?: string[];
-  featured?: { url: string; domain: string; title: string | null } | null;
+  featured?: { url: string; domain: string; title: string | null; text?: string | null } | null;
   aiOverviewText?: string;
+  aiOverviewState?: "observed" | "pending" | "absent";
 };
 
 export type FunnelWinningPage = {

@@ -77,16 +77,19 @@ export type ParsedKeywordItem = {
   monthlySearches: { year: number; month: number; volume: number | null }[] | null;
 };
 export type ParsedSerp = {
-  organic: { rank: number; domain: string; url: string; title: string | null }[];
-  aiOverview: { present: boolean; references: { url: string; domain: string; title: string | null }[]; excerpt: string | null } | null;
-  paaQuestions: { question: string; answeringDomain: string | null }[];
+  /** `snippet` is the WORDS GOOGLE SHOWS UNDER THE RESULT (the item's own description), bounded at the parser. Keeping ranks and urls alone threw away the only part of a bought results page that says what these pages actually claim, so no diagnosis could name the proposition an owned page is missing. null = the payload carried none for that row. */
+  organic: { rank: number; domain: string; url: string; title: string | null; snippet: string | null }[];
+  /** `asynchronous` = the provider sent the overview block as a STUB and holds its words for the follow-up load. An outstanding stub is not an overview Google does not show, and reading it as one is the whole reason absence was claimed for searches nobody had looked at yet. */
+  aiOverview: { present: boolean; references: { url: string; domain: string; title: string | null }[]; excerpt: string | null; asynchronous: boolean } | null;
+  /** `answer` is the ANSWER GOOGLE PUBLISHED for the follow-up question, off the same expanded element the answering domain comes from. null = the provider sent the question with no answer text. */
+  paaQuestions: { question: string; answeringDomain: string | null; answer: string | null }[];
   relatedSearches: string[];
   /** EVERY BLOCK THE PROVIDER SAYS THIS PAGE HAS, in its own words (result.item_types), so what a page is SHAPED like is read off the response instead of inferred from the blocks we happened to keep.
    *  null = this payload carried no item list at all, so the shape is UNKNOWN; [] = it carried an empty one. Capture incomplete is never the same claim as observed zero. */
   itemTypes?: string[] | null;
-  /** The answer Google itself lifted to the top of the page, and whose page it lifted it from: bought on every one of these requests and thrown away until now. The block when the page has one; null ONLY when the
+  /** The answer Google itself lifted to the top of the page, WHAT IT SAYS (`text`) and whose page it lifted it from: bought on every one of these requests and thrown away until now. The block when the page has one; null ONLY when the
    *  provider's own item list proves it has none; ABSENT when the payload carries no item list, because a snippet nobody could look for is unknown, never absent. */
-  featuredSnippet?: { url: string; domain: string; title: string | null } | null;
+  featuredSnippet?: { url: string; domain: string; title: string | null; text: string | null } | null;
 };
 /** ONE page an answer pointed at. `startIndex`, `endIndex` and `passage` are the annotation's OWN span into the answer text, kept so the exact words a
  *  source backs can be shown later instead of re-derived by searching the text for the url. Present only where the provider sent them: absent is absent. */

@@ -8,6 +8,7 @@
  */
 
 import type { FunnelResearchEvidence, WinnerReadOutcome } from "./funnel/research-evidence";
+import { canonicalUrlKey, jobWinners, type EvidenceSnapshot } from "./snapshot";
 import { freshnessMsFor } from "./freshness";
 import { rootDomain } from "@/domains/evidence/readers/serp-provider";
 import { canonicalQueryKey, topicTokens } from "./relevance-gate";
@@ -279,6 +280,27 @@ export function serpRefOf(serp: SerpRow, winners: WinRow[], builtAt: number): Se
     aiOverviewRows: citationRows(serp.aiOverview),
     aiModeRows: citationRows(serp.aiMode),
   };
+}
+
+/** ONE passage a results page carries. The id numbers the passages of its own kind in the order they come back, so a brief can name exactly which passage it used. */
+type SerpAnswer = { id: string; kind: "featured" | "overview" | "pending" | "paa" | "snippet"; text: string; url: string; domain: string; question?: string; absentOnPage: boolean };
+/** WHAT THE RESULTS PAGE FOR THIS EXACT SEARCH SAYS AND THE OWNED PAGE DOES NOT: the answer box Google lifted, the AI Overview's own words, the follow-up answers Google published, and the snippets under the winners already
+ *  acquired for this search (the same intent match `jobWinners` makes, capped at three). THIS IS BRIEFING FOR A WRITER AND NEVER A CITABLE FACT: every passage is Google's rendering of somebody else's page, so a sentence
+ *  built on one still owes the fact-check path its own source, and nothing here may be quoted or counted as evidence. An overview still being fetched rides out as `pending` with empty text rather than being dropped,
+ *  because dropping it reads as a search Google shows no overview for. `absentOnPage` is claimed only where NO meaningful word of the passage is on the owned page, which is the one comparison this can make, and a
+ *  passage with nothing to compare reads false. The overview carries no url or domain: Google states it in its own voice, so crediting it to one citation would be a claim the response does not make.
+ *  EXACT QUERY ONLY (canonicalQueryKey): a results page for another phrase cannot brief a writer about this one. Pure and deterministic. */
+export function serpAnswersOf(research: Pick<EvidenceSnapshot["research"], "serpEvidence" | "winningPages">, query: string, own: { text: string; headings: readonly string[] }): SerpAnswer[] {
+  const qk = canonicalQueryKey(query ?? ""), row = qk ? research.serpEvidence.find((s) => canonicalQueryKey(s.query) === qk) : undefined; if (!row) return [];
+  const said = new Set(topicTokens(`${own.text} ${own.headings.join(" ")}`)), out: SerpAnswer[] = [];
+  const add = (id: string, kind: SerpAnswer["kind"], text: string, url: string, domain: string, question?: string) => { const t = topicTokens(question ? `${question} ${text}` : text);
+    out.push({ id, kind, text, url, domain, ...(question ? { question } : {}), absentOnPage: t.length > 0 && t.every((w) => !said.has(w)) }); };
+  if (row.featured?.text) add("serp-featured", "featured", row.featured.text, row.featured.url, row.featured.domain);
+  if (row.aiOverviewState === "pending") add("serp-overview", "pending", "", "", ""); else if (row.aiOverviewText) add("serp-overview", "overview", row.aiOverviewText, "", "");
+  (row.paa ?? []).filter((p) => p.answer).forEach((p, i) => add(`serp-paa-${i + 1}`, "paa", p.answer!, "", p.answeringDomain ?? "", p.question));
+  const winners = new Set(jobWinners(research, query).map((w) => canonicalUrlKey(w.url)));
+  (row.organic ?? []).filter((o) => o.snippet && winners.has(canonicalUrlKey(o.url))).slice(0, 3).forEach((o, i) => add(`serp-snippet-${i + 1}`, "snippet", o.snippet!, o.url, o.domain));
+  return out;
 }
 
 const KIND_ORDER: WinnerAppearance["kind"][] = ["serp_organic", "ai_overview", "ai_mode", "ai_answer"];

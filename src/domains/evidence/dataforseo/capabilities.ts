@@ -381,26 +381,30 @@ function parseSerpCompetitors(env: ProviderEnvelope): ParsedByCapability["labs_s
     domain: String(it.domain ?? ""), avgPosition: num(it.avg_position), rating: num(it.rating), keywordsCount: num(it.keywords_count),
   })).filter((c) => c.domain.length > 0);
 }
+/** WHAT EACH BLOCK ACTUALLY SAYS IS BOUNDED WHERE IT IS PARSED, so no unbounded provider prose can ever reach a stored row: a result snippet at 400 characters, an answer box or a People Also Ask answer at 600, the AI Overview's own words at 1,200. Whitespace collapses first, and a string that empties out reads null rather than "". */
+const SNIPPET_MAX = 400, ANSWER_MAX = 600, OVERVIEW_MAX = 1200;
+const cut = (v: unknown, n: number): string | null => { const s = str(v); return s ? s.replace(/\s+/g, " ").trim().slice(0, n) || null : null; };
 function parseSerp(env: ProviderEnvelope): ParsedSerp {
   const { result0, items } = resultBlock(env);
   const sub = (t: string): Record<string, unknown>[] => { const b = items.find((i) => i.type === t); return Array.isArray(b?.items) ? (b!.items as Record<string, unknown>[]) : []; };
   const organic = items.filter((i) => i.type === "organic").map((i) => ({ // rank_group IS the organic position; rank_absolute counts ads and packs, so it read result 1 as "#2"
-    rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title),
+    rank: Number(i.rank_group ?? i.rank_absolute ?? 0), domain: String(i.domain ?? ""), url: String(i.url ?? ""), title: str(i.title), snippet: cut(i.description ?? i.snippet, SNIPPET_MAX),
   }));
-  // WHAT THE PAGE IS SHAPED LIKE, and WHO HOLDS ITS ANSWER BOX. Both are in every payload already bought; the parser simply dropped them, so nothing downstream could see that a search HAS a featured snippet, let alone
-  // whose page fills it. A PAYLOAD THAT NEVER LISTED ITS BLOCKS PROVES NO ABSENCE: item_types reads null there, and the snippet is left ABSENT rather than reported as a page that has none.
+  // WHAT THE PAGE IS SHAPED LIKE, WHO HOLDS ITS ANSWER BOX, and WHAT THAT BOX SAYS. All three are in every payload already bought; the parser dropped them, so nothing downstream could see that a search HAS a featured
+  // snippet, let alone read it. A PAYLOAD THAT NEVER LISTED ITS BLOCKS PROVES NO ABSENCE: item_types reads null there, and the snippet is left ABSENT rather than reported as a page that has none.
   const itemTypes = Array.isArray(result0?.item_types) ? (result0!.item_types as unknown[]).map((t) => String(t)).filter(Boolean) : null;
   const snip = items.find((i) => i.type === "featured_snippet");
-  const featuredSnippet = snip ? { url: String(snip.url ?? ""), domain: String(snip.domain ?? hostname(String(snip.url ?? ""))), title: str(snip.title) } : itemTypes == null ? undefined : null;
-  // WHOSE PAGE ANSWERS THE FOLLOW-UP QUESTION, off the expanded element the provider sends inside each row (docs: serp/google/organic task_get/advanced, people_also_ask_expanded_element). It was written as null on every row.
+  const featuredSnippet = snip ? { url: String(snip.url ?? ""), domain: String(snip.domain ?? hostname(String(snip.url ?? ""))), title: str(snip.title), text: cut(snip.description ?? snip.text, ANSWER_MAX) } : itemTypes == null ? undefined : null;
+  // WHOSE PAGE ANSWERS THE FOLLOW-UP QUESTION AND WHAT THE ANSWER SAYS, off the expanded element the provider sends inside each row (docs: serp/google/organic task_get/advanced, people_also_ask_expanded_element).
   const paaQuestions = sub("people_also_ask").map((el) => { const ex = (Array.isArray(el.expanded_element) ? (el.expanded_element as Record<string, unknown>[]) : [])[0];
-    const url = String(ex?.url ?? ""); return { question: String(el.title ?? ""), answeringDomain: str(ex?.domain) ?? (url ? hostname(url) : null) }; }).filter((q) => q.question.length > 0);
+    const url = String(ex?.url ?? ""); return { question: String(el.title ?? ""), answeringDomain: str(ex?.domain) ?? (url ? hostname(url) : null), answer: cut(ex?.description ?? ex?.text, ANSWER_MAX) }; }).filter((q) => q.question.length > 0);
   const relatedSearches = sub("related_searches").map((s) => String(s)).filter((s) => s.length > 0);
   const inner = sub("ai_overview");
   const references = inner.flatMap((el) => (Array.isArray(el.references) ? (el.references as Record<string, unknown>[]) : []))
     .map((r) => { const url = String(r.url ?? ""); return { url, domain: String(r.domain ?? hostname(url)), title: str(r.title) }; }).filter((r) => r.url.length > 0);
-  const excerpt = inner.map((el) => str(el.text) ?? str(el.markdown)).find((t) => t != null) ?? null;
-  const aiOverview = items.some((i) => i.type === "ai_overview") ? { present: true, references, excerpt } : null;
+  const excerpt = cut(inner.map((el) => str(el.text) ?? str(el.markdown)).find((t) => t != null), OVERVIEW_MAX);
+  // AN OVERVIEW STILL BEING FETCHED IS NOT AN OVERVIEW GOOGLE DOES NOT SHOW: the provider marks that block `asynchronous_ai_overview` and sends its words on the follow-up load, so the stub travels as outstanding.
+  const ovb = items.find((i) => i.type === "ai_overview"), aiOverview = ovb ? { present: true, references, excerpt, asynchronous: ovb.asynchronous_ai_overview === true } : null;
   return { organic, aiOverview, paaQuestions, relatedSearches, itemTypes, ...(featuredSnippet === undefined ? {} : { featuredSnippet }) };
 }
 function parseLlmAnswer(env: ProviderEnvelope): ParsedAiAnswer {

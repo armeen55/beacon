@@ -142,11 +142,18 @@ type ResearchSerpEvidence = {
    *  projection used to drop it, so every consumer had to guess how old a results
    *  page was, and a claim about what Google shows cannot be dated by guesswork. */
   observedAt: string | null;
-  organic: { rank: number; domain: string; url: string; title: string | null }[];
+  organic: { rank: number; domain: string; url: string; title: string | null; snippet?: string | null }[];
   aiOverview: ResearchCitation[];
   aiMode: ResearchCitation[];
-  paa: { question: string; answeringDomain: string | null }[];
+  paa: { question: string; answeringDomain: string | null; answer?: string | null }[];
   related: string[];
+  /** WHAT THE RESULTS PAGE ITSELF SAYS, carried through so a diagnosis can name the proposition an owned page lacks instead of guessing it off a list of urls: the words under each result, the block list, the answer box
+   *  with the answer in it, and the overview's own words. Optional and additive, so a bundle built before they were carried reads as one that did not record them, which is never the claim that the page shows none.
+   *  `aiOverviewState` is the one three-way truth: observed (words or references landed), pending (an asynchronous overview is still outstanding), absent (the provider reported none). null = the look predates the stamp. */
+  itemTypes?: string[] | null;
+  featured?: { url: string; domain: string; title: string | null; text?: string | null } | null;
+  aiOverviewText?: string | null;
+  aiOverviewState?: "observed" | "pending" | "absent" | null;
 };
 
 type ResearchAppearanceKind = "serp_organic" | "ai_overview" | "ai_mode" | "ai_answer";

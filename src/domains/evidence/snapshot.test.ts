@@ -1,6 +1,7 @@
 /** Outcome tests for the EvidenceSnapshot kernel: the CONTRACT downstream Decisions consume, never the implementation. All six mandatory sources normalize in with an honest freshness slot, owned-page and competitor evidence are both present, the AI lane is DERIVED from the canonical answers riding on the research payload (no second AI input is left to disagree with it), and the evidenceHash tracks MATERIAL evidence only. */
 import { describe, it, expect } from "vitest";
 import { buildEvidenceSnapshot, MANDATORY_SOURCES, type EvidenceSnapshotInput, type EvidenceSourceKind } from "./snapshot";
+import { serpAnswersOf } from "./serp-shape";
 import { buildTopicInvestigations, reconcileResearchCases } from "./topic-investigation";
 import { foldCases } from "./case-identity";
 import { emptyResearchEvidence, type CanonicalPairObservation, type FunnelResearchEvidence } from "./funnel/research-evidence";
@@ -76,11 +77,14 @@ describe("evidenceHash - research material truth, not the clock", () => {
       winningPages: [{ url: KEBAB, domain: "persianfood.example", engines: ["chatgpt"], examplePrompts: ["best koobideh recipe"], appearances: [], extract: { title: "Kebab", h1: "Koobideh Kebab", wordCount: 800, headings: ["Ingredients"], faqCount: 2 } }],
       receipt: { researched: 5, retained: 1, stale: 0, missing: 0, cached: 3, spentUsd: 0.02, freshestObservationAt: "2026-07-22T00:00:00.000Z" } });
   const hashOf = (r: FunnelResearchEvidence) => buildEvidenceSnapshot({ ...fullInput(), research: at(r) }).evidenceHash;
-  it("is stable when only clocks and spend/cache counters change", () => {
+  it("is stable when only clocks, spend/cache counters, or the WORDS a results page carries change", () => {
     const base = hashOf(researchFixture()); const clockOnly = researchFixture(); clockOnly.aiObservations[0].observedAt = "2099-01-01T00:00:00.000Z";
     clockOnly.winningPages[0].appearances = [{ kind: "ai_answer", query: null, promptId: "p1", promptText: "x", engine: "chatgpt", rank: null, citedUrl: KEBAB, observedAt: "2099-01-01T00:00:00.000Z", modelServed: "gpt-4o-2026" }];
     clockOnly.receipt = { researched: 999, retained: 999, stale: 9, missing: 9, cached: 999, spentUsd: 9.99, freshestObservationAt: "2099-01-01T00:00:00.000Z" };
-    expect(hashOf(clockOnly)).toBe(base); });
+    // BRIEFING IS NOT EVIDENCE: Google rewrites these strings constantly, so hashing them would re-identify every Ready and implemented row the first time a snippet was reworded.
+    const worded = researchFixture(); worded.serpEvidence[0] = { ...worded.serpEvidence[0]!, itemTypes: ["organic"], featured: { url: KEBAB, domain: "persianfood.example", title: "Kebab", text: "the answer box" }, aiOverviewText: "the overview", aiOverviewState: "observed",
+      organic: [{ ...worded.serpEvidence[0]!.organic[0]!, snippet: "what this page says" }], paa: [{ ...worded.serpEvidence[0]!.paa[0]!, answer: "how it is answered" }] };
+    expect([hashOf(clockOnly), hashOf(worded)]).toEqual([base, base]); });
   it("changes for a settled reading, a citation URL, observation mode, served model, fan-out list, keyword volume/intent, or extract structure", () => {
     const base = hashOf(researchFixture());
     const mut = (f: (r: FunnelResearchEvidence) => void) => { const r = researchFixture(); f(r); return hashOf(r); };
@@ -90,6 +94,19 @@ describe("evidenceHash - research material truth, not the clock", () => {
     expect(mut((r) => (r.retainedKeywords[0].searchVolume = 99999))).not.toBe(base); expect(mut((r) => (r.retainedKeywords[0].intent = "commercial"))).not.toBe(base);
     expect(mut((r) => (r.aiObservations[0].analysisHash = "settled"))).not.toBe(base); // a reading that landed is new evidence even when the answer credited the very same pages
   }); });
+/** serpAnswersOf: WHAT THE RESULTS PAGE SAYS AND THE OWNED PAGE DOES NOT, briefing a writer off passages already bought. Never a citable fact, exact query only, and an overview still being fetched is reported as outstanding rather than dropped, because dropping it reads as a search Google shows no overview for. */
+describe("serpAnswersOf - the passages a results page carries", () => {
+  const OWN = { text: "Koobideh is ground lamb on a flat skewer.", headings: ["Ingredients"] }, SNIP = "Grill the skewers over charcoal until the fat renders.";
+  const research = (over: Partial<FunnelResearchEvidence["serpEvidence"][number]> = {}) => ({ winningPages: [{ url: KEBAB, domain: "persianfood.example", engines: [], examplePrompts: [], appearances: [], extract: null }], // ONLY a page acquired for this search is a winner: the same intent match jobWinners makes
+    serpEvidence: [{ query: "koobideh recipe", observedAt: null, aiOverview: [], aiMode: [], related: [], itemTypes: ["organic"], aiOverviewText: "Charcoal grilling is what makes koobideh taste of smoke.", aiOverviewState: "observed" as const, featured: { url: KEBAB, domain: "persianfood.example", title: "Kebab", text: "Koobideh is grilled over charcoal, never a gas flame." },
+      organic: [{ rank: 1, domain: "persianfood.example", url: KEBAB, title: "Kebab", snippet: SNIP }, { rank: 2, domain: "unread.example", url: "https://unread.example/k", title: "K", snippet: "never briefed: this rival was never acquired for this search" }],
+      paa: [{ question: "what is koobideh", answeringDomain: "persianfood.example", answer: "Ground lamb kneaded with grated onion." }, { question: "how hot", answeringDomain: "x.example", answer: "Charcoal embers at their whitest." }], ...over }] });
+  it("hands back the answer box, the overview, the follow-up answers and the acquired winners' snippets for the EXACT search, reports an outstanding overview as pending, and says nothing about another search", () => {
+    const out = serpAnswersOf(research(), "Koobideh Recipe", OWN); // the same phrase in other clothes is the same results page
+    expect(out.map((a) => [a.id, a.kind, a.absentOnPage])).toEqual([["serp-featured", "featured", false], ["serp-overview", "overview", false], ["serp-paa-1", "paa", false], ["serp-paa-2", "paa", true], ["serp-snippet-1", "snippet", false]]);
+    expect([out[4]!.text, out[4]!.url, out[3]!.question]).toEqual([SNIP, KEBAB, "how hot"]); // only the winner already acquired for this search is quoted, never the rival nobody read
+    const pending = serpAnswersOf(research({ aiOverviewText: null, aiOverviewState: "pending", featured: null, paa: [] }), "koobideh recipe", OWN); // an outstanding stub is carried, never dropped, and empty text claims no absence
+    expect([pending.map((a) => [a.id, a.kind, a.text, a.absentOnPage]), serpAnswersOf(research(), "lamb kofta recipe", OWN)]).toEqual([[["serp-overview", "pending", "", false], ["serp-snippet-1", "snippet", SNIP, false]], []]); }); });
 /** TopicInvestigation: the NON-ACTIONABLE research packet - what it may claim and what it must refuse to claim. CORPUS gives this account 12 phrases, so "harbor" is its ubiquitous word and can never be the reason two topics merge. */
 describe("buildTopicInvestigations - the research packet", () => {
   const NOW = "2026-07-27T00:00:00.000Z"; const OLD = "2026-01-01T00:00:00.000Z"; const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });

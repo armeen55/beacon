@@ -18,30 +18,23 @@ describe("recurrence is distinct days and assistants, never row totals", () => {
     const twoDaysTwoEngines = [obs({ observationId: "a", engine: "chatgpt" }), obs({ observationId: "b", engine: "gemini", reportingDay: "2026-08-02" })]; expect(buildFanoutEvidence(twoDaysTwoEngines, SITE).rows[0]!.material).toBe(true);
     const parents = [obs({ observationId: "p1o" }), obs({ observationId: "p2o", reportingDay: "2026-08-02", promptId: "p2", promptText: "what goes on a haft seen table" })];
     expect(buildFanoutEvidence(parents, SITE).rows[0]!.material).toBe(true);
-    expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.material).toBe(false); // one sighting is watched, never work
-  });
+    expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.material).toBe(false); }); // one sighting is watched, never work
   it("does not call one same-day sighting on two assistants material until it has already cost something", () => {
     const coincidence = ["chatgpt", "gemini"].map((e, i) => obs({ observationId: `e${i}`, engine: e })); const bare = buildFanoutEvidence(coincidence, SITE).rows[0]!; // THE COINCIDENCE. Two assistants ran the same search once, on one day, and nothing here was read for it.
     expect(bare.material).toBe(false); expect(bare.materialBecause).toContain("not a pattern yet");
     const costly = coincidence.map((o) => ({ ...o, retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] })); const withCost = buildFanoutEvidence(costly, SITE).rows[0]!; // THE SAME SHAPE WITH A CONSEQUENCE: a page of this account was read for it and credited to somebody else.
     expect(withCost.material).toBe(true); expect(withCost.materialBecause).toContain("read for it and passed over");});
   it("keeps every exact wording that collapsed onto one search, most executed first", () => {
-    const rows = [obs({ observationId: "v1", fanOutQueries: ["haft seen set delivery"] }),
-      obs({ observationId: "v2", reportingDay: "2026-08-02", fanOutQueries: ["haft seen set delivery"] }),
-      obs({ observationId: "v3", reportingDay: "2026-08-03", fanOutQueries: ["Haft Seen set delivery?"] })];
+    const rows = [obs({ observationId: "v1", fanOutQueries: ["haft seen set delivery"] }), obs({ observationId: "v2", reportingDay: "2026-08-02", fanOutQueries: ["haft seen set delivery"] }), obs({ observationId: "v3", reportingDay: "2026-08-03", fanOutQueries: ["Haft Seen set delivery?"] })];
     const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.variants.map((v) => [v.text, v.executions])).toEqual([["haft seen set delivery", 2], ["Haft Seen set delivery?", 1]]);
-    expect(r.query).toBe("haft seen set delivery"); // the wording shown is the one the assistants typed most
-  });
+    expect(r.query).toBe("haft seen set delivery"); }); // the wording shown is the one the assistants typed most
   it("divides recurrence by its own parent questions' answers, never by the whole account", () => {
     const loud = Array.from({ length: 4 }, (_, i) => obs({ observationId: `l${i}`, reportingDay: `2026-08-0${i + 1}`, promptId: "loud", promptText: "loud question", fanOutQueries: ["something else entirely"] })); // One loud question answered four times, one quiet question answered once, and the search rides the quiet one.
     const quiet = obs({ observationId: "q1", promptId: "quiet", promptText: "quiet question", fanOutQueries: ["haft seen set delivery"] }); const row = buildFanoutEvidence([...loud, quiet], SITE).rows.find((r) => r.key.includes("haft"))!;
     expect([row.parentExecutions, row.parentShare]).toEqual([1, 1]); // every answer to ITS parent ran it
-    expect(row.windowShare).toBe(0.2); // one of the account's five reporting answers, and it is labelled as that
-  });
+    expect(row.windowShare).toBe(0.2); }); // one of the account's five reporting answers, and it is labelled as that
   it("names the pages of this account the assistants read for a search, and says what it did not list", () => {
-    const rows = Array.from({ length: 3 }, (_, i) => obs({ observationId: `x${i}`, reportingDay: `2026-08-0${i + 1}`,
-      retrievedResults: [{ url: "https://own.example/haft-seen?ref=x", domain: "own.example" }],
-      citations: Array.from({ length: 7 }, (_, j) => ({ url: `https://rival${j}.example/a`, domain: `rival${j}.example` })) }));
+    const rows = Array.from({ length: 3 }, (_, i) => obs({ observationId: `x${i}`, reportingDay: `2026-08-0${i + 1}`, retrievedResults: [{ url: "https://own.example/haft-seen?ref=x", domain: "own.example" }], citations: Array.from({ length: 7 }, (_, j) => ({ url: `https://rival${j}.example/a`, domain: `rival${j}.example` })) }));
     const r = buildFanoutEvidence(rows, SITE).rows[0]!; expect(r.ownPages).toEqual([{ url: "https://own.example/haft-seen", cited: 0, retrieved: 3, retrievedNotCited: 3 }]);
     expect([r.rivalPages.length, r.rivalPagesTotal]).toEqual([5, 7]); // five shown, seven said out loud
     expect(r.observationIdsTruncated).toBe(false);});
@@ -56,10 +49,8 @@ describe("where the site stood is five different worlds, with an honest denomina
     const rnc = obs({ retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }); expect(buildFanoutEvidence([rnc], SITE).rows[0]!.ownState).toBe("retrieved_not_cited");
     expect(buildFanoutEvidence([obs({})], SITE).rows[0]!.ownState).toBe("not_retrieved"); // The scraper reports retrieval, so "never read this site" is a claim its rows can carry.
     const responses = obs({ engine: "claude", observationMode: "standardized_response" }); const [nc] = buildFanoutEvidence([responses], SITE).rows; // llm_responses shows absence from the credit, never absence from the reading (Codex, 2026-08-21).
-    expect([nc!.ownState, nc!.retrievalReportingAnswers, nc!.sourceSemantics]).toEqual(["not_credited", 0, "explicit_citation"]); const silent = obs({ citations: null });
-    const [u] = buildFanoutEvidence([silent], SITE).rows;
-    expect([u!.ownState, u!.reportingAnswers]).toEqual(["unreported", 0]); // missing reporting is a state, never a zero share
-  });
+    expect([nc!.ownState, nc!.retrievalReportingAnswers, nc!.sourceSemantics]).toEqual(["not_credited", 0, "explicit_citation"]);
+    const [u] = buildFanoutEvidence([obs({ citations: null })], SITE).rows; expect([u!.ownState, u!.reportingAnswers]).toEqual(["unreported", 0]); }); // missing reporting is a state, never a zero share
   it("names what the reported sources mean, and never merges reliance with strict citation silently", () => {
     const scraper = obs({ observationId: "s1" }); const responses = obs({ observationId: "s2", engine: "gemini", observationMode: "standardized_response" });
     expect(buildFanoutEvidence([scraper], SITE).rows[0]!.sourceSemantics).toBe("selected_or_relied_on"); expect(buildFanoutEvidence([scraper, responses], SITE).rows[0]!.sourceSemantics).toBe("mixed");
@@ -69,38 +60,25 @@ describe("where the site stood is five different worlds, with an honest denomina
     const rows = [obs({ observationId: "a" }), obs({ observationId: "b", engine: "gemini", citations: null })]; const [r] = buildFanoutEvidence(rows, SITE).rows;
     expect([r!.executions, r!.reportingAnswers, r!.rivalPages[0]!.domain]).toEqual([2, 1, "rival.example"]);});
   it("rolls up each owned page's cited, read, and read-passed-over counts from the same canonical rows", () => {
-    const rows = [
-      obs({ observationId: "r1", citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }], retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }),
-      obs({ observationId: "r2", engine: "gemini", retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }),
-    ];
-    const [p] = ownedPageAiRollup(rows, SITE); expect([p!.url, p!.cited, p!.retrieved, p!.retrievedNotCited, p!.engines]).toEqual(["https://own.example/haft-seen", 1, 2, 1, ["chatgpt", "gemini"]]);
-  });});
+    const rows = [obs({ observationId: "r1", citations: [{ url: "https://own.example/haft-seen", domain: "own.example" }], retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] }), obs({ observationId: "r2", engine: "gemini", retrievedResults: [{ url: "https://own.example/haft-seen", domain: "own.example" }] })];
+    const [p] = ownedPageAiRollup(rows, SITE); expect([p!.url, p!.cited, p!.retrieved, p!.retrievedNotCited, p!.engines]).toEqual(["https://own.example/haft-seen", 1, 2, 1, ["chatgpt", "gemini"]]); });});
 /** SITE FURNITURE COMES OUT AT THE CANONICAL EXTRACTION, once, computed from the account's own pages, never a hardcoded phrase list (Codex, 2026-08-21). */
 describe("the canonical outline arrives without site furniture", () => {
   it("strips a heading printed across the site and keeps every page's own sections", async () => {
     const { buildEvidenceSnapshot } = await import("@/domains/evidence/snapshot"); const { emptyResearchEvidence } = await import("@/domains/evidence/funnel/research-evidence");
     const src = <T,>(payload: T) => ({ status: "fresh" as const, lastSyncedAt: null, payload });
-    const wixPage = (path: string, own: string) => ({
-      url: `https://fixture.example${path}`, title: own, metaDescription: "d", h1: own, h2: [],
-      outline: ["Explore More", own, "Related Articles"], schemaTypes: [], hasFaq: false, faqCount: 0,
-      wordCount: 500, internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
-    const snap = buildEvidenceSnapshot({
-      scope: { tenantId: "t", site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" },
-      gsc: src([]), ga4: src([]), clarity: src([]), dataforseo: src([]),
-      wix: src([wixPage("/a", "Haft Seen Explained"), wixPage("/b", "Nowruz Recipes"), wixPage("/c", "Sizdah Bedar")]),
-      research: src(emptyResearchEvidence()), aiAnswersUnread: false });
+    const wixPage = (path: string, own: string) => ({ url: `https://fixture.example${path}`, title: own, metaDescription: "d", h1: own, h2: [], outline: ["Explore More", own, "Related Articles"], schemaTypes: [], hasFaq: false, faqCount: 0, wordCount: 500, internalLinks: [], fetchedAt: "2026-08-10T00:00:00.000Z" });
+    const snap = buildEvidenceSnapshot({ scope: { tenantId: "t", site: "fixture.example", builtAt: "2026-08-20T00:00:00.000Z" }, gsc: src([]), ga4: src([]), clarity: src([]), dataforseo: src([]),
+      wix: src([wixPage("/a", "Haft Seen Explained"), wixPage("/b", "Nowruz Recipes"), wixPage("/c", "Sizdah Bedar")]), research: src(emptyResearchEvidence()), aiAnswersUnread: false });
     const outlines = snap.ownedPages.map((p) => p.content?.outline ?? []);
     expect(outlines.flat()).not.toContain("Explore More"); // chrome on every page is not content anywhere
     expect(outlines.flat()).not.toContain("Related Articles"); expect(outlines.flat().sort()).toEqual(["Haft Seen Explained", "Nowruz Recipes", "Sizdah Bedar"]);});});
-
 describe("one job's evidence identity is order-free, as its own contract says", () => {
   it("hashes the same when the stored results pages arrive in a different order", () => {
     const page = { url: "https://x.example/a", content: null, search: null, engagement: null, friction: null, aiCitations: { count: 0 } }; // LIVE: the same job's workKey moved between two builds a minute apart with no evidence change, because
     const serp = (query: string, urls: string[]) => ({ query, organic: urls.map((url, i) => ({ rank: i + 1, url })), aiOverview: [], aiMode: [] });
     const snap = (rows: unknown[]) => ({ ownedPages: [page], research: { serpEvidence: rows, winningPages: [] } } as never);
-    const forward = [serp("persian rugs", ["https://r1.example/x", "https://r2.example/y"]), serp("persian rugs", ["https://r3.example/z"])];
-    const backward = [forward[1]!, forward[0]!];
-    expect(jobEvidenceHash(snap(forward), ["https://x.example/a"], "persian rugs"))
-      .toBe(jobEvidenceHash(snap(backward), ["https://x.example/a"], "persian rugs"));
-    expect(jobEvidenceHash(snap(forward), ["https://x.example/a"], "persian rugs")) // and a real change to the evidence still moves it
-      .not.toBe(jobEvidenceHash(snap([...forward, serp("persian rugs", ["https://r4.example/w"])]), ["https://x.example/a"], "persian rugs")); }); });
+    const forward = [serp("persian rugs", ["https://r1.example/x", "https://r2.example/y"]), serp("persian rugs", ["https://r3.example/z"])], backward = [forward[1]!, forward[0]!];
+    const hash = (rows: unknown[]) => jobEvidenceHash(snap(rows), ["https://x.example/a"], "persian rugs");
+    expect(hash(forward)).toBe(hash(backward));
+    expect(hash(forward)).not.toBe(hash([...forward, serp("persian rugs", ["https://r4.example/w"])])); }); }); // and a real change to the evidence still moves it
