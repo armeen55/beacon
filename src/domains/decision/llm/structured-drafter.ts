@@ -658,7 +658,7 @@ export async function callStructuredLLM<K extends StructuredDraftKind>(
     // answer_analysis is a RESTATEMENT of somebody else's AI answer, never copy this product publishes, so the flat marketing-superlative reject does not apply to it: a verbatim "the best sushi in town" is the observed fact being recorded. The numeric firewall still applies, grounded on the answer text itself, so an invented figure is still caught.
     if (req.kind === "internal_link" || req.unmarkPhrase) result.data = unmarkAnchor(result.data, req.unmarkPhrase);
     const fw = runContentFirewalls(draftProseStringValues(result.data), ledger, {
-      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis"),
+      deferSuperlativeCheck: req.kind === "answer_block" || req.kind.startsWith("answer_analysis") || primaryCustomerText(req.kind, result.data) == null, // A VERDICT IS NOT COPY EITHER (live 2026-09-02): a fact judgement quoting a source's "ultimate" failed closed five times and the cheetah's national-animal source was never banked
       skipPlaceholderCheck: primaryCustomerText(req.kind, result.data) == null, ownWords: req.ownWords,
     });
     if (!fw.ok) {
