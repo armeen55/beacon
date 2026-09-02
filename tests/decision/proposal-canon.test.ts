@@ -159,6 +159,7 @@ describe("canonical proposal persistence", () => {
     expect(await saveChangeProposal(proposal())).toBe("saved");
     expect(await transitionProposalToImplemented(T, proposal().id, "shp_seed")).toBe(true); // done is reachable only through the transaction
     expect(await saveChangeProposal(deep())).toBe("blocked"); // the same page, the same family, a fresh idea
+    expect(await saveChangeProposal(proposal({ status: "needs_review", confidence: "low", limitations: ["a rule added today refuses this"] })), "and a save on the row's OWN id never walks a shipped change back to a draft").toBe("blocked");
     expect(db.state.rows).toHaveLength(1);
     expect([db.state.rows[0]!.status, db.state.rows[0]!.terminal_disposition, db.state.rows[0]!.superseded_by])
       .toEqual(["implemented_pending_verification", null, null]); // the change being measured is still the current answer

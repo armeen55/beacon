@@ -4,9 +4,10 @@ const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], client: {}
 vi.mock("@/lib/persistence/supabase", () => ({ getSupabaseAdmin: () => db.client }));
 vi.mock("@/lib/logger", () => ({ log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } }));
 import { nextObligation } from "@/domains/decision/obligation";
+import { preferFinished } from "@/domains/decision/completeness";
 import { saveChangeProposal } from "@/domains/decision/proposal-store";
 import { supabaseFake } from "../helpers/supabase-fake";
-import type { ChangeProposal } from "@/domains/decision/contracts";
+import { deserializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 Object.assign(db.client, supabaseFake({ rows: () => db.rows }), { rpc: async () => ({ data: "saved", error: null }) });
 const held = (): ChangeProposal => ((db.rows[0]!.payload as { proposal: ChangeProposal }).proposal);
 const row = (over: Partial<ChangeProposal> = {}): ChangeProposal => ({ id: "t::/p::existing_edit::title", tenantId: "t", kind: "existing_edit", pagePath: "/p", pageUrl: "https://fixture.example/p", pageLabel: "P", primaryQuery: "q", opportunityType: "Capture clicks", changeFamily: "title", status: "ready", researchOnly: false, recommendedChange: { kind: "existing_edit", field: "title", before: "Old", after: "A finished title for this page" }, whyItMatters: "w", estimatedEffortMinutes: 1, riskLevel: "low", confidence: "medium", limitations: [], evidence: { query: "q", hints: [], evidenceRefCount: 1 }, impactScore: 10, upsidePerMonth: null, modeledOn: "the stored results page for this search", publish: "manual", createdAt: "2026-09-02T00:00:00.000Z", ...over });
@@ -15,9 +16,11 @@ describe("the typed next step a stored change owes", () => {
   it("owes a draft while nothing exact is written, and a redraft once its own gates faulted the words", () => {
     expect(nextObligation(row({ researchOnly: true, status: "needs_review" }))).toEqual({ kind: "draft" });
     expect(nextObligation(row({ status: "needs_review", faults: ["it lands in the wrong place"] }))).toEqual({ kind: "redraft", attempt: 1, instruction: "it lands in the wrong place" }); });
-  it("settles rather than retries after two corrective drafts, and keeps a settlement it already made", () => {
+  it("settles rather than retries after two corrective drafts, keeps a settlement it already made, and settles the moment a redraft hands back the exact retired words", () => {
     expect(nextObligation(row({ status: "needs_review", faults: ["f"], previousCopy: { after: "old words", retiredBecause: "r", at: "2026-09-01T00:00:00.000Z", attempts: 2 } }))?.kind).toBe("terminal");
-    expect(nextObligation(row({ obligation: { kind: "terminal", reason: "settled once" }, faults: ["f"] }))).toEqual({ kind: "terminal", reason: "settled once" }); });
+    expect(nextObligation(row({ obligation: { kind: "terminal", reason: "settled once" }, faults: ["f"] }))).toEqual({ kind: "terminal", reason: "settled once" });
+    const retired = row({ status: "needs_review", faults: ["f"], previousCopy: { after: "A finished title for this page", retiredBecause: "r", at: "2026-09-01T00:00:00.000Z", attempts: 1 } }); // attempt 1 of 2, so only the identical words settle it
+    const back = preferFinished(retired, null); expect([back.obligation?.kind, nextObligation(back)?.kind], "the same words back again are the answer, not a second attempt").toEqual(["terminal", "terminal"]); });
   it("owes the one cheap reading a shape hold asks for, rather than sitting behind that sentence for ever", () =>
     expect(nextObligation(row({ modeledOn: undefined, primaryQuery: "nowruz traditions" }))).toEqual({ kind: "evidence", need: { kind: "serp", query: "nowruz traditions", reasonCode: "shape_unbacked" } }));
   it("owes a redraft carrying whatever still blocks final copy, and settles a lever its own diagnosed cause cannot use", () => {
@@ -33,4 +36,10 @@ describe("the store merge protects words, never a caller's decision about the sa
     expect([held().status, held().faults, held().obligation?.kind]).toEqual(["needs_review", ["it names iranopedia 3 times"], "redraft"]);
     await saveChangeProposal({ ...finished, status: "needs_review", researchOnly: true, recommendedChange: { kind: "existing_edit", field: "title", before: "Old", after: "The exact title is not written yet." } });
     expect((held().recommendedChange as { after: string }).after, "a brief's words differ, so the merge still protects the finished ones").toBe("A finished title for this page"); });
+  it("stamps ONE typed next step, or none, on every row it stores, and the stored payload decodes wearing exactly that", async () => {
+    for (const [owed, p] of [["draft", row({ id: "t::/p1::existing_edit::title", researchOnly: true, status: "needs_review" })], ["redraft", row({ id: "t::/p2::existing_edit::title", status: "needs_review", faults: ["it lands in the wrong place"] })],
+      ["evidence", row({ id: "t::/p3::existing_edit::title", modeledOn: undefined })], [undefined, row({ id: "t::/p4::existing_edit::title" })]] as Array<[string | undefined, ChangeProposal]>) {
+      db.rows = []; expect(await saveChangeProposal(p)).toBe("saved");
+      const back = deserializeChangeProposal(JSON.stringify(db.rows[0]!.payload))!; // the stored payload, decoded exactly as any later pass reads it back
+      expect([back.obligation?.kind, nextObligation(back)?.kind], `${p.id} owes ${owed ?? "nothing"} on file and computes the same answer from the row alone`).toEqual([owed, owed]); } });
 });

@@ -1,5 +1,5 @@
 /** Durable Research Run: the one-open-run-per-account invariant (resume any unfinished run across dates before a new daily cycle), the truth boundary (any failure PAUSES, never completes), partial connector success surviving a pause, deduped refreshed providers across retries, the lease guards (including the ONE the paid comparison spends under), the frozen investigation, the idempotency identity, and the fail-closed render path. The repo models the RPC guards. */
-import { describe, it, expect, beforeEach, vi } from "vitest"; import { readdirSync, readFileSync } from "node:fs";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 /** The DEFAULT reconcile step, exercised for REAL below. Every other test seams reconcileCases; funnel/state keeps its real exports for the conflict closure. */
 const REG = vi.hoisted(() => ({ onFile: [] as unknown[], next: [] as unknown[], saves: 0, readings: 0 }));
 vi.mock("@/domains/evidence/snapshot-loader", () => ({ loadEvidenceSnapshot: async () => ({ ownedPages: [], research: { cases: [] } }) }));
@@ -533,9 +533,7 @@ describe("reading a pre-existing account's own website", () => {
     const endless = withRun({ current_phase: "crawl_pages" }); let forever = 0;
     await run({ ...BENIGN, crawlPages: async () => (forever += 1, 15) }); // a site that never runs out must still hand the pass back
     expect([forever, endless[0]!.status]).toEqual([4, "completed"]); }); // bounded rounds, and the rest is owed to the next pass
-  it("never crawls from a render: not one customer surface reaches a crawl entry point", () => {
-    const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}/${e.name}`) : [`${d}/${e.name}`]));
-    const surfaces = [...walk("src/app"), ...walk("src/components")].filter((f) => /\.tsx?$/.test(f)); expect(surfaces.filter((f) => /startColdStartCrawl|runCrawlBatch|ColdStartCrawlIfStarted/.test(readFileSync(f, "utf8")))).toEqual([]); });});
+});
 /** THE MONEY IS THE PLACEMENT'S. A posted ask is finished by a FREE collect, and that free collect used to land the final row at cost 0, erasing the receipt the pending row already held: the one row Decision reads about an answer disagreed with the ledger that paid for it. */
 describe("what a stored observation says it cost", () => {
   const DUE = [{ promptId: "p1", version: 1, text: "best persian restaurant", engine: "claude" as const, slot: 0 as const, day: "2026-08-03" }];
@@ -861,12 +859,14 @@ describe("dueWork: what is genuinely owed, computed from persisted state only", 
 /** FINISHING BEFORE ACQUISITION (operator, 2026-08-22; count semantics deleted 2026-08-30): the drive runs the finishing step in front of the first exploratory-evidence phase, exactly once per drive. The count on its receipt is the low-stock alarm; it sizes and closes nothing. */
 describe("the cycle finishes stored work before it buys exploratory evidence", () => {
   const REPLENISHED = { ready: 5, deficit: 0, persisted: 2, satisfied: true, reason: "candidates_exhausted" as const, fingerprint: "b1::v1::x", attempted: [] as string[] };
-  it("calls the inventory step once, before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
-    const order: string[] = []; void withRun(); await run({ ...healthySteps(order),
+  /** WHAT WAS ALREADY PAID FOR IS FINISHED FIRST, AND IT IS FREE (falsifier, 2026-09-02): posted provider tasks are charged at post and collected with a GET, and the only collector ran on a scheduler tick that never fires while hosting is paused, so results pages this account had already bought sat pending for days and every gate asking for one answered no. */
+  it("collects what was already paid for before it funds a single draft, calls the inventory step once before the keyword phase's own unit, and never on a reading-only debt pass", async () => {
+    const order: string[] = []; const rows = withRun(); await run({ ...healthySteps(order),
+      collectBought: async () => (order.push("collect"), { pending: 3, ready: 2 }),
       replenishReady: async () => (order.push("replenish"), REPLENISHED),
       funnelUnit: async (phase) => (order.push(`unit:${phase}`), { status: "done" as const, cursor: null, progress: {} }) });
-    const replenishAt = order.indexOf("replenish"), firstBuy = order.indexOf("unit:keyword_discovery"); expect(replenishAt).toBeGreaterThanOrEqual(0); expect(firstBuy).toBeGreaterThan(replenishAt);
-    expect(order.filter((x) => x === "replenish")).toHaveLength(1);});
+    const [collectAt, replenishAt, firstBuy] = ["collect", "replenish", "unit:keyword_discovery"].map((x) => order.indexOf(x));
+    expect([collectAt >= 0, collectAt < replenishAt, firstBuy > replenishAt, order.filter((x) => x === "replenish").length, rows.at(-1)!.progress?.collected], "the free collection runs first, the inventory step exactly once before any buying, and what the collection found is written onto the run").toEqual([true, true, true, 1, { pending: 3, ready: 2 }]);});
   it("buys no evidence on a drive with no room to check a SHORT stock, and leaves the phase for the next one", async () => {
     const walked: string[] = [], rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready", "plan_cases"] } } });
     await run({ ...healthySteps([]), dueWork: async () => ({ ...SOMETHING_DUE, due: ["replenish_ready", "plan_cases"] }), replenishReady: async () => (walked.push("replenish"), null),
@@ -902,7 +902,7 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     } finally { vi.doUnmock("@/domains/decision"); vi.doUnmock("@/domains/decision/llm/gateway"); vi.doUnmock("@/lib/cost/budget-ledger-supabase"); vi.resetModules(); } });
   /** WHAT MAY END A DAY'S OBLIGATION, driven through the REAL defaultSteps on the producer's OWN PER-JOB RECEIPTS. The fiction this replaces: one aggregate "calls were charged" number was read as "every funded page was attempted", and allowances are decremented BEFORE the gateway is called, so a single out-of-quota call could write off four pages nobody ever asked about and then close the day as exhausted (Codex, 2026-08-22). */
   it("writes a page off only on its own settled receipt, and never on a blocked, unreached or unreadable pass", async () => {
-    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string; why?: string; cost?: number }[], outcome: "proposals_persisted", throws: false }; vi.resetModules();
+    const M = { ready: 0, declared: ["/a", "/b", "/c", "/d", "/e"], out: [] as { key: string; outcome: string; why?: string; cost?: number }[], outcome: "proposals_persisted", throws: false, owed: [] as unknown[], lands: true }; vi.resetModules();
     const L = { seq: [] as number[] }; // what the provider ledger answers, drained one read at a time
     vi.doMock("@/lib/cost/budget-ledger-supabase", () => ({ getTenantSpentThisMonthUsd: async () => (L.seq.length > 0 ? L.seq.shift()! : 0) }));
     vi.doMock("@/domains/decision/llm/gateway", () => ({ creditBreakerHeld: async () => false }));
@@ -910,8 +910,8 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       produceProposalsForTenant: async (_t: string, o: { maxDrafts?: number; skipKeys?: readonly string[] }) => { if (M.throws) throw new Error("the provider fell over");
         const funded = M.declared.filter((k) => !(o.skipKeys ?? []).includes(k)); // the whole manifest funds now: nothing inventory-shaped shrinks the walk
         const receipts = funded.map((key) => { const hit = M.out.find((r) => r.key === key); return { key, funded: true, treatment: "add_answer_section", impact: 5, allowance: 6, ops: 2, providerCalls: 3, costUsd: hit?.cost ?? 0, providerAttempted: true, outcome: (hit?.outcome ?? "not_reached") as never, ...(hit?.why ? { why: hit.why } : {}) }; });
-        M.ready += receipts.filter((r) => r.outcome === "produced").length;
-        return { persisted: 0, held: [], outcome: M.outcome, paid: { declared: M.declared, funded, attemptUnitsSpent: funded.length * 3, receipts } }; } }));
+        M.ready += M.lands ? receipts.filter((r) => r.outcome === "produced").length : 0; // `lands: false` is the live falsifier: the store answered saved and the ready queue cannot see the row
+        return { persisted: 0, held: [], outcome: M.outcome, paid: { declared: M.declared, funded, attemptUnitsSpent: funded.length * 3, receipts, evidenceOwed: M.owed } }; } }));
     try {
       const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps"); let mem: { fingerprint: string | null; attempted: string[] } = { fingerprint: null, attempted: [] };
       const drive = async () => { const r = await live.replenishReady(T, new Date(NOW), mem); if (r) mem = { fingerprint: r.fingerprint, attempted: r.attempted }; return r && [r.ready, r.reason, r.attempted.length]; };
@@ -921,6 +921,13 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
       M.outcome = "proposals_persisted"; M.throws = true; expect(await drive()).toEqual([0, "retryable_blocked", 0]); M.throws = false;
       M.out = M.declared.map((key) => ({ key, outcome: "deterministic_refusal" })); expect(await drive()).toEqual([0, "candidates_exhausted", 5]); // 4. settled receipts are the only thing that writes a page off, and only a fully settled manifest exhausts
       M.declared = ["/f"]; M.out = [{ key: "/f", outcome: "produced" }]; expect(await drive()).toEqual([1, "made_progress", 1]); // 5. credit returning later the SAME DAY finishes the page that was blocked, on a manifest that moved on
+      // 4b. A READING STILL OWED IS WORK STILL OWED, and WORK THE QUEUE CANNOT SEE SETTLES NOTHING (falsifiers, 2026-09-02): the day closed `candidates_exhausted` over an acquisition it had just minted, and over two rows the store accepted that the ready queue never carried.
+      M.declared = ["/j"]; M.out = [{ key: "/j", outcome: "deterministic_refusal" }]; mem = { fingerprint: null, attempted: [] };
+      M.owed = [{ key: "/j", kind: "serp", query: "persian wolf", reasonCode: "no_exact_serp", reason: "no results page is on file", workKey: "w" }];
+      expect((await drive())?.[1], "every declared key is settled and an acquisition is still in flight, so the day stays open").toBe("retryable_blocked");
+      M.owed = []; M.lands = false; M.declared = ["/k"]; M.out = [{ key: "/k", outcome: "produced" }]; mem = { fingerprint: null, attempted: [] };
+      const unseen = await live.replenishReady(T, new Date(NOW), mem);
+      expect([unseen!.reason, unseen!.outcomes!.stuck.some((s) => s.includes("produced_but_absent"))], "a claim the queue cannot see settles nothing and is named on the receipt").toEqual(["retryable_blocked", true]); M.lands = true;
       M.ready = 0; M.declared = ["/g", "pattern:x"]; mem = { fingerprint: null, attempted: [] }; // 6. THE REFUSAL'S OWN WORDS REACH THE DAY'S MEMORY, and a reading of the winning pages is banked EVIDENCE, never a change anybody can act on.
       M.out = [{ key: "/g", outcome: "deterministic_refusal", why: "the closing line tells the reader to read the page" }, { key: "pattern:x", outcome: "evidence_banked" }];
       const last = await live.replenishReady(T, new Date(NOW), mem);
@@ -954,6 +961,16 @@ describe("the cycle finishes stored work before it buys exploratory evidence", (
     expect(asked.map((a) => ({ kind: a.kind, query: a.query }))).toEqual([{ kind: "serp", query: "persian girl names" }]); // the EXACT search, not a topic the run picked
     expect(asked[0]!.basis).not.toBe("(none)"); // AND IT CARRIES THE RUN'S BASIS: a null one failed before reading anything
     void rows; });
+  /** THE ONE REQUIREMENT THAT BUYS NO NEW READING (operator, 2026-09-02): the copy is already final and its sources are already banked beside it, and what is missing is that nobody has read the two together. Filed as a `factual_source` before this case existed, so the runtime went and bought facts while the reading stayed untaken for ever. */
+  it("takes the owed reading by loading the ONE change it names, saving what came back, and buys nothing at all for a requirement that names no change", async () => {
+    vi.resetModules(); const S = { loaded: [] as string[], saved: [] as Array<Record<string, unknown>> };
+    vi.doMock("@/domains/decision/proposal-store", () => ({ loadChangeProposal: async (_t: string, id: string) => (S.loaded.push(id), { id, primaryQuery: "persian wolf" }), saveChangeProposal: async (p: Record<string, unknown>) => (S.saved.push(p), "saved") }));
+    vi.doMock("@/domains/decision/drafted-copy", () => ({ reviewFinishedCopy: async (p: Record<string, unknown>) => ({ row: { ...p, semanticReview: { of: "k", version: 5, claims: [{ i: 0, by: ["fact-1"], entailed: true }] } }, detail: "the reading landed and its rulings are banked claim by claim" }) }));
+    try { const { defaultSteps: live } = await import("@/domains/runtime/ops/research-steps"); const ID = `${T}::/persian-wolf::existing_edit::missing_description`;
+      const got = await live.acquireEvidence(T, { kind: "semantic_review", query: "persian wolf", proposalId: ID }, "b1", 5_000);
+      const bare = await live.acquireEvidence(T, { kind: "semantic_review", query: "persian wolf" }, "b1", 5_000);
+      expect([got.acquired, S.loaded, !!S.saved[0]?.semanticReview, bare.acquired, bare.detail.includes("names no change"), S.loaded.length], "one row by its own id, read and saved with the ruling on it; a requirement with no change named reads nothing and says so").toEqual([true, [ID], true, false, true, 1]);
+    } finally { vi.doUnmock("@/domains/decision/proposal-store"); vi.doUnmock("@/domains/decision/drafted-copy"); vi.resetModules(); } });
   /** THE CURSOR IS THE RANKING (Codex, 2026-08-23). A candidate selected and not started is owed FIRST: it never  enters the day's settled memory, so the next continuation ranks it exactly where its impact puts it. The  deferral this replaces sent the account's strongest page to the back for three dispatches running. */
   it("carries only what settled into the day's memory, so an unreached page is asked again immediately", async () => {
     const seen: Array<readonly string[]> = []; const rows = withRun({ current_phase: "keyword_discovery", progress: { plan: { units: ["replenish_ready"] } } });

@@ -22,66 +22,26 @@ const field = (id: string, f: string, over: Partial<ChangeProposal> = {}) =>
   card(id, { recommendedChange: { kind: "existing_edit", field: f, before: null, after: "a" }, ...over } as Partial<ChangeProposal>);
 
 describe("what a change actually writes", () => {
-  it("a table row, a heading, an explainer, a schema block and a title on ONE page are five changes", () => {
-    const row = withPieces("zero-row", [piece("table_or_list_add", { where: "above the row beginning 1" })]); // The live shape of /farsi-numbers, and the exact set the old page-wide rule collapsed to one.
-    const heading = withPieces("counting_heading", [piece("h1")]);
-    const explainer = field("zero_explainer", "section", { primaryQuery: "what is zero in persian" });
-    const schema = field("faq_schema", "section", { primaryQuery: "what are persian numerals" });
-    const title = field("title_zero_nine", "title");
-    const all = [row, heading, explainer, schema, title];
-    const clashes = all.flatMap((a, i) => all.slice(i + 1).filter((b) => footprintsOverlap(a, b)).map((b) => [a.id, b.id]));
-    expect(clashes, "nothing on this page overwrites anything else on it").toEqual([]);
-    expect(new Set(all.map(footprintKey)).size, "and each one is stored under its own key").toBe(5);});
-
-  it("a title bundle and a plain title rewrite still collide", () => {
-    const deep = withPieces("title-family", [piece("title"), piece("meta")]); // The one thing the page-wide rule got right, and the reason overlap is asked of the footprint and never of the stored text: these two hold DIFFERENT keys and still overwrite the same line.
-    const plain = field("title", "title");
-    expect(footprintsOverlap(deep, plain)).toBe(true);
-    expect(footprintKey(deep)).not.toBe(footprintKey(plain));
-    expect(footprintsOverlap(deep, field("h1", "h1")), "a heading is not a title").toBe(false);});
-
-  it("one animal's anchor label does not hide another animal's", () => {
-    const anchor = (n: string) => withPieces(`anchor-${n}`, [piece("anchor_text", { where: `the ${n} card on /iran-animals`, after: `${n} facts` })]);
-    const [cat, fox] = [anchor("Persian Cat"), anchor("Red Fox")];
-    expect(footprintsOverlap(cat, fox)).toBe(false);
-    expect(footprintsOverlap(cat, anchor("Persian Cat")), "the same card twice is one change").toBe(true);
-    expect(new Set(["Caracal", "Red Fox", "Pallas's Cat", "Caspian Seal"].map((n) => footprintKey(anchor(n)))).size).toBe(4);}); // A whole page of them is a whole page of changes, not one.
-
-  it("a bundle and a plain card that write different things both stand", () => {
+  const anchor = (n: string) => withPieces(`anchor-${n}`, [piece("anchor_text", { where: `the ${n} card on /iran-animals`, after: `${n} facts` })]);
+  const ask = (q: string) => field(`ans-${q}`, "answer_block", { primaryQuery: q });
+  it("keeps every unrelated mutation on one page its own change: five of them, one animal's anchor beside another's, two answers to different questions, and one page spelled two ways", () => {
+    const all = [withPieces("zero-row", [piece("table_or_list_add", { where: "above the row beginning 1" })]), withPieces("counting_heading", [piece("h1")]), // the live shape of /farsi-numbers, and the exact set the old page-wide rule collapsed to one
+      field("zero_explainer", "section", { primaryQuery: "what is zero in persian" }), field("faq_schema", "section", { primaryQuery: "what are persian numerals" }), field("title_zero_nine", "title")];
+    expect([all.flatMap((a, i) => all.slice(i + 1).filter((b) => footprintsOverlap(a, b)).map((b) => [a.id, b.id])), new Set(all.map(footprintKey)).size], "nothing on this page overwrites anything else on it, and each one is stored under its own key").toEqual([[], 5]);
+    expect([footprintsOverlap(anchor("Persian Cat"), anchor("Red Fox")), footprintsOverlap(anchor("Persian Cat"), anchor("Persian Cat")), new Set(["Caracal", "Red Fox", "Pallas's Cat", "Caspian Seal"].map((n) => footprintKey(anchor(n)))).size], "one animal's label does not hide another's, the same card twice is one change, and a whole page of them is a whole page of changes").toEqual([false, true, 4]);
+    expect([footprintsOverlap(ask("what is zero in persian"), ask("persian in zero is what")), footprintsOverlap(ask("what is zero in persian"), ask("how do you count in persian"))], "word order is not a new question, and a different question is not the same answer").toEqual([true, false]);
+    const spelled = field("t1", "title", { pagePath: "/Farsi-Numbers/" }); // the old rule read raw pagePath while everything around it normalized differently, so two spellings of one page silently stopped colliding
+    expect([footprintsOverlap(spelled, field("t2", "title", { pagePath: "/farsi-numbers" })), footprintsOverlap(spelled, field("t3", "title", { pagePath: "/other-page" }))], "one page spelled two ways is one page, and another page is another page").toEqual([true, false]); });
+  it("hands over exactly where what two changes WRITE collides, and only where one of them writes everything the other does", () => {
+    const deep = withPieces("title-family", [piece("title"), piece("meta")]), plain = field("title", "title"); // these two hold DIFFERENT keys and still overwrite the same line, which is why overlap is asked of the footprint and never of the stored text
+    expect([footprintsOverlap(deep, plain), footprintKey(deep) === footprintKey(plain), footprintsOverlap(deep, field("h1", "h1"))], "a title bundle and a plain title rewrite collide under different keys, and a heading is not a title").toEqual([true, false, false]);
     const linked = withPieces("link-to-hub", [piece("internal_link_add", { where: "after the closing paragraph" }), piece("anchor_text", { where: "the words full Iran flag timeline" })]);
-    expect(footprintsOverlap(linked, field("title_lion_sun", "title"))).toBe(false);
-    expect(footprintsOverlap(linked, field("image_schema", "section", { primaryQuery: "lion and sun" }))).toBe(false);
-    expect(mutationFootprint(linked).size, "a bundle writes one mutation per piece").toBe(2);});
-
-  it("two answers to one question collide, two answers to different questions do not", () => {
-    const ask = (q: string) => field(`ans-${q}`, "answer_block", { primaryQuery: q });
-    expect(footprintsOverlap(ask("what is zero in persian"), ask("persian in zero is what")), "word order is not a new question").toBe(true);
-    expect(footprintsOverlap(ask("what is zero in persian"), ask("how do you count in persian"))).toBe(false);});
-
+    expect([footprintsOverlap(linked, field("title_lion_sun", "title")), footprintsOverlap(linked, field("image_schema", "section", { primaryQuery: "lion and sun" })), mutationFootprint(linked).size], "a bundle and a plain card that write different things both stand, and a bundle writes one mutation per piece").toEqual([false, false, 2]);
+    const rich = withPieces("rich", [piece("title"), piece("internal_link_add", { where: "footer" })]); // a title-only rewrite intersects a bundle that ALSO adds a link; letting it supersede would throw the rest of that bundle away with no receipt
+    expect([footprintsOverlap(rich, plain), footprintCovers(rich, plain), footprintCovers(plain, rich)], "covering is what lets one change replace another, and a bare intersection is not covering").toEqual([true, true, false]);
+    const gone = withPieces("redirect", [piece("redirect", { after: "/elsewhere" })]); // without this the queue would tell the operator to rewrite a title on a page it is also telling them to redirect
+    expect([[field("t", "title"), field("h", "h1"), withPieces("row", [piece("table_or_list_add", { where: "row 1" })])].map((other) => footprintsOverlap(gone, other)), footprintCovers(gone, field("t", "title")), footprintCovers(field("t", "title"), gone), footprintsOverlap(gone, field("t", "title", { pagePath: "/somewhere-else" }))], "what takes the whole page takes everything on it and may replace it, a title rewrite may never replace the redirect, and none of it reaches another page").toEqual([[true, true, true], true, false, false]); });
   it("a new page collides only with another page for the same demand, never with edits to a page it shares words with", () => {
-    const brief = (q: string) => withPieces(`brief-${q}`, [piece("title", { after: q }), piece("meta")], // A REAL BRIEF CARRIES A BUNDLE: a title and a meta for a page that does not exist yet. Asking the components
-      { kind: "new_page", pagePath: null, pageUrl: null, primaryQuery: q,
-        recommendedChange: { kind: "new_page", proposedTitle: q, metaDescription: "m", openingAnswer: "o", outline: [], faqQuestions: [], schemaTypes: [] } });
-    expect(footprintsOverlap(brief("hardest language to learn"), brief("learn hardest to language"))).toBe(true);
-    expect(footprintsOverlap(brief("hardest language to learn"), brief("easiest language to learn"))).toBe(false);
-    expect(footprintsOverlap(brief("persian numbers 0 to 9"), field("title", "title")), "a brief never overwrites an existing page's title").toBe(false);});
-
-  it("what takes the whole page takes everything on it", () => {
-    const gone = withPieces("redirect", [piece("redirect", { after: "/elsewhere" })]); // The deleted page-wide rule covered this pair by accident. Without it the queue would tell the operator to
-    for (const other of [field("t", "title"), field("h", "h1"), withPieces("row", [piece("table_or_list_add", { where: "row 1" })])])
-      expect(footprintsOverlap(gone, other), `a redirect must cover ${other.id}`).toBe(true);
-    expect(footprintCovers(gone, field("t", "title")), "and it covers it, so it may replace it").toBe(true);
-    expect(footprintCovers(field("t", "title"), gone), "while a title rewrite may never replace the redirect").toBe(false);
-    expect(footprintsOverlap(gone, field("t", "title", { pagePath: "/somewhere-else" })), "but only on its own page").toBe(false);});
-
-  it("covering is what lets one change replace another, and a bare intersection is not covering", () => {
-    const rich = withPieces("rich", [piece("title"), piece("internal_link_add", { where: "footer" })]); // A title-only rewrite intersects a bundle that ALSO moves the canonical and adds a link. Letting it supersede
-    const thin = field("title", "title");
-    expect(footprintsOverlap(rich, thin)).toBe(true);
-    expect(footprintCovers(rich, thin), "the bundle writes everything the plain rewrite writes").toBe(true);
-    expect(footprintCovers(thin, rich), "the plain rewrite does not write the link").toBe(false);});
-
-  it("one page spelled two ways is one page", () => {
-    const a = field("t1", "title", { pagePath: "/Farsi-Numbers/" }); // The old rule read raw pagePath while everything around it normalized differently, so two spellings of one page silently stopped colliding.
-    expect(footprintsOverlap(a, field("t2", "title", { pagePath: "/farsi-numbers" }))).toBe(true);
-    expect(footprintsOverlap(a, field("t3", "title", { pagePath: "/other-page" }))).toBe(false);});});
+    const brief = (q: string) => withPieces(`brief-${q}`, [piece("title", { after: q }), piece("meta")], // A REAL BRIEF CARRIES A BUNDLE: a title and a meta for a page that does not exist yet
+      { kind: "new_page", pagePath: null, pageUrl: null, primaryQuery: q, recommendedChange: { kind: "new_page", proposedTitle: q, metaDescription: "m", openingAnswer: "o", outline: [], faqQuestions: [], schemaTypes: [] } });
+    expect([footprintsOverlap(brief("hardest language to learn"), brief("learn hardest to language")), footprintsOverlap(brief("hardest language to learn"), brief("easiest language to learn")), footprintsOverlap(brief("persian numbers 0 to 9"), field("title", "title"))], "one demand is one page however its words are ordered, a different demand is a different page, and a brief never overwrites an existing page's title").toEqual([true, false, false]); });});

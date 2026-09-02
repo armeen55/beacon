@@ -18,7 +18,7 @@ vi.mock("@/domains/decision/producers/factual-defects", async (orig) => { const 
   return { ...real, FACTUAL_DEFECTS: { cards: async (w: Parameters<typeof real.FACTUAL_DEFECTS.cards>[0]) => fenv.cards ? { cards: fenv.cards as never, complete: true } : real.FACTUAL_DEFECTS.cards(w), review: async (cards: never, w: never) => fenv.review ? fenv.review(cards) as never : real.FACTUAL_DEFECTS.review(cards, w) } }; });
 vi.mock("@/domains/account", () => ({ loadBusinessProfile: async () => null, getTenant: async () => ({ id: "fixture-tenant", domain: "fixture-outdoors.example", growth_goal: null }), basisTag: () => "basis_test" }));
 import { proposeExistingPageChange } from "@/domains/decision/propose";
-import { validateProposal } from "@/domains/decision/validate-proposal";
+import { convertSectionToSchema, validateProposal } from "@/domains/decision/validate-proposal";
 import { rankProposals, proposalValueScore } from "@/domains/decision/rank-proposals";
 import { actionFamilyOf } from "@/domains/measurement/proof-gsc/change-family";
 import { DRAFT_BUDGET } from "@/domains/decision/draft-budget";
@@ -173,9 +173,11 @@ describe("a refresh re-pays nothing, and a pass that saved nothing says so", () 
     expect(env.saved).toEqual([]); expect(again.proposals.map((p) => p.id)).toEqual(one.proposals.map((p) => p.id)); });
   /** A RECEIPT THAT CANNOT SAY WHY IS NOT A RECEIPT (Codex, 2026-08-23). Every settled job carries the words that settled it, and the ones that settled nothing carry no words at all: a produced page inheriting a refusal it never suffered is exactly the false reading this whole chain exists to prevent. */
   it("carries the exact reason into the receipt for a store refusal and an already-withdrawn row, and never onto work that was not refused", async () => { reset(SEEN()); const before = await run(counting().complete), madeIt = before.paid.receipts.filter((r) => r.outcome === "produced");
-    const unreached = before.paid.receipts.filter((r) => r.outcome === "not_reached");
-    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined || r.why.includes("already on file")), unreached.every((r) => (r.why ?? "").length > 0)]).toEqual([true, true, true]); // produced carries no refusal words; the one why it MAY carry is its own reuse sentence, never an inherited gate
-    expect(unreached.every((r) => /time box|still stands|before this page was reached/.test(r.why ?? ""))).toBe(true); // and it is one of the three things that are actually true here
+    // FUNDED MEANS WALKED (operator, 2026-09-02): every key the plan funded ends the pass with a receipt of its own, and `not_reached` is never that ending. A funded key nothing filed used to read "no branch of this pass recorded what happened", a fault sentence standing in for an outcome.
+    expect([before.paid.funded.length > 0, before.paid.receipts.map((r) => r.key).sort()], "one receipt per funded key, no key silent").toEqual([true, [...before.paid.funded].sort()]);
+    expect([madeIt.length > 0, madeIt.every((r) => r.why === undefined || r.why.includes("already on file")), before.paid.receipts.every((r) => r.outcome !== "not_reached"), before.paid.receipts.every((r) => (r.why ?? "").length > 0 || r.outcome === "produced")]).toEqual([true, true, true, true]); // produced carries no refusal words; the one why it MAY carry is its own reuse sentence, never an inherited gate
+    reset(SEEN()); const boxed = await produceProposalsForTenant("fixture-tenant", { complete: counting().complete, now: NOW, bypassCache: true, stopBy: Date.now() - 1 }); // the drive's box already closed: nothing is started, and nothing is written off for it either
+    expect([boxed.paid.funded.length > 0, boxed.paid.receipts.every((r) => r.outcome !== "not_reached"), boxed.paid.receipts.some((r) => r.outcome === "retryable_blocked" && (r.why ?? "").includes("time box"))], "a boxed pass still files a real, still-owed ending for every funded key").toEqual([true, true, true]);
     reset(SEEN()); env.refuseIds = new Set(before.proposals.map((p) => p.id)); // A STORE REFUSAL says so, in the store's own words, on exactly the page it refused
     const stored = (await run(counting().complete)).paid.receipts.filter((r) => r.outcome === "deterministic_refusal"); expect([stored.length > 0, stored.every((r) => (r.why ?? "").includes("the store refused this row"))]).toEqual([true, true]);
     reset(SEEN()); const seed = await run(counting().complete); reset(SEEN()); env.withdrawnIds = new Set(seed.proposals.map((p) => p.id)); // work already TAKEN BACK under this evidence says THAT instead, so the two are never confused
@@ -863,6 +865,26 @@ describe("a stampless re-mint never replaces finished work", () => {
     const moved = preferFinished(rewrite, finished);
     expect([(moved.recommendedChange as { after: string }).after.startsWith("Write a description"), moved.previousCopy?.after], "a real page change still retires the old words onto a receipt").toEqual([true, (finished.recommendedChange as { after: string }).after]); });
 });
+/** THE $0 RELEASE LOOP RE-READS WHAT IS ON FILE, AND ONLY WHAT IT MAY TOUCH. STRUCTURED DATA FILED AS A SECTION IS STILL STRUCTURED DATA (Codex, 2026-09-02): a JSON-LD block stored under `section` was read as prose by every gate, so two live rows carried seven refusals about wording no reader ever sees, and the prose re-read had no length band for it at all. AND A CHANGE THE OPERATOR ALREADY MARKED DONE IS NOT WALKED BACK TO A BRIEF (falsifier, 2026-09-02): the contaminated-support sweep demoted any row at all, so a shipped change under measurement could be re-minted as research and its measurement orphaned. */
+describe("the $0 release loop converts what it can, and never touches what is being measured", () => {
+  const Q = "What is a haft seen table?", ANSWER = "A haft seen table is the spread a household sets out for the new year.";
+  const FAQ = JSON.stringify({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: [{ "@type": "Question", name: Q, acceptedAnswer: { "@type": "Answer", text: ANSWER } }] });
+  const block = (status: "ready" | "needs_review") => baseProposal({ id: "fixture-tenant::/nowruz-guide::existing_edit::faq_schema", pagePath: "/nowruz-guide", pageUrl: `https://${GAP_URL}`, changeFamily: "section", status, basis: "basis_test::d8", primaryQuery: "nowruz traditions",
+    supportFacts: [{ id: "page-copy-1", fact: `${Q} ${ANSWER}` }], recommendedChange: { kind: "existing_edit", field: "section", before: null, after: `<script type="application/ld+json">${FAQ}</script>` } });
+  const shipped = baseProposal({ id: "fixture-tenant::/nowruz-food::existing_edit::title", pagePath: "/nowruz-food", pageUrl: "https://fixture-outdoors.example/nowruz-food", status: "implemented_pending_verification", basis: "basis_test::d8",
+    claims: [{ text: "This search is asked 1,200 times a month.", supportedBy: ["demand-exact"] }], supportFacts: [{ id: "demand-exact", fact: "1,200 impressions for nowruz food traditions" }] });
+  const pass = async (row: ChangeProposal) => { reset(snap([{ ...GAP, content: { ...GAP.content!, outline: [...(GAP.content!.outline ?? []), Q, ANSWER] } }], looked([["nowruz traditions", GAP_URL]])));
+    env.store = new Map([[row.id, row], [shipped.id, shipped]]); let paid = 0;
+    await produceProposalsForTenant("fixture-tenant", { now: NOW, zeroSpend: true, complete: (async () => { paid += 1; return { error: "no provider may be reached", retryable: false }; }) as never });
+    return { row: env.store.get(row.id)!, done: env.store.get(shipped.id)!, paid }; };
+  it("files a stored JSON-LD block under its own typed field at $0, refuses it as no kind of prose, and never walks an implemented row back to a brief", async () => {
+    const out = await pass(block("ready")); const c = out.row.recommendedChange as { field: string; after: string; where?: string };
+    expect([c.field, c.after.startsWith("{"), (c.where ?? "").length > 0, out.row.limitations.some((l) => /^Contains raw HTML markup/.test(l)), validateProposal(out.row, { pageBodyText: `${Q} ${ANSWER}` }).verdict, out.paid], "the block is filed as structured data with its wrapper off and its placement stated, no rule written for sentences refuses it as markup, the canon's own JSON-LD gate passes it, and none of it costs a call").toEqual(["schema", true, true, false, "ready", 0]);
+    expect([out.done.status, out.done.researchOnly ?? false, out.done.limitations], "and a change the operator already marked done is never re-minted as research, whatever its claims lean on").toEqual(["implemented_pending_verification", false, shipped.limitations]); });
+  // SRC DEFECT (found by this proof, 2026-09-02, unfixed, decision/completeness): `notFinal` reads ANY bracketed span as a blank still to fill, so every real FAQPage block (its mainEntity is an array) reads as "it describes the work instead of being it". A stored block wearing Ready is demoted into review wearing that sentence, and the typed next step on it becomes `draft`, which sends finished markup to the writer. Identical JSON with an object mainEntity has no gaps at all.
+  it.skip("leaves a stored JSON-LD block that already wears Ready exactly where it stands", async () => {
+    const out = await pass(block("ready"));
+    expect([out.row.status, out.row.faults ?? []], "structured data is not prose, so no rule about unwritten copy may touch it").toEqual(["ready", []]); });});
 /** A REDRAFT REQUEST IS THE EVIDENCE MOVING, IN THE OPERATOR'S HAND (operator, 2026-09-01). The same-day stop refused to re-buy a held draft until "the evidence moves", and a person reading the words and asking for better ones is exactly that, the same way preferFinished already lets a redraft request outrank preservation. Without this, the review door's own "ask the next funded pass to write better words" answer pointed at a pass that could never fund it. */
 describe("a redraft request reopens the same-day stop", () => {
   it("funds the redraft-requested standing row this pass, where the untouched hold met the same-day sentence", async () => { reset(SEEN());

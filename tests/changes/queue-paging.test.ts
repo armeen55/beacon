@@ -43,7 +43,7 @@ vi.mock("@/domains/measurement", async () => ({ ...(await vi.importActual<typeof
 import { renderToStaticMarkup } from "react-dom/server"; import { createElement } from "react";
 import { readChangesPage, loadChangesView, buildChangesViewUncached } from "@/app/(shell)/changes-data";
 import { buildTodayViewFromChanges, loadTodayView } from "@/app/(shell)/today-view-data";
-import { readQueuePage, loadChangeProposals, publishCustomerRelease } from "@/domains/decision/proposal-store";
+import { readQueuePage, loadChangeProposals, publishCustomerRelease, queueLaneCounts } from "@/domains/decision/proposal-store";
 import { serializeChangeProposal, type ChangeProposal } from "@/domains/decision/contracts";
 import { CHANGES_PAGE_SIZE } from "@/app/(shell)/changes/types";
 const T = "acct-a", N = 501;
@@ -131,6 +131,12 @@ describe("one global rank across every lane", () => {
   it("interleaves research and drafts with ready work by worth, and a stamp never outranks the row it stamps", async () => {
     await stamp("rel-mixed", [{ id: ALL[0]!.id, lane: "research" }, { id: ALL[1]!.id, lane: "ready" }, { id: ALL[2]!.id, lane: "todo" }, { id: ALL[3]!.id, lane: "ready" }]); const page = await readQueuePage(T, "all", "b1", 0, 10);
     expect(page.rows.map((p) => p.id)).toEqual([ALL[0]!.id, ALL[1]!.id, ALL[2]!.id, ALL[3]!.id]); expect(page.rows.map((p) => page.laneById[p.id])).toEqual(["ready", "ready", "ready", "ready"]); // every fixture row is finished, so every lane is ready whatever the release stamped (operator, 2026-09-02): a stamp outlived its row and painted a brief as finished work
+    // AND THE COUNTS ARE TAKEN THE WAY THE LANES ARE PAINTED: the same rows, moved underneath their own stamps, must be counted by the ROW and never by the release that stamped it, or the header and the page disagree.
+    db.rows.find((r) => r.id === ALL[0]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(0, { status: "needs_review", researchOnly: true }))); // a brief still wearing the release's `research` stamp
+    db.rows.find((r) => r.id === ALL[2]!.id)!.payload = JSON.parse(serializeChangeProposal(proposal(2, { status: "needs_review" }))); // a review draft still wearing a `ready` stamp
+    const mixed = await readQueuePage(T, "all", "b1", 0, 10), painted = { ready: 0, todo: 0, research: 0 };
+    for (const p of mixed.rows) painted[mixed.laneById[p.id]!] += 1;
+    expect([painted, await queueLaneCounts(T, "rel-mixed", "b1")], "the counts equal the painted lanes exactly: a needs_review row stamped ready counts as todo, and a research row counts as research").toEqual([{ ready: 2, todo: 1, research: 1 }, { ready: 2, todo: 1, research: 1 }]);
     await stamp("rel-1"); // restore the fixture ranking for the suites below
   });});
 describe("the ranked queue pages in the database", () => {
