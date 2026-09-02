@@ -416,7 +416,7 @@ function runContentFirewalls(
     if (placeholder) return { ok: false, reason: `placeholder:${placeholder[0].slice(0, 40)}` };
   }
   if (blob.includes("—")) return { ok: false, reason: "em_dash" };
-  if (!opts?.deferSuperlativeCheck && SUPERLATIVES.test(blob)) return { ok: false, reason: "superlative" };
+  const sup = opts?.deferSuperlativeCheck ? null : SUPERLATIVES.exec(blob); if (sup) return { ok: false, reason: `superlative:` }; // NAMED, like the placeholder above: told only the category, three paid retries per page returned the same word (live 2026-09-02)
   const invented = findUngroundedNumbers(blob, ledger);
   if (invented.length > 0) return { ok: false, reason: `invented_numbers:${invented.slice(0, 3).join(",")}` };
   return { ok: true };
