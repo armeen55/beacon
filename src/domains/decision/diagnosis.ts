@@ -9,7 +9,7 @@ import type { ActionDiagnosis, DiagnosedAction } from "./contracts";
 import type { DecidedTopic } from "./coverage-pass";
 import { technicalKey, type TechnicalFinding } from "./technical-findings";
 import { RECEIPT } from "./diagnose";
-import { observationJoinsCase } from "./membership"; import { provenSurvivor, splitComparison, type SplitRow } from "./split";
+import { observationJoinsCase } from "./membership"; import { provenSurvivor, splitComparison, type SplitRow } from "./split"; import type { Obligation } from "./obligation"; // TYPE ONLY, erased at compile: the gap says what it owes in the one vocabulary the store and the runtime already act on, and no runtime edge is created
 
 /** WHY one page loses the click, as ONE closed vocabulary, every member decided from evidence this account holds. No member means "some other reason": a cause that cannot be named is `no_problem` plus a missing input. */
 type CandidateCause =
@@ -137,22 +137,12 @@ const num = (n: number): string => Math.round(n).toLocaleString("en-US");
 const creditsMe = (o: { citations?: readonly { domain: string; url: string }[] | null }, snapshot: EvidenceSnapshot): boolean =>
   citesOwnSite(o.citations, snapshot.scope.site);
 
-/** Why the wording read did not name the title, in the operator's words. One sentence per conclusion that
- *  reading can reach, so "the results page did not accuse the wording" is never a shrug. */
-function serpLoss(d: ActionDiagnosis): string {
-  if (d.cause === "google_rewrite_already_matches") return "Google already shows this page with the words people are searching for, so its stored wording is not what loses the click";
-  if (d.cause === "wrong_page_ranking") return "this page does not come up for that search at all, so its wording is not what loses the click";
-  if (d.cause === "serp_market_mismatch") return "the one check that ran did not show this page, so the line a searcher sees is not readable";
-  if (d.cause === "ambiguous_search_intent") return "the pages that beat this one share no wording it is missing";
-  return "the results page for that search has not been read yet, so the wording accuses nothing";
-}
+/** Why the wording read did not name the title, in the operator's words. One sentence per conclusion that reading can reach, so "the results page did not accuse the wording" is never a shrug. */
+const SERP_LOSS: Readonly<Record<string, string>> = { google_rewrite_already_matches: "Google already shows this page with the words people are searching for, so its stored wording is not what loses the click", wrong_page_ranking: "this page does not come up for that search at all, so its wording is not what loses the click", serp_market_mismatch: "the one check that ran did not show this page, so the line a searcher sees is not readable", ambiguous_search_intent: "the pages that beat this one share no wording it is missing" };
+const serpLoss = (d: ActionDiagnosis): string => SERP_LOSS[d.cause] ?? "the results page for that search has not been read yet, so the wording accuses nothing";
 
-/** THE TWO CAUSES DECIDED FROM THE TWO WINDOWS, for a finding built WITHOUT running the ladder. They are a RULE now (see RULES below); this is only what a
- *  caller that was told nothing says. */
-const NOT_TOLD_DECLINE: Array<{ cause: CandidateCause; missing: string }> = [
-  { cause: "demand_decline", missing: "This page's two four week windows were not read here, so whether the searching itself fell off is not visible." },
-  { cause: "ranking_loss", missing: "This page's two four week windows were not read here, so whether it slipped down the results is not visible." },
-];
+/** THE TWO CAUSES DECIDED FROM THE TWO WINDOWS, for a finding built WITHOUT running the ladder. They are a RULE now (see RULES below); this is only what a caller that was told nothing says. */
+const NOT_TOLD_DECLINE: Array<{ cause: CandidateCause; missing: string }> = [{ cause: "demand_decline", missing: "This page's two four week windows were not read here, so whether the searching itself fell off is not visible." }, { cause: "ranking_loss", missing: "This page's two four week windows were not read here, so whether it slipped down the results is not visible." }];
 
 // ── the ladder, strongest evidence first ─────────────────────────────────────
 
@@ -388,15 +378,9 @@ const RULES: Rule[] = [
 const SELLING = new Set(["product", "category", "comparison", "tool"]);
 /** Under this many links, nobody on that results page is pointing readers anywhere, so nobody is accused. */ const MIN_LINK_FLOOR = 5;
 
-/** Does one stored page address NAME this page? A bare path is matched as the tail of this page's own
- *  key, so "/guide" and "https://site.example/guide" both name it and "/other-guide" never does. */
-const namesPage = (path: string | null, urlKey: string): boolean => {
-  const p = (path ?? "").trim().toLowerCase();
-  if (!p) return false;
-  if (!p.startsWith("/")) return canonicalUrlKey(p) === urlKey;
-  const tail = p.replace(/\/+$/, "") || "/";
-  return urlKey === tail || urlKey.endsWith(tail);
-};
+/** Does one stored page address NAME this page? A bare path is matched as the tail of this page's own key, so "/guide" and "https://site.example/guide" both name it and "/other-guide" never does. */
+const namesPage = (path: string | null, urlKey: string): boolean => { const p = (path ?? "").trim().toLowerCase(); if (!p) return false; if (!p.startsWith("/")) return canonicalUrlKey(p) === urlKey;
+  const tail = p.replace(/\/+$/, "") || "/"; return urlKey === tail || urlKey.endsWith(tail); };
 
 /** This page's own opening words, from the ONE place the pass already read them. */
 const openingOf = (c: Ctx): string | null =>
@@ -423,12 +407,9 @@ const aiAnswers = (c: Ctx): EvidenceSnapshot["research"]["aiObservations"] => {
 };
 
 /** The technical cause is a RULE now, so it is unheld only for a caller that never read the inventory. */
-const NOT_READ_TECHNICAL = { cause: "technical_indexability" as const,
-  missing: "How this page is served has not been read, so whether anything stops it being found is unknown." };
+const NOT_READ_TECHNICAL = { cause: "technical_indexability" as const, missing: "How this page is served has not been read, so whether anything stops it being found is unknown." };
 /** A RULE rather than a permanent silence: a full run of the ladder answers it from what it was told. A finding built without running the ladder was told nothing. */
-const NOT_TOLD_MEASURING = { cause: "measuring_change" as const,
-  missing: "Which of your pages already carry a change under measurement is not on file, so whether this one does is unknown." };
-
+const NOT_TOLD_MEASURING = { cause: "measuring_change" as const, missing: "Which of your pages already carry a change under measurement is not on file, so whether this one does is unknown." };
 const MAX_COMPETING = 3;
 
 /** THE cause ladder: the one reasoning step between "this page loses clicks" and "here is why". Returns exactly one cause, everything it was read off, what it beat, what would disprove
@@ -481,31 +462,45 @@ export function causeLabel(cause: string): string {
   return LABEL[cause as CandidateCause] ?? "something still unnamed";
 }
 
-/** Every cause in one operator-facing phrase, so a competing explanation never prints a raw slug. */
-const LABEL: Record<CandidateCause, string> = {
-  cannibalization: "two of your own pages competing for one search",
-  ctr_snippet: "the line Google displays for this page",
-  competitor_content_gap: "what the winning pages do that this one does not",
-  incomplete_coverage: "the subjects the winning pages all cover",
-  weak_opening: "how this page opens",
-  serp_shape_shift: "the kind of page that wins this search",
-  intent_shift: "what people searching this actually want",
-  internal_link_weakness: "where this page sends a reader next",
-  ai_citation_gap: "AI answers citing everybody but this page",
-  factual_error: "statements on this page that independent sources contradict",
-  demand_decline: "demand for this search falling",
-  ranking_loss: "this page slipping down the results",
-  retrieved_not_cited: "an engine reading this page and citing somebody else",
-  technical_indexability: "something stopping this page being indexed",
-  measuring_change: "a change here still being measured",
-  no_problem: "this page's snippet earning what its positions predict", // SCOPE-HONEST (operator, 2026-08-31): this verdict rules on the CLICK QUESTION alone. It never says the page lacks a section, an answer, a link or a fact opportunity; those close on their own evidence, and the empty lever set in proof.ts is what makes that structural rather than a promise.
-};
-
-/** The finding for a page nothing accuses: a real answer carrying the same four things as every other one,
- *  because "leave it alone" deserves a reason and an alternative exactly as much as "change this" does. */
+/** Every cause in one operator-facing phrase, so a competing explanation never prints a raw slug. `no_problem` is SCOPE-HONEST (operator, 2026-08-31): that verdict rules on the CLICK QUESTION alone. It never says the page lacks a section, an answer, a link or a fact opportunity; those close on their own evidence, and the empty lever set in proof.ts is what makes that structural rather than a promise. */
+const LABEL: Record<CandidateCause, string> = { cannibalization: "two of your own pages competing for one search", ctr_snippet: "the line Google displays for this page", competitor_content_gap: "what the winning pages do that this one does not",
+  incomplete_coverage: "the subjects the winning pages all cover", weak_opening: "how this page opens", serp_shape_shift: "the kind of page that wins this search", intent_shift: "what people searching this actually want",
+  internal_link_weakness: "where this page sends a reader next", ai_citation_gap: "AI answers citing everybody but this page", factual_error: "statements on this page that independent sources contradict",
+  demand_decline: "demand for this search falling", ranking_loss: "this page slipping down the results", retrieved_not_cited: "an engine reading this page and citing somebody else",
+  technical_indexability: "something stopping this page being indexed", measuring_change: "a change here still being measured", no_problem: "this page's snippet earning what its positions predict" };
+/** The finding for a page nothing accuses: a real answer carrying the same four things as every other one, because "leave it alone" deserves a reason and an alternative exactly as much as "change this" does. */
 export function noProblemFinding(explanation: string, ruledOut: string): CauseFinding {
-  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...NOT_TOLD_DECLINE, NOT_READ_TECHNICAL, NOT_TOLD_MEASURING],
-    competingExplanations: [{ cause: "ctr_snippet", reason: ruledOut }],
+  return { cause: "no_problem", action: null, evidenceKeys: [RECEIPT.gsc], explanation, notConsidered: [...NOT_TOLD_DECLINE, NOT_READ_TECHNICAL, NOT_TOLD_MEASURING], competingExplanations: [{ cause: "ctr_snippet", reason: ruledOut }],
     falsifier: "If this page's click rate falls below what pages at its position usually earn, this stops being the answer." };
-} /** THE ONE TYPED SUBSTANTIVE GAP BODY WORK MAY BE WRITTEN FROM (operator, 2026-09-02). `causeFinding.explanation` is an operator-facing sentence about traffic and `whyItMatters` is display prose, and both were reaching the writer as the brief, so a section was ordered to solve "the click gap is measured and nothing on file names a cause". A gap is the missing PROPOSITION and nothing else: the competitor gaps the ladder read, the headings and entities a complete page provably lacks, the opening a page owes, the statement its own sources contradict, and the AEO reader's named missing information. Null means no typed payload names one, which is a research row rather than a writer. Word count, impressions, position decline, a People Also Ask box and a rival's length never appear here, because none of them says what a reader would learn. The kind is the operator's own vocabulary, refined by the shape of the proposition itself so a comparison, a procedure, a source gap and a broken page promise each ask for the treatment they need. PURE. */
-export function substantiveGapOf(card: { causeFinding?: CauseFinding; supportFacts?: readonly { id: string; fact: string }[] }): { kind: "missing_answer" | "incomplete_answer" | "scattered_answer" | "stale_fact" | "weak_extractability" | "missing_comparison" | "missing_procedure" | "missing_evidence" | "intent_mismatch" | "false_page_promise" | "no_substantive_gap"; propositions: string[] } | null { const p = card.causeFinding?.payload, clean = (xs: readonly string[]): string[] => [...new Set(xs.map((x) => (x ?? "").trim()).filter((x) => x.length > 2))].slice(0, 6); const read = p?.cause === "competitor_content_gap" ? { kind: "missing_answer" as const, propositions: clean(p.gaps.map((g) => g.gap)) } : p?.cause === "incomplete_coverage" ? { kind: "incomplete_answer" as const, propositions: clean([...p.absentHeadings, ...p.absentEntities]) } : p?.cause === "weak_opening" ? { kind: "weak_extractability" as const, propositions: clean(p.want) } : (p?.cause === "ai_citation_gap" || p?.cause === "retrieved_not_cited") && (p.missing ?? "").trim() ? { kind: p.aeoKind === "scattered_answer" ? "scattered_answer" as const : p.aeoKind === "extraction_or_structure_gap" ? "weak_extractability" as const : "missing_answer" as const, propositions: clean([p.missing!]) } : card.causeFinding?.cause === "factual_error" ? { kind: "stale_fact" as const, propositions: clean((card.supportFacts ?? []).filter((f) => f.id.startsWith("fact-")).map((f) => f.fact)) } : null; if (!read || read.propositions.length === 0) return null; const said = read.propositions.join(" ").toLowerCase(), shaped = /\bvs\.?\b|\bversus\b|\bcompare[ds]?\b|\bcomparison\b|\bdifferences?\b/.test(said) ? "missing_comparison" as const : /\bhow to\b|\bsteps?\b|\bprocedure\b|\brecipe\b|\binstructions?\b/.test(said) ? "missing_procedure" as const : /\bsource[sd]?\b|\bcitations?\b|\bcited\b|\bstud(?:y|ies)\b/.test(said) ? "missing_evidence" as const : /\bpromis\w*\b|\bnever (?:gives|delivers|says)\b|\bclaims to\b/.test(said) ? "false_page_promise" as const : null; /* THE SHAPE OF THE PROPOSITION CHOOSES THE TREATMENT: a comparison opens on the distinction, a procedure on the action, a source gap owes a citation, and a page promising what it never gives owes the promise kept. */ return { kind: shaped && (read.kind === "missing_answer" || read.kind === "incomplete_answer") ? shaped : read.kind, propositions: read.propositions }; }
+}
+/** THE TYPED GAP, AND THE ONE STEP IT OWES. `owed` present means this row buys or settles rather than writes: demand alone never authorizes copy, so the proposition rides the row while the obligation says what would bind it to a checked fact. `why` is the sentence an operator reads beside it. */
+type SubstantiveGap = { kind: "missing_answer" | "incomplete_answer" | "scattered_answer" | "stale_fact" | "weak_extractability" | "missing_comparison" | "missing_procedure" | "missing_evidence" | "intent_mismatch" | "false_page_promise" | "no_substantive_gap"; propositions: string[]; owed?: Obligation; why?: string };
+/** THE PAGE'S OWN DEMAND, EXACTLY AS THE WALK ALREADY HOLDS IT, so nothing here is recomputed and no two readings of one page can disagree. `stored` is the page's title, headings, passages and vocabulary flattened once by the caller; `complete` is whether the WHOLE page is on file, because an absence claimed off a partial capture is not an absence; `facts` are the checked, authorized statements for this page under the ids the packet hands the writer. */
+type PageDemand = { url: string; urlKey: string; rows: readonly { query: string; impressions: number }[]; stored: string; complete: boolean; facts: readonly { id: string; fact: string }[] };
+/** A SEARCH THAT ASKS SOMETHING, read off the searcher's own words: it opens with a question word, or it carries a relational word that names an attribute rather than a subject ("iran flag BEFORE 1979", "iran NATIONAL animal"). A bare subject phrase is the page's own topic said back and asks nothing. */
+const ASKS = /^\s*(?:what|which|who|where|when|why|how|is|are|does|do|can)\b/i, RELATES = /\b(?:before|after|meanings?|capital|largest|national|differences?|versus|vs\.?)\b/i;
+/** A WORD THAT NAMES A SHAPE OF ANSWER RATHER THAN AN ANSWER. When every word a page lacks is one of these, the search wants the page's own subject under a different label, which is vocabulary and not a missing answer: "iran kit history" against a page that already tells that history is a wording gap, and no section closes it. */
+const VOCABULARY_ONLY = new Set(["history", "meaning", "tip", "idea", "example", "fact", "info", "information", "overview", "detail", "summary"]);
+/** THE SHAPE OF ONE PROPOSITION, ASKED OF THAT PROPOSITION ALONE (reviewer, 2026-09-02): run over the joined set, one shape word re-kinded every gap beside it, so "the history of the koobideh recipe" read as a procedure and the writer was told to open on the action. */
+const shapeOf = (t: string): "missing_comparison" | "missing_procedure" | "missing_evidence" | "false_page_promise" | null => { const said = t.toLowerCase(); return /\bvs\.?\b|\bversus\b|\bcompare[ds]?\b|\bcomparison\b|\bdifferences?\b/.test(said) ? "missing_comparison" : /\bhow to\b|\bsteps?\b|\bprocedure\b|\brecipe\b|\binstructions?\b/.test(said) ? "missing_procedure" : /\bsource[sd]?\b|\bcitations?\b|\bcited\b|\bstud(?:y|ies)\b/.test(said) ? "missing_evidence" : /\bpromis\w*\b|\bnever (?:gives|delivers|says)\b|\bclaims to\b/.test(said) ? "false_page_promise" : null; };
+/** THE PAGE'S OWN DEMAND AS A TYPED GAP (operator, 2026-09-02): the strongest Stage 2 opportunities on a live account are searches the page already earns and does not answer, and no cause payload ever names one, so they never entered the plan as body work. A gap is minted only where the search ASKS something, at least one word it asks about is absent from the whole stored page, and those absent words are not merely a label for the page's own subject. Ownership comes first: while two of the account's own pages divide one search, the survivor owns it and the other page writes nothing. PURE. */
+function demandGap(card: { causeFinding?: CauseFinding; primaryQuery?: string }, d: PageDemand): SubstantiveGap | null {
+  const split = card.causeFinding?.payload?.cause === "cannibalization" ? card.causeFinding.payload : null, mine = (u: string | null): boolean => !!u && (canonicalUrlKey(u) === d.urlKey || namesPage(u, d.urlKey));
+  const q0 = (card.primaryQuery ?? "").trim(); // NO SEARCH, NO SPLIT RULING: an ownership hold names the exact search it is about, and a requirement carrying an empty one would send the runtime to read a results page for nothing
+  if (split && q0 && split.competingPaths.some(mine)) { const q = q0, others = split.competingPaths.filter((u) => !mine(u)).join(" and ") || "another page of this account"; // A SPLIT IS SETTLED BEFORE A WORD IS WRITTEN: adding an answer to the page Google is not serving divides the same search again, and holding both on the DESCRIPTION hold would file a summary-field reason as a body reason.
+    if (!split.survivor) return { kind: "no_substantive_gap", propositions: [], owed: { kind: "evidence", need: { kind: "serp", query: q, reasonCode: "settle_the_split" } }, why: `This page and ${others} both come up for "${q}", and which one owns it is not settled, so reading that results page comes before writing anything here.` };
+    if (!mine(split.survivor)) return { kind: "no_substantive_gap", propositions: [], owed: { kind: "terminal", reason: `${split.survivor} owns "${q}", so a new answer here would divide that search again` }, why: `${split.survivor} is the page that owns "${q}", so the answer belongs there and this page is left alone.` }; }
+  const said = new Set(topicTokens(d.stored)), groups = new Map<string, { q: string; n: number; absent: string[] }>();
+  for (const r of [...d.rows].sort((a, b) => b.impressions - a.impressions)) { if (!ASKS.test(r.query) && !RELATES.test(r.query)) continue;
+    const absent = topicTokens(r.query).filter((w) => !said.has(w) && !VOCABULARY_ONLY.has(w)); if (absent.length === 0) continue;
+    const at = groups.get([...absent].sort().join(" ")); if (at) at.n += r.impressions; else groups.set([...absent].sort().join(" "), { q: r.query, n: r.impressions, absent }); } // ONE MISSING ANSWER, however many ways it is asked: the three searches for Iran's national animal are one thing a reader wants to know, and their demand is counted together
+  const top = [...groups.values()].sort((a, b) => b.n - a.n || a.q.localeCompare(b.q))[0]; if (!top) return null;
+  const q = topicTokens(top.q), proposition = `${top.q} (${num(top.n)} searches in 90 days)`;
+  if (!d.complete) return { kind: "missing_answer", propositions: [proposition], owed: { kind: "evidence", need: { kind: "page_source", query: top.q, url: d.url, reasonCode: "acquire_page_source" } }, why: `Not all of this page's own words are on file, so the capture of ${d.url} is read before anything is written for "${top.q}".` };
+  // BOUND, OR IT IS RESEARCH: the checked statement must carry every word the search asks about, so the proposition the writer is hired to state is the proposition a source already stands behind.
+  return q.length > 1 && d.facts.some((f) => { const w = new Set(topicTokens(f.fact)); return q.every((x) => w.has(x)); })
+    ? { kind: shapeOf(top.q) ?? "missing_answer", propositions: [proposition], why: `"${top.q}" put this page in front of ${num(top.n)} searches in 90 days and the page does not answer it; a checked source on file does.` }
+    : { kind: "missing_answer", propositions: [proposition], owed: { kind: "evidence", need: { kind: "factual_source", query: top.q, url: d.url, missingTopic: top.q, reasonCode: "acquire_factual_source" } }, why: `"${top.q}" put this page in front of ${num(top.n)} searches in 90 days and nothing checked on file answers it, so the source comes before the copy.` };
+}
+/** THE ONE TYPED SUBSTANTIVE GAP BODY WORK MAY BE WRITTEN FROM (operator, 2026-09-02). `causeFinding.explanation` is an operator-facing sentence about traffic and `whyItMatters` is display prose, and both were reaching the writer as the brief, so a section was ordered to solve "the click gap is measured and nothing on file names a cause". A gap is the missing PROPOSITION and nothing else: the competitor gaps the ladder read, the headings and entities a complete page provably lacks, the opening a page owes, the statement its own sources contradict, the AEO reader's named missing information, and, where no payload names one, the page's OWN unanswered demand. Null means nothing names one, which is a research row rather than a writer. Word count, position decline, a People Also Ask box and a rival's length never appear here, because none of them says what a reader would learn. The kind is the operator's own vocabulary, refined by the shape of the LEADING proposition so a comparison, a procedure, a source gap and a broken page promise each ask for the treatment they need. PURE. */
+export function substantiveGapOf(card: { causeFinding?: CauseFinding; supportFacts?: readonly { id: string; fact: string }[]; primaryQuery?: string }, demand?: PageDemand): SubstantiveGap | null { const p = card.causeFinding?.payload, clean = (xs: readonly string[]): string[] => [...new Set(xs.map((x) => (x ?? "").trim()).filter((x) => x.length > 2))].slice(0, 6); const read = p?.cause === "competitor_content_gap" ? { kind: "missing_answer" as const, propositions: clean(p.gaps.map((g) => g.gap)) } : p?.cause === "incomplete_coverage" ? { kind: "incomplete_answer" as const, propositions: clean([...p.absentHeadings, ...p.absentEntities]) } : p?.cause === "weak_opening" ? { kind: "weak_extractability" as const, propositions: clean(p.want) } : (p?.cause === "ai_citation_gap" || p?.cause === "retrieved_not_cited") && (p.missing ?? "").trim() ? { kind: p.aeoKind === "scattered_answer" ? "scattered_answer" as const : p.aeoKind === "extraction_or_structure_gap" ? "weak_extractability" as const : "missing_answer" as const, propositions: clean([p.missing!]) } : card.causeFinding?.cause === "factual_error" ? { kind: "stale_fact" as const, propositions: clean((card.supportFacts ?? []).filter((f) => f.id.startsWith("fact-")).map((f) => f.fact)) } : null; if (!read || read.propositions.length === 0) return demand ? demandGap(card, demand) : null; const shaped = shapeOf(read.propositions[0]!); /* THE SHAPE OF THE LEADING PROPOSITION CHOOSES THE TREATMENT: a comparison opens on the distinction, a procedure on the action, a source gap owes a citation, and a page promising what it never gives owes the promise kept. */ return { kind: shaped && (read.kind === "missing_answer" || read.kind === "incomplete_answer") ? shaped : read.kind, propositions: read.propositions }; }

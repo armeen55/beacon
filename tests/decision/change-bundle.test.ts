@@ -396,8 +396,7 @@ describe("traffic is the objective and every other factor may only discount it",
   it("holds a STORED ready card whose copy the rules now refuse, not only a new draft", async () => { const stored = prop({ id: "tenant-iranopedia::/discover-iran::existing_edit::missing_description",
       pageUrl: "https://www.iranopedia.com/discover-iran", pagePath: "/discover-iran", status: "ready",
       recommendedChange: { kind: "existing_edit", field: "meta", before: null, after: "Discover Iran on Iranopedia, a page about Iran from Iranopedia, with Iran as its clear focus and Iranopedia as the source." }, claims: [{ text: "The page is about Iran.", supportedBy: ["page-copy-1"] }], supportFacts: [{ id: "page-copy-1", fact: "The page covers Iran." }] } as never);
-    const why = staleCopyReasons(stored, new Map(), [], null);
-    expect(why.some((r) => r.includes("names iranopedia 3 times")), `got ${JSON.stringify(why)}`).toBe(true); });
+    const why = staleCopyReasons(stored, new Map(), [], null); expect(why.some((r) => r.includes("names iranopedia 3 times")), `got ${JSON.stringify(why)}`).toBe(true); });
 
   it("never prints a bare zero at the operator, it says the thing in words", () => { const [only] = rankProposals([clicky({ id: "alone" })]);
     for (const f of only!.rankingReceipt!.factors) { expect(f.input.trim(), `${f.name} opens with a bare zero`).not.toMatch(/^0 /);}
@@ -410,8 +409,7 @@ describe("traffic is the objective and every other factor may only discount it",
 
   it("discounts a weakly supported large opportunity below a smaller proven one, and says why on the receipt", () => { const weak = clicky({ id: "weak", impactScore: 150, confidence: "low", researchOnly: true, status: "needs_review" });
     const solid = clicky({ id: "solid", impactScore: 120, pagePath: "/solid", confidence: "high" });
-    const ranked = rankProposals([weak, solid]);
-    expect(ranked.map((p) => p.id)).toEqual(["solid", "weak"]);
+    const ranked = rankProposals([weak, solid]); expect(ranked.map((p) => p.id)).toEqual(["solid", "weak"]);
     expect(ranked[1]!.rankingReceipt!.factors.find((f) => f.name === "visibility")!.input).toContain("counted at"); }); });
 
 describe("one score orders every kind of change, and says why", () => { it("puts the lever the evidence named above a bigger one it did not, on the same page", () => { const named = prop({ id: "title-fix", impactScore: 120, diagnosisCause: "ctr_snippet", bundle: bundleOf([comp({ kind: "title" })]) });
@@ -535,8 +533,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
   /** PLACEMENT IS SELECTED FROM WHAT EXISTS, NEVER PROPOSED (operator, 2026-08-31). Free text is how a link came to be offered after "Explore More", a related-content rail nobody reads from and which often is not editable at all. */
   it("only real editable spots are offered, and furniture and ambiguity never are", () => { const body = { headings: ["Baluchistan Black Bear", "Explore More", "Table of Contents", "Iranopedia", "Iran Lion and Sun Persian Hoodie", "Conservation Status: Vulnerable", "Conservation Status: Vulnerable"],
       passages: ["This species is a crucial part of Iran wildlife, often dwelling in mountainous areas. Recognized by its V-shaped chest marking, it is elusive.", "top of page< BackBaluchistan Black BearScientific Name"] };
-    const ids = placementCandidatesOf(body);
-    const texts = ids.map((c) => c.exactText);
+    const ids = placementCandidatesOf(body); const texts = ids.map((c) => c.exactText);
     expect(texts, "the H1 and both real sentences are offered; furniture, the product, the duplicate and the glued crawl fragment are not").toEqual([ "Baluchistan Black Bear", "This species is a crucial part of Iran wildlife, often dwelling in mountainous areas.", "Recognized by its V-shaped chest marking, it is elusive."]);
     expect(ids.map((c) => c.id), "each spot is addressable by a typed id").toEqual(["p1", "p2", "p3"]);
     expect(placementCandidatesOf({ headings: ["Explore More"], passages: [] }), "a page offering only furniture offers nothing, which is a refusal and not a guess").toEqual([]); });
@@ -642,8 +639,30 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const bare = { ...card, id: `${TENANT}::/funny-farsi-phrases::existing_edit::divergence`, changeFamily: "divergence", causeFinding: undefined, whyItMatters: "This page is shown 8,898 times in 90 days and earns 12 clicks." }, said = new Map<string, string>(); asked.length = 0;
       const bareRows = await applyDraftedCopy([bare as never], { tenantId: TENANT, snapshot: snap as never, now: NOW, refusals: said, complete: async ({ user }: { user: string }) => (asked.push(user), { value: GOOD }), budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(bare as never), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }) } as never);
       /** A BODY ROW WITH NO TYPED GAP IS RESEARCH CARRYING ONE TYPED STEP (operator, 2026-09-02): nothing named, nothing bought, and the step says whether a source is owed for a proposition somebody named or whether nobody named one at all. */ const named = { ...card, id: `${TENANT}::/funny-farsi-phrases::existing_edit::named`, causeFinding: { ...(card.causeFinding as Record<string, unknown>), payload: undefined } } as never; const namedRows = await applyDraftedCopy([named], { tenantId: TENANT, snapshot: snap as never, now: NOW, refusals: new Map<string, string>(), /* its own ledger: both rows are one mutation on one page, so a shared map would only ever hold the last refusal */ complete: async () => ({ value: GOOD }), budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(named), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }) } as never);
-      expect([bareRows[0]!.researchOnly, bareRows[0]!.obligation, namedRows[0]!.obligation?.kind, namedRows[0]!.obligation?.kind === "evidence" ? namedRows[0]!.obligation.need.kind : null], "no gap at all settles as terminal; a named problem with nothing checked behind it owes the source that would close it").toEqual([true, { kind: "terminal", reason: "no substantive gap named" }, "evidence", "factual_source"]);
-      expect([asked.length, [...said.values()].join(" ").includes("a sentence about traffic is not a diagnosis")], "a body row carrying only its own traffic prose buys nothing and says why").toEqual([0, true]); });
+      expect([bareRows[0]!.researchOnly, bareRows[0]!.obligation, namedRows[0]!.obligation], "no gap at all settles as terminal, and a cause sentence written for an operator buys no research either: a factual_source is keyed on a typed proposition or it is not minted").toEqual([true, { kind: "terminal", reason: "no substantive gap named" }, { kind: "terminal", reason: "no substantive gap named" }]);
+      expect([asked.length, [...said.values()].join(" ").includes("a sentence about traffic is not a diagnosis")], "a body row carrying only its own traffic prose buys nothing and says why").toEqual([0, true]);
+      /** THE PAGE'S OWN DEMAND IS A TYPED GAP AND NEVER AN AUTHORIZATION (operator, 2026-09-02): the five live shapes replayed at $0, each filing exactly one typed step, and the writer hired only once a checked source carries the proposition. */
+      const { canonicalUrlKey: ck5 } = await import("@/domains/evidence/snapshot"), { VERIFICATION_RULES_VERSION: RV5 } = await import("@/domains/evidence/pages/fact-checks"), { pageHashOf: hashOf5 } = await import("@/domains/evidence/pages/fact-check-run");
+      const dpg = (path: string, name: string, rows: Array<[string, number]>) => ({ url: `https://iranopedia.com${path}`, content: { wordCount: 400, title: name, h1: name, outline: [] }, search: { clicks90d: 0, impressions90d: 0, ctr90d: 0, position90d: 0, topQueries: rows.map(([query, impressions]) => ({ query, impressions, clicks: 0, position: 4 })) } });
+      const dbody = (path: string, name: string, text: string) => ({ url: `https://iranopedia.com${path}`, title: name, h1: name, metaDescription: null, vocabulary: text, headings: [], passages: [text], completeness: "complete" });
+      const dcard = (path: string, q: string, cause?: unknown) => prop({ id: `${TENANT}::${path}::existing_edit::demand`, pagePath: path, pageUrl: `https://iranopedia.com${path}`, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: q, causeFinding: cause as never, limitations: [], evidence: { query: q, hints: [], evidenceRefCount: 0 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the search." } });
+      const CAT: Array<[string, number]> = [["iran national animal", 3502], ["national animal of iran", 2846], ["what is the national animal of iran", 579]], KIT: Array<[string, number]> = [["iran kit history", 261], ["what is the iran kit history", 88]];
+      const split = (survivor: string | null) => ({ cause: "cannibalization", action: "consolidate", evidenceKeys: ["k1"], competingExplanations: [], notConsidered: [], falsifier: "f", explanation: "two of your own pages come up for that search", payload: { cause: "cannibalization", competingPaths: ["/tehran", "/iran-cities"], comparison: [], survivor } });
+      const READ = "The Asiatic cheetah survives on the central plateau, where a small population is counted each winter.", dcards = [dcard("/asiatic-cheetah", "iran national animal"), dcard("/cheetah-read", "iran national animal"), dcard("/jersey-evolution", "iran kit history"), dcard("/iran-cities", "capital of iran", split("/tehran")), dcard("/tehran", "capital of iran", split(null))];
+      const dsnap = { ownedPages: [dpg("/asiatic-cheetah", "Asiatic Cheetah", CAT), dpg("/cheetah-read", "Asiatic Cheetah", CAT), dpg("/jersey-evolution", "Iran World Cup Jersey", KIT), dpg("/iran-cities", "Cities of Iran", [["capital of iran", 142]]), dpg("/tehran", "Tehran", [["capital of iran", 310]])], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
+      const readBody = dbody("/cheetah-read", "Asiatic Cheetah", READ); bodyStore.map = new Map<string, unknown>([[ck5(readBody.url), readBody], [ck5(`https://iranopedia.com/jersey-evolution`), dbody("/jersey-evolution", "Iran World Cup Jersey", "The Iran kit changed at every World Cup from 1978 onwards, and each shirt is set out below year by year.")]]);
+      const plan = (cs: ChangeProposal[]) => DRAFT_BUDGET.plan({ jobs: cs.map((c) => ({ key: DRAFT_BUDGET.keyOf(c), family: "editor" as const, impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS })), candidates: cs.length, calls: 30 });
+      const dasked: string[] = [], drows = await applyDraftedCopy(dcards as never, { tenantId: TENANT, snapshot: dsnap as never, now: NOW, budget: plan(dcards as never), complete: async ({ user }: { user: string }) => (dasked.push(user), { value: GOOD }) } as never);
+      expect([dasked.length, drows.map((r) => r.obligation?.kind), drows.every((r) => r.researchOnly === true)], "the whole replay buys nothing and every row files exactly one typed step").toEqual([0, ["evidence", "evidence", "terminal", "terminal", "evidence"], true]);
+      expect([drows[0]!.obligation, drows[1]!.obligation, drows[2]!.obligation, drows[3]!.obligation, drows[4]!.obligation], "a page with no stored body reads its own capture first; a complete page with nothing checked buys the source for that exact search; a page whose only absent word is a label for its own subject mints nothing; the split's loser is settled by name and an unsettled split owes the reading that decides it").toEqual([
+        { kind: "evidence", need: { kind: "page_source", query: "iran national animal", url: "https://iranopedia.com/asiatic-cheetah", reasonCode: "acquire_page_source" } },
+        { kind: "evidence", need: { kind: "factual_source", query: "iran national animal", url: readBody.url, missingTopic: "iran national animal", reasonCode: "acquire_factual_source" } },
+        { kind: "terminal", reason: "no substantive gap named" }, { kind: "terminal", reason: `/tehran owns "capital of iran", so a new answer here would divide that search again` },
+        { kind: "evidence", need: { kind: "serp", query: "capital of iran", reasonCode: "settle_the_split" } }]);
+      factStore.rows = [{ page: "/cheetah-read", statementKey: "national-animal", subject: "Iran's national animal", current: "", proposed: "the Asiatic cheetah", literal: null, usage: null, sources: [{ url: "https://ref.example/iran", kind: "encyclopedia", says: "the Asiatic cheetah is the national animal of Iran" }], agreement: "single_source", confidence: "confirmed", verdict: "undecidable", alsoAt: [], note: "", pageContentHash: hashOf5([readBody.title, readBody.h1, READ].join("\n")), pageLocator: null, sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: RV5, evidenceBasis: null, checkedAt: NOW.toISOString() }];
+      const hired: string[] = []; await applyDraftedCopy([dcards[1]!] as never, { tenantId: TENANT, snapshot: dsnap as never, now: NOW, budget: plan([dcards[1]!] as never), complete: async ({ user }: { user: string }) => (hired.push(user), { value: GOOD }) } as never);
+      expect([hired.length > 0, (hired[0] ?? "").includes("SUPPORTING FACTS you may state and must cite: fact-1"), (hired[0] ?? "").includes("iran national animal (6,927 searches in 90 days)"), drows[1]!.limitations.at(-1)!.includes("6,927 searches in 90 days")], "a proposition a checked source already carries hires the writer and the assignment names that fact id, and the three ways one missing answer is asked are counted together wherever the number is printed").toEqual([true, true, true, true]);
+      factStore.rows = []; bodyStore.map = null; });
     it("position loss with no named information problem buys no body copy", async () => {
       const asked: string[] = [], refusals = new Map<string, string>(); const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::demand_recovery`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", diagnosisCause: "ranking_loss", limitations: [], evidence: { query: "funny persian phrases", hints: [], evidenceRefCount: 1 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Strengthen this page's coverage with a section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
@@ -658,12 +677,15 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const judged: string[] = [], rulingsOf = (u: string) => [...u.matchAll(/^- claim (\d+): "(?:[^"]+)" <- (.+)$/gm)].map((m) => ({ i: Number(m[1]), by: m[2]!.split(", "), entailed: true }));
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap6 as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never, budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(card), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async ({ user }: { user: string }) => user.includes("THE COPY:") ? (judged.push(user), { value: { ...OKJ, resolution: "none", claims: rulingsOf(user) } }) : (asked.push(user), { value: asked.length === 1 ? listLed : factLed }) } as never);
-      const first = asked[0] ?? "", retry = asked[1] ?? "";
-      expect([first.includes("MUST LEAD WITH"), first.includes("\u0161oma: the deferential or formal you"), first.includes("target the team already agreed"), first.includes("then the strongest items each on its own line"), retry.includes("DIAGNOSED GAP") && retry.includes("THE PROBLEM YOUR COPY MUST SOLVE"), judged.some((j) => j.includes("JUDGE AGAINST THE ASSIGNMENT"))], "told what to add and what only to look at; never told to refine its last draft; shape from the gap, not from a query that says phrases; the envelope and the goal ride the retry; the reviewer reads the same envelope").toEqual([true, true, false, false, true, true]);
+      const first = asked[0] ?? "", retry = asked[1] ?? ""; expect([first.includes("MUST LEAD WITH"), first.includes("\u0161oma: the deferential or formal you"), first.includes("target the team already agreed"), first.includes("then the strongest items each on its own line"), retry.includes("DIAGNOSED GAP") && retry.includes("THE PROBLEM YOUR COPY MUST SOLVE"), judged.some((j) => j.includes("JUDGE AGAINST THE ASSIGNMENT"))], "told what to add and what only to look at; never told to refine its last draft; shape from the gap, not from a query that says phrases; the envelope and the goal ride the retry; the reviewer reads the same envelope").toEqual([true, true, false, false, true, true]);
       /** ONE ENVELOPE, PROVEN THREE TIMES (operator, 2026-09-02): the writer's prompt, the reviewer's prompt and the promotion door all read the object the row now stores, and the diagnosed gap is the TYPED propositions the payload named rather than the operator sentence about the page. */ const a = out[0]!.assignment!, gapLine = `DIAGNOSED GAP (${a.gapKind}), which is the whole assignment: ${a.diagnosedGap}`, doneLine = `COMPLETION TEST: ${a.completionTest}`; expect([a.gapKind, a.diagnosedGap, a.propositions.length, a.diagnosedGap.includes("The introduction promises")], "two named gaps ARE the assignment, and the display sentence is not").toEqual(["missing_answer", "when to use \u0161oma; when to use to", 2, false]);
       expect([first.includes(gapLine), judged.some((j) => j.includes(gapLine)), first.includes(doneLine), judged.some((j) => j.includes(doneLine)), deserializeChangeProposal(serializeChangeProposal(out[0]!))!.assignment, a.briefing, first.includes("WHAT THE RESULTS PAGE ITSELF ANSWERS TODAY (serp-featured), which no claim may ever cite")], "the writer and the reviewer were handed the exact object the row stores, it survives the store whole, and what the results page itself answers rides it as shape under an id no claim may cite").toEqual([true, true, true, true, a, ["serp-featured"], true]); expect([staleCopyReasons({ ...out[0]!, assignment: { ...a, forbidden: ["jeegareto bokhoram"] } }, new Map(), [], null, true).some((r) => r.includes("nothing on file supports")), staleCopyReasons(out[0]!, new Map(), [], null, true).some((r) => r.includes("nothing on file supports"))], "and the promotion door rules on the stored envelope: a proposition it marks unsupported may not be written, the same words without it may").toEqual([true, false]);
-      expect(first.includes(`OPEN LIKE THIS: open by defining the subject: "${BODY.h1}" are, or include`), "a definitional gap opens on the subject, and a plural category takes the plural copula rather than a forced is").toBe(true); const steps = { ...card, id: `${TENANT}::/funny-farsi-phrases::existing_edit::steps`, causeFinding: { ...(card.causeFinding as Record<string, unknown>), payload: { cause: "competitor_content_gap", gaps: [{ gap: "how to say each phrase, step by step, without giving offence", seenOn: [1], publishers: ["a.example"] }] } } as never }, howAsked: string[] = []; await applyDraftedCopy([steps as never], { tenantId: TENANT, snapshot: snap6 as never, now: NOW, budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(steps as never), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async ({ user }: { user: string }) => (howAsked.push(user), { value: factLed }) } as never);
-      expect([howAsked[0]?.includes("OPEN LIKE THIS: open on the action") ?? false, howAsked[0]?.includes("open by defining the subject") ?? false], "and a procedure is told to open on the action instead, off the same one classifier").toEqual([true, false]);
+      /** ENTITY-FIRST IS THE DEFINITIONAL CASE, NEVER THE DEFAULT (reviewer, 2026-09-02): a usage gap on a page headed "Funny Farsi Phrases" was told to open by defining that heading, which is the container narration the self-pointer gate then refuses, and the entity named was the PAGE's own title rather than the gap's subject. */
+      const openOf = (u: string): string => (/OPEN LIKE THIS: [^;]*/.exec(u)?.[0] ?? "").trim(); // the assignment reaches the writer as one semicolon-joined line, so the envelope's own line is cut back out of it
+      const gapAsked = async (id: string, gap: string): Promise<string> => { const c = { ...card, id: `${TENANT}::/funny-farsi-phrases::existing_edit::${id}`, causeFinding: { ...(card.causeFinding as Record<string, unknown>), payload: { cause: "competitor_content_gap", gaps: [{ gap, seenOn: [1], publishers: ["a.example"] }] } } as never }, seen: string[] = [];
+        await applyDraftedCopy([c as never], { tenantId: TENANT, snapshot: snap6 as never, now: NOW, budget: DRAFT_BUDGET.plan({ jobs: [{ key: DRAFT_BUDGET.keyOf(c as never), family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async ({ user }: { user: string }) => (seen.push(user), { value: factLed }) } as never); return openOf(seen[0] ?? ""); };
+      const [howOpen, defOpen] = [await gapAsked("steps", "how to say each phrase, step by step, without giving offence"), await gapAsked("defn", "what is a tarof")];
+      expect([openOf(first).startsWith("OPEN LIKE THIS: open with the direct answer"), openOf(first).includes(BODY.h1!), howOpen.startsWith("OPEN LIKE THIS: open on the action"), defOpen, defOpen.includes(BODY.h1!)], "a usage gap opens on the answer itself and is never handed the page's own heading to define; a procedure opens on the action; and only a definitional proposition opens entity-first, on the entity the PROPOSITION names").toEqual([true, false, true, `OPEN LIKE THIS: open by defining what is being asked about: "tarof" is, was or refers to, then what the reader came to know`, false]);
       expect([asked.length, !!out[0]?.semanticReview, (out[0]?.recommendedChange as { before?: string | null }).before, (out[0]?.recommendedChange as { after?: string }).after?.startsWith("\u0161oma")], "the list-led draft was refused and the fact-led one continued, replacing nothing").toEqual([2, true, null, true]); factStore.rows = []; bodyStore.map = null; });
 
     /** ACQUISITION REACHES THE WRITER, OR IT ONLY REOPENED THE WORK. A competitor page read for this job's own search changed the job's evidence identity, reopened it, and was then withheld from the packet, so the writer reran on the same information and earned the same refusal. The extract arrives as `rival-*` BRIEFING: what is missing and how the winning answer is shaped, and the one class no claim may ever stand on. */
@@ -676,8 +698,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const run = async (snap: unknown, value: Record<string, unknown>) => { const asked: string[] = [];
         await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, refusals: new Map<string, string>(),
           budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async ({ user }: { user: string }) => (asked.push(user), { value }) } as never); return asked.join(" "); };
-      const seen = await run(withWinner, GOOD);
-      expect(seen).toContain("rival-1"); // the acquisition reached the packet
+      const seen = await run(withWinner, GOOD); expect(seen).toContain("rival-1"); // the acquisition reached the packet
       expect(seen).toContain("Regional dialect variations"); // and as the SUBJECT this page is missing, not as prose to reword
       expect(seen).toContain("rival.example"); // carrying its own address, so the writer knows whose page it is
       expect(seen).toContain("It also covers, which this page treats in its own words: Playful insults between friends");
@@ -691,8 +712,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect([...refusals.values()].join(" ")).toContain("stands on a rival"); });
     /** A THIN PAGE IS A REASON TO ACQUIRE FACTS, NOT TO ABANDON THE CHANGE (Codex, 2026-08-23). A material floor  stood here for one dispatch and refused /funny-farsi-phrases at $0 over "44 words of material", on a page  of 1,222 words with real assistant evidence behind it. A candidate short of facts goes to the writer with  what the pass could read for it; only being WRONG refuses it. */
     it("still drafts for a page whose card carries little material, instead of refusing it unread", async () => {
-      const asked: string[] = [];
-      const card = prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::thin_page`, pagePath: "/iran-animals/persian-wolf",
+      const asked: string[] = []; const card = prop({ id: `${TENANT}::/iran-animals/persian-wolf::existing_edit::thin_page`, pagePath: "/iran-animals/persian-wolf",
         pageUrl: "https://www.iranopedia.com/iran-animals/persian-wolf", changeFamily: "section", status: "needs_review" as const,
         researchOnly: false, primaryQuery: "persian wolf", limitations: [], evidence: { query: "persian wolf", hints: ["/iran-animals/persian-wolf holds 196 words of copy"], evidenceRefCount: 1 }, recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add words that answer its main question." } });
       const snap = { ownedPages: [{ url: card.pageUrl, content: { wordCount: 196, title: "Persian Wolf", h1: "Persian Wolf", outline: ["Range"] }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
@@ -701,16 +721,14 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(asked.length).toBeGreaterThan(0); }); // it was ASKED: the page is thin, which is a reason to find facts
     /** THE CTA REPAIR IS A PRICED RETRY, NEVER A FREE RECURSION (Codex, 2026-08-23): the old branch redrafted the closing line outside the attempt budget, so the declared price of a deliverable was false. */
     it("refuses a call-to-action closing line, retries at full price, and names the refusal to the writer", async () => {
-      const asked: string[] = []; let round = 0;
-      const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
+      const asked: string[] = []; let round = 0; const good2 = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const cta = { ...good2, after: "See the page for more phrases.", claims: [{ text: "See the page for more phrases.", supportedBy: ["page-copy-1"] }] };
       const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, primaryQuery: "funny persian phrases", limitations: [], evidence: { query: "funny persian phrases", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Add a section that answers the question." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: BODY.headings }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT, site: "iranopedia.com" } };
       const budget = DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 });
       const { canonicalUrlKey: ck } = await import("@/domains/evidence/snapshot");
-      bodyStore.map = new Map([[ck(BODY.url), BODY]]);
-      const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
+      bodyStore.map = new Map([[ck(BODY.url), BODY]]); const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never, budget,
         complete: async ({ system, user }: { system: string; user: string }) => (asked.push(`${system} ${user}`), { value: (round += 1) === 1 ? cta : good2 }) } as never);
       expect(asked.length).toBe(2); // the repair is a second PAID draft, not a hidden free one
       expect(budget.spent().calls).toBe(2); // and both drafts came off the page's one declared allowance
@@ -726,8 +744,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const rewritten = { ...GOOD, claims: [{ text: P1, supportedBy: ["page-copy-2"] }, { text: P2, supportedBy: ["page-copy-3"] }, { text: P3, supportedBy: ["page-copy-4"] }] };
       const out = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }), complete: async () => ({ value: rewritten }) } as never);
-      const rc = out[0]!.recommendedChange;
-      expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
+      const rc = out[0]!.recommendedChange; expect(rc.kind === "existing_edit" ? rc.where : "").toBe('Replaces the existing passage under "Playful Persian expressions"');
       expect((rc.kind === "existing_edit" ? rc.before ?? "" : "").includes(P2)).toBe(true); // A REWRITE REPLACES THE SECTION UNDER ITS HEADING, never an arbitrary thousand-character slice of the crawl: cut between this heading and the next, the target is a thing an operator can find
       expect(JSON.stringify(out[0]!.operatorSteps)).toContain("Replace that passage with the copy above, exactly as written");
       expect(JSON.stringify(out[0])).not.toContain("A new section");
@@ -735,8 +752,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       const away = { ...card, primaryQuery: "wholesale freight logistics", evidence: { query: "wholesale freight logistics", hints: [P1], evidenceRefCount: 1 } };
       const add = await applyDraftedCopy([away], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "fine" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 },), complete: async () => ({ value: rewritten }) } as never);
-      const arc = add[0]!.recommendedChange;
-      if (arc.kind === "existing_edit" && (arc.where ?? "").includes("A new section headed")) expect(add[0]!.treatment).toBe("add_answer_section");
+      const arc = add[0]!.recommendedChange; if (arc.kind === "existing_edit" && (arc.where ?? "").includes("A new section headed")) expect(add[0]!.treatment).toBe("add_answer_section");
       expect(add[0]!.treatment === "rewrite_existing_section").toBe(JSON.stringify(arc).includes("Replaces the existing passage"));
       bodyStore.map = null;});
     /** WHAT A READER GETS TWICE IS THE SUBJECT, AND THE PAGE ALREADY SAYS WHAT ITS SUBJECTS ARE. A parser that recognised "Subject: definition" was a rule about PUNCTUATION: the same entry written with an em dash, as a bullet, in bold before "means" or in an ordinary sentence walked past it, and a live replacement scored ZERO of six lines and went READY at rank 1 while all five entries kept their sections underneath. The page's own stored headings are the subjects; the only question is whether the replacement says them again, however it writes them. */
@@ -752,8 +768,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         "Boro Baa Baad (برو با باد)", "Go with the wind, told to somebody who should leave.", "Chert-o-Pert (چرت و پرت)", "Nonsense, used to dismiss foolish talk.",
         "Olagh (الاغ)", "Donkey, said of somebody being slow-witted.", "Divooneh (دیوانه)", "Crazy, used warmly for somebody acting wild."];
       const PAGE = { ...BODY, headings: H, passages: ["Playful Persian expressions", P1, ...SECTIONS] };
-      bodyStore.map = new Map([[ck3(BODY.url), PAGE]]);
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
+      bodyStore.map = new Map([[ck3(BODY.url), PAGE]]); const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url, changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian phrase meanings",
         limitations: [], evidence: { query: "playful persian phrase meanings", hints: [P1], evidenceRefCount: 1 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 900, title: BODY.title, h1: BODY.h1, outline: H }, search: null }], research: {}, sources: [], scope: { tenantId: TENANT } };
@@ -768,14 +783,12 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         ["bold means", "**Pedar Sag** means a colourful insult.\n**Topoli** means an affectionate word.\n**Gooz** means a dismissive word."],
         ["prose", "Speakers reach for Pedar Sag when they want to sting, soften it with Topoli for a child, and wave a thing away with Gooz when it hardly matters at all."]];
       for (const [shape, copy] of shapes) {
-        const r = await run(copy);
-        expect([shape, r.status]).not.toEqual([shape, "ready"]);
+        const r = await run(copy); expect([shape, r.status]).not.toEqual([shape, "ready"]);
         expect([shape, (r.faults ?? []).join(" ")]).toEqual([shape, expect.stringContaining("repeats what stays")]);}
       const sum = await run("Persian slang here runs from affectionate teasing to blunt dismissal, and the entries below give each literal wording beside the tone a speaker actually intends.");
       expect([sum.status, (sum.recommendedChange as { where?: string }).where]).toEqual(["ready", 'Replaces the existing passage under "Playful Persian expressions"']);
       const lossy = await run("Pedar Sag (پدر سگ): a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
-      expect(lossy.status).not.toBe("ready");
-      expect((lossy.operatorSteps ?? []).join(" ")).not.toContain("Delete the sections below for");
+      expect(lossy.status).not.toBe("ready"); expect((lossy.operatorSteps ?? []).join(" ")).not.toContain("Delete the sections below for");
       const whole = await run("Pedar Sag (پدر سگ): literally father dog, a harsh insult close friends trade as a joke.\nTopoli (تپلی): chubby, an affectionate nickname for children and pets.\nGooz (گوز): fart, used casually to call something worthless.");
       expect(whole.status).toBe("ready");
       expect((whole.operatorSteps ?? []).join(" ")).toContain("Delete the sections below for Pedar Sag, Topoli, Gooz");
@@ -799,10 +812,8 @@ describe("one score orders every kind of change, and says why", () => { it("puts
           budget,
           complete: async ({ user }: { user: string }) => (asked.push(user), { value: { ...GOOD, after: SUMMARY, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
         return { asked: asked.length, ready: out.filter((p) => p.status === "ready").length }; };
-      const landed = await run(true);
-      expect([landed.asked, landed.ready]).toEqual([3, 3]); // every landing accepted, and the third candidate was still drafted after two were already in
-      const lost = await run(false);
-      expect([lost.asked, lost.ready]).toEqual([3, 3]); // it really did write finished copy each time; what it never got was a row the store kept
+      const landed = await run(true); expect([landed.asked, landed.ready]).toEqual([3, 3]); // every landing accepted, and the third candidate was still drafted after two were already in
+      const lost = await run(false); expect([lost.asked, lost.ready]).toEqual([3, 3]); // it really did write finished copy each time; what it never got was a row the store kept
       bodyStore.map = null; });
     /** THE SYNTHESIS QUESTION IS ASKED AFTER THE SECTION IS FOUND, AND A REPLACEMENT MAY NOT RESTATE WHAT STAYS BELOW IT. The structural_synthesis assignment sat ABOVE the block that computes `rewrite`, reading a variable still initialised to null, so the condition was false on every card ever drafted and the instruction reached the evaluator exactly ZERO times: a correctly targeted rewrite was then judged by the standard written for a brand-new section. And once it does arrive, "the page already holds this" stops being a refusal, so the copy has to be held to something else: only the named passage goes, and repeating the detail still printed underneath hands the reader the same thing twice. Live, /funny-farsi-phrases replaced a content-free intro with six definitions that all remain in their own sections directly below. */
     it("tells the evaluator this is a synthesis, and refuses copy that repeats what stays below", async () => {
@@ -820,8 +831,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         complete: async () => ({ value: { ...GOOD, after: copy, claims: [{ text: P1, supportedBy: ["page-copy-2"] }] } }) } as never);
       const ok = await run("Persian slang runs from affectionate teasing to blunt dismissal, and each entry below gives the literal wording beside the tone it carries.");
       expect((ok[0]!.recommendedChange as { where?: string }).where).toBe('Replaces the existing passage under "Playful Persian expressions"');
-      const dup = await run(`${P2}\n${P3}\n${Q3}`);
-      expect((dup[0]!.recommendedChange as { where?: string }).where).toContain("absorbs the duplicated entries below it");
+      const dup = await run(`${P2}\n${P3}\n${Q3}`); expect((dup[0]!.recommendedChange as { where?: string }).where).toContain("absorbs the duplicated entries below it");
       expect((dup[0]!.operatorSteps ?? []).join(" ")).toContain("so the page says it once");
       expect([dup[0]!.status, (dup[0]!.faults ?? []).join(" ")]).toEqual(["needs_review", expect.stringContaining("repeats what stays")]);
       bodyStore.map = null;});
@@ -837,23 +847,19 @@ describe("one score orders every kind of change, and says why", () => { it("puts
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite it." } });
       const snap = { ownedPages: [{ url: BODY.url, content: { wordCount: 400, title: BODY.title, h1: BODY.h1, outline: ["Playful Persian expressions"] },
         search: { topQueries: [{ query: "what do persian insults mean", clicks: 0, impressions: 900, position: 14 }] } }], research: {}, sources: [], scope: { tenantId: TENANT } };
-      const seen: string[] = [];
-      await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "n" }) as never,
+      const seen: string[] = []; await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snap as never, now: NOW, judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ ...OKJ, claims: rulesOn(d) })) as never, reviewer: async () => ({ notes: "n" }) as never,
         budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/funny-farsi-phrases", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
         complete: async (r: { user: string }) => { seen.push(r.user); return { value: { ...GOOD, after: `${P2}\n${P3}\n${Q3}` } }; } } as never);
       expect(seen.length).toBeGreaterThan(1); // round one is refused for restating what stays below; the round after it is told BOTH the assignment and the search this page owes
-      const retry = seen[seen.length - 1]!;
-      expect(retry).toContain("You are REWRITING the existing section");
-      expect(retry).toContain("what do persian insults mean");
-      expect(retry).not.toContain("REMOVE these exact words"); // the inverted clause is gone, not repaired
+      const retry = seen[seen.length - 1]!; expect(retry).toContain("You are REWRITING the existing section");
+      expect(retry).toContain("what do persian insults mean"); expect(retry).not.toContain("REMOVE these exact words"); // the inverted clause is gone, not repaired
     });
     /** A CRAWLER BLOB IS NOT A SECTION (Codex, 2026-08-23, from the first live Ready change). The first change this campaign produced told the operator to paste five lines over a thousand-character passage opening "top of pagePopular Persian(Farsi) Insults..." that ran from the page intro through a "Shop Now" block into two entries. Nobody can find that string, and following it would delete real content. Such a passage is refused as a target, and the refusal names the work that IS available. */
     it("refuses to aim a rewrite at a crawler blob, and says the work is a new section instead", async () => {
       const { canonicalUrlKey } = await import("@/domains/evidence/snapshot");
       const CHROMED = `top of page${P1} Shop Now ${P2}`; // exactly the shape production picked
       bodyStore.map = new Map([[canonicalUrlKey(BODY.url), { ...BODY, passages: [CHROMED] }]]);
-      const notes: string[] = [];
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+      const notes: string[] = []; const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
@@ -866,8 +872,7 @@ describe("one score orders every kind of change, and says why", () => { it("puts
       expect(JSON.stringify(out[0]!.recommendedChange)).not.toContain("Shop Now"); // and the operator is never told to delete it
       bodyStore.map = null;});
     it("a rewrite that cannot identify its section refuses in those words, and never invents a placement", async () => {
-      const notes: string[] = [];
-      const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
+      const notes: string[] = []; const card = prop({ id: `${TENANT}::/funny-farsi-phrases::existing_edit::ai_answer_gap`, pagePath: "/funny-farsi-phrases", pageUrl: BODY.url,
         changeFamily: "section", status: "needs_review" as const, researchOnly: false, treatment: "rewrite_existing_section", primaryQuery: "playful persian expressions",
         limitations: [], evidence: { query: "playful persian expressions", hints: [P1, P2, P3], evidenceRefCount: 3 },
         recommendedChange: { kind: "existing_edit" as const, field: "section" as const, before: null, after: "Rewrite the playful expressions section." } });
@@ -922,8 +927,7 @@ describe("substantive copy earns the one canonical authorization, or stays inter
   it("rules a claim against the exact passage it names, refuses an unrelated one and a rival's, and hands the supported addition the canonical yes", async () => {
     expect(await write(["fact-2"]), "an unrelated Tehran passage carries nothing about knot density").toBeNull();
     expect(await write(["rival-1"]), "a competing page explains why the work is useful and never that the sentence is true").toBeNull();
-    const ok = (await write(["fact-1"]))!;
-    expect([ok.claims[0]!.supportedBy, ok.review, ok.gain?.pageWhole, ok.gain?.by, ok.preservation], "an addition proves gain and support, and fabricates no preservation entry").toEqual([["fact-1"], [{ i: 0, by: ["fact-1"], entailed: true }], true, ["fact-1"], undefined]);
+    const ok = (await write(["fact-1"]))!; expect([ok.claims[0]!.supportedBy, ok.review, ok.gain?.pageWhole, ok.gain?.by, ok.preservation], "an addition proves gain and support, and fabricates no preservation entry").toEqual([["fact-1"], [{ i: 0, by: ["fact-1"], entailed: true }], true, ["fact-1"], undefined]);
     expect(openHold(rowOf(ok)).blocking, "supported, placed, whole-page: the same Ready verdict every other change earns").toBeNull();
     const briefed = rowOf(ok); expect(openHold({ ...briefed, claims: briefed.claims!.map((x) => ({ ...x, supportedBy: ["rival-1"] })) }).blocking).toContain("a page that competes with this one"); });
   it("holds a piece whose ruling was written for other copy, another piece, another target or other facts, and one that never read the whole page", async () => {
@@ -937,8 +941,7 @@ describe("substantive copy earns the one canonical authorization, or stays inter
     const part = (await write(["fact-1"], { ...RUG, completeness: "partial" }))!;
     expect([part.gain?.pageWhole, openHold(rowOf(part)).blocking], "a truncated read never authorizes a whole-page absence").toEqual([false, expect.stringContaining("only part of this page")]); });
   it("binds a whole-page gain to the body it read and a replacement to the passage it replaced", async () => {
-    const add = rowOf((await write(["fact-1"]))!);
-    expect(staleCopyReasons(add, await bodies(["Kerman weaving", OPENS, CTA]), []), "the page it was judged against is the page on file").toEqual([]);
+    const add = rowOf((await write(["fact-1"]))!); expect(staleCopyReasons(add, await bodies(["Kerman weaving", OPENS, CTA]), []), "the page it was judged against is the page on file").toEqual([]);
     expect(staleCopyReasons(add, await bodies(["Kerman weaving", "Kerman rugs are made in the town of Kerman and exported everywhere.", CTA]), []).join(" "), "the same length, a different meaning").toContain("moved since this was read against the whole page");
     const rep = (await write(["fact-1"], RUG, { before: CTA }))!, target = rowOf({ ...rep, gain: { ...rep.gain!, pageWhole: false } }, { recommendedChange: { kind: "existing_edit", field: "section", before: CTA, after: rep.after, where: 'Replaces the existing passage under "Kerman weaving"' } });
     expect([!!rep.gain?.targetHash, staleCopyReasons(target, await bodies(["Kerman weaving", "Kerman rugs are made in the town of Kerman and exported everywhere.", CTA]), [])], "an unrelated sibling edit leaves a target-only replacement standing").toEqual([true, []]);
@@ -1432,18 +1435,15 @@ describe("typed refusal contract", () => { // ── the typed refusal contract:
       literal: null, usage: null, sources: [{ url: "https://en.wiktionary.org/x", kind: "dictionary", says: "dar-YAH" }],
       agreement: "single_source", confidence: "confirmed", verdict: "undecidable", alsoAt: [], note: "",
       pageContentHash: bodyHash, pageLocator: "missing", sourceReadAt: NOW.toISOString(), state: "checked", rulesVersion: RULES, evidenceBasis: null, checkedAt: NOW.toISOString() };
-    factStore.rows = [FACT];
-    const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name confidently from the first try.";
-    const seen: string[] = [];
-    const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
+    factStore.rows = [FACT]; const NEW_COPY = "Most classic Persian girls' names are pronounced with even stress, so Darya is dar-YAH and Afsaneh is af-sah-NEH, which helps parents say each name confidently from the first try.";
+    const seen: string[] = []; const out2 = await applyDraftedCopy([card], { tenantId: TENANT, snapshot: snapshot as never, now: NOW, reviewer: async () => ({ notes: "fine" }) as never,
       judge: (async (d: { claims: readonly { supportedBy: readonly string[] }[] }) => ({ claims: d.claims.map((c, i) => ({ i, by: [...c.supportedBy], entailed: true })), pageFit: true, resolvesDiagnosis: true, usefulAndNatural: true, placementCorrect: true, implementableNow: true, improvesPage: true, wouldHandToCustomer: true, notes: "names the spring-equinox date the page never states" })) as never,
       budget: DRAFT_BUDGET.plan({ jobs: [{ key: "/persian-female-first-names", family: "editor", impact: 9, calls: DRAFT_BUDGET.DELIVERABLE_CALLS }], candidates: 1, calls: 30 }),
       complete: async ({ user }: { user: string }) => (seen.push(user), { value: { field: "answer_block", before: null, rationale: "grounded", ...TAIL, placementAnchor: "Persian Female Names",
         after: NEW_COPY, naturalHeading: "How to pronounce them", claims: [{ text: NEW_COPY, supportedBy: ["fact-1"] }] } }) } as never);
     expect(seen.join(" ")).toContain("fact-1: Pronunciation guide for parents: Most classic Persian girls' names are pronounced"); // the researched fact reached the writer as citable evidence
     expect(seen.join(" ")).toContain("rival-1"); // the rival stayed briefing beside it
-    expect(out2[0]!.status).toBe("ready");
-    const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
+    expect(out2[0]!.status).toBe("ready"); const done = out2[0]!; // THE READING REACHES THE FINISHED ROW, bound to the completed proposal and carrying the editor's own mapping, so the one canonical gate has something to trust instead of holding substantive work it just approved.
     expect(done.semanticReview!.of, "bound to the finished proposal, not a draft").toBe(copyKey(done));
     expect(done.semanticReview!.version).toBe(REVIEW_CONTRACT);
     expect(done.semanticReview!.claims).toEqual(done.claims!.map((c, i) => ({ i, by: [...c.supportedBy].sort(), entailed: true })));
