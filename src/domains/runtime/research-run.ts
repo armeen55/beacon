@@ -324,7 +324,7 @@ function carriedDayState(priors: readonly ResearchRunProgress[], day: string): R
     if (out.observationRetries == null && p.observationRetries?.day === day) out.observationRetries = p.observationRetries;
     if (out.synthesisAttempted !== true && p.synthesisAttempted === true) out.synthesisAttempted = true;
     // THE DAY'S TOP-UP MEMORY TRAVELS WITH THE DAY, not with the run. Without this every extra same-day pass started from an empty attempted list, re-funded the same two failing pages and could never reach the third (Codex, 2026-08-22).
-    if (out.replenish == null && p.replenish?.day === day) out.replenish = p.replenish; if (out.evidenceOwed == null && (p.evidenceOwed?.length ?? 0) > 0) out.evidenceOwed = p.evidenceOwed; // THE OWED READINGS AND THEIR BOUGHT-TODAY STAMPS TRAVEL WITH THE DAY TOO (live 2026-09-02): a new same-day pass opened with an empty list and bought the eight readings the previous pass had already bought
+    if (out.replenish == null && p.replenish?.day === day) out.replenish = p.replenish; if (out.evidenceOwed == null && p.evidenceOwed != null) out.evidenceOwed = p.evidenceOwed; /* the NEWEST prior's list wins even when it is empty: skipping an emptied list carried an older one and re-bought readings a later pass had resolved (reviewer, 2026-09-02) */ // THE OWED READINGS AND THEIR BOUGHT-TODAY STAMPS TRAVEL WITH THE DAY TOO (live 2026-09-02): a new same-day pass opened with an empty list and bought the eight readings the previous pass had already bought
   }
   return out;
 }
