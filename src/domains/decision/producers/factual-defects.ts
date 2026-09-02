@@ -62,8 +62,8 @@ function treatmentOf(verdict: string, before: string, after: string): Treatment 
 
 function composedReplacement(before: string, proposed: string): string {
   const lv = labelOf(before);
-  const prefix = lv ? `${lv.label}:${lv.latin ? " " : lv.gap}` : "";
-  const parts = proposed.trim().split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
+  const prefix = lv ? `${lv.label}:${lv.latin ? " " : lv.gap}` : "", bare = lv ? proposed.trim().replace(new RegExp(`^${lv.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*`, "i"), "") : proposed; // THE LABEL IS ADDED ONCE (live 2026-09-02): a judge that handed back "Meaning: distinguished, ..." under a "Meaning:" entry shipped "Meaning: Meaning: distinguished" to Ready
+  const parts = bare.trim().split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
   // THE JUDGE'S OWN STRUCTURE SURVIVES (operator, 2026-08-30): "free, free-minded; also noble" was or-joined into "free, free-minded or also noble", which no dictionary would print. A part that already opens with a connective keeps its semicolon; only plain alternatives are or-joined.
   const connective = parts.some((x, i) => i > 0 && /^(also|and|or|but)\b/i.test(x));
   const listed = parts.length <= 1 ? (parts[0] ?? "")
