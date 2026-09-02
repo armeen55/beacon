@@ -21,6 +21,11 @@ describe("the typed next step a stored change owes", () => {
     expect(nextObligation(row({ obligation: { kind: "terminal", reason: "settled once" }, faults: ["f"] }))).toEqual({ kind: "terminal", reason: "settled once" });
     const retired = row({ status: "needs_review", faults: ["f"], previousCopy: { after: "A finished title for this page", retiredBecause: "r", at: "2026-09-01T00:00:00.000Z", attempts: 1 } }); // attempt 1 of 2, so only the identical words settle it
     const back = preferFinished(retired, null); expect([back.obligation?.kind, nextObligation(back)?.kind], "the same words back again are the answer, not a second attempt").toEqual(["terminal", "terminal"]); });
+  /** A REFUSED REVIEW IS NOT BOUGHT AGAIN THE SAME DAY (falsifier, 2026-09-02): /farsi-numbers was reviewed at 02:56Z and again at 03:08Z, with the reviewer's own objection sitting on the row as a typed fault both times. A reading is for copy with no KNOWN defect. */
+  it("owes the corrective draft before another reading, once a reviewer has already refused these exact words", () => {
+    const reviewed = row({ status: "needs_review", changeFamily: "factual_correction", claims: [{ text: "c", supportedBy: ["fact-1"] }], supportFacts: [{ id: "fact-1", fact: "f" }] });
+    expect(nextObligation(reviewed), "with nothing known against it, the reading is what is owed").toEqual({ kind: "review" });
+    expect(nextObligation({ ...reviewed, faults: ["a claim here was not shown to follow from the exact sources it names"] }), "and once that reading has refused it, the redraft is").toEqual({ kind: "redraft", attempt: 1, instruction: "a claim here was not shown to follow from the exact sources it names" }); });
   it("owes the one cheap reading a shape hold asks for, rather than sitting behind that sentence for ever", () =>
     expect(nextObligation(row({ modeledOn: undefined, primaryQuery: "nowruz traditions" }))).toEqual({ kind: "evidence", need: { kind: "serp", query: "nowruz traditions", reasonCode: "shape_unbacked" } }));
   it("owes a redraft carrying whatever still blocks final copy, and settles a lever its own diagnosed cause cannot use", () => {

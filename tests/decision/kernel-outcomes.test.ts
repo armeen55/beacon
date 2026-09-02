@@ -424,8 +424,7 @@ describe("a subject I own no page for becomes ONE researched page, and nothing e
     if (!held) return; // an unread winner can also close the verdict, which is its own honest answer
     expect([held.status, held.bundle!.components.find((c) => c.kind === "source_pack")!.after.includes("You pick the exact source for this one")]).toEqual(["needs_review", true]);
     expect(held.limitations).toContain("I hold no source of my own behind the claims on this page, so you pick every one of them before it goes out."); });
-  it.each([["the winners share too little to be a pattern", [["a", [2, 3]], ["b", [2, 3]]], "do_nothing"], ["a page I already have carries the cluster", [["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]], "improve_existing"],
-  ] as Array<[string, Array<[string, number[]]>, string]>)("answers %s without building anything", async (_what, rows, verdict) => {
+  it.each([["the winners share too little to be a pattern", [["a", [2, 3]], ["b", [2, 3]]], "do_nothing"], ["a page I already have carries the cluster", [["a", [2, 3, 1]], ["b", [2, 3, 1]], ["c", [3, 4]]], "improve_existing"], ] as Array<[string, Array<[string, number[]]>, string]>)("answers %s without building anything", async (_what, rows, verdict) => {
     const research = READY({ topicKey: keyOf(READY()), comparison: comparisonOf(rows) }); reset(snap([GAP], research, DEMAND)); const seam = briefSeam();
     const res = await produceProposalsForTenant("fixture-tenant", { complete: seam.complete, now: NOW });
     expect(res.coverage!.decision.verdict).toBe(verdict); expect(seam.kinds).not.toContain("new_page_brief"); expect(res.proposals.every((p) => p.kind !== "new_page")).toBe(true); });
@@ -498,8 +497,7 @@ const doorWorld = (over: Partial<FunnelResearchEvidence> = {}, pages: OwnedPageE
   return { ...world, research: { ...research, pageComparisons: (research.pageComparisons ?? []).map((c) => ({ ...c, topicKey: key })) } };};
 /** The REAL producer, through the REAL pass: nothing about the deep change is stubbed here. */
 const doorRun = (world: EvidenceSnapshot, read: (u: string) => unknown = PATTERN) => { reset(world); env.realBundle = true;
-  return produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true,
-    complete: async (r) => (r.kind === "winning_pattern" ? { value: read(r.user) as never } : pageSeam(BRIEF)(r)) }); };
+  return produceProposalsForTenant("fixture-tenant", { now: NOW, bypassCache: true, complete: async (r) => (r.kind === "winning_pattern" ? { value: read(r.user) as never } : pageSeam(BRIEF)(r)) }); };
 describe("a page earns the deep read through the door its own evidence opens", () => {
   it("acts on a page with ZERO recoverable clicks because my comparison named it, off the comparison's own search", async () => { const res = await doorRun(doorWorld());
     expect(res.candidates.every((c) => c.action !== "act_existing_page")).toBe(true); // no click gap anywhere: the old pass stopped here
@@ -543,15 +541,13 @@ describe("do I already have the right page for what I investigated", () => { it(
   it("surfaces BOTH of my pages when both already cover the topic", () => { expect(cands(BOTH()).map((c) => [c.url, c.strongSignals])).toEqual([[GAP_URL, 2], [FOOD, 2]]); });
 }); // ── WHY this page loses the click: one named cause, or none ─────────────────
 /** The reading the drafting pass hands the verdict: what the winners share, and what MY page does not do. */
-const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [],
-  questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
+const PATTERN_HELD = { archetype: "informational_guide" as const, commonHeadings: [{ heading: "what each piece means", seenOn: [0, 1, 2] }], commonEntities: [], questionsAnswered: [], openingPattern: "Each of them answers the question in its first sentence.", disagreements: [], uniqueNotCommon: [],
   ownedGaps: [{ gap: "your page never walks through the pieces one by one", seenOn: [0, 1, 2] }], winners: 3, publishers: ["r1.example", "r2.example", "r3.example"], fingerprint: "fixture" };
 /** The five causes nothing in this generation can test, which must therefore never be guessed at. */
 /** Causes NOT CONSIDERED when this caller holds none of their evidence. demand_decline and ranking_loss are a RULE now (the two four week windows), so they are named here for the same honest reason as the rest: nobody handed this pass the windows. retrieved_not_cited went live when the projection began carrying the retrieval list. */
 const NEVER_HELD = ["demand_decline", "ranking_loss", "technical_indexability", "measuring_change"];
 /** An engine answering this page's own search and naming everybody except this page. */
-const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt",
-  observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
+const CITED_ELSEWHERE = (): FunnelResearchEvidence => ({ ...emptyResearchEvidence(), aiObservations: [canon({ promptId: "p1", promptText: "nowruz traditions explained", engine: "chatgpt", observationMode: "consumer_search" as const, modelRequested: null, modelServed: null, webSearchReported: true, citationsObserved: true,
   citations: [{ url: "https://rival.example/a", domain: "rival.example", title: null }], fanOutQueries: ["nowruz traditions"], observedAt: LOOKED_AT })] });
 const ACTORS_SEEN = () => snap([ACTORS], actorsSerp("Persian Screen | Iranopedia"));
 describe("why this page loses the click, one named cause at a time", () => { it("blames the wording only where the results page accuses it, and says what it beat and what would kill it", () => {
@@ -598,8 +594,7 @@ describe("why this page loses the click, one named cause at a time", () => { it(
   it("answers a page that is losing nothing with no problem, and still says what it ruled out", () => {
     const c = compileCandidates(snap([WINNER]))[0]!; expect([c.action, c.cause.cause]).toEqual(["watch", "no_problem"]);
     expect(c.cause.competingExplanations.map((x) => x.cause)).toEqual(["ctr_snippet"]); expect(c.cause.falsifier).toContain("click rate"); });
-  it("accuses THIS page of being read and passed over, never the page next door on the same site", () => { const retrieved = (url: string): FunnelResearchEvidence => ({ ...CITED_ELSEWHERE(),
-      aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o, retrievedResults: [{ url, domain: "fixture-outdoors.example", title: null }] })) });
+  it("accuses THIS page of being read and passed over, never the page next door on the same site", () => { const retrieved = (url: string): FunnelResearchEvidence => ({ ...CITED_ELSEWHERE(), aiObservations: CITED_ELSEWHERE().aiObservations.map((o) => ({ ...o, retrievedResults: [{ url, domain: "fixture-outdoors.example", title: null }] })) });
     expect(compileCandidates(snap([GAP], retrieved("https://fixture-outdoors.example/nowruz-food")))[0]!.cause.cause).toBe("ai_citation_gap"); // a hit on another page of mine proves nothing about this one
     const mine = compileCandidates(snap([GAP], retrieved(`https://www.${GAP_URL}/`)))[0]!; // and a www or trailing-slash spelling of THIS page still is this page
     expect([mine.cause.cause, mine.reason.includes("cited 1 other site instead")]).toEqual(["retrieved_not_cited", true]); });

@@ -339,7 +339,8 @@ export const defaultSteps: ResearchCycleSteps = {
         if (!read.row) return { acquired: false, detail: `reading the sources behind ${row.id}: ${read.detail}` }; // a provider that could not answer leaves the row exactly as it stands
         const saved = await saveChangeProposal(read.row).catch(() => "failed" as const);
         log.info("[research-run] the exact reading a refused candidate named", { tenantId, kind: need.kind, id: row.id, saved, detail: read.detail });
-        return { acquired: !!read.row.semanticReview && (saved === "saved" || saved === "unchanged"), detail: `review of ${row.id}: ${read.detail} (${saved})` };
+        // A REFUSED READING IS STILL THE READING (falsifier, 2026-09-02): the requirement was "read these words against the sources they name", and a refusal answers it. Discharged either way once the verdict is durable, so the same review is never bought twice in a day; the faults it wrote move the row's obligation to `redraft`, and a reading is owed again only when the copy has changed. Only a provider that could not answer leaves it owed.
+        return { acquired: saved === "saved" || saved === "unchanged", detail: `review of ${row.id}: ${read.detail} (${saved})` };
       }
       default: { const impossible: never = need.kind; return { acquired: false, detail: `no acquisition handler exists for ${String(impossible)}` }; }
     }
